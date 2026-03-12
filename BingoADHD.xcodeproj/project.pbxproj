@@ -1,0 +1,576 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		007D47AD92E038CFF32C8BE2 /* BingodaysWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB77DB4D87E0770BB2F4B921 /* BingodaysWidget.swift */; };
+		0D97FFB2D91D5330540F77C0 /* BingoBoardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */; };
+		35971755A4E77F2BA6B9A4AE /* NeumorphicStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000010 /* NeumorphicStyles.swift */; };
+		3E8E2A4545074D50FD4FA89E /* BingodaysWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 7A6AD22025CB29BE7FEB97A9 /* BingodaysWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		8E907B19D8A77ED5CA3F12E0 /* ColorHex.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEBABD257330F177F05EF511 /* ColorHex.swift */; };
+		F1A000000000000000000001 /* libpag.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000013 /* libpag.xcframework */; };
+		F1A000000000000000000002 /* libpag.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000013 /* libpag.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		F1A000000000000000000003 /* cat_bmp.pag in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000012 /* cat_bmp.pag */; };
+		F1A000000000000000000004 /* PAGCompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000011 /* PAGCompletionView.swift */; };
+		F1A000000000000000000026 /* bingo.aiff in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000025 /* bingo.aiff */; };
+		F1A000000000000000000028 /* get1point.aiff in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000027 /* get1point.aiff */; };
+		AA30000000000000000001 /* BingoADHDApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000001 /* BingoADHDApp.swift */; };
+		AA30000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000002 /* ContentView.swift */; };
+		AA30000000000000000003 /* BingoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000003 /* BingoModels.swift */; };
+		AA30000000000000000004 /* BingoViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000004 /* BingoViewModel.swift */; };
+		AA30000000000000000005 /* BingoBoardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000005 /* BingoBoardView.swift */; };
+		AA30000000000000000006 /* BingoCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000006 /* BingoCellView.swift */; };
+		AA30000000000000000007 /* EditTaskSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000007 /* EditTaskSheet.swift */; };
+		AA30000000000000000008 /* BingoLineOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000008 /* BingoLineOverlay.swift */; };
+		AA30000000000000000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000009 /* Assets.xcassets */; };
+		AA30000000000000000010 /* NeumorphicStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000010 /* NeumorphicStyles.swift */; };
+		C3DA38C1D37F02D4B7DDAB7A /* BingoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000003 /* BingoModels.swift */; };
+		C7C0E097420C7B27954960F4 /* BingoBoardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */; };
+		D6129FE6ECD4D6C2E0B7B3E6 /* ColorHex.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEBABD257330F177F05EF511 /* ColorHex.swift */; };
+		E429411D3FC401AAAC0853FA /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E86BC385C075D17C9B0197CC /* Foundation.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		AFE5686DFD41ACFFCD85216F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA10000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5DAD236D36C29E50D5181212;
+			remoteInfo = BingodaysWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		6C56EA99BD549FA2614AA524 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				3E8E2A4545074D50FD4FA89E /* BingodaysWidgetExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F1A000000000000000000021 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				F1A000000000000000000002 /* libpag.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		42E7AD5FF00A0B3CB1427832 /* BingoADHD.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BingoADHD.entitlements; sourceTree = "<group>"; };
+		5BD5B8B93106F3408E370AA2 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BingoBoardStore.swift; sourceTree = "<group>"; };
+		7A6AD22025CB29BE7FEB97A9 /* BingodaysWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; name = BingodaysWidgetExtension.appex; path = BingodaysWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F1A000000000000000000011 /* PAGCompletionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PAGCompletionView.swift; sourceTree = "<group>"; };
+		F1A000000000000000000012 /* cat_bmp.pag */ = {isa = PBXFileReference; lastKnownFileType = file; path = cat_bmp.pag; sourceTree = "<group>"; };
+		F1A000000000000000000013 /* libpag.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Vendor/libpag.xcframework; sourceTree = "<group>"; };
+		F1A000000000000000000025 /* bingo.aiff */ = {isa = PBXFileReference; lastKnownFileType = audio.aiff; path = bingo.aiff; sourceTree = "<group>"; };
+		F1A000000000000000000027 /* get1point.aiff */ = {isa = PBXFileReference; lastKnownFileType = audio.aiff; path = get1point.aiff; sourceTree = "<group>"; };
+		AA20000000000000000001 /* BingoADHDApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHDApp.swift; sourceTree = "<group>"; };
+		AA20000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AA20000000000000000003 /* BingoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoModels.swift; sourceTree = "<group>"; };
+		AA20000000000000000004 /* BingoViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoViewModel.swift; sourceTree = "<group>"; };
+		AA20000000000000000005 /* BingoBoardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoBoardView.swift; sourceTree = "<group>"; };
+		AA20000000000000000006 /* BingoCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoCellView.swift; sourceTree = "<group>"; };
+		AA20000000000000000007 /* EditTaskSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditTaskSheet.swift; sourceTree = "<group>"; };
+		AA20000000000000000008 /* BingoLineOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoLineOverlay.swift; sourceTree = "<group>"; };
+		AA20000000000000000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA2000000000000000000A /* BingoADHD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BingoADHD.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA20000000000000000010 /* NeumorphicStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeumorphicStyles.swift; sourceTree = "<group>"; };
+		CEBABD257330F177F05EF511 /* ColorHex.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ColorHex.swift; sourceTree = "<group>"; };
+		DB77DB4D87E0770BB2F4B921 /* BingodaysWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BingodaysWidget.swift; sourceTree = "<group>"; };
+		DE212D5093D3B8D5B841BB8E /* BingodaysWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BingodaysWidget.entitlements; sourceTree = "<group>"; };
+		E86BC385C075D17C9B0197CC /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		6A570278ABDBC032FB08C307 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E429411D3FC401AAAC0853FA /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA40000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F1A000000000000000000001 /* libpag.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		16168FDF0022FE2A4D6F465F /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				96D0124AEEE2C00E1F03D8F8 /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		96D0124AEEE2C00E1F03D8F8 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				E86BC385C075D17C9B0197CC /* Foundation.framework */,
+				F1A000000000000000000013 /* libpag.xcframework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+		AA10000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				AA10000000000000000004 /* BingoADHD */,
+				AA10000000000000000003 /* Products */,
+				CDE4069E1A3603F195E72F49 /* BingodaysWidget */,
+				16168FDF0022FE2A4D6F465F /* Frameworks */,
+			);
+			sourceTree = "<group>";
+		};
+		AA10000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AA2000000000000000000A /* BingoADHD.app */,
+				7A6AD22025CB29BE7FEB97A9 /* BingodaysWidgetExtension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		AA10000000000000000004 /* BingoADHD */ = {
+			isa = PBXGroup;
+			children = (
+				AA20000000000000000001 /* BingoADHDApp.swift */,
+				AA20000000000000000002 /* ContentView.swift */,
+				F1A000000000000000000012 /* cat_bmp.pag */,
+				F1A000000000000000000025 /* bingo.aiff */,
+				F1A000000000000000000027 /* get1point.aiff */,
+				AA10000000000000000005 /* Models */,
+				AA10000000000000000006 /* ViewModels */,
+				AA10000000000000000007 /* Views */,
+				AA20000000000000000009 /* Assets.xcassets */,
+				42E7AD5FF00A0B3CB1427832 /* BingoADHD.entitlements */,
+			);
+			path = BingoADHD;
+			sourceTree = "<group>";
+		};
+		AA10000000000000000005 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				AA20000000000000000003 /* BingoModels.swift */,
+				6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		AA10000000000000000006 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				AA20000000000000000004 /* BingoViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		AA10000000000000000007 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AA20000000000000000005 /* BingoBoardView.swift */,
+				AA20000000000000000006 /* BingoCellView.swift */,
+				AA20000000000000000007 /* EditTaskSheet.swift */,
+				AA20000000000000000008 /* BingoLineOverlay.swift */,
+				AA20000000000000000010 /* NeumorphicStyles.swift */,
+				CEBABD257330F177F05EF511 /* ColorHex.swift */,
+				F1A000000000000000000011 /* PAGCompletionView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		CDE4069E1A3603F195E72F49 /* BingodaysWidget */ = {
+			isa = PBXGroup;
+			children = (
+				DB77DB4D87E0770BB2F4B921 /* BingodaysWidget.swift */,
+				5BD5B8B93106F3408E370AA2 /* Info.plist */,
+				DE212D5093D3B8D5B841BB8E /* BingodaysWidget.entitlements */,
+			);
+			name = BingodaysWidget;
+			path = BingodaysWidget;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5DAD236D36C29E50D5181212 /* BingodaysWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4592D31743C11388EDE247DB /* Build configuration list for PBXNativeTarget "BingodaysWidgetExtension" */;
+			buildPhases = (
+				6B05E1ADD98405F9FF8927E5 /* Sources */,
+				6A570278ABDBC032FB08C307 /* Frameworks */,
+				3F6F7A7F6F00033E7084E0AD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BingodaysWidgetExtension;
+			productName = BingodaysWidgetExtension;
+			productReference = 7A6AD22025CB29BE7FEB97A9 /* BingodaysWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		AA50000000000000000001 /* BingoADHD */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA60000000000000000002 /* Build configuration list for PBXNativeTarget "BingoADHD" */;
+			buildPhases = (
+				AA40000000000000000001 /* Sources */,
+				AA40000000000000000002 /* Frameworks */,
+				AA40000000000000000003 /* Resources */,
+				F1A000000000000000000021 /* Embed Frameworks */,
+				6C56EA99BD549FA2614AA524 /* Embed App Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1BCDCB9BC09CE57496504CE6 /* PBXTargetDependency */,
+			);
+			name = BingoADHD;
+			productName = BingoADHD;
+			productReference = AA2000000000000000000A /* BingoADHD.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AA10000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					5DAD236D36C29E50D5181212 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					AA50000000000000000001 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = AA60000000000000000001 /* Build configuration list for PBXProject "BingoADHD" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = "zh-Hans";
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				"zh-Hans",
+				Base,
+			);
+			mainGroup = AA10000000000000000002;
+			productRefGroup = AA10000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AA50000000000000000001 /* BingoADHD */,
+				5DAD236D36C29E50D5181212 /* BingodaysWidgetExtension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		3F6F7A7F6F00033E7084E0AD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA40000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F1A000000000000000000003 /* cat_bmp.pag in Resources */,
+				F1A000000000000000000026 /* bingo.aiff in Resources */,
+				F1A000000000000000000028 /* get1point.aiff in Resources */,
+				AA30000000000000000009 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		6B05E1ADD98405F9FF8927E5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				007D47AD92E038CFF32C8BE2 /* BingodaysWidget.swift in Sources */,
+				C7C0E097420C7B27954960F4 /* BingoBoardStore.swift in Sources */,
+				8E907B19D8A77ED5CA3F12E0 /* ColorHex.swift in Sources */,
+				C3DA38C1D37F02D4B7DDAB7A /* BingoModels.swift in Sources */,
+				35971755A4E77F2BA6B9A4AE /* NeumorphicStyles.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA40000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA30000000000000000001 /* BingoADHDApp.swift in Sources */,
+				AA30000000000000000002 /* ContentView.swift in Sources */,
+				AA30000000000000000003 /* BingoModels.swift in Sources */,
+				AA30000000000000000004 /* BingoViewModel.swift in Sources */,
+				AA30000000000000000005 /* BingoBoardView.swift in Sources */,
+				AA30000000000000000006 /* BingoCellView.swift in Sources */,
+				AA30000000000000000007 /* EditTaskSheet.swift in Sources */,
+				AA30000000000000000008 /* BingoLineOverlay.swift in Sources */,
+				AA30000000000000000010 /* NeumorphicStyles.swift in Sources */,
+				0D97FFB2D91D5330540F77C0 /* BingoBoardStore.swift in Sources */,
+				D6129FE6ECD4D6C2E0B7B3E6 /* ColorHex.swift in Sources */,
+				F1A000000000000000000004 /* PAGCompletionView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		1BCDCB9BC09CE57496504CE6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = BingodaysWidgetExtension;
+			target = 5DAD236D36C29E50D5181212 /* BingodaysWidgetExtension */;
+			targetProxy = AFE5686DFD41ACFFCD85216F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		04F3E1E8C807A1CA7CB25CB3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 6;
+				DEVELOPMENT_TEAM = R2372567GG;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BingodaysWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Bingodays;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
+				PRODUCT_NAME = BingodaysWidgetExtension;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		AA70000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AA70000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		AA70000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 6;
+				DEVELOPMENT_TEAM = R2372567GG;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Bingodays;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Bingodays uses the microphone for voice task input.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Bingodays uses speech recognition to turn your voice into task text.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app;
+				PRODUCT_NAME = Bingodays;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		AA70000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 6;
+				DEVELOPMENT_TEAM = R2372567GG;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Bingodays;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Bingodays uses the microphone for voice task input.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Bingodays uses speech recognition to turn your voice into task text.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app;
+				PRODUCT_NAME = Bingodays;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		DD965AE4D6E112ED96B0E7DD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 6;
+				DEVELOPMENT_TEAM = R2372567GG;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BingodaysWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Bingodays;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
+				PRODUCT_NAME = BingodaysWidgetExtension;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		4592D31743C11388EDE247DB /* Build configuration list for PBXNativeTarget "BingodaysWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				04F3E1E8C807A1CA7CB25CB3 /* Release */,
+				DD965AE4D6E112ED96B0E7DD /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA60000000000000000001 /* Build configuration list for PBXProject "BingoADHD" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA70000000000000000001 /* Debug */,
+				AA70000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA60000000000000000002 /* Build configuration list for PBXNativeTarget "BingoADHD" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA70000000000000000003 /* Debug */,
+				AA70000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AA10000000000000000001 /* Project object */;
+}
