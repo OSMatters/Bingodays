@@ -27,152 +27,152 @@ struct EditTaskSheet: View {
         NavigationView {
             ZStack {
                 NeumorphicColors.background.ignoresSafeArea()
-                
-                VStack(spacing: 24) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 16) {
-                            TextField(L10n.enterTaskForDay, text: $text)
-                                .font(.body)
-                                .foregroundColor(NeumorphicColors.text)
-                                .padding(16)
-                                .background(Color.clear.neumorphicConcave(radius: 12))
-                                .focused($isTextFieldFocused)
-                                .onChange(of: text) { _, newValue in
-                                    if newValue.count > BingoViewModel.maxTaskLength {
-                                        text = String(newValue.prefix(BingoViewModel.maxTaskLength))
-                                    }
-                                }
 
-                            // Voice input button
-                            Button {
-                                if isHapticsEnabled {
-                                    AppHaptics.control()
-                                }
-                                if speechRecognizer.isRecording {
-                                    speechRecognizer.stopRecording()
-                                } else {
-                                    speechRecognizer.startRecording { result in
-                                        text = result
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 24) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .top, spacing: 16) {
+                                TextField(L10n.enterTaskForDay, text: $text, axis: .vertical)
+                                    .font(.body)
+                                    .foregroundColor(NeumorphicColors.text)
+                                    .padding(16)
+                                    .frame(minHeight: 74, alignment: .topLeading)
+                                    .background(Color.clear.neumorphicConcave(radius: 12))
+                                    .focused($isTextFieldFocused)
+                                    .lineLimit(3...5)
+                                    .onChange(of: text) { _, newValue in
+                                        if newValue.count > BingoViewModel.maxTaskLength {
+                                            text = String(newValue.prefix(BingoViewModel.maxTaskLength))
+                                        }
                                     }
+
+                                Button {
+                                    if isHapticsEnabled {
+                                        AppHaptics.control()
+                                    }
+                                    if speechRecognizer.isRecording {
+                                        speechRecognizer.stopRecording()
+                                    } else {
+                                        speechRecognizer.startRecording { result in
+                                            text = result
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: speechRecognizer.isRecording ? "mic.fill" : "mic")
+                                        .font(.system(size: 20, weight: .regular))
+                                        .foregroundColor(speechRecognizer.isRecording ? NeumorphicColors.bingoAccent : NeumorphicColors.accent)
+                                        .frame(width: 42, height: 42)
+                                        .background(
+                                            Color.clear
+                                                .neumorphicConvex(radius: 21, isPressed: speechRecognizer.isRecording)
+                                        )
+                                        .animation(.easeInOut(duration: 0.3), value: speechRecognizer.isRecording)
                                 }
-                            } label: {
-                                Image(systemName: speechRecognizer.isRecording ? "mic.fill" : "mic")
-                                    .font(.system(size: 22, weight: .regular))
-                                    .foregroundColor(speechRecognizer.isRecording ? NeumorphicColors.bingoAccent : NeumorphicColors.accent)
-                                    .frame(width: 46, height: 46)
-                                    .background(
-                                        Color.clear
-                                            .neumorphicConvex(radius: 23, isPressed: speechRecognizer.isRecording)
-                                    )
-                                    .animation(.easeInOut(duration: 0.3), value: speechRecognizer.isRecording)
                             }
-                        }
 
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 12) {
                                 Text(L10n.forceCompletion)
                                     .font(.system(.subheadline, design: .rounded).weight(.semibold))
                                     .foregroundColor(NeumorphicColors.text)
+
+                                Spacer()
+
+                                Toggle("", isOn: $isForcedTask)
+                                    .labelsHidden()
+                                    .toggleStyle(NeumorphicSwitchToggleStyle())
                             }
 
-                            Spacer()
-
-                            Toggle("", isOn: $isForcedTask)
-                                .labelsHidden()
-                                .toggleStyle(NeumorphicSwitchToggleStyle())
-                        }
-
-                        if speechRecognizer.isRecording {
-                            HStack(spacing: 6) {
-                                Circle()
-                                    .fill(NeumorphicColors.bingoAccent)
-                                    .frame(width: 8, height: 8)
-                                    .scaleEffect(speechRecognizer.isRecording ? 1.2 : 0.8)
-                                    .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: speechRecognizer.isRecording)
-                                Text(L10n.recording)
-                                    .font(.caption)
-                                    .foregroundColor(NeumorphicColors.text.opacity(0.8))
+                            if speechRecognizer.isRecording {
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(NeumorphicColors.bingoAccent)
+                                        .frame(width: 8, height: 8)
+                                        .scaleEffect(speechRecognizer.isRecording ? 1.2 : 0.8)
+                                        .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: speechRecognizer.isRecording)
+                                    Text(L10n.recording)
+                                        .font(.caption)
+                                        .foregroundColor(NeumorphicColors.text.opacity(0.8))
+                                }
+                                .transition(.opacity)
                             }
-                            .transition(.opacity)
                         }
-                    }
-                    .padding(.top, 12)
 
-                    // Quick task suggestions
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(L10n.quickAdd)
-                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                            .foregroundColor(NeumorphicColors.text)
-                        if !quickAddGroups.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(L10n.quickAdd)
+                                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                                .foregroundColor(NeumorphicColors.text)
+
+                            if !quickAddGroups.isEmpty {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text(L10n.groups)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundColor(NeumorphicColors.text.opacity(0.66))
+
+                                    HStack(spacing: 12) {
+                                        ForEach(quickAddGroups) { group in
+                                            Button {
+                                                let didApply = onApplyGroup(group.tasks)
+                                                if !didApply {
+                                                    showGroupApplyAlert = true
+                                                }
+                                            } label: {
+                                                Text(group.name)
+                                                    .font(.caption.weight(.semibold))
+                                                    .foregroundColor(NeumorphicColors.text)
+                                                    .lineLimit(1)
+                                                    .multilineTextAlignment(.center)
+                                                    .padding(.horizontal, 10)
+                                                    .padding(.vertical, 8)
+                                                    .background(Color.clear.neumorphicConvex(radius: 9))
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                }
+                            }
+
                             VStack(alignment: .leading, spacing: 10) {
-                                Text(L10n.groups)
+                                Text(L10n.tasks)
                                     .font(.caption.weight(.semibold))
                                     .foregroundColor(NeumorphicColors.text.opacity(0.66))
 
-                                HStack(spacing: 12) {
-                                    ForEach(quickAddGroups) { group in
+                                LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 12) {
+                                    ForEach(quickTasks, id: \.self) { task in
                                         Button {
-                                            let didApply = onApplyGroup(group.tasks)
-                                            if !didApply {
-                                                showGroupApplyAlert = true
-                                            }
+                                            text = task
                                         } label: {
-                                            Text(group.name)
-                                                .font(.caption.weight(.semibold))
+                                            Text(task)
+                                                .font(.caption)
                                                 .foregroundColor(NeumorphicColors.text)
-                                                .lineLimit(1)
-                                                .multilineTextAlignment(.center)
-                                                .padding(.horizontal, 10)
-                                                .padding(.vertical, 8)
-                                                .background(Color.clear.neumorphicConvex(radius: 9))
+                                                .frame(maxWidth: .infinity)
+                                                .padding(.vertical, 10)
+                                                .background(Color.clear.neumorphicConvex(radius: 10))
                                         }
                                         .buttonStyle(.plain)
                                     }
-                                    Spacer(minLength: 0)
                                 }
                             }
                         }
 
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(L10n.tasks)
-                                .font(.caption.weight(.semibold))
-                                .foregroundColor(NeumorphicColors.text.opacity(0.66))
-
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 12) {
-                                ForEach(quickTasks, id: \.self) { task in
-                                    Button {
-                                        text = task
-                                    } label: {
-                                        Text(task)
-                                            .font(.caption)
-                                            .foregroundColor(NeumorphicColors.text)
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 10)
-                                            .background(Color.clear.neumorphicConvex(radius: 10))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
+                        if !text.isEmpty {
+                            Button(role: .destructive) {
+                                onDelete()
+                            } label: {
+                                Label(L10n.deleteTask, systemImage: "trash")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundColor(NeumorphicColors.bingoAccent)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                                    .background(Color.clear.neumorphicConvex(radius: 12))
                             }
+                            .padding(.top, 16)
                         }
                     }
-
-                    if !text.isEmpty {
-                        Button(role: .destructive) {
-                            onDelete()
-                        } label: {
-                            Label(L10n.deleteTask, systemImage: "trash")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundColor(NeumorphicColors.bingoAccent)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(Color.clear.neumorphicConvex(radius: 12))
-                        }
-                        .padding(.top, 16)
-                    }
-
-                    Spacer()
+                    .padding(.horizontal, 24)
+                    .padding(.top, 82)
+                    .padding(.bottom, 40)
                 }
-                .padding(24)
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)

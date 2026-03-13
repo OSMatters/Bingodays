@@ -7,8 +7,34 @@ enum AppLanguage {
     case simplifiedChinese
 
     static var current: AppLanguage {
-        let preferred = Locale.preferredLanguages.first ?? "en"
-        return preferred.hasPrefix("zh") ? .simplifiedChinese : .english
+        if let primaryLanguage = preferredLanguageIdentifiers.first?.lowercased(),
+           primaryLanguage.hasPrefix("zh") {
+            return .simplifiedChinese
+        }
+
+        return .english
+    }
+
+    private static var preferredLanguageIdentifiers: [String] {
+        let appleLanguages = UserDefaults.standard.array(forKey: "AppleLanguages") as? [String] ?? []
+        let preferredLanguages = Locale.preferredLanguages
+        let localeIdentifiers = [
+            Locale.autoupdatingCurrent.identifier,
+            Locale.current.identifier
+        ]
+
+        return (appleLanguages + preferredLanguages + localeIdentifiers)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    static var displayLocale: Locale {
+        switch current {
+        case .english:
+            return Locale(identifier: "en_US")
+        case .simplifiedChinese:
+            return Locale(identifier: "zh_Hans_CN")
+        }
     }
 
     static var speechLocaleIdentifier: String {

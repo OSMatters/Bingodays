@@ -263,7 +263,7 @@ struct ContentView: View {
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.5))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.58))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
@@ -1299,18 +1299,17 @@ private struct CommonTasksEditorView: View {
                     .padding(.top, 24)
                     .padding(.bottom, 92)
                 }
-
-                VStack {
-                    Spacer()
-
-                    Text(L10n.myTasksHint)
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.66))
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 24)
-                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Text(L10n.myTasksHint)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.66))
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+                    .padding(.bottom, 24)
+                    .background(NeumorphicColors.background)
             }
             .navigationTitle(L10n.myTasks)
             .navigationBarTitleDisplayMode(.inline)
@@ -1556,7 +1555,8 @@ private struct BingoDiaryScreen: View {
         let today = calendar.startOfDay(for: .now)
         let entries = BingoDiaryStore.entries(inMonthContaining: displayedMonth)
         let entriesByKey = Dictionary(uniqueKeysWithValues: entries.map { (dateKey(for: $0.date), $0) })
-        let weeks = calendarWeeks(for: displayedMonth, startDate: startDate, endDate: today)
+        let days = calendarDays(for: displayedMonth, startDate: startDate, endDate: today)
+        let weeks = calendarWeeks(from: days)
         let taskCounts = BingoDiaryStore.completedTaskCounts(lastDays: statsRange.days, referenceDate: today)
         let previousMonth = calendar.date(byAdding: .month, value: -1, to: displayedMonth) ?? displayedMonth
         let nextMonth = calendar.date(byAdding: .month, value: 1, to: displayedMonth) ?? displayedMonth
@@ -1612,7 +1612,7 @@ private struct BingoDiaryScreen: View {
                             HStack(spacing: 10) {
                                 ForEach(weekdaySymbols(), id: \.self) { symbol in
                                     Text(symbol)
-                                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                        .font(.system(size: 12, weight: .bold, design: .rounded))
                                         .foregroundColor(NeumorphicColors.text.opacity(0.52))
                                         .frame(maxWidth: .infinity)
                                 }
@@ -1622,48 +1622,10 @@ private struct BingoDiaryScreen: View {
                                 ForEach(weeks.indices, id: \.self) { weekIndex in
                                     HStack(spacing: 10) {
                                         ForEach(weeks[weekIndex].indices, id: \.self) { dayIndex in
-                                            let date = weeks[weekIndex][dayIndex]
+                                            let day = weeks[weekIndex][dayIndex]
+                                            let entry = entriesByKey[dateKey(for: day.date)]
 
-                                            if let date {
-                                                let entry = entriesByKey[dateKey(for: date)]
-                                                Button {
-                                                    if let entry {
-                                                        selectedEntry = entry
-                                                    }
-                                                } label: {
-                                                    ZStack {
-                                                        Circle()
-                                                            .fill(entry?.allTasksCompleted == true ? NeumorphicColors.bingoGold : NeumorphicColors.background)
-                                                            .frame(width: 36, height: 36)
-                                                            .shadow(
-                                                                color: entry?.allTasksCompleted == true ? NeumorphicColors.bingoGoldDark.opacity(0.24) : NeumorphicColors.darkShadow.opacity(0.14),
-                                                                radius: 4,
-                                                                x: 2,
-                                                                y: 2
-                                                            )
-                                                            .shadow(
-                                                                color: Color.white.opacity(0.8),
-                                                                radius: 4,
-                                                                x: -2,
-                                                                y: -2
-                                                            )
-                                                            .overlay {
-                                                                Circle()
-                                                                    .stroke(Color.white.opacity(entry?.allTasksCompleted == true ? 0.18 : 0.9), lineWidth: 1)
-                                                            }
-
-                                                        Text("\(Calendar.current.component(.day, from: date))")
-                                                            .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                                            .foregroundColor(entry?.allTasksCompleted == true ? .white : NeumorphicColors.text.opacity(entry == nil ? 0.55 : 0.78))
-                                                    }
-                                                    .frame(maxWidth: .infinity)
-                                                }
-                                                .buttonStyle(.plain)
-                                            } else {
-                                                Color.clear
-                                                    .frame(maxWidth: .infinity)
-                                                    .frame(height: 36)
-                                            }
+                                            calendarDayCell(for: day, entry: entry)
                                         }
                                     }
                                 }
@@ -1714,17 +1676,16 @@ private struct BingoDiaryScreen: View {
                     .padding(.top, 24)
                     .padding(.bottom, 88)
                 }
-
-                VStack {
-                    Spacer()
-
-                    Text(L10n.diaryHint)
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.66))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 24)
-                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Text(L10n.diaryHint)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.66))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+                    .padding(.bottom, 24)
+                    .background(NeumorphicColors.background)
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -1754,52 +1715,62 @@ private struct BingoDiaryScreen: View {
 
     private func monthTitle(for date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
+        formatter.locale = AppLanguage.displayLocale
         formatter.setLocalizedDateFormatFromTemplate("LLLL yyyy")
         return formatter.string(from: date)
     }
 
     private func weekdaySymbols() -> [String] {
         var calendar = Calendar.current
-        calendar.locale = .autoupdatingCurrent
-        let symbols = calendar.veryShortStandaloneWeekdaySymbols
+        calendar.locale = AppLanguage.displayLocale
+        let formatter = DateFormatter()
+        formatter.locale = AppLanguage.displayLocale
+        let symbols = formatter.shortStandaloneWeekdaySymbols ?? calendar.shortStandaloneWeekdaySymbols
         let firstWeekdayIndex = max(calendar.firstWeekday - 1, 0)
-        return Array(symbols[firstWeekdayIndex...] + symbols[..<firstWeekdayIndex])
+        let reordered = Array(symbols[firstWeekdayIndex...] + symbols[..<firstWeekdayIndex])
+
+        if AppLanguage.current == .english {
+            return reordered.map { $0.uppercased(with: AppLanguage.displayLocale) }
+        }
+
+        return reordered
     }
 
-    private func calendarDates(for month: Date, startDate: Date, endDate: Date) -> [Date?] {
+    private func calendarDays(for month: Date, startDate: Date, endDate: Date) -> [DiaryCalendarDay] {
         let calendar = Calendar.current
+        let normalizedStart = calendar.startOfDay(for: startDate)
+        let normalizedEnd = calendar.startOfDay(for: endDate)
+
         guard let monthInterval = calendar.dateInterval(of: .month, for: month),
-              let monthStartWeekday = calendar.dateComponents([.weekday], from: monthInterval.start).weekday,
-              let daysRange = calendar.range(of: .day, in: .month, for: monthInterval.start) else {
+              let firstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start),
+              let lastDayOfMonth = calendar.date(byAdding: .day, value: -1, to: monthInterval.end),
+              let lastWeek = calendar.dateInterval(of: .weekOfMonth, for: lastDayOfMonth) else {
             return []
         }
 
-        let leadingBlankCount = (monthStartWeekday - calendar.firstWeekday + 7) % 7
-        var dates: [Date?] = Array(repeating: nil, count: leadingBlankCount)
+        let gridStart = firstWeek.start
+        let gridEnd = calendar.date(byAdding: .day, value: 7, to: lastWeek.start) ?? lastWeek.end
+        var days: [DiaryCalendarDay] = []
+        var cursor = gridStart
 
-        for day in daysRange {
-            if let date = calendar.date(byAdding: .day, value: day - 1, to: monthInterval.start) {
-                let normalizedDate = calendar.startOfDay(for: date)
-                if normalizedDate >= startDate && normalizedDate <= endDate {
-                    dates.append(normalizedDate)
-                } else {
-                    dates.append(nil)
-                }
-            }
+        while cursor < gridEnd {
+            let normalizedDate = calendar.startOfDay(for: cursor)
+            days.append(
+                DiaryCalendarDay(
+                    date: normalizedDate,
+                    isCurrentMonth: calendar.isDate(normalizedDate, equalTo: monthInterval.start, toGranularity: .month),
+                    isWithinVisibleRange: normalizedDate >= normalizedStart && normalizedDate <= normalizedEnd
+                )
+            )
+            cursor = calendar.date(byAdding: .day, value: 1, to: cursor) ?? gridEnd
         }
 
-        while dates.count % 7 != 0 {
-            dates.append(nil)
-        }
-
-        return dates
+        return days
     }
 
-    private func calendarWeeks(for month: Date, startDate: Date, endDate: Date) -> [[Date?]] {
-        let dates = calendarDates(for: month, startDate: startDate, endDate: endDate)
-        return stride(from: 0, to: dates.count, by: 7).map { index in
-            Array(dates[index..<min(index + 7, dates.count)])
+    private func calendarWeeks(from days: [DiaryCalendarDay]) -> [[DiaryCalendarDay]] {
+        stride(from: 0, to: days.count, by: 7).map { index in
+            Array(days[index..<min(index + 7, days.count)])
         }
     }
 
@@ -1845,6 +1816,67 @@ private struct BingoDiaryScreen: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func calendarDayCell(for day: DiaryCalendarDay, entry: BingoDiaryEntry?) -> some View {
+        if let entry {
+            Button {
+                selectedEntry = entry
+            } label: {
+                calendarDayLabel(for: day, entry: entry)
+            }
+            .buttonStyle(.plain)
+        } else {
+            calendarDayLabel(for: day, entry: nil)
+        }
+    }
+
+    private func calendarDayLabel(for day: DiaryCalendarDay, entry: BingoDiaryEntry?) -> some View {
+        let isCompleted = entry?.allTasksCompleted == true
+        let hasEntry = entry != nil
+        let dayNumber = Calendar.current.component(.day, from: day.date)
+
+        return ZStack {
+            if isCompleted {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(NeumorphicColors.accent)
+                    .frame(width: 40, height: 40)
+                    .shadow(color: NeumorphicColors.accent.opacity(0.22), radius: 8, x: 0, y: 4)
+                    .shadow(color: Color.white.opacity(0.28), radius: 3, x: 0, y: -1)
+            }
+
+            Text("\(dayNumber)")
+                .font(.system(size: 14, weight: isCompleted ? .bold : .semibold, design: .rounded))
+                .foregroundColor(calendarDayTextColor(for: day, hasEntry: hasEntry, isCompleted: isCompleted))
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 40)
+        .contentShape(Rectangle())
+    }
+
+    private func calendarDayTextColor(for day: DiaryCalendarDay, hasEntry: Bool, isCompleted: Bool) -> Color {
+        if isCompleted {
+            return .white
+        }
+
+        if hasEntry {
+            return NeumorphicColors.text
+        }
+
+        if day.isCurrentMonth && day.isWithinVisibleRange {
+            return NeumorphicColors.text.opacity(0.34)
+        }
+
+        return NeumorphicColors.text.opacity(0.18)
+    }
+}
+
+private struct DiaryCalendarDay: Identifiable {
+    let date: Date
+    let isCurrentMonth: Bool
+    let isWithinVisibleRange: Bool
+
+    var id: TimeInterval { date.timeIntervalSince1970 }
 }
 
 private enum BingoDiaryStatsRange: CaseIterable {
@@ -1907,7 +1939,7 @@ private struct BingoDiaryDetailView: View {
 
     private var detailTitle: String {
         let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
+        formatter.locale = AppLanguage.displayLocale
         formatter.dateStyle = .long
         return formatter.string(from: entry.date)
     }
