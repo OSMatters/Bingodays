@@ -109,7 +109,7 @@ enum L10n {
     }
     static var tasks: String { tr("Tasks", zhHans: "任务") }
     static var groups: String { tr("Groups", zhHans: "分组") }
-    static var myTasksHint: String { tr("Edit tasks and groups here, then apply selected tasks to auto-fill your Bingo board.", zhHans: "在这里编辑任务和分组，然后应用已选任务自动填充 Bingo 面板。") }
+    static var myTasksHint: String { tr("Tap empty space on a task or group card to select it. Tap again to unselect.", zhHans: "点任务或分组卡片空白处可勾选，再点可取消。") }
     static var tasksSectionHint: String { tr("Save the quick tasks you use most often.", zhHans: "保存你最常用的快捷任务。") }
     static var groupsSectionHint: String { tr("Bundle a few tasks together so you can apply them in one tap.", zhHans: "把多个任务打包成分组，方便一键应用。") }
     static var noTasksYet: String { tr("You haven't added any tasks yet.", zhHans: "你还没有添加任何任务。") }

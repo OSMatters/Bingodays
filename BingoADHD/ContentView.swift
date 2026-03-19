@@ -2376,15 +2376,7 @@ private struct QuickEditView: View {
                 .lineLimit(1)
                 .focused($focusedField, equals: .task(index))
 
-            Button {
-                toggleSelection(for: key)
-            } label: {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: scaled(13, pad: 15), weight: .bold))
-                    .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
-                    .frame(width: 20, height: 20)
-            }
-            .buttonStyle(.plain)
+            Spacer(minLength: 0)
 
             Button {
                 focusedField = nil
@@ -2414,7 +2406,7 @@ private struct QuickEditView: View {
         }
         .contentShape(RoundedRectangle(cornerRadius: 14))
         .onTapGesture {
-            focusedField = .task(index)
+            toggleSelection(for: key)
         }
     }
 
@@ -2428,18 +2420,6 @@ private struct QuickEditView: View {
                     .font(.system(size: scaled(16, pad: 22), weight: .bold, design: .rounded))
                     .foregroundColor(NeumorphicColors.text)
                     .focused($focusedField, equals: .groupName(group.id))
-
-                Button {
-                    toggleGroupSelection(group)
-                } label: {
-                    Image(systemName: groupSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: scaled(15, pad: 17), weight: .bold))
-                        .foregroundColor(groupSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.plain)
-                .disabled(groupSelectableTaskKeys(group).isEmpty)
-                .opacity(groupSelectableTaskKeys(group).isEmpty ? 0.35 : 1)
 
                 Spacer()
 
@@ -2484,6 +2464,10 @@ private struct QuickEditView: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(NeumorphicColors.accent.opacity(groupSelected ? 0.4 : 0), lineWidth: 1.2)
                 .allowsHitTesting(false)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 24))
+        .onTapGesture {
+            toggleGroupSelection(group)
         }
     }
 
@@ -2835,7 +2819,7 @@ private struct QuickEditView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
+                    Text("\(title) (\(detail))")
                         .font(.system(size: scaled(18, pad: 30), weight: .bold, design: .rounded))
                         .foregroundColor(NeumorphicColors.text)
 
@@ -2843,15 +2827,6 @@ private struct QuickEditView: View {
                         .font(.system(size: scaled(12, pad: 16), weight: .medium, design: .rounded))
                         .foregroundColor(NeumorphicColors.text.opacity(0.56))
                 }
-
-                Spacer()
-
-                Text(detail)
-                    .font(.system(size: scaled(11, pad: 15), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.48))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.clear.neumorphicConvex(radius: 12))
             }
 
             if let actionTitle, let action {
