@@ -109,13 +109,28 @@ enum L10n {
     }
     static var tasks: String { tr("Tasks", zhHans: "任务") }
     static var groups: String { tr("Groups", zhHans: "分组") }
-    static var myTasksHint: String { tr("Tasks and groups you add here will appear in Quick Add when you edit a Bingo tile.", zhHans: "你在这里添加的任务和分组，会在编辑 Bingo 格子时显示在 Quick Add 中。") }
+    static var myTasksHint: String { tr("Edit tasks and groups here, then apply selected tasks to auto-fill your Bingo board.", zhHans: "在这里编辑任务和分组，然后应用已选任务自动填充 Bingo 面板。") }
     static var tasksSectionHint: String { tr("Save the quick tasks you use most often.", zhHans: "保存你最常用的快捷任务。") }
     static var groupsSectionHint: String { tr("Bundle a few tasks together so you can apply them in one tap.", zhHans: "把多个任务打包成分组，方便一键应用。") }
     static var noTasksYet: String { tr("You haven't added any tasks yet.", zhHans: "你还没有添加任何任务。") }
     static var noGroupsYet: String { tr("You haven't added any groups yet.", zhHans: "你还没有添加任何分组。") }
     static var addTask: String { tr("Add Task", zhHans: "添加任务") }
     static var addGroup: String { tr("Add Group", zhHans: "添加分组") }
+    static var quickEdit: String { tr("Quick Edit", zhHans: "快速编辑") }
+    static var apply: String { tr("Apply", zhHans: "应用") }
+    static var selectAll: String { tr("Select All", zhHans: "全选") }
+    static var deselectAll: String { tr("Deselect All", zhHans: "全取消") }
+    static var random: String { tr("Random", zhHans: "随机") }
+    static var gridSize: String { tr("Grid Size", zhHans: "格子大小") }
+    static func selectedTaskCount(_ count: Int, usedCount: Int) -> String {
+        tr("Selected \(count) (\(usedCount) used for current board)", zhHans: "已选 \(count) 个（当前尺寸使用前 \(usedCount) 个）")
+    }
+    static func quickEditAppliedSuccess(_ count: Int) -> String {
+        tr("Applied \(count) tasks", zhHans: "已应用 \(count) 个任务")
+    }
+    static func quickEditNeedMoreTasks(_ count: Int) -> String {
+        tr("Add \(count) more tasks to fill this grid", zhHans: "还需 \(count) 个任务可填满当前尺寸")
+    }
     static var taskAddedSuccess: String { tr("Task added", zhHans: "任务已添加") }
     static var groupAddedSuccess: String { tr("Group added", zhHans: "分组已添加") }
     static var tasksAndGroupsAddedSuccess: String { tr("Changes saved", zhHans: "已保存更改") }

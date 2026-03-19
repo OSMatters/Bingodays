@@ -86,7 +86,7 @@ struct ContentView: View {
     @State private var isBoardCountdownPresented = false
     @State private var selectedStickerID: UUID?
     @State private var isDiaryPresented = false
-    @State private var isCommonTasksEditorPresented = false
+    @State private var isQuickEditPresented = false
     @State private var commonTasksToastMessage: String?
     @State private var isCommonTasksToastVisible = false
     @State private var hideCommonTasksToastWorkItem: DispatchWorkItem?
@@ -161,6 +161,9 @@ struct ContentView: View {
                         BingoBoardView(viewModel: viewModel)
                             .frame(width: contentWidth, height: contentWidth)
 
+                        quickEditTrigger
+                            .padding(.top, 4)
+
                         boardCountdownTrigger
                             .padding(.top, 8)
                     }
@@ -227,8 +230,8 @@ struct ContentView: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $isCommonTasksEditorPresented) {
-            CommonTasksEditorView { message in
+        .fullScreenCover(isPresented: $isQuickEditPresented) {
+            QuickEditView(viewModel: viewModel) { message in
                 showCommonTasksToast(message)
             }
         }
@@ -469,6 +472,45 @@ struct ContentView: View {
             .shadow(color: Color(hex: "CFD4DA").opacity(0.72), radius: shadowRadius, x: offset, y: offset)
     }
 
+    private var quickEditTrigger: some View {
+        let selectedCount = viewModel.currentTaskPoolTasks().count
+        let usedCount = min(selectedCount, viewModel.gridSize * viewModel.gridSize)
+
+        return Button {
+            isQuickEditPresented = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: scaled(13, pad: 15), weight: .bold))
+                    .foregroundColor(NeumorphicColors.accent)
+
+                Text(L10n.quickEdit)
+                    .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
+
+                Text("\(usedCount)/\(viewModel.gridSize * viewModel.gridSize)")
+                    .font(.system(size: scaled(12, pad: 14), weight: .bold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.accent.opacity(0.88))
+                    .padding(.horizontal, 8)
+                    .frame(height: isPadLayout ? 24 : 22)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.white.opacity(0.52))
+                    )
+            }
+            .padding(.horizontal, isPadLayout ? 20 : 16)
+            .frame(height: isPadLayout ? 42 : 36)
+            .background(
+                conciseRaisedSurface(
+                    cornerRadius: isPadLayout ? 21 : 18,
+                    shadowRadius: isPadLayout ? 12 : 10,
+                    offset: isPadLayout ? 6 : 5
+                )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
     private var boardCountdownTrigger: some View {
         Button {
             isBoardCountdownPresented = true
@@ -669,32 +711,6 @@ struct ContentView: View {
                 Section {
                     sidebarStreakHero
                     sidebarStreakGoals
-
-                    Button {
-                        isCommonTasksEditorPresented = true
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: "star")
-                                .font(.system(size: scaled(18, pad: 20), weight: .bold))
-                                .foregroundColor(NeumorphicColors.accent)
-                                .frame(width: isPadLayout ? 44 : 40, height: isPadLayout ? 44 : 40)
-                                .neumorphicConvex(radius: isPadLayout ? 22 : 20)
-
-                            Text(L10n.myTasks)
-                                .font(.system(size: scaled(15, pad: 18), weight: .bold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text)
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: scaled(14, pad: 16), weight: .bold))
-                                .foregroundColor(NeumorphicColors.accent)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .listRowInsets(EdgeInsets(top: 12, leading: 22, bottom: 12, trailing: 22))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
 
                     Button {
                         isSidebarPresented = false
@@ -2035,7 +2051,8 @@ private struct EditableHomeStickerView: View {
     }
 }
 
-private struct CommonTasksEditorView: View {
+private struct QuickEditView: View {
+    @ObservedObject var viewModel: BingoViewModel
     let onSaveSuccess: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -2047,6 +2064,9 @@ private struct CommonTasksEditorView: View {
     @State private var localToastMessage: String?
     @State private var isLocalToastVisible = false
     @State private var hideLocalToastWorkItem: DispatchWorkItem?
+    @State private var selectedTaskKeys: [String] = []
+    @State private var targetGridSize = 4
+    @State private var didApplyToBoard = false
 
     private enum FocusedMyTaskField: Hashable {
         case task(Int)
@@ -2086,6 +2106,11 @@ private struct CommonTasksEditorView: View {
         }
     }
 
+    private struct TaskCandidate: Identifiable {
+        let id: String
+        let text: String
+    }
+
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
     }
@@ -2108,6 +2133,38 @@ private struct CommonTasksEditorView: View {
         return [GridItem(.flexible(), spacing: 14)]
     }
 
+    private var allTaskCandidates: [TaskCandidate] {
+        var candidates: [TaskCandidate] = []
+
+        for index in library.tasks.indices {
+            let text = library.tasks[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            candidates.append(TaskCandidate(id: "task-\(index)", text: text))
+        }
+
+        for group in library.groups {
+            for index in group.tasks.indices {
+                let text = group.tasks[index].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { continue }
+                candidates.append(TaskCandidate(id: "group-\(group.id.uuidString)-\(index)", text: text))
+            }
+        }
+
+        return candidates
+    }
+
+    private var selectedTasks: [String] {
+        let candidateMap = Dictionary(uniqueKeysWithValues: allTaskCandidates.map { ($0.id, $0.text) })
+        return selectedTaskKeys.compactMap { key in
+            guard let text = candidateMap[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return text
+        }
+    }
+
+    private var usedTaskCount: Int {
+        min(selectedTasks.count, targetGridSize * targetGridSize)
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -2120,6 +2177,7 @@ private struct CommonTasksEditorView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
+                        quickEditControlsCard
                         tasksSection
                         groupsSection
                         hintCard
@@ -2170,12 +2228,12 @@ private struct CommonTasksEditorView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
             }
-            .navigationTitle(L10n.myTasks)
+            .navigationTitle(L10n.quickEdit)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(NeumorphicColors.background, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.save) {
+                    Button(L10n.done) {
                         saveAndDismiss()
                     }
                     .fontWeight(.semibold)
@@ -2194,8 +2252,95 @@ private struct CommonTasksEditorView: View {
             }
         }
         .onDisappear {
+            guard !didApplyToBoard else { return }
             finalizeLibrary()
         }
+        .onAppear {
+            targetGridSize = viewModel.gridSize
+            selectedTaskKeys = initialSelectedKeys(
+                from: viewModel.currentTaskPoolTasks(),
+                candidates: allTaskCandidates
+            )
+        }
+        .onChange(of: library) { _, _ in
+            syncSelectedTaskKeysWithCurrentLibrary()
+        }
+    }
+
+    private var quickEditControlsCard: some View {
+        sectionCard {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 10) {
+                    quickActionButton(title: L10n.selectAll) {
+                        selectedTaskKeys = allTaskCandidates.map(\.id)
+                    }
+
+                    quickActionButton(title: L10n.deselectAll) {
+                        selectedTaskKeys = []
+                    }
+
+                    quickActionButton(title: L10n.random) {
+                        selectedTaskKeys = allTaskCandidates.map(\.id).shuffled()
+                    }
+
+                    quickActionButton(title: L10n.apply, isAccent: true) {
+                        applySelectionToBoard()
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Text("🎯 \(L10n.gridSize)")
+                        .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+
+                    ForEach([3, 4, 5], id: \.self) { size in
+                        Button {
+                            targetGridSize = size
+                        } label: {
+                            Text("\(size)×\(size)")
+                                .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+                                .foregroundColor(targetGridSize == size ? .white : NeumorphicColors.text)
+                                .padding(.horizontal, 14)
+                                .frame(height: 36)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(targetGridSize == size ? NeumorphicColors.accent : NeumorphicColors.background)
+                                        .shadow(color: Color.white.opacity(0.68), radius: 6, x: -3, y: -3)
+                                        .shadow(color: Color(hex: "CFD4DA").opacity(0.7), radius: 6, x: 3, y: 3)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Text(L10n.selectedTaskCount(selectedTasks.count, usedCount: usedTaskCount))
+                    .font(.system(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.72))
+
+                if selectedTasks.count < targetGridSize * targetGridSize {
+                    Text(L10n.quickEditNeedMoreTasks((targetGridSize * targetGridSize) - selectedTasks.count))
+                        .font(.system(size: scaled(12.5, pad: 14.5), weight: .medium, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                }
+            }
+        }
+    }
+
+    private func quickActionButton(title: String, isAccent: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
+                .foregroundColor(isAccent ? .white : NeumorphicColors.text)
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(isAccent ? NeumorphicColors.accent : NeumorphicColors.background)
+                        .shadow(color: Color.white.opacity(0.68), radius: 6, x: -3, y: -3)
+                        .shadow(color: Color(hex: "CFD4DA").opacity(0.7), radius: 6, x: 3, y: 3)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     private var tasksSection: some View {
@@ -2257,13 +2402,25 @@ private struct CommonTasksEditorView: View {
     }
 
     private func taskCard(for index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let key = "task-\(index)"
+
+        return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center) {
                 Text(L10n.task)
                     .font(.system(size: scaled(11, pad: 15), weight: .semibold, design: .rounded))
                     .foregroundColor(NeumorphicColors.text.opacity(0.5))
 
                 Spacer()
+
+                Button {
+                    toggleSelection(for: key)
+                } label: {
+                    Image(systemName: selectedTaskKeys.contains(key) ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: scaled(15, pad: 17), weight: .bold))
+                        .foregroundColor(selectedTaskKeys.contains(key) ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
 
                 Button {
                     focusedField = nil
@@ -2345,7 +2502,18 @@ private struct CommonTasksEditorView: View {
     }
 
     private func groupTaskChip(groupID: UUID, index: Int) -> some View {
-        HStack(spacing: 8) {
+        let key = "group-\(groupID.uuidString)-\(index)"
+
+        return HStack(spacing: 8) {
+            Button {
+                toggleSelection(for: key)
+            } label: {
+                Image(systemName: selectedTaskKeys.contains(key) ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: scaled(13, pad: 15), weight: .bold))
+                    .foregroundColor(selectedTaskKeys.contains(key) ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
+            }
+            .buttonStyle(.plain)
+
             TextField(L10n.task, text: groupTaskBinding(groupID: groupID, index: index))
                 .font(.system(size: scaled(13, pad: 17), weight: .medium, design: .rounded))
                 .foregroundColor(NeumorphicColors.text)
@@ -2427,6 +2595,43 @@ private struct CommonTasksEditorView: View {
                 library.groups[groupIndex].tasks[index] = String(newValue.prefix(AppSettings.maxTaskLength))
             }
         )
+    }
+
+    private func toggleSelection(for key: String) {
+        if let index = selectedTaskKeys.firstIndex(of: key) {
+            selectedTaskKeys.remove(at: index)
+        } else {
+            selectedTaskKeys.append(key)
+        }
+    }
+
+    private func applySelectionToBoard() {
+        focusedField = nil
+        finalizeLibrary(showSuccessToast: false)
+        let tasks = selectedTasks
+        viewModel.applyTaskPool(tasks, targetGridSize: targetGridSize)
+        didApplyToBoard = true
+        onSaveSuccess(L10n.quickEditAppliedSuccess(min(tasks.count, targetGridSize * targetGridSize)))
+        dismiss()
+    }
+
+    private func initialSelectedKeys(from taskTexts: [String], candidates: [TaskCandidate]) -> [String] {
+        var pendingByText = Dictionary(grouping: candidates, by: \.text)
+        var resolved: [String] = []
+
+        for text in taskTexts {
+            guard var list = pendingByText[text], let candidate = list.first else { continue }
+            resolved.append(candidate.id)
+            list.removeFirst()
+            pendingByText[text] = list
+        }
+
+        return resolved
+    }
+
+    private func syncSelectedTaskKeysWithCurrentLibrary() {
+        let validKeys = Set(allTaskCandidates.map(\.id))
+        selectedTaskKeys = selectedTaskKeys.filter { validKeys.contains($0) }
     }
 
     private func finalizeLibrary(showSuccessToast: Bool = false) {

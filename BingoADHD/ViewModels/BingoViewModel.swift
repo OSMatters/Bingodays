@@ -199,6 +199,41 @@ class BingoViewModel: ObservableObject {
         return true
     }
 
+    func currentTaskPoolTasks() -> [String] {
+        let slots = taskPoolSlots(maxSize: Self.maxGridSize)
+        return slots.compactMap { slot in
+            guard slot.row < fullBoardCells.count, slot.col < fullBoardCells[slot.row].count else { return nil }
+            let text = fullBoardCells[slot.row][slot.col].storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
+        }
+    }
+
+    func applyTaskPool(_ tasks: [String], targetGridSize: Int) {
+        let sanitizedTasks = tasks
+            .map { String($0.prefix(Self.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        var newCache = Self.createEmptyGrid(size: Self.maxGridSize)
+        let slots = taskPoolSlots(maxSize: Self.maxGridSize)
+
+        for (slot, task) in zip(slots, sanitizedTasks) {
+            guard slot.row < newCache.count, slot.col < newCache[slot.row].count else { continue }
+            newCache[slot.row][slot.col] = BingoCell(text: task)
+        }
+
+        fullBoardCells = newCache
+        gridSize = min(max(targetGridSize, 2), Self.maxGridSize)
+        cells = visibleCells(from: fullBoardCells, size: gridSize)
+        completedLines = []
+        newlyCompletedLines = []
+        showCelebration = false
+        showBoardCompletionAnimation = false
+        boardCountdownEndsAt = nil
+        checkBingo(shouldCelebrateNewLines: false)
+        settleRewardsIfNeeded()
+        save()
+    }
+
     func resizeGrid(to newSize: Int) {
         guard newSize >= 2 && newSize <= Self.maxGridSize else { return }
         syncFullBoardCacheFromVisibleCells()
@@ -525,6 +560,24 @@ class BingoViewModel: ObservableObject {
 
     private func visibleCells(from cache: [[BingoCell]], size: Int) -> [[BingoCell]] {
         Self.projectVisibleCells(from: cache, size: size, referenceDate: .now)
+    }
+
+    private func taskPoolSlots(maxSize: Int) -> [Position] {
+        guard maxSize > 0 else { return [] }
+
+        var slots: [Position] = []
+        slots.reserveCapacity(maxSize * maxSize)
+
+        for size in 1...maxSize {
+            let edge = size - 1
+            for row in 0..<size {
+                for col in 0..<size where row == edge || col == edge {
+                    slots.append(Position(row: row, col: col))
+                }
+            }
+        }
+
+        return slots
     }
 
     private func normalizedDisplayText(for cell: BingoCell, referenceDate: Date) -> String {
