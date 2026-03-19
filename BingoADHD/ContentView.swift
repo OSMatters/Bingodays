@@ -404,13 +404,6 @@ struct ContentView: View {
                         Capsule(style: .continuous)
                             .stroke(.white.opacity(0.28), lineWidth: 1)
                     )
-                    .overlay(alignment: .bottom) {
-                        Capsule(style: .continuous)
-                            .fill(.white.opacity(0.16))
-                            .frame(height: 8)
-                            .padding(.horizontal, 14)
-                            .offset(y: 1)
-                    }
             )
             .shadow(color: NeumorphicColors.accent.opacity(0.34), radius: 10, x: 0, y: 6)
     }
@@ -454,13 +447,6 @@ struct ContentView: View {
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .stroke(.white.opacity(0.28), lineWidth: 1)
                 )
-                .overlay(alignment: .bottom) {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(.white.opacity(0.16))
-                        .frame(height: 9)
-                        .padding(.horizontal, 16)
-                        .offset(y: 2)
-                }
         )
         .shadow(color: NeumorphicColors.darkShadow.opacity(0.22), radius: 16, x: 0, y: 8)
         .shadow(color: NeumorphicColors.accent.opacity(0.34), radius: 10, x: 0, y: 6)
@@ -478,13 +464,13 @@ struct ContentView: View {
             isQuickEditPresented = true
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: scaled(13, pad: 15), weight: .bold))
-                    .foregroundColor(NeumorphicColors.accent)
-
                 Text(L10n.quickEdit)
                     .font(.system(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
                     .foregroundColor(NeumorphicColors.text)
+
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: scaled(13, pad: 15), weight: .bold))
+                    .foregroundColor(NeumorphicColors.accent)
             }
             .padding(.horizontal, isPadLayout ? 20 : 16)
             .frame(height: isPadLayout ? 42 : 36)
@@ -512,7 +498,7 @@ struct ContentView: View {
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: scaled(11, pad: 12), weight: .semibold))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                    .foregroundColor(NeumorphicColors.accent)
             }
             .padding(.horizontal, isPadLayout ? 20 : 16)
             .frame(height: isPadLayout ? 38 : 32)
@@ -2183,13 +2169,6 @@ private struct QuickEditView: View {
                                         Capsule(style: .continuous)
                                             .stroke(.white.opacity(0.28), lineWidth: 1)
                                     )
-                                    .overlay(alignment: .bottom) {
-                                        Capsule(style: .continuous)
-                                            .fill(.white.opacity(0.16))
-                                            .frame(height: 8)
-                                            .padding(.horizontal, 14)
-                                            .offset(y: 1)
-                                    }
                             )
                             .shadow(color: NeumorphicColors.darkShadow.opacity(0.12), radius: 8, x: 0, y: 4)
                             .shadow(color: NeumorphicColors.accent.opacity(0.34), radius: 10, x: 0, y: 6)
@@ -2330,7 +2309,7 @@ private struct QuickEditView: View {
             VStack(alignment: .leading, spacing: 18) {
                 sectionHeader(
                     title: L10n.tasks,
-                    subtitle: L10n.tasksSectionHint,
+                    subtitle: "",
                     detail: "\(library.tasks.count)/\(AppSettings.maxCommonTasks)",
                     actionTitle: library.tasks.count < AppSettings.maxCommonTasks ? L10n.addTask : nil,
                     action: library.tasks.count < AppSettings.maxCommonTasks ? appendTask : nil
@@ -2350,7 +2329,7 @@ private struct QuickEditView: View {
             VStack(alignment: .leading, spacing: 18) {
                 sectionHeader(
                     title: L10n.groups,
-                    subtitle: L10n.groupsSectionHint,
+                    subtitle: "",
                     detail: "\(library.groups.count)/\(AppSettings.maxTaskGroups)",
                     actionTitle: library.groups.count < AppSettings.maxTaskGroups ? L10n.addGroup : nil,
                     action: library.groups.count < AppSettings.maxTaskGroups ? appendGroup : nil
@@ -2818,14 +2797,16 @@ private struct QuickEditView: View {
     private func sectionHeader(title: String, subtitle: String, detail: String, actionTitle: String?, action: (() -> Void)?) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: subtitle.isEmpty ? 0 : 4) {
                     Text("\(title) (\(detail))")
                         .font(.system(size: scaled(18, pad: 30), weight: .bold, design: .rounded))
                         .foregroundColor(NeumorphicColors.text)
 
-                    Text(subtitle)
-                        .font(.system(size: scaled(12, pad: 16), weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.56))
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: scaled(12, pad: 16), weight: .medium, design: .rounded))
+                            .foregroundColor(NeumorphicColors.text.opacity(0.56))
+                    }
                 }
             }
 

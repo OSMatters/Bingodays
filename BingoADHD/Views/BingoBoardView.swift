@@ -251,13 +251,6 @@ struct BingoBoardView: View {
                     Capsule(style: .continuous)
                         .stroke(.white.opacity(0.28), lineWidth: 1)
                 )
-                .overlay(alignment: .bottom) {
-                    Capsule(style: .continuous)
-                        .fill(.white.opacity(0.16))
-                        .frame(height: 8)
-                        .padding(.horizontal, 14)
-                        .offset(y: 1)
-                }
         )
         .shadow(color: NeumorphicColors.accent.opacity(0.34), radius: 10, x: 0, y: 6)
     }
