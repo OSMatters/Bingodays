@@ -6,7 +6,7 @@ struct EditTaskSheet: View {
     @State var text: String
     @State var isForcedTask: Bool
     @State var residentWeekdays: Set<Int>
-    let onSave: (String, Bool, Set<Int>) -> Void
+    let onSave: (String, Bool, Set<Int>, Int?) -> Void
     let onDelete: () -> Void
     let onCancel: () -> Void
 
@@ -26,7 +26,8 @@ struct EditTaskSheet: View {
         text: String,
         isForcedTask: Bool,
         residentWeekdays: Set<Int>,
-        onSave: @escaping (String, Bool, Set<Int>) -> Void,
+        estimatedDurationMinutes: Int?,
+        onSave: @escaping (String, Bool, Set<Int>, Int?) -> Void,
         onDelete: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -36,7 +37,15 @@ struct EditTaskSheet: View {
         self.onSave = onSave
         self.onDelete = onDelete
         self.onCancel = onCancel
+        let initialTotalMinutes = min(max(estimatedDurationMinutes ?? 30, 1), BingoViewModel.maxCountdownMinutes)
+        _isTaskTimerEnabled = State(initialValue: estimatedDurationMinutes != nil)
+        _taskTimerHours = State(initialValue: min(initialTotalMinutes / 60, 24))
+        _taskTimerMinutes = State(initialValue: initialTotalMinutes % 60)
     }
+
+    @State private var isTaskTimerEnabled = false
+    @State private var taskTimerHours = 0
+    @State private var taskTimerMinutes = 30
 
     var body: some View {
         NavigationStack {
@@ -146,6 +155,58 @@ struct EditTaskSheet: View {
                                 }
                             }
 
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 12) {
+                                    Text(L10n.estimatedCompletionTime)
+                                        .font(.system(size: scaled(15, pad: 18), weight: .semibold, design: .rounded))
+                                        .foregroundColor(NeumorphicColors.text)
+
+                                    Spacer()
+
+                                    Toggle("", isOn: $isTaskTimerEnabled)
+                                        .labelsHidden()
+                                        .toggleStyle(NeumorphicSwitchToggleStyle())
+                                }
+
+                                Text(L10n.taskTimerEnabled)
+                                    .font(.system(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
+                                    .foregroundColor(NeumorphicColors.text.opacity(0.58))
+
+                                if isTaskTimerEnabled {
+                                    HStack(spacing: 10) {
+                                        taskTimerValuePicker(
+                                            title: L10n.hours,
+                                            valueText: L10n.hourValue(taskTimerHours)
+                                        ) {
+                                            ForEach(0...24, id: \.self) { hour in
+                                                Button(L10n.hourValue(hour)) {
+                                                    taskTimerHours = hour
+                                                    if taskTimerHours == 24 {
+                                                        taskTimerMinutes = 0
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        taskTimerValuePicker(
+                                            title: L10n.minutes,
+                                            valueText: L10n.minuteValue(taskTimerMinutes)
+                                        ) {
+                                            ForEach(taskTimerMinuteOptions, id: \.self) { minute in
+                                                Button(L10n.minuteValue(minute)) {
+                                                    taskTimerMinutes = minute
+                                                }
+                                                .disabled(taskTimerHours == 24 && minute != 0)
+                                            }
+                                        }
+                                    }
+
+                                    Text(taskTimerSummaryText)
+                                        .font(.system(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
+                                        .foregroundColor(NeumorphicColors.text.opacity(0.64))
+                                }
+                            }
+
                             if speechRecognizer.isRecording {
                                 HStack(spacing: 6) {
                                     Circle()
@@ -192,7 +253,7 @@ struct EditTaskSheet: View {
                         .foregroundColor(NeumorphicColors.text.opacity(0.8))
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.save) { onSave(text, isForcedTask, residentWeekdays) }
+                    Button(L10n.save) { onSave(text, isForcedTask, residentWeekdays, normalizedEstimatedDurationMinutes) }
                         .fontWeight(.semibold)
                         .foregroundColor(NeumorphicColors.accent)
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -208,6 +269,11 @@ struct EditTaskSheet: View {
                     .foregroundColor(NeumorphicColors.accent)
                 }
             }
+            .onChange(of: taskTimerHours) { _, newHours in
+                if newHours == 24 {
+                    taskTimerMinutes = 0
+                }
+            }
         }
     }
 
@@ -221,6 +287,49 @@ struct EditTaskSheet: View {
             (7, L10n.saturdayShort),
             (1, L10n.sundayShort)
         ]
+    }
+
+    private var taskTimerMinuteOptions: [Int] {
+        taskTimerHours == 24 ? [0] : Array(stride(from: 0, through: 55, by: 5))
+    }
+
+    private var normalizedEstimatedDurationMinutes: Int? {
+        guard isTaskTimerEnabled else { return nil }
+        let totalMinutes = min((taskTimerHours * 60) + taskTimerMinutes, BingoViewModel.maxCountdownMinutes)
+        return totalMinutes > 0 ? totalMinutes : 5
+    }
+
+    private var taskTimerSummaryText: String {
+        if taskTimerHours == 24 {
+            return L10n.taskTimerSummary24Hours
+        }
+        return L10n.taskTimerSummary(hours: taskTimerHours, minutes: taskTimerMinutes)
+    }
+
+    private func taskTimerValuePicker<Content: View>(
+        title: String,
+        valueText: String,
+        @ViewBuilder menuContent: () -> Content
+    ) -> some View {
+        Menu {
+            menuContent()
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: scaled(11, pad: 13), weight: .medium, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                Text(valueText)
+                    .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color.clear.neumorphicConvex(radius: 12))
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
     }
 }
 
