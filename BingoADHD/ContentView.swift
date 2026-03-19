@@ -87,6 +87,7 @@ struct ContentView: View {
     @State private var selectedStickerID: UUID?
     @State private var isDiaryPresented = false
     @State private var isQuickEditPresented = false
+    @State private var isClearBoardConfirmationPresented = false
     @State private var commonTasksToastMessage: String?
     @State private var isCommonTasksToastVisible = false
     @State private var hideCommonTasksToastWorkItem: DispatchWorkItem?
@@ -228,6 +229,11 @@ struct ContentView: View {
                         .padding(.horizontal, 20)
                         .transition(.move(edge: .top).combined(with: .opacity))
                         .allowsHitTesting(false)
+                }
+
+                if isClearBoardConfirmationPresented {
+                    clearBoardConfirmationOverlay
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
             }
         }
@@ -1186,24 +1192,116 @@ struct ContentView: View {
 
             Spacer()
 
-            Button {
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-                    viewModel.shuffleBoard()
-                }
-            } label: {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: isPadLayout ? 17 : 15, weight: .semibold))
-                    .foregroundColor(NeumorphicColors.accent)
-                    .frame(width: controlSize, height: controlSize)
-                    .background(
-                        conciseRaisedSurface(
-                            cornerRadius: controlSize / 2,
-                            shadowRadius: isPadLayout ? 10 : 8,
-                            offset: isPadLayout ? 5 : 4
+            HStack(spacing: isPadLayout ? 12 : 10) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        isClearBoardConfirmationPresented = true
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: isPadLayout ? 16 : 14, weight: .semibold))
+                        .foregroundColor(NeumorphicColors.accent)
+                        .frame(width: controlSize, height: controlSize)
+                        .background(
+                            conciseRaisedSurface(
+                                cornerRadius: controlSize / 2,
+                                shadowRadius: isPadLayout ? 10 : 8,
+                                offset: isPadLayout ? 5 : 4
+                            )
                         )
-                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.clearBoard)
+
+                Button {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                        viewModel.shuffleBoard()
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: isPadLayout ? 17 : 15, weight: .semibold))
+                        .foregroundColor(NeumorphicColors.accent)
+                        .frame(width: controlSize, height: controlSize)
+                        .background(
+                            conciseRaisedSurface(
+                                cornerRadius: controlSize / 2,
+                                shadowRadius: isPadLayout ? 10 : 8,
+                                offset: isPadLayout ? 5 : 4
+                            )
+                        )
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private var clearBoardConfirmationOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.16)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    isClearBoardConfirmationPresented = false
+                }
+
+            VStack(spacing: 18) {
+                VStack(spacing: 10) {
+                    Text(L10n.clearBoardConfirmationTitle)
+                        .font(.system(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+
+                    Text(L10n.clearBoardConfirmationMessage)
+                        .font(.system(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text.opacity(0.64))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 12) {
+                    Button {
+                        isClearBoardConfirmationPresented = false
+                    } label: {
+                        Text(L10n.cancel)
+                            .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+                            .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Color.clear.neumorphicConvex(radius: 18))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        isClearBoardConfirmationPresented = false
+                        viewModel.resetBoard()
+                        showCommonTasksToast(L10n.boardClearedSuccess)
+                    } label: {
+                        Text(L10n.clearBoard)
+                            .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(NeumorphicColors.bingoAccent)
+                                    .shadow(color: NeumorphicColors.bingoAccent.opacity(0.25), radius: 10, x: 0, y: 4)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: 320)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(NeumorphicColors.background)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .stroke(NeumorphicColors.lightShadow.opacity(0.42), lineWidth: 1)
+                    )
+                    .shadow(color: NeumorphicColors.darkShadow.opacity(0.18), radius: 16, x: 0, y: 8)
+                    .shadow(color: Color.white.opacity(0.72), radius: 10, x: -4, y: -4)
+            )
+            .padding(.horizontal, 28)
         }
     }
 
@@ -2185,10 +2283,16 @@ private struct QuickEditView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
             }
-            .navigationTitle(L10n.quickEdit)
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(NeumorphicColors.background, for: .navigationBar)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(L10n.quickEdit)
+                        .font(.system(size: scaled(20, pad: 23), weight: .bold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+                }
+
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.done) {
                         applySelectionToBoard()
@@ -2355,7 +2459,15 @@ private struct QuickEditView: View {
                 .lineLimit(1)
                 .focused($focusedField, equals: .task(index))
 
-            Spacer(minLength: 0)
+            Button {
+                toggleSelection(for: key)
+            } label: {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: scaled(13, pad: 15), weight: .bold))
+                    .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
 
             Button {
                 focusedField = nil
@@ -2399,6 +2511,18 @@ private struct QuickEditView: View {
                     .font(.system(size: scaled(16, pad: 22), weight: .bold, design: .rounded))
                     .foregroundColor(NeumorphicColors.text)
                     .focused($focusedField, equals: .groupName(group.id))
+
+                Button {
+                    toggleGroupSelection(group)
+                } label: {
+                    Image(systemName: groupSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: scaled(15, pad: 17), weight: .bold))
+                        .foregroundColor(groupSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
+                .disabled(groupSelectableTaskKeys(group).isEmpty)
+                .opacity(groupSelectableTaskKeys(group).isEmpty ? 0.35 : 1)
 
                 Spacer()
 

@@ -109,7 +109,7 @@ enum L10n {
     }
     static var tasks: String { tr("Tasks", zhHans: "任务") }
     static var groups: String { tr("Groups", zhHans: "分组") }
-    static var myTasksHint: String { tr("Tap empty space on a task or group card to select it. Tap again to unselect.", zhHans: "点任务或分组卡片空白处可勾选，再点可取消。") }
+    static var myTasksHint: String { tr("Edit tasks and groups here, choose what to use, then tap Save to apply to the board.", zhHans: "在这里编辑任务和分组，勾选要使用的内容，点左上角保存应用到棋盘。") }
     static var tasksSectionHint: String { tr("Save the quick tasks you use most often.", zhHans: "保存你最常用的快捷任务。") }
     static var groupsSectionHint: String { tr("Bundle a few tasks together so you can apply them in one tap.", zhHans: "把多个任务打包成分组，方便一键应用。") }
     static var noTasksYet: String { tr("You haven't added any tasks yet.", zhHans: "你还没有添加任何任务。") }
@@ -162,6 +162,10 @@ enum L10n {
     static var pointsUnit: String { tr("pts", zhHans: "积分") }
     static var boardCountdownTitle: String { tr("Bingo Board Countdown", zhHans: "Bingo 面板倒计时") }
     static var boardCountdownDescription: String { tr("Auto-clear the entire board when time runs out.", zhHans: "时间结束后自动清空整个面板。") }
+    static var clearBoard: String { tr("Clear Board", zhHans: "清空棋盘") }
+    static var clearBoardConfirmationTitle: String { tr("Clear board?", zhHans: "清空棋盘？") }
+    static var clearBoardConfirmationMessage: String { tr("This will remove all tasks and completion states on the current board.", zhHans: "这会清除当前棋盘的所有任务和完成状态。") }
+    static var boardClearedSuccess: String { tr("Board cleared", zhHans: "棋盘已清空") }
     static var hours: String { tr("Hours", zhHans: "小时") }
     static var minutes: String { tr("Minutes", zhHans: "分钟") }
     static var residentDays: String { tr("Repeat Days", zhHans: "常驻时间") }
