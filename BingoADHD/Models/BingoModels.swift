@@ -125,6 +125,12 @@ enum L10n {
     static func selectedTaskCount(_ count: Int, usedCount: Int) -> String {
         tr("Selected \(count) (\(usedCount) used for current board)", zhHans: "已选 \(count) 个（当前尺寸使用前 \(usedCount) 个）")
     }
+    static func quickEditSelectionSummary(selected: Int, missing: Int) -> String {
+        if missing > 0 {
+            return tr("Selected \(selected), need \(missing)", zhHans: "已选\(selected)，差\(missing)")
+        }
+        return tr("Selected \(selected), full", zhHans: "已选\(selected)，已满")
+    }
     static func quickEditAppliedSuccess(_ count: Int) -> String {
         tr("Applied \(count) tasks", zhHans: "已应用 \(count) 个任务")
     }
