@@ -2107,13 +2107,6 @@ private struct QuickEditView: View {
         isPadLayout ? (pad ?? base * 1.18) : base
     }
 
-    private var taskColumns: [GridItem] {
-        if isPadLayout {
-            return Array(repeating: GridItem(.flexible(), spacing: 18), count: 2)
-        }
-        return Array(repeating: GridItem(.flexible(), spacing: 14), count: 2)
-    }
-
     private var groupColumns: [GridItem] {
         if isPadLayout {
             return [GridItem(.flexible(), spacing: 18)]
@@ -2163,6 +2156,7 @@ private struct QuickEditView: View {
                     VStack(alignment: .leading, spacing: 24) {
                         quickEditControlsCard
                         tasksSection
+                            .padding(.top, -30)
                         groupsSection
                         hintCard
                     }
@@ -2342,7 +2336,7 @@ private struct QuickEditView: View {
                     action: library.tasks.count < AppSettings.maxCommonTasks ? appendTask : nil
                 )
 
-                LazyVGrid(columns: taskColumns, spacing: 14) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 10)], spacing: 10) {
                     ForEach(library.tasks.indices, id: \.self) { index in
                         taskCard(for: index)
                     }
@@ -2375,60 +2369,50 @@ private struct QuickEditView: View {
         let key = "task-\(index)"
         let isSelected = selectedTaskKeys.contains(key)
 
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center) {
-                Text(L10n.task)
-                    .font(.system(size: scaled(11, pad: 15), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.5))
-
-                Button {
-                    toggleSelection(for: key)
-                } label: {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: scaled(15, pad: 17), weight: .bold))
-                        .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                Button {
-                    focusedField = nil
-                    deleteConfirmationTarget = .task(index)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: scaled(9, pad: 10), weight: .bold))
-                        .foregroundColor(NeumorphicColors.accent)
-                        .frame(width: 22, height: 22)
-                        .background(
-                            Circle()
-                                .fill(NeumorphicColors.background)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-
+        return HStack(spacing: 8) {
             TextField(L10n.taskNumber(index + 1), text: taskBinding(for: index), axis: .vertical)
-                .font(.system(size: scaled(16, pad: 22), weight: .semibold, design: .rounded))
+                .font(.system(size: scaled(13, pad: 17), weight: .medium, design: .rounded))
                 .foregroundColor(NeumorphicColors.text)
-                .lineLimit(3)
+                .lineLimit(1)
                 .focused($focusedField, equals: .task(index))
 
-            Spacer(minLength: 0)
+            Button {
+                toggleSelection(for: key)
+            } label: {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: scaled(13, pad: 15), weight: .bold))
+                    .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                focusedField = nil
+                deleteConfirmationTarget = .task(index)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: scaled(9, pad: 10), weight: .bold))
+                    .foregroundColor(NeumorphicColors.accent)
+                    .frame(width: 18, height: 18)
+                    .neumorphicConvex(radius: 9)
+            }
+            .buttonStyle(.plain)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, minHeight: isPadLayout ? 124 : 112, alignment: .topLeading)
-        .background(Color.clear.neumorphicConvex(radius: 24))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .frame(minHeight: 42)
+        .background(Color.clear.neumorphicConvex(radius: 14))
         .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(NeumorphicColors.accent.opacity(isSelected ? 0.12 : 0))
+                .allowsHitTesting(false)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(NeumorphicColors.accent.opacity(isSelected ? 0.4 : 0), lineWidth: 1.2)
+                .allowsHitTesting(false)
         }
-        .contentShape(RoundedRectangle(cornerRadius: 20))
+        .contentShape(RoundedRectangle(cornerRadius: 14))
         .onTapGesture {
             focusedField = .task(index)
         }
@@ -2494,10 +2478,12 @@ private struct QuickEditView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(NeumorphicColors.accent.opacity(groupSelected ? 0.12 : 0))
+                .allowsHitTesting(false)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(NeumorphicColors.accent.opacity(groupSelected ? 0.4 : 0), lineWidth: 1.2)
+                .allowsHitTesting(false)
         }
     }
 
