@@ -68,6 +68,7 @@ enum L10n {
     static var streakDays: String { tr("Streak Days", zhHans: "连胜天数") }
     static var bingoCount: String { tr("Bingo Count", zhHans: "完成任务") }
     static var countdownEndedTitle: String { tr("Task Countdown Ended", zhHans: "倒计时结束") }
+    static var newDayResetMessage: String { tr("A new day started. Yesterday's completion states were reset, and your points were kept.", zhHans: "新的一天已开始，昨日完成状态已重置，积分已保留。") }
     static var ok: String { tr("OK", zhHans: "好的") }
     static var setBoardCountdown: String { tr("Countdown", zhHans: "倒计时") }
     static var myTasks: String { tr("My Tasks", zhHans: "我的任务") }
@@ -87,6 +88,18 @@ enum L10n {
     static var themeColor: String { tr("Theme Color", zhHans: "主题颜色") }
     static var myPoints: String { tr("My Points", zhHans: "我的积分") }
     static var stickers: String { tr("Stickers", zhHans: "贴纸") }
+    static var myRewards: String { tr("My Rewards", zhHans: "我的奖励") }
+    static var addReward: String { tr("Add Reward", zhHans: "添加奖励") }
+    static var editReward: String { tr("Edit Reward", zhHans: "编辑奖励") }
+    static var rewardTitle: String { tr("Reward Title", zhHans: "奖励名称") }
+    static var rewardPoints: String { tr("Required Points", zhHans: "所需积分") }
+    static var rewardExampleHint: String { tr("Example: Milk Tea", zhHans: "例如：喝一杯奶茶") }
+    static var rewardPointsHint: String { tr("Example: 50", zhHans: "例如：50") }
+    static var noRewardsYet: String { tr("Create your own rewards and redeem them with points.", zhHans: "创建你自己的奖励，并用积分进行兑换。") }
+    static var rewardRedeemed: String { tr("Redeemed", zhHans: "已兑换") }
+    static func redeemedCount(_ count: Int) -> String {
+        tr("Redeemed x\(count)", zhHans: "已兑换 x\(count)")
+    }
     static var done: String { tr("Done", zhHans: "完成") }
     static var addToHome: String { tr("Add to Home", zhHans: "添加到首页") }
     static var redeem: String { tr("Redeem", zhHans: "兑换") }
@@ -97,8 +110,22 @@ enum L10n {
     static var tasks: String { tr("Tasks", zhHans: "任务") }
     static var groups: String { tr("Groups", zhHans: "分组") }
     static var myTasksHint: String { tr("Tasks and groups you add here will appear in Quick Add when you edit a Bingo tile.", zhHans: "你在这里添加的任务和分组，会在编辑 Bingo 格子时显示在 Quick Add 中。") }
+    static var tasksSectionHint: String { tr("Save the quick tasks you use most often.", zhHans: "保存你最常用的快捷任务。") }
+    static var groupsSectionHint: String { tr("Bundle a few tasks together so you can apply them in one tap.", zhHans: "把多个任务打包成分组，方便一键应用。") }
+    static var noTasksYet: String { tr("You haven't added any tasks yet.", zhHans: "你还没有添加任何任务。") }
+    static var noGroupsYet: String { tr("You haven't added any groups yet.", zhHans: "你还没有添加任何分组。") }
     static var addTask: String { tr("Add Task", zhHans: "添加任务") }
     static var addGroup: String { tr("Add Group", zhHans: "添加分组") }
+    static var taskAddedSuccess: String { tr("Task added", zhHans: "任务已添加") }
+    static var groupAddedSuccess: String { tr("Group added", zhHans: "分组已添加") }
+    static var tasksAndGroupsAddedSuccess: String { tr("Changes saved", zhHans: "已保存更改") }
+    static var tasksSavedSuccess: String { tr("Saved successfully", zhHans: "保存成功") }
+    static var deleteConfirmationTitle: String { tr("Delete", zhHans: "删除") }
+    static var deleteTaskConfirmationMessage: String { tr("This task will be removed from My Tasks.", zhHans: "该任务将从「我的任务」中移除。") }
+    static var deleteGroupConfirmationMessage: String { tr("This group will be removed from My Tasks.", zhHans: "该分组将从「我的任务」中移除。") }
+    static var taskDeletedSuccess: String { tr("Task deleted", zhHans: "任务已删除") }
+    static var groupDeletedSuccess: String { tr("Group deleted", zhHans: "分组已删除") }
+    static var tasksAndGroupsDeletedSuccess: String { tr("Changes deleted", zhHans: "已删除更改") }
     static var groupName: String { tr("Group Name", zhHans: "分组名称") }
     static func taskNumber(_ index: Int) -> String { tr("Task \(index)", zhHans: "任务 \(index)") }
     static var task: String { tr("Task", zhHans: "任务") }
@@ -116,6 +143,12 @@ enum L10n {
     static var boardCountdownDescription: String { tr("Auto-clear the entire board when time runs out.", zhHans: "时间结束后自动清空整个面板。") }
     static var hours: String { tr("Hours", zhHans: "小时") }
     static var minutes: String { tr("Minutes", zhHans: "分钟") }
+    static var residentDays: String { tr("Repeat Days", zhHans: "常驻时间") }
+    static var alwaysVisible: String { tr("Always", zhHans: "每天") }
+    static var taskScheduledTitle: String { tr("Task Scheduled", zhHans: "任务已安排") }
+    static func taskScheduledMessage(_ days: String) -> String {
+        tr("This task will appear on \(days).", zhHans: "此任务会在 \(days) 显示。")
+    }
     static var cancel: String { tr("Cancel", zhHans: "取消") }
     static var save: String { tr("Save", zhHans: "保存") }
     static func boardWillClearIn(hours: Int, minutes: Int) -> String {
@@ -128,16 +161,35 @@ enum L10n {
     static var forceCompletion: String { tr("Force Completion", zhHans: "强制完成") }
     static var recording: String { tr("Recording...", zhHans: "正在录音...") }
     static var quickAdd: String { tr("Quick Add", zhHans: "快速添加") }
+    static var editTask: String { tr("Edit Task", zhHans: "编辑任务") }
     static var deleteTask: String { tr("Delete Task", zhHans: "删除任务") }
+    static var deleteReward: String { tr("Delete Reward", zhHans: "删除奖励") }
+    static var taskDeleted: String { tr("Task deleted", zhHans: "任务已删除") }
+    static var undo: String { tr("Undo", zhHans: "撤销") }
     static var unableToApplyGroup: String { tr("Unable to Apply Group", zhHans: "无法应用分组") }
     static var applyGroupFailedMessage: String { tr("This group can't be applied because there aren't enough empty tiles.", zhHans: "空白格子数量不足，无法应用这个分组。") }
     static var expiredCountdownMessage: String { tr("Your Bingo board was cleared because its countdown ended.", zhHans: "你的 Bingo 面板已因倒计时结束被清空。") }
     static var groupDefaultName: String { tr("Group", zhHans: "分组") }
+    static var boardInteractionGuide: String {
+        tr(
+            "Tap to complete. Long press and release to edit or delete. Long press and drag to reorder.",
+            zhHans: "单击完成，长按松手可编辑/删除，长按拖动可排序"
+        )
+    }
+    static var mondayShort: String { tr("Mon", zhHans: "周一") }
+    static var tuesdayShort: String { tr("Tue", zhHans: "周二") }
+    static var wednesdayShort: String { tr("Wed", zhHans: "周三") }
+    static var thursdayShort: String { tr("Thu", zhHans: "周四") }
+    static var fridayShort: String { tr("Fri", zhHans: "周五") }
+    static var saturdayShort: String { tr("Sat", zhHans: "周六") }
+    static var sundayShort: String { tr("Sun", zhHans: "周日") }
 }
 
 struct BingoCell: Identifiable, Codable, Equatable {
     let id: UUID
     var text: String
+    var residentTaskText: String?
+    var residentWeekdays: Set<Int>
     var isCompleted: Bool
     var isForced: Bool
     var countdownEndsAt: Date?
@@ -145,14 +197,26 @@ struct BingoCell: Identifiable, Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id
         case text
+        case residentTaskText
+        case residentWeekdays
         case isCompleted
         case isForced
         case countdownEndsAt
     }
 
-    init(id: UUID = UUID(), text: String = "", isCompleted: Bool = false, isForced: Bool = false, countdownEndsAt: Date? = nil) {
+    init(
+        id: UUID = UUID(),
+        text: String = "",
+        residentTaskText: String? = nil,
+        residentWeekdays: Set<Int> = [],
+        isCompleted: Bool = false,
+        isForced: Bool = false,
+        countdownEndsAt: Date? = nil
+    ) {
         self.id = id
         self.text = text
+        self.residentTaskText = residentTaskText
+        self.residentWeekdays = residentWeekdays
         self.isCompleted = isCompleted
         self.isForced = isForced
         self.countdownEndsAt = countdownEndsAt
@@ -162,6 +226,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         text = try container.decode(String.self, forKey: .text)
+        residentTaskText = try container.decodeIfPresent(String.self, forKey: .residentTaskText)
+        residentWeekdays = try container.decodeIfPresent(Set<Int>.self, forKey: .residentWeekdays) ?? []
         isCompleted = try container.decode(Bool.self, forKey: .isCompleted)
         isForced = try container.decodeIfPresent(Bool.self, forKey: .isForced) ?? false
         countdownEndsAt = try container.decodeIfPresent(Date.self, forKey: .countdownEndsAt)
@@ -169,6 +235,39 @@ struct BingoCell: Identifiable, Codable, Equatable {
 
     var isEmpty: Bool {
         text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasStoredTask: Bool {
+        !storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var storedTaskText: String {
+        let recurring = residentTaskText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !recurring.isEmpty {
+            return recurring
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var hasResidentSchedule: Bool {
+        !residentWeekdays.isEmpty && !(residentTaskText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
+    func isResidentActive(on date: Date, calendar: Calendar = .current) -> Bool {
+        guard hasResidentSchedule else { return true }
+        let weekday = calendar.component(.weekday, from: date)
+        return residentWeekdays.contains(weekday)
+    }
+
+    func projectedForDisplay(on date: Date, calendar: Calendar = .current) -> BingoCell {
+        guard hasResidentSchedule else { return self }
+
+        var projected = self
+        let activeToday = isResidentActive(on: date, calendar: calendar)
+        projected.text = activeToday ? storedTaskText : ""
+        projected.isCompleted = activeToday ? isCompleted : false
+        projected.countdownEndsAt = nil
+        return projected
     }
 }
 
@@ -200,6 +299,25 @@ struct BingoDiaryEntry: Identifiable, Codable {
     let allTasksCompleted: Bool
 }
 
+struct DailyRewardState: Codable, Equatable {
+    var dateKey: String
+    var rewardedCellIDs: Set<UUID>
+    var peakCompletedLineCount: Int
+    var fullBoardRewardGranted: Bool
+
+    init(
+        dateKey: String,
+        rewardedCellIDs: Set<UUID> = [],
+        peakCompletedLineCount: Int = 0,
+        fullBoardRewardGranted: Bool = false
+    ) {
+        self.dateKey = dateKey
+        self.rewardedCellIDs = rewardedCellIDs
+        self.peakCompletedLineCount = peakCompletedLineCount
+        self.fullBoardRewardGranted = fullBoardRewardGranted
+    }
+}
+
 struct MyTaskGroup: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
@@ -222,37 +340,139 @@ struct MyTasksLibrary: Codable, Equatable {
     }
 }
 
+struct CustomReward: Identifiable, Codable, Equatable {
+    let id: UUID
+    var title: String
+    var requiredPoints: Int
+    var redemptionCount: Int
+    var totalSpentPoints: Int
+    var isArchived: Bool
+
+    init(
+        id: UUID = UUID(),
+        title: String,
+        requiredPoints: Int,
+        redemptionCount: Int = 0,
+        totalSpentPoints: Int = 0,
+        isArchived: Bool = false
+    ) {
+        self.id = id
+        self.title = title
+        self.requiredPoints = requiredPoints
+        self.redemptionCount = redemptionCount
+        self.totalSpentPoints = totalSpentPoints
+        self.isArchived = isArchived
+    }
+}
+
 enum StickerKind: String, CaseIterable, Codable, Identifiable {
     case cowCat
+    case orangeCat
+    case pomeranian
+    case dachshund
+    case toyPoodle
+    case yorkshire
+    case akita
+    case goldenRetriever
     case ragdollCat
+    case maineCoon
+    case alaskanMalamute
+    case chineseVillageDog
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .cowCat: return L10n.tr("Cow Cat", zhHans: "奶牛猫")
+        case .orangeCat: return L10n.tr("Orange Cat", zhHans: "橘猫")
+        case .pomeranian: return L10n.tr("Pomeranian", zhHans: "博美")
+        case .dachshund: return L10n.tr("Dachshund", zhHans: "腊肠狗")
+        case .toyPoodle: return L10n.tr("Toy Poodle", zhHans: "泰迪")
+        case .yorkshire: return L10n.tr("Yorkshire", zhHans: "约克夏")
+        case .akita: return L10n.tr("Akita", zhHans: "秋田")
+        case .goldenRetriever: return L10n.tr("Golden Retriever", zhHans: "金毛")
         case .ragdollCat: return L10n.tr("Ragdoll Cat", zhHans: "布偶猫")
+        case .maineCoon: return L10n.tr("Maine Coon", zhHans: "缅因猫")
+        case .alaskanMalamute: return L10n.tr("Alaskan Malamute", zhHans: "阿拉斯加")
+        case .chineseVillageDog: return L10n.tr("Chinese Village Dog", zhHans: "中华田园犬")
         }
     }
 
     var unlockedImageName: String {
         switch self {
         case .cowCat: return "CowCatSticker"
+        case .orangeCat: return "OrangeCatSticker"
+        case .pomeranian: return "PomeranianSticker"
+        case .dachshund: return "DachshundSticker"
+        case .toyPoodle: return "ToyPoodleSticker"
+        case .yorkshire: return "YorkshireSticker"
+        case .akita: return "AkitaSticker"
+        case .goldenRetriever: return "GoldenRetrieverSticker"
         case .ragdollCat: return "RagdollCatSticker"
+        case .maineCoon: return "MaineCoonSticker"
+        case .alaskanMalamute: return "AlaskanMalamuteSticker"
+        case .chineseVillageDog: return "ChineseVillageDogSticker"
         }
     }
 
     var lockedImageName: String {
         switch self {
         case .cowCat: return "CowCatStickerLocked"
+        case .orangeCat: return "OrangeCatStickerLocked"
+        case .pomeranian: return "PomeranianStickerLocked"
+        case .dachshund: return "DachshundStickerLocked"
+        case .toyPoodle: return "ToyPoodleStickerLocked"
+        case .yorkshire: return "YorkshireStickerLocked"
+        case .akita: return "AkitaStickerLocked"
+        case .goldenRetriever: return "GoldenRetrieverStickerLocked"
         case .ragdollCat: return "RagdollCatStickerLocked"
+        case .maineCoon: return "MaineCoonStickerLocked"
+        case .alaskanMalamute: return "AlaskanMalamuteStickerLocked"
+        case .chineseVillageDog: return "ChineseVillageDogStickerLocked"
         }
     }
 
     var requiredPoints: Int {
+        20
+    }
+
+    var homeDisplayWidth: CGFloat {
         switch self {
-        case .cowCat: return 10
-        case .ragdollCat: return 50
+        case .cowCat:
+            return 86
+        case .ragdollCat, .maineCoon, .alaskanMalamute, .goldenRetriever, .chineseVillageDog:
+            return 100
+        default:
+            return 92
+        }
+    }
+
+    var defaultPlacement: (xRatio: Double, yRatio: Double) {
+        switch self {
+        case .cowCat:
+            return (0.22, 0.24)
+        case .orangeCat:
+            return (0.48, 0.18)
+        case .pomeranian:
+            return (0.78, 0.24)
+        case .dachshund:
+            return (0.18, 0.46)
+        case .toyPoodle:
+            return (0.82, 0.48)
+        case .yorkshire:
+            return (0.22, 0.70)
+        case .akita:
+            return (0.50, 0.74)
+        case .goldenRetriever:
+            return (0.78, 0.70)
+        case .ragdollCat:
+            return (0.50, 0.30)
+        case .maineCoon:
+            return (0.34, 0.56)
+        case .alaskanMalamute:
+            return (0.66, 0.56)
+        case .chineseVillageDog:
+            return (0.50, 0.88)
         }
     }
 }
@@ -306,14 +526,18 @@ enum AppSettings {
     static let commonTasksKey = "common_tasks"
     static let boardCountdownKey = "board_countdown_v1"
     static let totalPointsKey = "total_points_v2"
+    static let lifetimePointsKey = "lifetime_points_v1"
+    static let dailyRewardStateKey = "daily_reward_state_v1"
     static let redeemedStickersKey = "redeemed_stickers_v1"
     static let redeemedStickerOrderKey = "redeemed_sticker_order_v1"
     static let stickerInventoryCountsKey = "sticker_inventory_counts_v1"
     static let homeStickerPlacementsKey = "home_sticker_placements_v1"
+    static let customRewardsKey = "custom_rewards_v1"
     static let maxCommonTasks = 8
     static let maxTaskGroups = 3
     static let maxTasksPerGroup = 5
     static let maxTaskLength = 20
+    static let maxRewardTitleLength = 30
 
     static var isHapticsEnabled: Bool {
         let defaults = UserDefaults.standard
@@ -509,6 +733,58 @@ enum PointsStore {
 
     static func saveTotalPoints(_ points: Int) {
         UserDefaults.standard.set(points, forKey: AppSettings.totalPointsKey)
+    }
+
+    static func loadLifetimePoints() -> Int? {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: AppSettings.lifetimePointsKey) != nil else { return nil }
+        return defaults.integer(forKey: AppSettings.lifetimePointsKey)
+    }
+
+    static func saveLifetimePoints(_ points: Int) {
+        UserDefaults.standard.set(points, forKey: AppSettings.lifetimePointsKey)
+    }
+
+    static func loadDailyRewardState() -> DailyRewardState? {
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: AppSettings.dailyRewardStateKey),
+              let state = try? JSONDecoder().decode(DailyRewardState.self, from: data) else {
+            return nil
+        }
+        return state
+    }
+
+    static func saveDailyRewardState(_ state: DailyRewardState) {
+        guard let data = try? JSONEncoder().encode(state) else { return }
+        UserDefaults.standard.set(data, forKey: AppSettings.dailyRewardStateKey)
+    }
+
+    static func clearDailyRewardState() {
+        UserDefaults.standard.removeObject(forKey: AppSettings.dailyRewardStateKey)
+    }
+
+    static func dateKey(for date: Date, calendar: Calendar = .current) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        let year = components.year ?? 0
+        let month = components.month ?? 0
+        let day = components.day ?? 0
+        return String(format: "%04d-%02d-%02d", year, month, day)
+    }
+}
+
+enum RewardStore {
+    static func loadRewards() -> [CustomReward] {
+        guard let data = UserDefaults.standard.data(forKey: AppSettings.customRewardsKey),
+              let rewards = try? JSONDecoder().decode([CustomReward].self, from: data) else {
+            return []
+        }
+
+        return rewards
+    }
+
+    static func saveRewards(_ rewards: [CustomReward]) {
+        guard let data = try? JSONEncoder().encode(rewards) else { return }
+        UserDefaults.standard.set(data, forKey: AppSettings.customRewardsKey)
     }
 }
 

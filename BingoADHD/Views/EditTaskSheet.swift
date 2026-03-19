@@ -2,10 +2,12 @@ import SwiftUI
 import Speech
 
 struct EditTaskSheet: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State var text: String
     @State var isForcedTask: Bool
+    @State var residentWeekdays: Set<Int>
     let onApplyGroup: ([String]) -> Bool
-    let onSave: (String, Bool) -> Void
+    let onSave: (String, Bool, Set<Int>) -> Void
     let onDelete: () -> Void
     let onCancel: () -> Void
 
@@ -14,9 +16,26 @@ struct EditTaskSheet: View {
     @AppStorage(AppSettings.hapticsEnabledKey) private var isHapticsEnabled = true
     @State private var showGroupApplyAlert = false
 
-    init(text: String, isForcedTask: Bool, onApplyGroup: @escaping ([String]) -> Bool, onSave: @escaping (String, Bool) -> Void, onDelete: @escaping () -> Void, onCancel: @escaping () -> Void) {
+    private var isPadLayout: Bool {
+        horizontalSizeClass == .regular
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.18) : base
+    }
+
+    init(
+        text: String,
+        isForcedTask: Bool,
+        residentWeekdays: Set<Int>,
+        onApplyGroup: @escaping ([String]) -> Bool,
+        onSave: @escaping (String, Bool, Set<Int>) -> Void,
+        onDelete: @escaping () -> Void,
+        onCancel: @escaping () -> Void
+    ) {
         _text = State(initialValue: text)
         _isForcedTask = State(initialValue: isForcedTask)
+        _residentWeekdays = State(initialValue: residentWeekdays)
         self.onApplyGroup = onApplyGroup
         self.onSave = onSave
         self.onDelete = onDelete
@@ -24,19 +43,24 @@ struct EditTaskSheet: View {
     }
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ZStack {
-                NeumorphicColors.background.ignoresSafeArea()
+                NeumorphicColors.background
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        isTextFieldFocused = false
+                    }
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 24) {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(alignment: .top, spacing: 16) {
                                 TextField(L10n.enterTaskForDay, text: $text, axis: .vertical)
-                                    .font(.body)
+                                    .font(.system(size: scaled(17, pad: 20), weight: .medium, design: .rounded))
                                     .foregroundColor(NeumorphicColors.text)
                                     .padding(16)
-                                    .frame(minHeight: 74, alignment: .topLeading)
+                                    .frame(minHeight: isPadLayout ? 84 : 74, alignment: .topLeading)
                                     .background(Color.clear.neumorphicConcave(radius: 12))
                                     .focused($isTextFieldFocused)
                                     .lineLimit(3...5)
@@ -59,12 +83,12 @@ struct EditTaskSheet: View {
                                     }
                                 } label: {
                                     Image(systemName: speechRecognizer.isRecording ? "mic.fill" : "mic")
-                                        .font(.system(size: 20, weight: .regular))
+                                        .font(.system(size: scaled(20, pad: 24), weight: .regular))
                                         .foregroundColor(speechRecognizer.isRecording ? NeumorphicColors.bingoAccent : NeumorphicColors.accent)
-                                        .frame(width: 42, height: 42)
+                                        .frame(width: isPadLayout ? 48 : 42, height: isPadLayout ? 48 : 42)
                                         .background(
                                             Color.clear
-                                                .neumorphicConvex(radius: 21, isPressed: speechRecognizer.isRecording)
+                                                .neumorphicConvex(radius: isPadLayout ? 24 : 21, isPressed: speechRecognizer.isRecording)
                                         )
                                         .animation(.easeInOut(duration: 0.3), value: speechRecognizer.isRecording)
                                 }
@@ -72,7 +96,7 @@ struct EditTaskSheet: View {
 
                             HStack(spacing: 12) {
                                 Text(L10n.forceCompletion)
-                                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                                    .font(.system(size: scaled(15, pad: 18), weight: .semibold, design: .rounded))
                                     .foregroundColor(NeumorphicColors.text)
 
                                 Spacer()
@@ -80,6 +104,50 @@ struct EditTaskSheet: View {
                                 Toggle("", isOn: $isForcedTask)
                                     .labelsHidden()
                                     .toggleStyle(NeumorphicSwitchToggleStyle())
+                            }
+
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 8) {
+                                    Text(L10n.residentDays)
+                                        .font(.system(size: scaled(15, pad: 18), weight: .semibold, design: .rounded))
+                                        .foregroundColor(NeumorphicColors.text)
+
+                                    if residentWeekdays.isEmpty {
+                                        Text(L10n.alwaysVisible)
+                                            .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
+                                            .foregroundColor(NeumorphicColors.text.opacity(0.52))
+                                    }
+                                }
+
+                                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                                    ForEach(weekdayOptions, id: \.value) { option in
+                                        Button {
+                                            if residentWeekdays.contains(option.value) {
+                                                residentWeekdays.remove(option.value)
+                                            } else {
+                                                residentWeekdays.insert(option.value)
+                                            }
+                                        } label: {
+                                            Text(option.label)
+                                                .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
+                                                .foregroundColor(residentWeekdays.contains(option.value) ? .white : NeumorphicColors.text)
+                                                .frame(maxWidth: .infinity)
+                                                .padding(.vertical, 10)
+                                                .background(
+                                                    Group {
+                                                        if residentWeekdays.contains(option.value) {
+                                                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                                .fill(NeumorphicColors.accent)
+                                                                .shadow(color: NeumorphicColors.accent.opacity(0.25), radius: 10, x: 0, y: 4)
+                                                        } else {
+                                                            Color.clear.neumorphicConvex(radius: 10)
+                                                        }
+                                                    }
+                                                )
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
                             }
 
                             if speechRecognizer.isRecording {
@@ -90,7 +158,7 @@ struct EditTaskSheet: View {
                                         .scaleEffect(speechRecognizer.isRecording ? 1.2 : 0.8)
                                         .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: speechRecognizer.isRecording)
                                     Text(L10n.recording)
-                                        .font(.caption)
+                                        .font(.system(size: scaled(12, pad: 14), design: .rounded))
                                         .foregroundColor(NeumorphicColors.text.opacity(0.8))
                                 }
                                 .transition(.opacity)
@@ -99,13 +167,13 @@ struct EditTaskSheet: View {
 
                         VStack(alignment: .leading, spacing: 12) {
                             Text(L10n.quickAdd)
-                                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                                .font(.system(size: scaled(15, pad: 18), weight: .semibold, design: .rounded))
                                 .foregroundColor(NeumorphicColors.text)
 
                             if !quickAddGroups.isEmpty {
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text(L10n.groups)
-                                        .font(.caption.weight(.semibold))
+                                        .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
                                         .foregroundColor(NeumorphicColors.text.opacity(0.66))
 
                                     HStack(spacing: 12) {
@@ -117,7 +185,7 @@ struct EditTaskSheet: View {
                                                 }
                                             } label: {
                                                 Text(group.name)
-                                                    .font(.caption.weight(.semibold))
+                                                    .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
                                                     .foregroundColor(NeumorphicColors.text)
                                                     .lineLimit(1)
                                                     .multilineTextAlignment(.center)
@@ -134,7 +202,7 @@ struct EditTaskSheet: View {
 
                             VStack(alignment: .leading, spacing: 10) {
                                 Text(L10n.tasks)
-                                    .font(.caption.weight(.semibold))
+                                    .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
                                     .foregroundColor(NeumorphicColors.text.opacity(0.66))
 
                                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 12) {
@@ -143,7 +211,7 @@ struct EditTaskSheet: View {
                                             text = task
                                         } label: {
                                             Text(task)
-                                                .font(.caption)
+                                                .font(.system(size: scaled(12, pad: 14), design: .rounded))
                                                 .foregroundColor(NeumorphicColors.text)
                                                 .frame(maxWidth: .infinity)
                                                 .padding(.vertical, 10)
@@ -160,7 +228,7 @@ struct EditTaskSheet: View {
                                 onDelete()
                             } label: {
                                 Label(L10n.deleteTask, systemImage: "trash")
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.system(size: scaled(15, pad: 17), weight: .semibold, design: .rounded))
                                     .foregroundColor(NeumorphicColors.bingoAccent)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 14)
@@ -169,10 +237,13 @@ struct EditTaskSheet: View {
                             .padding(.top, 16)
                         }
                     }
+                    .frame(maxWidth: isPadLayout ? 720 : .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.horizontal, 24)
                     .padding(.top, 82)
                     .padding(.bottom, 40)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -183,13 +254,22 @@ struct EditTaskSheet: View {
                         .foregroundColor(NeumorphicColors.text.opacity(0.8))
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.save) { onSave(text, isForcedTask) }
+                    Button(L10n.save) { onSave(text, isForcedTask, residentWeekdays) }
                         .fontWeight(.semibold)
                         .foregroundColor(NeumorphicColors.accent)
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+
+                    Button(L10n.done) {
+                        isTextFieldFocused = false
+                    }
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.accent)
+                }
             }
-            .onAppear { isTextFieldFocused = true }
             .alert(L10n.unableToApplyGroup, isPresented: $showGroupApplyAlert) {
                 Button(L10n.ok, role: .cancel) { }
             } message: {
@@ -217,6 +297,18 @@ struct EditTaskSheet: View {
 
     private var quickAddGroups: [MyTaskGroup] {
         CommonTasksStore.loadGroups().filter { !$0.tasks.isEmpty }
+    }
+
+    private var weekdayOptions: [(value: Int, label: String)] {
+        [
+            (2, L10n.mondayShort),
+            (3, L10n.tuesdayShort),
+            (4, L10n.wednesdayShort),
+            (5, L10n.thursdayShort),
+            (6, L10n.fridayShort),
+            (7, L10n.saturdayShort),
+            (1, L10n.sundayShort)
+        ]
     }
 }
 

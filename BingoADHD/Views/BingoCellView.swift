@@ -1,198 +1,221 @@
 import SwiftUI
 
 struct BingoCellView: View {
+    private static let longPressDuration = 0.28
+    private static let dragThreshold: CGFloat = 12
+    private static let tapThreshold: CGFloat = 10
+
     let cell: BingoCell
     let isInBingoLine: Bool
     let isLocked: Bool
     let cellSize: CGFloat
     let isFirstCell: Bool
+    let isInteractive: Bool
+    let isDragSource: Bool
+    let isDropTarget: Bool
     let onTap: () -> Void
-    let onLongPress: () -> Void
+    let onLongPressRelease: () -> Void
+    let onDragStart: () -> Void
+    let onDragMove: (CGSize) -> Void
+    let onDragEnd: (CGSize) -> Void
 
     @AppStorage(AppSettings.hapticsEnabledKey) private var isHapticsEnabled = true
     @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.sky.rawValue
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isPressed = false
-    @State private var didTriggerLongPress = false
-    @State private var showCompletionGlow = false
+    @State private var isLongPressRecognized = false
+    @State private var didStartDrag = false
+    @State private var hasActiveTouch = false
+    @State private var pendingLongPressWorkItem: DispatchWorkItem?
+
     private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .sky }
-    private var bingoSurfaceColor: Color { activeTheme.bingoSurfaceColor }
-    private var bingoSurfaceShadowColor: Color { activeTheme.bingoSurfaceShadowColor }
+    private let boardSurfaceColor = Color(hex: "EBF0F7")
+    private var bingoLineColor: Color { activeTheme.bingoSurfaceColor }
+    private var selectedColor: Color { activeTheme.bingoSurfaceColor.opacity(0.34) }
+    private let primaryTextColor = Color(hex: "373F4B")
+    private let cellShadowDark = Color(hex: "CFD4DA").opacity(0.70)
+    private let cellShadowLight = Color.white.opacity(0.70)
+    private var isPadLayout: Bool { horizontalSizeClass == .regular }
 
     var body: some View {
-        ZStack {
+        let baseView = ZStack {
             backgroundSurface
 
-            if isInBingoLine {
-                bingoLineContent
-            } else if !cell.isEmpty {
-                VStack(spacing: 2) {
-                    // Task text
-                    Text(cell.text)
-                        .font(.system(size: dynamicFontSize, weight: .medium))
-                        .foregroundColor(cellTextColor)
-                        .scaleEffect(cell.isCompleted ? 1.14 : 1.0)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                        .minimumScaleFactor(0.5)
-                        .padding(8)
-                        .animation(.spring(response: 0.28, dampingFraction: 0.65), value: cell.isCompleted)
+            if !isDragSource {
+                if isInBingoLine {
+                    bingoLineContent
+                } else if !cell.isEmpty {
+                    VStack(spacing: cell.isCompleted ? 10 : 0) {
+                        Text(cell.text)
+                            .font(.system(size: dynamicFontSize, weight: .medium))
+                            .foregroundColor(cellTextColor)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                            .minimumScaleFactor(0.5)
+                            .padding(8)
 
-                    // Completion indicator
-                    if cell.isCompleted && !isLocked {
-                        completionIcon(isLarge: false)
+                        if cell.isCompleted && !isLocked {
+                            completionIcon(isLarge: false)
+                        }
                     }
                 }
-            }
 
-            if isLocked {
-                lockOverlay
+                if isLocked {
+                    lockOverlay
+                }
             }
         }
         .frame(width: cellSize, height: cellSize)
-        .scaleEffect(isPressed ? 0.98 : 1)
+        .scaleEffect(interactionScale)
+        .opacity(isDragSource ? 0.18 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: cell.isCompleted)
-        .animation(.interactiveSpring(response: 0.2, dampingFraction: 0.8), value: isPressed)
-        .onChange(of: cell.isCompleted) { _, isCompleted in
-            guard isCompleted else {
-                showCompletionGlow = false
-                return
-            }
+        .animation(.interactiveSpring(response: 0.22, dampingFraction: 0.8), value: interactionScale)
+        .animation(.easeInOut(duration: 0.18), value: isDragSource)
+        .animation(.easeInOut(duration: 0.18), value: isDropTarget)
+        .contentShape(RoundedRectangle(cornerRadius: 12))
 
-            withAnimation(.easeOut(duration: 0.1)) {
-                showCompletionGlow = true
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                withAnimation(.easeOut(duration: 0.42)) {
-                    showCompletionGlow = false
-                }
-            }
-        }
-        .onTapGesture {
-            if isLocked {
-                return
-            }
-            if didTriggerLongPress {
-                didTriggerLongPress = false
-                return
-            }
-            let willComplete = !cell.isCompleted
-            isPressed = true
-            if willComplete && isHapticsEnabled {
-                AppHaptics.completion()
-            }
-            onTap()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                isPressed = false
-            }
-        }
-        .onLongPressGesture(minimumDuration: 0.3) {
-            if isLocked {
-                return
-            }
-            didTriggerLongPress = true
-            if isHapticsEnabled {
-                AppHaptics.control()
-            }
-            onLongPress()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                didTriggerLongPress = false
-            }
+        if isInteractive {
+            baseView.highPriorityGesture(interactionGesture)
+        } else {
+            baseView
         }
     }
 
+    private var interactionGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard !isLocked else { return }
+
+                if !hasActiveTouch {
+                    hasActiveTouch = true
+                    isPressed = true
+                    scheduleLongPressRecognition()
+                }
+
+                let distance = dragDistance(for: value.translation)
+                if isLongPressRecognized && !didStartDrag && !cell.isEmpty && distance > Self.dragThreshold {
+                    didStartDrag = true
+                    isPressed = false
+                    onDragStart()
+                }
+
+                if didStartDrag {
+                    onDragMove(value.translation)
+                }
+            }
+            .onEnded { value in
+                let distance = dragDistance(for: value.translation)
+                finishInteraction(distance: distance, translation: value.translation)
+            }
+    }
+
+    private var interactionScale: CGFloat {
+        if didStartDrag {
+            return 1.05
+        }
+        if isLongPressRecognized {
+            return 1.03
+        }
+        return isPressed ? 0.98 : 1.0
+    }
+
     private var dynamicFontSize: CGFloat {
-        let baseSize = min(cellSize * 0.22, 16.0)
+        let maxBaseSize: CGFloat = isPadLayout ? 20.0 : 18.0
+        let minimumSize: CGFloat = isPadLayout ? 12.0 : 11.0
+        let baseSize = min(cellSize * 0.19, maxBaseSize)
         let textLength = cell.text.count
         if textLength > 6 {
-            return max(baseSize * 0.8, 9)
+            return max(baseSize * 0.88, minimumSize)
         }
         return baseSize
     }
 
     private var bingoLineContent: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 10) {
             Text(cell.text)
                 .font(.system(size: dynamicFontSize, weight: .medium))
-                .foregroundColor(.white)
+                .foregroundColor(.white.opacity(0.96))
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
                 .minimumScaleFactor(0.5)
                 .padding(.horizontal, 8)
-                .padding(.top, 8)
 
             if !isLocked {
-                completionIcon(isLarge: false, usesGoldSurface: true)
+                completionIcon(isLarge: false)
             }
         }
     }
 
     private var cellTextColor: Color {
-        isLocked ? NeumorphicColors.text.opacity(0.35) : NeumorphicColors.text
+        isLocked ? primaryTextColor.opacity(0.35) : primaryTextColor
     }
 
     private var backgroundSurface: some View {
-        Group {
-            if isInBingoLine {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(bingoSurfaceColor)
-                    .shadow(color: bingoSurfaceShadowColor.opacity(0.28), radius: 7, x: 4, y: 4)
-                    .shadow(color: Color.white.opacity(0.42), radius: 7, x: -4, y: -4)
-            } else if cell.isCompleted || isPressed {
-                Color.clear
-                    .neumorphicConcave(radius: 12)
+        let baseShape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+
+        return Group {
+            if isDragSource || isDropTarget {
+                Color.clear.neumorphicConcave(radius: 12)
+            } else if isInBingoLine {
+                baseShape
+                    .fill(bingoLineColor)
+                    .shadow(color: cellShadowDark, radius: 12, x: 6, y: 6)
+                    .shadow(color: cellShadowLight, radius: 12, x: -6, y: -6)
+            } else if cell.isCompleted {
+                baseShape
+                    .fill(selectedColor)
+            } else if isPressed {
+                baseShape
+                    .fill(boardSurfaceColor)
+                    .shadow(color: cellShadowDark.opacity(0.95), radius: 8, x: 4, y: 4)
+                    .shadow(color: cellShadowLight.opacity(0.95), radius: 8, x: -4, y: -4)
             } else {
-                Color.clear
-                    .neumorphicConvex(radius: 12, isPressed: isPressed)
+                baseShape
+                    .fill(boardSurfaceColor)
+                    .shadow(color: cellShadowDark, radius: 12, x: 6, y: 6)
+                    .shadow(color: cellShadowLight, radius: 12, x: -6, y: -6)
             }
         }
         .overlay {
             if isLocked && !isInBingoLine {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(NeumorphicColors.background.opacity(0.62))
+                    .fill(boardSurfaceColor.opacity(0.62))
+            }
+
+            if isDropTarget {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(
+                        bingoLineColor.opacity(0.55),
+                        style: StrokeStyle(lineWidth: 2, dash: [6, 6])
+                    )
+                    .padding(4)
+            }
+
+            if isDragSource {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(
+                        primaryTextColor.opacity(0.2),
+                        style: StrokeStyle(lineWidth: 2, dash: [5, 5])
+                    )
+                    .padding(4)
             }
         }
-        .shadow(
-            color: showCompletionGlow ? bingoSurfaceColor.opacity(0.62) : .clear,
-            radius: showCompletionGlow ? 16 : 0,
-            x: 0,
-            y: 0
-        )
-        .shadow(
-            color: showCompletionGlow ? bingoSurfaceShadowColor.opacity(0.28) : .clear,
-            radius: showCompletionGlow ? 26 : 0,
-            x: 0,
-            y: 0
-        )
     }
 
-    private func completionIcon(isLarge: Bool, usesGoldSurface: Bool = false) -> some View {
+    private func completionIcon(isLarge: Bool) -> some View {
         let size = isLarge
-            ? min(max(cellSize * 0.42, 34), 52)
-            : min(max(cellSize * 0.16, 16), 22)
+            ? min(max(cellSize * 0.42, 36), 52)
+            : 20.0
 
         return ZStack {
             Circle()
-                .fill(isLarge || usesGoldSurface ? bingoSurfaceColor : NeumorphicColors.background)
-                .shadow(
-                    color: ((isLarge || usesGoldSurface) ? bingoSurfaceShadowColor : NeumorphicColors.darkShadow).opacity(0.3),
-                    radius: isLarge ? 6 : 4,
-                    x: isLarge ? 4 : 3,
-                    y: isLarge ? 4 : 3
-                )
-                .shadow(
-                    color: ((isLarge || usesGoldSurface) ? Color.white : NeumorphicColors.lightShadow).opacity(0.85),
-                    radius: isLarge ? 6 : 4,
-                    x: isLarge ? -4 : -3,
-                    y: isLarge ? -4 : -3
-                )
+                .fill(Color.white.opacity(0.96))
 
             Image(systemName: "checkmark")
-                .font(.system(size: size * (isLarge ? 0.42 : 0.42), weight: .bold))
-                .foregroundColor((isLarge || usesGoldSurface) ? .white : activeTheme.color)
+                .font(.system(size: size * 0.5, weight: .bold))
+                .foregroundColor(activeTheme.bingoSurfaceColor)
         }
         .frame(width: size, height: size)
-        .padding(.top, isLarge ? 0 : 6)
     }
 
     private var lockOverlay: some View {
@@ -200,7 +223,7 @@ struct BingoCellView: View {
 
         return ZStack {
             Circle()
-                .fill(NeumorphicColors.background)
+                .fill(boardSurfaceColor)
                 .shadow(color: NeumorphicColors.darkShadow.opacity(0.25), radius: 4, x: 2, y: 2)
                 .shadow(color: NeumorphicColors.lightShadow.opacity(0.85), radius: 4, x: -2, y: -2)
 
@@ -209,5 +232,66 @@ struct BingoCellView: View {
                 .foregroundColor(NeumorphicColors.text.opacity(0.55))
         }
         .frame(width: size, height: size)
+    }
+
+    private func dragDistance(for translation: CGSize) -> CGFloat {
+        hypot(translation.width, translation.height)
+    }
+
+    private func scheduleLongPressRecognition() {
+        cancelPendingLongPress()
+
+        let workItem = DispatchWorkItem {
+            guard hasActiveTouch else { return }
+            isLongPressRecognized = true
+            isPressed = false
+
+            if isHapticsEnabled {
+                AppHaptics.control()
+            }
+        }
+
+        pendingLongPressWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.longPressDuration,
+            execute: workItem
+        )
+    }
+
+    private func finishInteraction(distance: CGFloat, translation: CGSize) {
+        cancelPendingLongPress()
+
+        defer {
+            hasActiveTouch = false
+            isPressed = false
+            isLongPressRecognized = false
+            didStartDrag = false
+        }
+
+        guard !isLocked else { return }
+
+        if didStartDrag {
+            onDragEnd(translation)
+            return
+        }
+
+        if isLongPressRecognized {
+            onLongPressRelease()
+            return
+        }
+
+        guard distance <= Self.tapThreshold else { return }
+        guard !cell.isEmpty else { return }
+
+        let willComplete = !cell.isCompleted
+        if willComplete && isHapticsEnabled {
+            AppHaptics.completion()
+        }
+        onTap()
+    }
+
+    private func cancelPendingLongPress() {
+        pendingLongPressWorkItem?.cancel()
+        pendingLongPressWorkItem = nil
     }
 }

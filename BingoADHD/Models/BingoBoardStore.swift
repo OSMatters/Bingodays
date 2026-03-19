@@ -6,6 +6,7 @@ import WidgetKit
 enum BingoBoardStore {
     static let appGroupID = "group.com.bingoday.app"
     private static let saveKey = "bingo_board_v1"
+    private static let lastSavedAtKey = "bingo_board_last_saved_at_v1"
     private static let sharedFileName = "bingo_board_v1.json"
     private static let metricsFileName = "bingo_metrics_v1.json"
 
@@ -34,16 +35,41 @@ enum BingoBoardStore {
         return nil
     }
 
-    static func saveBoard(_ board: SavedBoard) {
+    static func saveBoard(_ board: SavedBoard, savedAt: Date = .now) {
         guard let data = try? JSONEncoder().encode(board) else { return }
 
         persistSharedFile(data)
         sharedDefaults.set(data, forKey: saveKey)
         UserDefaults.standard.set(data, forKey: saveKey)
+        saveBoardLastSavedAt(savedAt)
 
         #if canImport(WidgetKit)
         WidgetCenter.shared.reloadAllTimelines()
         #endif
+    }
+
+    static func loadBoardLastSavedAt() -> Date? {
+        if let date = sharedDefaults.object(forKey: lastSavedAtKey) as? Date {
+            return date
+        }
+
+        if let date = UserDefaults.standard.object(forKey: lastSavedAtKey) as? Date {
+            sharedDefaults.set(date, forKey: lastSavedAtKey)
+            return date
+        }
+
+        if let values = try? sharedFileURL.resourceValues(forKeys: [.contentModificationDateKey]),
+           let modificationDate = values.contentModificationDate {
+            saveBoardLastSavedAt(modificationDate)
+            return modificationDate
+        }
+
+        return nil
+    }
+
+    static func saveBoardLastSavedAt(_ date: Date) {
+        sharedDefaults.set(date, forKey: lastSavedAtKey)
+        UserDefaults.standard.set(date, forKey: lastSavedAtKey)
     }
 
     static func loadBoardCountdownEndsAt() -> Date? {

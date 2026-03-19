@@ -15,21 +15,23 @@ class BingoViewModel: ObservableObject {
     @Published var expiredCountdownMessage: String?
     @Published var boardCountdownEndsAt: Date?
     @Published var showBoardCompletionAnimation = false
+    @Published var dailyResetNoticeID = 0
     private var fullBoardCells: [[BingoCell]]
+    private var lifetimePoints: Int
+    private var dailyRewardState: DailyRewardState
 
     init() {
         self.totalPoints = 0
+        self.lifetimePoints = 0
+        self.dailyRewardState = DailyRewardState(dateKey: PointsStore.dateKey(for: .now))
         self.boardCountdownEndsAt = BingoBoardStore.loadBoardCountdownEndsAt()
+        let now = Date()
+        var existingSavedAt: Date?
         if let saved = BingoBoardStore.loadBoard() {
+            existingSavedAt = BingoBoardStore.loadBoardLastSavedAt()
+            let savedAt = existingSavedAt ?? now
             self.fullBoardCells = Self.expandedBoardCache(from: saved)
             self.gridSize = saved.gridSize
-            self.cells = saved.cells.map { row in
-                row.map { cell in
-                    var sanitizedCell = cell
-                    sanitizedCell.countdownEndsAt = nil
-                    return sanitizedCell
-                }
-            }
             self.fullBoardCells = self.fullBoardCells.map { row in
                 row.map { cell in
                     var sanitizedCell = cell
@@ -37,16 +39,34 @@ class BingoViewModel: ObservableObject {
                     return sanitizedCell
                 }
             }
+            self.cells = Self.projectVisibleCells(
+                from: self.fullBoardCells,
+                size: saved.gridSize,
+                referenceDate: now
+            )
             self.completedLines = saved.completedLines
-            BingoBoardStore.saveBoard(SavedBoard(gridSize: saved.gridSize, cells: self.cells, completedLines: self.completedLines, fullBoardCells: self.fullBoardCells))
+            BingoBoardStore.saveBoard(
+                SavedBoard(gridSize: saved.gridSize, cells: self.cells, completedLines: self.completedLines, fullBoardCells: self.fullBoardCells),
+                savedAt: savedAt
+            )
         } else {
             self.gridSize = 4
             self.cells = Self.createEmptyGrid(size: 4)
             self.fullBoardCells = Self.createEmptyGrid(size: Self.maxGridSize)
             self.syncFullBoardCacheFromVisibleCells()
-            BingoBoardStore.saveBoard(SavedBoard(gridSize: 4, cells: self.cells, completedLines: [], fullBoardCells: self.fullBoardCells))
+            BingoBoardStore.saveBoard(
+                SavedBoard(gridSize: 4, cells: self.cells, completedLines: [], fullBoardCells: self.fullBoardCells)
+            )
         }
         self.totalPoints = PointsStore.loadTotalPoints() ?? calculateBoardScore()
+        self.lifetimePoints = PointsStore.loadLifetimePoints() ?? self.totalPoints
+        self.dailyRewardState = Self.initialDailyRewardState(
+            referenceDate: now,
+            boardLastSavedAt: existingSavedAt,
+            currentCells: self.cells,
+            currentCompletedLines: self.completedLines,
+            isBoardFullyCompleted: self.isBoardFullyCompleted
+        )
         syncDiarySnapshot()
     }
 
@@ -60,7 +80,6 @@ class BingoViewModel: ObservableObject {
         guard row < cells.count, col < cells[row].count else { return }
         guard !cells[row][col].isEmpty else { return }
         guard !isLocked(row: row, col: col) else { return }
-        let previousScore = calculateBoardScore()
         let wasBoardFullyCompleted = isBoardFullyCompleted
         cells[row][col].isCompleted.toggle()
         syncFullBoardCacheFromVisibleCells()
@@ -71,36 +90,84 @@ class BingoViewModel: ObservableObject {
         } else if !isBoardNowFullyCompleted {
             showBoardCompletionAnimation = false
         }
-        save(scoreDelta: calculateBoardScore() - previousScore)
+        trackBingoCompletionIfNeeded(
+            wasBoardFullyCompleted: wasBoardFullyCompleted,
+            isBoardNowFullyCompleted: isBoardNowFullyCompleted
+        )
+        settleRewardsIfNeeded()
+        save()
     }
 
-    func updateTask(row: Int, col: Int, text: String, isForced: Bool) {
+    func updateTask(row: Int, col: Int, text: String, isForced: Bool, residentWeekdays: Set<Int>) {
         guard row < cells.count, col < cells[row].count else { return }
-        let previousScore = calculateBoardScore()
         let limitedText = String(text.prefix(Self.maxTaskLength))
-        cells[row][col].text = limitedText
-        cells[row][col].isForced = !limitedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && isForced
+        let trimmedText = limitedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedWeekdays: Set<Int> = trimmedText.isEmpty ? [] : residentWeekdays
+
+        cells[row][col].residentWeekdays = normalizedWeekdays
+        cells[row][col].residentTaskText = normalizedWeekdays.isEmpty ? nil : limitedText
+        cells[row][col].text = normalizedWeekdays.isEmpty ? limitedText : normalizedDisplayText(for: cells[row][col], referenceDate: .now)
+        cells[row][col].isForced = !trimmedText.isEmpty && isForced
         cells[row][col].countdownEndsAt = nil
-        if limitedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+
+        if trimmedText.isEmpty {
             cells[row][col].isCompleted = false
             cells[row][col].isForced = false
             cells[row][col].countdownEndsAt = nil
+            cells[row][col].residentTaskText = nil
+            cells[row][col].residentWeekdays = []
         }
         syncFullBoardCacheFromVisibleCells()
+        cells = visibleCells(from: fullBoardCells, size: gridSize)
         checkBingo()
         if !isBoardFullyCompleted {
             showBoardCompletionAnimation = false
         }
-        save(scoreDelta: calculateBoardScore() - previousScore)
+        settleRewardsIfNeeded()
+        save()
     }
 
     func clearTask(row: Int, col: Int) {
-        updateTask(row: row, col: col, text: "", isForced: false)
+        updateTask(row: row, col: col, text: "", isForced: false, residentWeekdays: [])
+    }
+
+    @discardableResult
+    func deleteCell(row: Int, col: Int) -> BingoCell? {
+        guard row < cells.count, col < cells[row].count else { return nil }
+        let deletedCell = cells[row][col]
+        guard !deletedCell.isEmpty else { return nil }
+
+        cells[row][col] = BingoCell()
+        refreshBoardState(
+            shouldCelebrateNewLines: false
+        )
+        return deletedCell
+    }
+
+    func restoreCell(_ cell: BingoCell, row: Int, col: Int) {
+        guard row < cells.count, col < cells[row].count else { return }
+        cells[row][col] = cell.projectedForDisplay(on: .now)
+        refreshBoardState(
+            shouldCelebrateNewLines: false
+        )
+    }
+
+    func moveCell(from source: (row: Int, col: Int), to destination: (row: Int, col: Int)) {
+        guard source.row < cells.count, source.col < cells[source.row].count else { return }
+        guard destination.row < cells.count, destination.col < cells[destination.row].count else { return }
+        guard source != destination else { return }
+        guard !cells[source.row][source.col].isEmpty else { return }
+
+        let sourceCell = cells[source.row][source.col]
+        cells[source.row][source.col] = cells[destination.row][destination.col]
+        cells[destination.row][destination.col] = sourceCell
+        refreshBoardState(
+            shouldCelebrateNewLines: false
+        )
     }
 
     @discardableResult
     func applyTasksToEmptyCells(_ tasks: [String]) -> Bool {
-        let previousScore = calculateBoardScore()
         let sanitizedTasks = tasks
             .map { String($0.prefix(Self.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -110,7 +177,7 @@ class BingoViewModel: ObservableObject {
         let emptyPositions = cells.enumerated().flatMap { row, rowCells in
             rowCells.enumerated().compactMap { entry -> Position? in
                 let position = Position(row: row, col: entry.offset)
-                return entry.element.isEmpty ? position : nil
+                return canAcceptNewTask(entry.element) ? position : nil
             }
         }
 
@@ -118,6 +185,8 @@ class BingoViewModel: ObservableObject {
 
         for (position, task) in zip(emptyPositions, sanitizedTasks) {
             cells[position.row][position.col].text = task
+            cells[position.row][position.col].residentTaskText = nil
+            cells[position.row][position.col].residentWeekdays = []
             cells[position.row][position.col].isCompleted = false
             cells[position.row][position.col].isForced = false
             cells[position.row][position.col].countdownEndsAt = nil
@@ -125,7 +194,8 @@ class BingoViewModel: ObservableObject {
 
         syncFullBoardCacheFromVisibleCells()
         checkBingo()
-        save(scoreDelta: calculateBoardScore() - previousScore)
+        settleRewardsIfNeeded()
+        save()
         return true
     }
 
@@ -138,7 +208,8 @@ class BingoViewModel: ObservableObject {
         boardCountdownEndsAt = nil
         showBoardCompletionAnimation = false
         checkBingo()
-        save(scoreDelta: 0)
+        settleRewardsIfNeeded()
+        save()
     }
 
     func resetBoard() {
@@ -149,28 +220,27 @@ class BingoViewModel: ObservableObject {
         showCelebration = false
         showBoardCompletionAnimation = false
         boardCountdownEndsAt = nil
-        save(scoreDelta: 0)
+        save()
     }
 
     func setBoardCountdown(totalMinutes: Int?) {
         guard let totalMinutes else {
             boardCountdownEndsAt = nil
-            save(scoreDelta: 0)
+            save()
             return
         }
 
         let clampedMinutes = min(max(totalMinutes, 1), Self.maxCountdownMinutes)
         boardCountdownEndsAt = Date().addingTimeInterval(Double(clampedMinutes * 60))
-        save(scoreDelta: 0)
+        save()
     }
 
     func shuffleBoard() {
-        let previousScore = calculateBoardScore()
         let fixedPositions = bingoLinePositions
         let movablePositions = cells.enumerated().flatMap { row, rowCells in
             rowCells.enumerated().compactMap { entry -> Position? in
                 let position = Position(row: row, col: entry.offset)
-                return fixedPositions.contains(position) ? nil : position
+                return fixedPositions.contains(position) || !canMoveSlot(entry.element) ? nil : position
             }
         }
         let shuffledTaskCells = movablePositions
@@ -191,12 +261,9 @@ class BingoViewModel: ObservableObject {
         }
 
         cells = newCells
-        syncFullBoardCacheFromVisibleCells()
-        completedLines = []
-        newlyCompletedLines = []
-        showBoardCompletionAnimation = false
-        checkBingo()
-        save(scoreDelta: calculateBoardScore() - previousScore)
+        refreshBoardState(
+            shouldCelebrateNewLines: false
+        )
     }
 
     func dismissBoardCompletionAnimation() {
@@ -267,7 +334,7 @@ class BingoViewModel: ObservableObject {
         return positions
     }
 
-    private func checkBingo() {
+    private func checkBingo(shouldCelebrateNewLines: Bool = true) {
         var currentLines: Set<BingoLine> = []
         let size = gridSize
 
@@ -315,7 +382,7 @@ class BingoViewModel: ObservableObject {
 
         // Detect newly completed lines
         let newLines = currentLines.subtracting(completedLines)
-        if !newLines.isEmpty {
+        if !newLines.isEmpty && shouldCelebrateNewLines {
             newlyCompletedLines = Array(newLines)
             showCelebration = true
             if AppSettings.isHapticsEnabled {
@@ -325,17 +392,43 @@ class BingoViewModel: ObservableObject {
                 self?.showCelebration = false
                 self?.newlyCompletedLines = []
             }
+        } else if !shouldCelebrateNewLines {
+            newlyCompletedLines = []
+            showCelebration = false
         }
         completedLines = currentLines
     }
 
-    private func save(scoreDelta: Int) {
+    private func refreshBoardState(shouldCelebrateNewLines: Bool) {
+        let wasBoardFullyCompleted = isBoardFullyCompleted
+        syncFullBoardCacheFromVisibleCells()
+        checkBingo(shouldCelebrateNewLines: shouldCelebrateNewLines)
+        let isBoardNowFullyCompleted = isBoardFullyCompleted
+
+        if shouldCelebrateNewLines && !wasBoardFullyCompleted && isBoardNowFullyCompleted {
+            showBoardCompletionAnimation = true
+        } else if !isBoardNowFullyCompleted || !shouldCelebrateNewLines {
+            showBoardCompletionAnimation = false
+        }
+
+        trackBingoCompletionIfNeeded(
+            wasBoardFullyCompleted: wasBoardFullyCompleted,
+            isBoardNowFullyCompleted: isBoardNowFullyCompleted
+        )
+        settleRewardsIfNeeded()
+        save()
+    }
+
+    private func save(persistDiary: Bool = true, savedAt: Date = .now) {
         let board = SavedBoard(gridSize: gridSize, cells: cells, completedLines: completedLines, fullBoardCells: fullBoardCells)
-        BingoBoardStore.saveBoard(board)
+        BingoBoardStore.saveBoard(board, savedAt: savedAt)
         BingoBoardStore.saveBoardCountdownEndsAt(boardCountdownEndsAt)
-        BingoDiaryStore.save(board: board)
-        totalPoints = max(totalPoints + scoreDelta, 0)
+        if persistDiary {
+            BingoDiaryStore.save(board: board, on: savedAt)
+        }
         PointsStore.saveTotalPoints(totalPoints)
+        PointsStore.saveLifetimePoints(lifetimePoints)
+        PointsStore.saveDailyRewardState(dailyRewardState)
     }
 
     func processExpiredCountdowns(now: Date = Date()) {
@@ -348,8 +441,48 @@ class BingoViewModel: ObservableObject {
         showCelebration = false
         showBoardCompletionAnimation = false
         boardCountdownEndsAt = nil
-        save(scoreDelta: 0)
+        save()
         expiredCountdownMessage = L10n.expiredCountdownMessage
+    }
+
+    func processDailyCompletionReset(now: Date = Date()) {
+        guard boardCountdownEndsAt == nil else { return }
+        guard let lastSavedAt = BingoBoardStore.loadBoardLastSavedAt() else {
+            BingoBoardStore.saveBoardLastSavedAt(now)
+            return
+        }
+
+        let calendar = Calendar.current
+        guard !calendar.isDate(lastSavedAt, inSameDayAs: now) else { return }
+
+        let hadCompletedTasks = fullBoardCells
+            .flatMap { $0 }
+            .contains { $0.isCompleted && !$0.isEmpty }
+        let hadCompletedLines = !completedLines.isEmpty
+
+        fullBoardCells = fullBoardCells.map { row in
+            row.map { cell in
+                var updated = cell
+                updated.isCompleted = false
+                updated.countdownEndsAt = nil
+                return updated
+            }
+        }
+        cells = visibleCells(from: fullBoardCells, size: gridSize)
+        completedLines = []
+        newlyCompletedLines = []
+        showCelebration = false
+        showBoardCompletionAnimation = false
+        dailyRewardState = Self.emptyDailyRewardState(for: now)
+
+        save(
+            persistDiary: false,
+            savedAt: now
+        )
+
+        if hadCompletedTasks || hadCompletedLines {
+            dailyResetNoticeID += 1
+        }
     }
 
     func clearExpiredCountdownMessage() {
@@ -360,6 +493,8 @@ class BingoViewModel: ObservableObject {
         let board = SavedBoard(gridSize: gridSize, cells: cells, completedLines: completedLines, fullBoardCells: fullBoardCells)
         BingoDiaryStore.save(board: board)
         PointsStore.saveTotalPoints(totalPoints)
+        PointsStore.saveLifetimePoints(lifetimePoints)
+        PointsStore.saveDailyRewardState(dailyRewardState)
     }
 
     private func calculateBoardScore() -> Int {
@@ -389,10 +524,62 @@ class BingoViewModel: ObservableObject {
     }
 
     private func visibleCells(from cache: [[BingoCell]], size: Int) -> [[BingoCell]] {
+        Self.projectVisibleCells(from: cache, size: size, referenceDate: .now)
+    }
+
+    private func normalizedDisplayText(for cell: BingoCell, referenceDate: Date) -> String {
+        cell.projectedForDisplay(on: referenceDate).text
+    }
+
+    private func canAcceptNewTask(_ cell: BingoCell) -> Bool {
+        !cell.hasStoredTask
+    }
+
+    private func canMoveSlot(_ cell: BingoCell) -> Bool {
+        !cell.hasResidentSchedule
+    }
+
+    private func settleRewardsIfNeeded(on date: Date = .now) {
+        resetDailyRewardStateIfNeeded(for: date)
+
+        let completedCellIDs = Set(
+            cells
+                .flatMap { $0 }
+                .filter { $0.isCompleted && !$0.isEmpty }
+                .map(\.id)
+        )
+        let newRewardedCellIDs = completedCellIDs.subtracting(dailyRewardState.rewardedCellIDs)
+        let newlyCompletedLineCount = max(completedLines.count - dailyRewardState.peakCompletedLineCount, 0)
+        let shouldGrantFullBoardReward = isBoardFullyCompleted && !dailyRewardState.fullBoardRewardGranted
+
+        let pointsEarned = newRewardedCellIDs.count + (newlyCompletedLineCount * 5) + (shouldGrantFullBoardReward ? 10 : 0)
+        guard pointsEarned > 0 || !newRewardedCellIDs.isEmpty || newlyCompletedLineCount > 0 || shouldGrantFullBoardReward else {
+            return
+        }
+
+        if pointsEarned > 0 {
+            totalPoints += pointsEarned
+            lifetimePoints += pointsEarned
+        }
+
+        dailyRewardState.rewardedCellIDs.formUnion(newRewardedCellIDs)
+        dailyRewardState.peakCompletedLineCount = max(dailyRewardState.peakCompletedLineCount, completedLines.count)
+        if shouldGrantFullBoardReward {
+            dailyRewardState.fullBoardRewardGranted = true
+        }
+    }
+
+    private func resetDailyRewardStateIfNeeded(for date: Date) {
+        let dateKey = PointsStore.dateKey(for: date)
+        guard dailyRewardState.dateKey != dateKey else { return }
+        dailyRewardState = Self.emptyDailyRewardState(for: date)
+    }
+
+    private static func projectVisibleCells(from cache: [[BingoCell]], size: Int, referenceDate: Date) -> [[BingoCell]] {
         (0..<size).map { row in
             (0..<size).map { col in
                 if row < cache.count, col < cache[row].count {
-                    return cache[row][col]
+                    return cache[row][col].projectedForDisplay(on: referenceDate)
                 }
                 return BingoCell()
             }
@@ -412,5 +599,66 @@ class BingoViewModel: ObservableObject {
         }
 
         return cache
+    }
+
+    private static func initialDailyRewardState(
+        referenceDate: Date,
+        boardLastSavedAt: Date?,
+        currentCells: [[BingoCell]],
+        currentCompletedLines: Set<BingoLine>,
+        isBoardFullyCompleted: Bool
+    ) -> DailyRewardState {
+        let todayKey = PointsStore.dateKey(for: referenceDate)
+        if let savedState = PointsStore.loadDailyRewardState(),
+           savedState.dateKey == todayKey {
+            return savedState
+        }
+
+        let calendar = Calendar.current
+        let shouldSeedFromCurrentBoard: Bool
+        if let boardLastSavedAt {
+            shouldSeedFromCurrentBoard = calendar.isDate(boardLastSavedAt, inSameDayAs: referenceDate)
+        } else {
+            shouldSeedFromCurrentBoard = false
+        }
+
+        guard shouldSeedFromCurrentBoard else {
+            return emptyDailyRewardState(for: referenceDate)
+        }
+
+        let rewardedCellIDs = Set(
+            currentCells
+                .flatMap { $0 }
+                .filter { $0.isCompleted && !$0.isEmpty }
+                .map(\.id)
+        )
+        return DailyRewardState(
+            dateKey: todayKey,
+            rewardedCellIDs: rewardedCellIDs,
+            peakCompletedLineCount: currentCompletedLines.count,
+            fullBoardRewardGranted: isBoardFullyCompleted
+        )
+    }
+
+    private static func emptyDailyRewardState(for date: Date) -> DailyRewardState {
+        DailyRewardState(dateKey: PointsStore.dateKey(for: date))
+    }
+
+    private func trackBingoCompletionIfNeeded(
+        wasBoardFullyCompleted: Bool,
+        isBoardNowFullyCompleted: Bool
+    ) {
+        guard !wasBoardFullyCompleted, isBoardNowFullyCompleted else { return }
+
+        let filledTaskCount = cells
+            .flatMap { $0 }
+            .filter { !$0.isEmpty }
+            .count
+
+        AnalyticsService.logBingoCompleted(
+            boardSize: gridSize,
+            completedLineCount: completedLines.count,
+            filledTaskCount: filledTaskCount
+        )
     }
 }
