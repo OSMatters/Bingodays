@@ -6,7 +6,6 @@ struct EditTaskSheet: View {
     @State var text: String
     @State var isForcedTask: Bool
     @State var residentWeekdays: Set<Int>
-    let onApplyGroup: ([String]) -> Bool
     let onSave: (String, Bool, Set<Int>) -> Void
     let onDelete: () -> Void
     let onCancel: () -> Void
@@ -14,7 +13,6 @@ struct EditTaskSheet: View {
     @StateObject private var speechRecognizer = SpeechRecognizer()
     @FocusState private var isTextFieldFocused: Bool
     @AppStorage(AppSettings.hapticsEnabledKey) private var isHapticsEnabled = true
-    @State private var showGroupApplyAlert = false
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -28,7 +26,6 @@ struct EditTaskSheet: View {
         text: String,
         isForcedTask: Bool,
         residentWeekdays: Set<Int>,
-        onApplyGroup: @escaping ([String]) -> Bool,
         onSave: @escaping (String, Bool, Set<Int>) -> Void,
         onDelete: @escaping () -> Void,
         onCancel: @escaping () -> Void
@@ -36,7 +33,6 @@ struct EditTaskSheet: View {
         _text = State(initialValue: text)
         _isForcedTask = State(initialValue: isForcedTask)
         _residentWeekdays = State(initialValue: residentWeekdays)
-        self.onApplyGroup = onApplyGroup
         self.onSave = onSave
         self.onDelete = onDelete
         self.onCancel = onCancel
@@ -165,64 +161,6 @@ struct EditTaskSheet: View {
                             }
                         }
 
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(L10n.quickAdd)
-                                .font(.system(size: scaled(15, pad: 18), weight: .semibold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text)
-
-                            if !quickAddGroups.isEmpty {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text(L10n.groups)
-                                        .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                                        .foregroundColor(NeumorphicColors.text.opacity(0.66))
-
-                                    HStack(spacing: 12) {
-                                        ForEach(quickAddGroups) { group in
-                                            Button {
-                                                let didApply = onApplyGroup(group.tasks)
-                                                if !didApply {
-                                                    showGroupApplyAlert = true
-                                                }
-                                            } label: {
-                                                Text(group.name)
-                                                    .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                                                    .foregroundColor(NeumorphicColors.text)
-                                                    .lineLimit(1)
-                                                    .multilineTextAlignment(.center)
-                                                    .padding(.horizontal, 10)
-                                                    .padding(.vertical, 8)
-                                                    .background(Color.clear.neumorphicConvex(radius: 9))
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-                                        Spacer(minLength: 0)
-                                    }
-                                }
-                            }
-
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(L10n.tasks)
-                                    .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                                    .foregroundColor(NeumorphicColors.text.opacity(0.66))
-
-                                LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 12) {
-                                    ForEach(quickTasks, id: \.self) { task in
-                                        Button {
-                                            text = task
-                                        } label: {
-                                            Text(task)
-                                                .font(.system(size: scaled(12, pad: 14), design: .rounded))
-                                                .foregroundColor(NeumorphicColors.text)
-                                                .frame(maxWidth: .infinity)
-                                                .padding(.vertical, 10)
-                                                .background(Color.clear.neumorphicConvex(radius: 10))
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                        }
-
                         if !text.isEmpty {
                             Button(role: .destructive) {
                                 onDelete()
@@ -270,33 +208,7 @@ struct EditTaskSheet: View {
                     .foregroundColor(NeumorphicColors.accent)
                 }
             }
-            .alert(L10n.unableToApplyGroup, isPresented: $showGroupApplyAlert) {
-                Button(L10n.ok, role: .cancel) { }
-            } message: {
-                Text(L10n.applyGroupFailedMessage)
-            }
         }
-    }
-
-    private var quickTasks: [String] {
-        let library = CommonTasksStore.loadLibrary()
-        if library.tasks.isEmpty {
-            return [
-                L10n.tr("Brush Teeth", zhHans: "刷牙"),
-                L10n.tr("Shower", zhHans: "洗澡"),
-                L10n.tr("Exercise", zhHans: "运动"),
-                L10n.tr("Drink Water", zhHans: "喝水"),
-                L10n.tr("Eat", zhHans: "吃饭"),
-                L10n.tr("Sweep", zhHans: "扫地"),
-                L10n.tr("Wash Dishes", zhHans: "洗碗"),
-                L10n.tr("Laundry", zhHans: "洗衣服")
-            ]
-        }
-        return library.tasks
-    }
-
-    private var quickAddGroups: [MyTaskGroup] {
-        CommonTasksStore.loadGroups().filter { !$0.tasks.isEmpty }
     }
 
     private var weekdayOptions: [(value: Int, label: String)] {

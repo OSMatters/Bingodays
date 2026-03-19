@@ -549,7 +549,7 @@ enum AppSettings {
     static let homeStickerPlacementsKey = "home_sticker_placements_v1"
     static let customRewardsKey = "custom_rewards_v1"
     static let maxCommonTasks = 8
-    static let maxTaskGroups = 3
+    static let maxTaskGroups = 6
     static let maxTasksPerGroup = 5
     static let maxTaskLength = 20
     static let maxRewardTitleLength = 30

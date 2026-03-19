@@ -281,13 +281,6 @@ struct BingoBoardView: View {
             text: viewModel.cells[target.row][target.col].storedTaskText,
             isForcedTask: viewModel.cells[target.row][target.col].isForced,
             residentWeekdays: viewModel.cells[target.row][target.col].residentWeekdays,
-            onApplyGroup: { tasks in
-                let didApply = viewModel.applyTasksToEmptyCells(tasks)
-                if didApply {
-                    editingTarget = nil
-                }
-                return didApply
-            },
             onSave: { newText, isForcedTask, residentWeekdays in
                 let scheduleNotice = residentVisibilityNotice(
                     text: newText,

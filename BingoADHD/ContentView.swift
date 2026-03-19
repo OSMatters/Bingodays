@@ -2136,12 +2136,6 @@ private struct QuickEditView: View {
     private var allTaskCandidates: [TaskCandidate] {
         var candidates: [TaskCandidate] = []
 
-        for index in library.tasks.indices {
-            let text = library.tasks[index].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { continue }
-            candidates.append(TaskCandidate(id: "task-\(index)", text: text))
-        }
-
         for group in library.groups {
             for index in group.tasks.indices {
                 let text = group.tasks[index].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2178,7 +2172,6 @@ private struct QuickEditView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                         quickEditControlsCard
-                        tasksSection
                         groupsSection
                         hintCard
                     }
@@ -2256,6 +2249,7 @@ private struct QuickEditView: View {
             finalizeLibrary()
         }
         .onAppear {
+            migrateStandaloneTasksIntoGroupsIfNeeded()
             targetGridSize = viewModel.gridSize
             selectedTaskKeys = initialSelectedKeys(
                 from: viewModel.currentTaskPoolTasks(),
@@ -2632,6 +2626,32 @@ private struct QuickEditView: View {
     private func syncSelectedTaskKeysWithCurrentLibrary() {
         let validKeys = Set(allTaskCandidates.map(\.id))
         selectedTaskKeys = selectedTaskKeys.filter { validKeys.contains($0) }
+    }
+
+    private func migrateStandaloneTasksIntoGroupsIfNeeded() {
+        let legacyTasks = library.tasks
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !legacyTasks.isEmpty else { return }
+
+        var remaining = legacyTasks
+
+        for index in library.groups.indices where !remaining.isEmpty {
+            let capacity = max(AppSettings.maxTasksPerGroup - library.groups[index].tasks.count, 0)
+            guard capacity > 0 else { continue }
+            let chunk = Array(remaining.prefix(capacity))
+            library.groups[index].tasks.append(contentsOf: chunk)
+            remaining.removeFirst(chunk.count)
+        }
+
+        while !remaining.isEmpty && library.groups.count < AppSettings.maxTaskGroups {
+            let chunk = Array(remaining.prefix(AppSettings.maxTasksPerGroup))
+            library.groups.append(MyTaskGroup(name: L10n.groupDefaultName, tasks: chunk))
+            remaining.removeFirst(chunk.count)
+        }
+
+        library.tasks = []
     }
 
     private func finalizeLibrary(showSuccessToast: Bool = false) {
