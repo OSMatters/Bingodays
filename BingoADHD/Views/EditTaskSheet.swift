@@ -6,15 +6,13 @@ struct EditTaskSheet: View {
     @State var text: String
     @State var isForcedTask: Bool
     @State var residentWeekdays: Set<Int>
-    let onApplyGroup: ([String]) -> Bool
-    let onSave: (String, Bool, Set<Int>) -> Void
+    let onSave: (String, Bool, Set<Int>, Int?) -> Void
     let onDelete: () -> Void
     let onCancel: () -> Void
 
     @StateObject private var speechRecognizer = SpeechRecognizer()
     @FocusState private var isTextFieldFocused: Bool
     @AppStorage(AppSettings.hapticsEnabledKey) private var isHapticsEnabled = true
-    @State private var showGroupApplyAlert = false
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -28,19 +26,26 @@ struct EditTaskSheet: View {
         text: String,
         isForcedTask: Bool,
         residentWeekdays: Set<Int>,
-        onApplyGroup: @escaping ([String]) -> Bool,
-        onSave: @escaping (String, Bool, Set<Int>) -> Void,
+        estimatedDurationMinutes: Int?,
+        onSave: @escaping (String, Bool, Set<Int>, Int?) -> Void,
         onDelete: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
         _text = State(initialValue: text)
         _isForcedTask = State(initialValue: isForcedTask)
         _residentWeekdays = State(initialValue: residentWeekdays)
-        self.onApplyGroup = onApplyGroup
         self.onSave = onSave
         self.onDelete = onDelete
         self.onCancel = onCancel
+        let initialTotalMinutes = min(max(estimatedDurationMinutes ?? 30, 1), BingoViewModel.maxCountdownMinutes)
+        _isTaskTimerEnabled = State(initialValue: estimatedDurationMinutes != nil)
+        _taskTimerHours = State(initialValue: min(initialTotalMinutes / 60, 24))
+        _taskTimerMinutes = State(initialValue: initialTotalMinutes % 60)
     }
+
+    @State private var isTaskTimerEnabled = false
+    @State private var taskTimerHours = 0
+    @State private var taskTimerMinutes = 30
 
     var body: some View {
         NavigationStack {
@@ -150,6 +155,58 @@ struct EditTaskSheet: View {
                                 }
                             }
 
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 12) {
+                                    Text(L10n.estimatedCompletionTime)
+                                        .font(.system(size: scaled(15, pad: 18), weight: .semibold, design: .rounded))
+                                        .foregroundColor(NeumorphicColors.text)
+
+                                    Spacer()
+
+                                    Toggle("", isOn: $isTaskTimerEnabled)
+                                        .labelsHidden()
+                                        .toggleStyle(NeumorphicSwitchToggleStyle())
+                                }
+
+                                Text(L10n.taskTimerEnabled)
+                                    .font(.system(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
+                                    .foregroundColor(NeumorphicColors.text.opacity(0.58))
+
+                                if isTaskTimerEnabled {
+                                    HStack(spacing: 10) {
+                                        taskTimerValuePicker(
+                                            title: L10n.hours,
+                                            valueText: L10n.hourValue(taskTimerHours)
+                                        ) {
+                                            ForEach(0...24, id: \.self) { hour in
+                                                Button(L10n.hourValue(hour)) {
+                                                    taskTimerHours = hour
+                                                    if taskTimerHours == 24 {
+                                                        taskTimerMinutes = 0
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        taskTimerValuePicker(
+                                            title: L10n.minutes,
+                                            valueText: L10n.minuteValue(taskTimerMinutes)
+                                        ) {
+                                            ForEach(taskTimerMinuteOptions, id: \.self) { minute in
+                                                Button(L10n.minuteValue(minute)) {
+                                                    taskTimerMinutes = minute
+                                                }
+                                                .disabled(taskTimerHours == 24 && minute != 0)
+                                            }
+                                        }
+                                    }
+
+                                    Text(taskTimerSummaryText)
+                                        .font(.system(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
+                                        .foregroundColor(NeumorphicColors.text.opacity(0.64))
+                                }
+                            }
+
                             if speechRecognizer.isRecording {
                                 HStack(spacing: 6) {
                                     Circle()
@@ -162,64 +219,6 @@ struct EditTaskSheet: View {
                                         .foregroundColor(NeumorphicColors.text.opacity(0.8))
                                 }
                                 .transition(.opacity)
-                            }
-                        }
-
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(L10n.quickAdd)
-                                .font(.system(size: scaled(15, pad: 18), weight: .semibold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text)
-
-                            if !quickAddGroups.isEmpty {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text(L10n.groups)
-                                        .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                                        .foregroundColor(NeumorphicColors.text.opacity(0.66))
-
-                                    HStack(spacing: 12) {
-                                        ForEach(quickAddGroups) { group in
-                                            Button {
-                                                let didApply = onApplyGroup(group.tasks)
-                                                if !didApply {
-                                                    showGroupApplyAlert = true
-                                                }
-                                            } label: {
-                                                Text(group.name)
-                                                    .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                                                    .foregroundColor(NeumorphicColors.text)
-                                                    .lineLimit(1)
-                                                    .multilineTextAlignment(.center)
-                                                    .padding(.horizontal, 10)
-                                                    .padding(.vertical, 8)
-                                                    .background(Color.clear.neumorphicConvex(radius: 9))
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-                                        Spacer(minLength: 0)
-                                    }
-                                }
-                            }
-
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(L10n.tasks)
-                                    .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                                    .foregroundColor(NeumorphicColors.text.opacity(0.66))
-
-                                LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 12) {
-                                    ForEach(quickTasks, id: \.self) { task in
-                                        Button {
-                                            text = task
-                                        } label: {
-                                            Text(task)
-                                                .font(.system(size: scaled(12, pad: 14), design: .rounded))
-                                                .foregroundColor(NeumorphicColors.text)
-                                                .frame(maxWidth: .infinity)
-                                                .padding(.vertical, 10)
-                                                .background(Color.clear.neumorphicConvex(radius: 10))
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
                             }
                         }
 
@@ -254,7 +253,7 @@ struct EditTaskSheet: View {
                         .foregroundColor(NeumorphicColors.text.opacity(0.8))
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.save) { onSave(text, isForcedTask, residentWeekdays) }
+                    Button(L10n.save) { onSave(text, isForcedTask, residentWeekdays, normalizedEstimatedDurationMinutes) }
                         .fontWeight(.semibold)
                         .foregroundColor(NeumorphicColors.accent)
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -270,33 +269,12 @@ struct EditTaskSheet: View {
                     .foregroundColor(NeumorphicColors.accent)
                 }
             }
-            .alert(L10n.unableToApplyGroup, isPresented: $showGroupApplyAlert) {
-                Button(L10n.ok, role: .cancel) { }
-            } message: {
-                Text(L10n.applyGroupFailedMessage)
+            .onChange(of: taskTimerHours) { _, newHours in
+                if newHours == 24 {
+                    taskTimerMinutes = 0
+                }
             }
         }
-    }
-
-    private var quickTasks: [String] {
-        let library = CommonTasksStore.loadLibrary()
-        if library.tasks.isEmpty {
-            return [
-                L10n.tr("Brush Teeth", zhHans: "刷牙"),
-                L10n.tr("Shower", zhHans: "洗澡"),
-                L10n.tr("Exercise", zhHans: "运动"),
-                L10n.tr("Drink Water", zhHans: "喝水"),
-                L10n.tr("Eat", zhHans: "吃饭"),
-                L10n.tr("Sweep", zhHans: "扫地"),
-                L10n.tr("Wash Dishes", zhHans: "洗碗"),
-                L10n.tr("Laundry", zhHans: "洗衣服")
-            ]
-        }
-        return library.tasks
-    }
-
-    private var quickAddGroups: [MyTaskGroup] {
-        CommonTasksStore.loadGroups().filter { !$0.tasks.isEmpty }
     }
 
     private var weekdayOptions: [(value: Int, label: String)] {
@@ -309,6 +287,49 @@ struct EditTaskSheet: View {
             (7, L10n.saturdayShort),
             (1, L10n.sundayShort)
         ]
+    }
+
+    private var taskTimerMinuteOptions: [Int] {
+        taskTimerHours == 24 ? [0] : Array(stride(from: 0, through: 55, by: 5))
+    }
+
+    private var normalizedEstimatedDurationMinutes: Int? {
+        guard isTaskTimerEnabled else { return nil }
+        let totalMinutes = min((taskTimerHours * 60) + taskTimerMinutes, BingoViewModel.maxCountdownMinutes)
+        return totalMinutes > 0 ? totalMinutes : 5
+    }
+
+    private var taskTimerSummaryText: String {
+        if taskTimerHours == 24 {
+            return L10n.taskTimerSummary24Hours
+        }
+        return L10n.taskTimerSummary(hours: taskTimerHours, minutes: taskTimerMinutes)
+    }
+
+    private func taskTimerValuePicker<Content: View>(
+        title: String,
+        valueText: String,
+        @ViewBuilder menuContent: () -> Content
+    ) -> some View {
+        Menu {
+            menuContent()
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: scaled(11, pad: 13), weight: .medium, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                Text(valueText)
+                    .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color.clear.neumorphicConvex(radius: 12))
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
     }
 }
 

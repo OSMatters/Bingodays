@@ -86,7 +86,8 @@ struct ContentView: View {
     @State private var isBoardCountdownPresented = false
     @State private var selectedStickerID: UUID?
     @State private var isDiaryPresented = false
-    @State private var isCommonTasksEditorPresented = false
+    @State private var isQuickEditPresented = false
+    @State private var isClearBoardConfirmationPresented = false
     @State private var commonTasksToastMessage: String?
     @State private var isCommonTasksToastVisible = false
     @State private var hideCommonTasksToastWorkItem: DispatchWorkItem?
@@ -94,6 +95,8 @@ struct ContentView: View {
     @State private var floatingPointsDelta: Int?
     @State private var isFloatingPointsDeltaVisible = false
     @State private var isDailyResetToastVisible = false
+    @State private var taskTimeoutDelayMinutes = 10
+    @State private var boardTimeoutDelayMinutes = 10
     @State private var stickerInventoryCounts = StickerStore.loadInventoryCounts()
     @State private var homeStickerPlacements = StickerStore.loadPlacements()
     @State private var customRewards = RewardStore.loadRewards()
@@ -158,11 +161,15 @@ struct ContentView: View {
                     VStack(spacing: 16) {
                         gridControls
 
-                        BingoBoardView(viewModel: viewModel)
+                        BingoBoardView(viewModel: viewModel, currentTime: countdownNow)
                             .frame(width: contentWidth, height: contentWidth)
 
-                        boardCountdownTrigger
-                            .padding(.top, 8)
+                        HStack(spacing: 12) {
+                            boardCountdownTrigger
+                            Spacer(minLength: 0)
+                            quickEditTrigger
+                        }
+                        .padding(.top, 4)
                     }
                     .frame(width: contentWidth)
                     .padding(.top, 62)
@@ -225,10 +232,25 @@ struct ContentView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                         .allowsHitTesting(false)
                 }
+
+                if isClearBoardConfirmationPresented {
+                    clearBoardConfirmationOverlay
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+
+                if let expiredTaskEvent = viewModel.expiredTaskEvent {
+                    taskTimeoutOverlay(for: expiredTaskEvent)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+
+                if let expiredBoardEvent = viewModel.expiredBoardCountdownEvent {
+                    boardTimeoutOverlay(for: expiredBoardEvent)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
             }
         }
-        .fullScreenCover(isPresented: $isCommonTasksEditorPresented) {
-            CommonTasksEditorView { message in
+        .fullScreenCover(isPresented: $isQuickEditPresented) {
+            QuickEditView(viewModel: viewModel) { message in
                 showCommonTasksToast(message)
             }
         }
@@ -315,6 +337,7 @@ struct ContentView: View {
         .onAppear {
             countdownNow = Date()
             viewModel.processExpiredCountdowns(now: countdownNow)
+            viewModel.processExpiredTaskCountdowns(now: countdownNow)
             viewModel.processDailyCompletionReset(now: countdownNow)
             PAGCompletionView.preload(resourceName: "cat_bmp")
             PointsSoundPlayer.shared.preload()
@@ -323,6 +346,7 @@ struct ContentView: View {
             guard newPhase == .active else { return }
             countdownNow = Date()
             viewModel.processExpiredCountdowns(now: countdownNow)
+            viewModel.processExpiredTaskCountdowns(now: countdownNow)
             viewModel.processDailyCompletionReset(now: countdownNow)
         }
         .onChange(of: availablePoints) { oldValue, newValue in
@@ -368,21 +392,14 @@ struct ContentView: View {
         .onReceive(countdownTicker) { _ in
             countdownNow = Date()
             viewModel.processExpiredCountdowns(now: countdownNow)
+            viewModel.processExpiredTaskCountdowns(now: countdownNow)
             viewModel.processDailyCompletionReset(now: countdownNow)
         }
-        .alert(L10n.countdownEndedTitle, isPresented: Binding(
-            get: { viewModel.expiredCountdownMessage != nil },
-            set: { isPresented in
-                if !isPresented {
-                    viewModel.clearExpiredCountdownMessage()
-                }
-            }
-        )) {
-            Button(L10n.ok) {
-                viewModel.clearExpiredCountdownMessage()
-            }
-        } message: {
-            Text(viewModel.expiredCountdownMessage ?? "")
+        .onChange(of: viewModel.expiredTaskEvent?.id) { _, _ in
+            taskTimeoutDelayMinutes = 10
+        }
+        .onChange(of: viewModel.expiredBoardCountdownEvent?.id) { _, _ in
+            boardTimeoutDelayMinutes = 10
         }
     }
 
@@ -400,13 +417,6 @@ struct ContentView: View {
                         Capsule(style: .continuous)
                             .stroke(.white.opacity(0.28), lineWidth: 1)
                     )
-                    .overlay(alignment: .bottom) {
-                        Capsule(style: .continuous)
-                            .fill(.white.opacity(0.16))
-                            .frame(height: 8)
-                            .padding(.horizontal, 14)
-                            .offset(y: 1)
-                    }
             )
             .shadow(color: NeumorphicColors.accent.opacity(0.34), radius: 10, x: 0, y: 6)
     }
@@ -450,16 +460,198 @@ struct ContentView: View {
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .stroke(.white.opacity(0.28), lineWidth: 1)
                 )
-                .overlay(alignment: .bottom) {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(.white.opacity(0.16))
-                        .frame(height: 9)
-                        .padding(.horizontal, 16)
-                        .offset(y: 2)
-                }
         )
         .shadow(color: NeumorphicColors.darkShadow.opacity(0.22), radius: 16, x: 0, y: 8)
         .shadow(color: NeumorphicColors.accent.opacity(0.34), radius: 10, x: 0, y: 6)
+    }
+
+    private var taskTimeoutDelayOptions: [Int] {
+        [5, 10, 15, 20, 30, 45, 60, 90, 120]
+    }
+
+    @ViewBuilder
+    private func taskTimeoutOverlay(for event: BingoViewModel.ExpiredTaskEvent) -> some View {
+        ZStack {
+            Color.black.opacity(0.16)
+                .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                let overtimeSeconds = max(Int(countdownNow.timeIntervalSince(event.expiredAt)), 0)
+
+                Text(
+                    L10n.taskTimedOutHeadline(
+                        task: event.taskText.isEmpty ? L10n.task : event.taskText,
+                        seconds: overtimeSeconds
+                    )
+                )
+                .font(.system(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
+                .foregroundColor(NeumorphicColors.text)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 10) {
+                    Button {
+                        if let message = viewModel.resolveExpiredTask(.markAsCompleted, now: countdownNow) {
+                            showCommonTasksToast(message)
+                        }
+                    } label: {
+                        Text(L10n.markAsCompleted)
+                            .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(NeumorphicColors.accent)
+                                    .shadow(color: NeumorphicColors.accent.opacity(0.25), radius: 10, x: 0, y: 4)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Menu {
+                        ForEach(taskTimeoutDelayOptions, id: \.self) { minute in
+                            Button(L10n.postponeTaskByMinutes(minute)) {
+                                taskTimeoutDelayMinutes = minute
+                                if let message = viewModel.resolveExpiredTask(.postpone(minutes: minute), now: countdownNow) {
+                                    showCommonTasksToast(message)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(L10n.postponeTaskByMinutes(taskTimeoutDelayMinutes))
+                                .font(.system(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
+                                .foregroundColor(NeumorphicColors.text.opacity(0.76))
+                                .lineLimit(1)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: scaled(10, pad: 12), weight: .semibold))
+                                .foregroundColor(NeumorphicColors.accent)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 42)
+                        .background(Color.clear.neumorphicConvex(radius: 17))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        if let message = viewModel.resolveExpiredTask(.abandon, now: countdownNow) {
+                            showCommonTasksToast(message)
+                        }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: scaled(15, pad: 17), weight: .bold))
+                            .foregroundColor(NeumorphicColors.text.opacity(0.74))
+                            .frame(width: 46, height: 42)
+                            .background(Color.clear.neumorphicConvex(radius: 17))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: 380)
+            .frame(minHeight: 196)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(NeumorphicColors.background)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .stroke(NeumorphicColors.lightShadow.opacity(0.42), lineWidth: 1)
+                    )
+                    .shadow(color: NeumorphicColors.darkShadow.opacity(0.18), radius: 16, x: 0, y: 8)
+                    .shadow(color: Color.white.opacity(0.72), radius: 10, x: -4, y: -4)
+            )
+            .padding(.horizontal, 24)
+        }
+    }
+
+    @ViewBuilder
+    private func boardTimeoutOverlay(for event: BingoViewModel.ExpiredBoardCountdownEvent) -> some View {
+        ZStack {
+            Color.black.opacity(0.16)
+                .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                let overtimeSeconds = max(Int(countdownNow.timeIntervalSince(event.expiredAt)), 0)
+
+                Text(L10n.boardTimedOutHeadline(seconds: overtimeSeconds))
+                    .font(.system(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 10) {
+                    Button {
+                        if let message = viewModel.resolveExpiredBoardCountdown(.markAsCompleted, now: countdownNow) {
+                            showCommonTasksToast(message)
+                        }
+                    } label: {
+                        Text(L10n.markAsCompleted)
+                            .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(NeumorphicColors.accent)
+                                    .shadow(color: NeumorphicColors.accent.opacity(0.25), radius: 10, x: 0, y: 4)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Menu {
+                        ForEach(taskTimeoutDelayOptions, id: \.self) { minute in
+                            Button(L10n.postponeTaskByMinutes(minute)) {
+                                boardTimeoutDelayMinutes = minute
+                                if let message = viewModel.resolveExpiredBoardCountdown(.postpone(minutes: minute), now: countdownNow) {
+                                    showCommonTasksToast(message)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(L10n.postponeTaskByMinutes(boardTimeoutDelayMinutes))
+                                .font(.system(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
+                                .foregroundColor(NeumorphicColors.text.opacity(0.76))
+                                .lineLimit(1)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: scaled(10, pad: 12), weight: .semibold))
+                                .foregroundColor(NeumorphicColors.accent)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 42)
+                        .background(Color.clear.neumorphicConvex(radius: 17))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        if let message = viewModel.resolveExpiredBoardCountdown(.abandon, now: countdownNow) {
+                            showCommonTasksToast(message)
+                        }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: scaled(15, pad: 17), weight: .bold))
+                            .foregroundColor(NeumorphicColors.text.opacity(0.74))
+                            .frame(width: 46, height: 42)
+                            .background(Color.clear.neumorphicConvex(radius: 17))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: 380)
+            .frame(minHeight: 196)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(NeumorphicColors.background)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .stroke(NeumorphicColors.lightShadow.opacity(0.42), lineWidth: 1)
+                    )
+                    .shadow(color: NeumorphicColors.darkShadow.opacity(0.18), radius: 16, x: 0, y: 8)
+                    .shadow(color: Color.white.opacity(0.72), radius: 10, x: -4, y: -4)
+            )
+            .padding(.horizontal, 24)
+        }
     }
 
     private func conciseRaisedSurface(cornerRadius: CGFloat, shadowRadius: CGFloat, offset: CGFloat) -> some View {
@@ -467,6 +659,32 @@ struct ContentView: View {
             .fill(conciseSurfaceColor)
             .shadow(color: Color.white.opacity(0.72), radius: shadowRadius, x: -offset, y: -offset)
             .shadow(color: Color(hex: "CFD4DA").opacity(0.72), radius: shadowRadius, x: offset, y: offset)
+    }
+
+    private var quickEditTrigger: some View {
+        return Button {
+            isQuickEditPresented = true
+        } label: {
+            HStack(spacing: 10) {
+                Text(L10n.quickEdit)
+                    .font(.system(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
+
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: scaled(13, pad: 15), weight: .bold))
+                    .foregroundColor(NeumorphicColors.accent)
+            }
+            .padding(.horizontal, isPadLayout ? 20 : 16)
+            .frame(height: isPadLayout ? 42 : 36)
+            .background(
+                conciseRaisedSurface(
+                    cornerRadius: isPadLayout ? 21 : 18,
+                    shadowRadius: isPadLayout ? 12 : 10,
+                    offset: isPadLayout ? 6 : 5
+                )
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private var boardCountdownTrigger: some View {
@@ -477,12 +695,12 @@ struct ContentView: View {
                 Text(boardCountdownText ?? L10n.setBoardCountdown)
                     .font(.system(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
                     .monospacedDigit()
-                    .foregroundColor(NeumorphicColors.text.opacity(0.65))
+                    .foregroundColor(NeumorphicColors.text)
                     .lineLimit(1)
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: scaled(11, pad: 12), weight: .semibold))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                    .foregroundColor(NeumorphicColors.accent)
             }
             .padding(.horizontal, isPadLayout ? 20 : 16)
             .frame(height: isPadLayout ? 38 : 32)
@@ -669,32 +887,6 @@ struct ContentView: View {
                 Section {
                     sidebarStreakHero
                     sidebarStreakGoals
-
-                    Button {
-                        isCommonTasksEditorPresented = true
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: "star")
-                                .font(.system(size: scaled(18, pad: 20), weight: .bold))
-                                .foregroundColor(NeumorphicColors.accent)
-                                .frame(width: isPadLayout ? 44 : 40, height: isPadLayout ? 44 : 40)
-                                .neumorphicConvex(radius: isPadLayout ? 22 : 20)
-
-                            Text(L10n.myTasks)
-                                .font(.system(size: scaled(15, pad: 18), weight: .bold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text)
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: scaled(14, pad: 16), weight: .bold))
-                                .foregroundColor(NeumorphicColors.accent)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .listRowInsets(EdgeInsets(top: 12, leading: 22, bottom: 12, trailing: 22))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
 
                     Button {
                         isSidebarPresented = false
@@ -1196,24 +1388,116 @@ struct ContentView: View {
 
             Spacer()
 
-            Button {
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-                    viewModel.shuffleBoard()
-                }
-            } label: {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: isPadLayout ? 17 : 15, weight: .semibold))
-                    .foregroundColor(NeumorphicColors.accent)
-                    .frame(width: controlSize, height: controlSize)
-                    .background(
-                        conciseRaisedSurface(
-                            cornerRadius: controlSize / 2,
-                            shadowRadius: isPadLayout ? 10 : 8,
-                            offset: isPadLayout ? 5 : 4
+            HStack(spacing: isPadLayout ? 12 : 10) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        isClearBoardConfirmationPresented = true
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: isPadLayout ? 16 : 14, weight: .semibold))
+                        .foregroundColor(NeumorphicColors.accent)
+                        .frame(width: controlSize, height: controlSize)
+                        .background(
+                            conciseRaisedSurface(
+                                cornerRadius: controlSize / 2,
+                                shadowRadius: isPadLayout ? 10 : 8,
+                                offset: isPadLayout ? 5 : 4
+                            )
                         )
-                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.clearBoard)
+
+                Button {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                        viewModel.shuffleBoard()
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: isPadLayout ? 17 : 15, weight: .semibold))
+                        .foregroundColor(NeumorphicColors.accent)
+                        .frame(width: controlSize, height: controlSize)
+                        .background(
+                            conciseRaisedSurface(
+                                cornerRadius: controlSize / 2,
+                                shadowRadius: isPadLayout ? 10 : 8,
+                                offset: isPadLayout ? 5 : 4
+                            )
+                        )
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private var clearBoardConfirmationOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.16)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    isClearBoardConfirmationPresented = false
+                }
+
+            VStack(spacing: 18) {
+                VStack(spacing: 10) {
+                    Text(L10n.clearBoardConfirmationTitle)
+                        .font(.system(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+
+                    Text(L10n.clearBoardConfirmationMessage)
+                        .font(.system(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text.opacity(0.64))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 12) {
+                    Button {
+                        isClearBoardConfirmationPresented = false
+                    } label: {
+                        Text(L10n.cancel)
+                            .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+                            .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Color.clear.neumorphicConvex(radius: 18))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        isClearBoardConfirmationPresented = false
+                        viewModel.resetBoard()
+                        showCommonTasksToast(L10n.boardClearedSuccess)
+                    } label: {
+                        Text(L10n.clearBoard)
+                            .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(NeumorphicColors.bingoAccent)
+                                    .shadow(color: NeumorphicColors.bingoAccent.opacity(0.25), radius: 10, x: 0, y: 4)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: 320)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(NeumorphicColors.background)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .stroke(NeumorphicColors.lightShadow.opacity(0.42), lineWidth: 1)
+                    )
+                    .shadow(color: NeumorphicColors.darkShadow.opacity(0.18), radius: 16, x: 0, y: 8)
+                    .shadow(color: Color.white.opacity(0.72), radius: 10, x: -4, y: -4)
+            )
+            .padding(.horizontal, 28)
         }
     }
 
@@ -1396,58 +1680,20 @@ private struct PointsDetailSheet: View {
                                 }
                             }
                         } else {
-                            VStack(alignment: .leading, spacing: 16) {
+                            VStack(alignment: .leading, spacing: 14) {
                                 if rewards.isEmpty {
-                                    VStack(alignment: .leading, spacing: 14) {
-                                        Text(L10n.noRewardsYet)
-                                            .font(.system(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
-                                            .foregroundColor(NeumorphicColors.text.opacity(0.62))
-                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    Text(L10n.noRewardsYet)
+                                        .font(.system(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
+                                        .foregroundColor(NeumorphicColors.text.opacity(0.62))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 4)
+                                }
 
-                                        Button {
-                                            creatingReward = true
-                                        } label: {
-                                            Label {
-                                                Text(L10n.addReward)
-                                            } icon: {
-                                                Image(systemName: "plus")
-                                                    .font(.system(size: scaled(12, pad: 14), weight: .bold))
-                                            }
-                                            .font(.system(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
-                                            .foregroundColor(NeumorphicColors.accent)
-                                            .padding(.horizontal, 16)
-                                            .frame(height: 38)
-                                            .background(Color.clear.neumorphicConvex(radius: 19))
-                                        }
-                                        .buttonStyle(.plain)
+                                LazyVGrid(columns: stickerGridColumns, spacing: 16) {
+                                    ForEach(rewards) { reward in
+                                        rewardCard(reward)
                                     }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.vertical, 20)
-                                    .padding(.horizontal, 18)
-                                    .background(Color.clear.neumorphicConvex(radius: 22))
-                                } else {
-                                    LazyVStack(spacing: 14) {
-                                        ForEach(rewards) { reward in
-                                            rewardCard(reward)
-                                        }
-                                    }
-
-                                    Button {
-                                        creatingReward = true
-                                    } label: {
-                                        HStack(spacing: 10) {
-                                            Image(systemName: "plus.circle.fill")
-                                                .font(.system(size: scaled(18, pad: 21), weight: .semibold))
-
-                                            Text(L10n.addReward)
-                                                .font(.system(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
-                                        }
-                                        .foregroundColor(NeumorphicColors.accent)
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: 54)
-                                        .background(Color.clear.neumorphicConvex(radius: 22))
-                                    }
-                                    .buttonStyle(.plain)
+                                    addRewardCard
                                 }
                             }
                         }
@@ -1664,86 +1910,90 @@ private struct PointsDetailSheet: View {
     private func rewardCard(_ reward: CustomReward) -> some View {
         let canRedeem = points >= reward.requiredPoints
 
-        return VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(reward.title)
-                        .font(.system(size: scaled(18, pad: 22), weight: .bold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .lineLimit(2)
+        return ZStack(alignment: .topTrailing) {
+            VStack(spacing: 0) {
+                Spacer(minLength: isPadLayout ? 14 : 10)
+
+                Text(reward.title)
+                    .font(.system(size: scaled(16, pad: 20), weight: .bold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, 8)
+                    .offset(y: 20)
+
+                Spacer(minLength: isPadLayout ? 12 : 10)
+
+                VStack(spacing: 4) {
+                    Text("\(reward.requiredPoints) \(L10n.pointsUnit)")
+                        .font(.system(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
+                        .foregroundColor(canRedeem ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.58))
 
                     if reward.redemptionCount > 0 {
                         Text(L10n.redeemedCount(reward.redemptionCount))
-                            .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                            .foregroundColor(NeumorphicColors.text.opacity(0.6))
+                            .font(.system(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
+                            .foregroundColor(NeumorphicColors.text.opacity(0.62))
                     }
                 }
+                .frame(maxWidth: .infinity)
+                .offset(y: 20)
 
-                Text("\(reward.requiredPoints) \(L10n.pointsUnit)")
-                    .font(.system(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.accent)
-                    .padding(.horizontal, 12)
-                    .frame(height: 32)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(NeumorphicColors.background.opacity(0.58))
-                            .overlay(
-                                Capsule(style: .continuous)
-                                    .stroke(NeumorphicColors.accent.opacity(0.22), lineWidth: 1)
-                            )
-                    )
-            }
-
-            HStack(spacing: 12) {
-                Button {
-                    editingReward = reward
-                } label: {
-                    Label {
-                        Text(L10n.editReward)
-                    } icon: {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: scaled(12, pad: 14), weight: .bold))
-                    }
-                    .font(.system(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.72))
-                    .frame(width: isPadLayout ? 138 : 122, height: isPadLayout ? 42 : 38)
-                    .background(Color.clear.neumorphicConvex(radius: isPadLayout ? 21 : 19))
-                }
-                .buttonStyle(.plain)
+                Spacer(minLength: isPadLayout ? 12 : 10)
 
                 Button {
                     onRedeemReward(reward)
                 } label: {
                     Text(L10n.redeem)
-                        .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                        .foregroundColor(canRedeem ? .white : NeumorphicColors.text.opacity(0.42))
+                        .font(.system(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
+                        .foregroundColor(canRedeem ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.42))
                         .frame(maxWidth: .infinity)
-                        .frame(height: isPadLayout ? 42 : 38)
-                        .background(
-                            Group {
-                                if canRedeem {
-                                    Capsule(style: .continuous)
-                                        .fill(NeumorphicColors.accent)
-                                        .overlay(
-                                            Capsule(style: .continuous)
-                                                .stroke(.white.opacity(0.26), lineWidth: 1)
-                                        )
-                                } else {
-                                    Color.clear.neumorphicConvex(radius: 19)
-                                        .opacity(0.76)
-                                }
-                            }
-                        )
-                        .opacity(canRedeem ? 1 : 0.78)
+                        .frame(height: isPadLayout ? 38 : 34)
+                        .background(Color.clear.neumorphicConvex(radius: isPadLayout ? 19 : 17))
+                        .opacity(canRedeem ? 1 : 0.68)
                 }
                 .buttonStyle(.plain)
                 .disabled(!canRedeem)
+                .padding(.top, isPadLayout ? 8 : 6)
             }
+
+            Button {
+                editingReward = reward
+            } label: {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: scaled(12, pad: 14), weight: .bold))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                    .frame(width: 30, height: 30)
+                    .background(Color.clear.neumorphicConvex(radius: 15))
+            }
+            .buttonStyle(.plain)
         }
-        .padding(.vertical, 18)
-        .padding(.horizontal, 18)
+        .frame(maxWidth: .infinity, minHeight: isPadLayout ? 192 : 176, alignment: .top)
+        .padding(.vertical, 16)
+        .padding(.horizontal, 12)
         .background(Color.clear.neumorphicConvex(radius: 22))
+        .opacity(canRedeem ? 1 : 0.9)
+    }
+
+    private var addRewardCard: some View {
+        Button {
+            creatingReward = true
+        } label: {
+            VStack(spacing: 12) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: scaled(34, pad: 40), weight: .semibold))
+                    .foregroundColor(NeumorphicColors.accent)
+
+                Text(L10n.addReward)
+                    .font(.system(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
+            }
+            .frame(maxWidth: .infinity, minHeight: isPadLayout ? 192 : 176)
+            .padding(.vertical, 16)
+            .padding(.horizontal, 12)
+            .background(Color.clear.neumorphicConvex(radius: 22))
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -1863,9 +2113,15 @@ private struct RewardEditorSheet: View {
                 .padding(.top, 24)
                 .padding(.bottom, 16)
             }
-            .navigationTitle(reward == nil ? L10n.addReward : L10n.editReward)
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(reward == nil ? L10n.addReward : L10n.editReward)
+                        .font(.system(size: scaled(18, pad: 21), weight: .bold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+                }
+
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.cancel) {
                         onCancel()
@@ -2035,7 +2291,8 @@ private struct EditableHomeStickerView: View {
     }
 }
 
-private struct CommonTasksEditorView: View {
+private struct QuickEditView: View {
+    @ObservedObject var viewModel: BingoViewModel
     let onSaveSuccess: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -2047,6 +2304,9 @@ private struct CommonTasksEditorView: View {
     @State private var localToastMessage: String?
     @State private var isLocalToastVisible = false
     @State private var hideLocalToastWorkItem: DispatchWorkItem?
+    @State private var selectedTaskKeys: [String] = []
+    @State private var targetGridSize = 4
+    @State private var didApplyToBoard = false
 
     private enum FocusedMyTaskField: Hashable {
         case task(Int)
@@ -2086,6 +2346,11 @@ private struct CommonTasksEditorView: View {
         }
     }
 
+    private struct TaskCandidate: Identifiable {
+        let id: String
+        let text: String
+    }
+
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
     }
@@ -2094,18 +2359,39 @@ private struct CommonTasksEditorView: View {
         isPadLayout ? (pad ?? base * 1.18) : base
     }
 
-    private var taskColumns: [GridItem] {
-        if isPadLayout {
-            return Array(repeating: GridItem(.flexible(), spacing: 18), count: 2)
-        }
-        return Array(repeating: GridItem(.flexible(), spacing: 14), count: 2)
-    }
-
     private var groupColumns: [GridItem] {
         if isPadLayout {
             return [GridItem(.flexible(), spacing: 18)]
         }
         return [GridItem(.flexible(), spacing: 14)]
+    }
+
+    private var allTaskCandidates: [TaskCandidate] {
+        var candidates: [TaskCandidate] = []
+
+        for index in library.tasks.indices {
+            let text = library.tasks[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            candidates.append(TaskCandidate(id: "task-\(index)", text: text))
+        }
+
+        for group in library.groups {
+            for index in group.tasks.indices {
+                let text = group.tasks[index].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { continue }
+                candidates.append(TaskCandidate(id: "group-\(group.id.uuidString)-\(index)", text: text))
+            }
+        }
+
+        return candidates
+    }
+
+    private var selectedTasks: [String] {
+        let candidateMap = Dictionary(uniqueKeysWithValues: allTaskCandidates.map { ($0.id, $0.text) })
+        return selectedTaskKeys.compactMap { key in
+            guard let text = candidateMap[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return text
+        }
     }
 
     var body: some View {
@@ -2120,7 +2406,9 @@ private struct CommonTasksEditorView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
+                        quickEditControlsCard
                         tasksSection
+                            .padding(.top, -30)
                         groupsSection
                         hintCard
                     }
@@ -2147,13 +2435,6 @@ private struct CommonTasksEditorView: View {
                                         Capsule(style: .continuous)
                                             .stroke(.white.opacity(0.28), lineWidth: 1)
                                     )
-                                    .overlay(alignment: .bottom) {
-                                        Capsule(style: .continuous)
-                                            .fill(.white.opacity(0.16))
-                                            .frame(height: 8)
-                                            .padding(.horizontal, 14)
-                                            .offset(y: 1)
-                                    }
                             )
                             .shadow(color: NeumorphicColors.darkShadow.opacity(0.12), radius: 8, x: 0, y: 4)
                             .shadow(color: NeumorphicColors.accent.opacity(0.34), radius: 10, x: 0, y: 6)
@@ -2170,13 +2451,19 @@ private struct CommonTasksEditorView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
             }
-            .navigationTitle(L10n.myTasks)
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(NeumorphicColors.background, for: .navigationBar)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(L10n.quickEdit)
+                        .font(.system(size: scaled(20, pad: 23), weight: .bold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+                }
+
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.save) {
-                        saveAndDismiss()
+                    Button(L10n.done) {
+                        applySelectionToBoard()
                     }
                     .fontWeight(.semibold)
                     .foregroundColor(NeumorphicColors.accent)
@@ -2194,8 +2481,99 @@ private struct CommonTasksEditorView: View {
             }
         }
         .onDisappear {
+            guard !didApplyToBoard else { return }
             finalizeLibrary()
         }
+        .onAppear {
+            migrateStandaloneTasksIntoGroupsIfNeeded()
+            targetGridSize = viewModel.gridSize
+            selectedTaskKeys = initialSelectedKeys(
+                from: viewModel.currentTaskPoolTasks(),
+                candidates: allTaskCandidates
+            )
+        }
+        .onChange(of: library) { _, _ in
+            syncSelectedTaskKeysWithCurrentLibrary()
+        }
+    }
+
+    private var quickEditControlsCard: some View {
+        sectionCard {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 10) {
+                    quickActionButton(title: L10n.selectAll) {
+                        selectedTaskKeys = allTaskCandidates.map(\.id)
+                    }
+
+                    quickActionButton(title: L10n.deselectAll) {
+                        selectedTaskKeys = []
+                    }
+
+                    quickActionButton(title: L10n.random) {
+                        selectedTaskKeys = allTaskCandidates.map(\.id).shuffled()
+                    }
+                }
+
+                HStack {
+                    Spacer(minLength: 0)
+                    let controlSize: CGFloat = isPadLayout ? 38 : 32
+                    let iconSize: CGFloat = isPadLayout ? 18 : 16
+
+                    HStack(spacing: isPadLayout ? 14 : 11) {
+                        Button {
+                            targetGridSize = max(2, targetGridSize - 1)
+                        } label: {
+                            Image(systemName: "minus")
+                                .font(.system(size: iconSize, weight: .bold))
+                                .foregroundColor(NeumorphicColors.accent)
+                                .frame(width: controlSize, height: controlSize)
+                                .background(Color.clear.neumorphicConvex(radius: controlSize / 2))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(targetGridSize <= 2)
+                        .opacity(targetGridSize <= 2 ? 0.45 : 1)
+
+                        Text("\(targetGridSize) × \(targetGridSize)")
+                            .font(.system(size: scaled(18, pad: 22), weight: .medium, design: .rounded))
+                            .foregroundColor(NeumorphicColors.text)
+                            .frame(width: isPadLayout ? 72 : 62)
+                            .multilineTextAlignment(.center)
+
+                        Button {
+                            targetGridSize = min(5, targetGridSize + 1)
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: iconSize, weight: .bold))
+                                .foregroundColor(NeumorphicColors.accent)
+                                .frame(width: controlSize, height: controlSize)
+                                .background(Color.clear.neumorphicConvex(radius: controlSize / 2))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(targetGridSize >= 5)
+                        .opacity(targetGridSize >= 5 ? 0.45 : 1)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 10)
+            }
+        }
+    }
+
+    private func quickActionButton(title: String, isAccent: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
+                .foregroundColor(isAccent ? .white : NeumorphicColors.text)
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(isAccent ? NeumorphicColors.accent : NeumorphicColors.background)
+                        .shadow(color: Color.white.opacity(0.68), radius: 6, x: -3, y: -3)
+                        .shadow(color: Color(hex: "CFD4DA").opacity(0.7), radius: 6, x: 3, y: 3)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     private var tasksSection: some View {
@@ -2203,24 +2581,15 @@ private struct CommonTasksEditorView: View {
             VStack(alignment: .leading, spacing: 18) {
                 sectionHeader(
                     title: L10n.tasks,
-                    subtitle: L10n.tasksSectionHint,
+                    subtitle: "",
                     detail: "\(library.tasks.count)/\(AppSettings.maxCommonTasks)",
-                    actionTitle: (!library.tasks.isEmpty && library.tasks.count < AppSettings.maxCommonTasks) ? L10n.addTask : nil,
-                    action: (!library.tasks.isEmpty && library.tasks.count < AppSettings.maxCommonTasks) ? appendTask : nil
+                    actionTitle: library.tasks.count < AppSettings.maxCommonTasks ? L10n.addTask : nil,
+                    action: library.tasks.count < AppSettings.maxCommonTasks ? appendTask : nil
                 )
 
-                if library.tasks.isEmpty {
-                    emptyStateCard(
-                        title: L10n.noTasksYet,
-                        message: L10n.tasksSectionHint,
-                        actionTitle: L10n.addTask,
-                        action: appendTask
-                    )
-                } else {
-                    LazyVGrid(columns: taskColumns, spacing: 14) {
-                        ForEach(library.tasks.indices, id: \.self) { index in
-                            taskCard(for: index)
-                        }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 10)], spacing: 10) {
+                    ForEach(library.tasks.indices, id: \.self) { index in
+                        taskCard(for: index)
                     }
                 }
             }
@@ -2232,24 +2601,15 @@ private struct CommonTasksEditorView: View {
             VStack(alignment: .leading, spacing: 18) {
                 sectionHeader(
                     title: L10n.groups,
-                    subtitle: L10n.groupsSectionHint,
+                    subtitle: "",
                     detail: "\(library.groups.count)/\(AppSettings.maxTaskGroups)",
-                    actionTitle: (!library.groups.isEmpty && library.groups.count < AppSettings.maxTaskGroups) ? L10n.addGroup : nil,
-                    action: (!library.groups.isEmpty && library.groups.count < AppSettings.maxTaskGroups) ? appendGroup : nil
+                    actionTitle: library.groups.count < AppSettings.maxTaskGroups ? L10n.addGroup : nil,
+                    action: library.groups.count < AppSettings.maxTaskGroups ? appendGroup : nil
                 )
 
-                if library.groups.isEmpty {
-                    emptyStateCard(
-                        title: L10n.noGroupsYet,
-                        message: L10n.groupsSectionHint,
-                        actionTitle: L10n.addGroup,
-                        action: appendGroup
-                    )
-                } else {
-                    LazyVGrid(columns: groupColumns, spacing: 14) {
-                        ForEach(library.groups.indices, id: \.self) { index in
-                            groupCard(for: index)
-                        }
+                LazyVGrid(columns: groupColumns, spacing: 14) {
+                    ForEach(library.groups.indices, id: \.self) { index in
+                        groupCard(for: index)
                     }
                 }
             }
@@ -2257,58 +2617,81 @@ private struct CommonTasksEditorView: View {
     }
 
     private func taskCard(for index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center) {
-                Text(L10n.task)
-                    .font(.system(size: scaled(11, pad: 15), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.5))
+        let key = "task-\(index)"
+        let isSelected = selectedTaskKeys.contains(key)
 
-                Spacer()
-
-                Button {
-                    focusedField = nil
-                    deleteConfirmationTarget = .task(index)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: scaled(9, pad: 10), weight: .bold))
-                        .foregroundColor(NeumorphicColors.accent)
-                        .frame(width: 22, height: 22)
-                        .background(
-                            Circle()
-                                .fill(NeumorphicColors.background)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-
+        return HStack(spacing: 8) {
             TextField(L10n.taskNumber(index + 1), text: taskBinding(for: index), axis: .vertical)
-                .font(.system(size: scaled(16, pad: 22), weight: .semibold, design: .rounded))
+                .font(.system(size: scaled(13, pad: 17), weight: .medium, design: .rounded))
                 .foregroundColor(NeumorphicColors.text)
-                .lineLimit(3)
+                .lineLimit(1)
                 .focused($focusedField, equals: .task(index))
 
-            Spacer(minLength: 0)
+            Button {
+                toggleSelection(for: key)
+            } label: {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: scaled(13, pad: 15), weight: .bold))
+                    .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                focusedField = nil
+                deleteConfirmationTarget = .task(index)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: scaled(9, pad: 10), weight: .bold))
+                    .foregroundColor(NeumorphicColors.accent)
+                    .frame(width: 18, height: 18)
+                    .neumorphicConvex(radius: 9)
+            }
+            .buttonStyle(.plain)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, minHeight: isPadLayout ? 124 : 112, alignment: .topLeading)
-        .background(Color.clear.neumorphicConvex(radius: 24))
-        .contentShape(RoundedRectangle(cornerRadius: 20))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .frame(minHeight: 42)
+        .background(Color.clear.neumorphicConvex(radius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(NeumorphicColors.accent.opacity(isSelected ? 0.12 : 0))
+                .allowsHitTesting(false)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(NeumorphicColors.accent.opacity(isSelected ? 0.4 : 0), lineWidth: 1.2)
+                .allowsHitTesting(false)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 14))
         .onTapGesture {
-            focusedField = .task(index)
+            toggleSelection(for: key)
         }
     }
 
     private func groupCard(for index: Int) -> some View {
         let group = library.groups[index]
+        let groupSelected = isGroupSelected(group)
 
         return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
                 TextField(L10n.groupName, text: groupNameBinding(for: group.id))
                     .font(.system(size: scaled(16, pad: 22), weight: .bold, design: .rounded))
                     .foregroundColor(NeumorphicColors.text)
                     .focused($focusedField, equals: .groupName(group.id))
 
-                Spacer()
+                Button {
+                    toggleGroupSelection(group)
+                } label: {
+                    Image(systemName: groupSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: scaled(15, pad: 17), weight: .bold))
+                        .foregroundColor(groupSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
+                .disabled(groupSelectableTaskKeys(group).isEmpty)
+                .opacity(groupSelectableTaskKeys(group).isEmpty ? 0.35 : 1)
+                .offset(x: 5)
 
                 Button {
                     focusedField = nil
@@ -2342,10 +2725,24 @@ private struct CommonTasksEditorView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(Color.clear.neumorphicConvex(radius: 24))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(NeumorphicColors.accent.opacity(groupSelected ? 0.12 : 0))
+                .allowsHitTesting(false)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(NeumorphicColors.accent.opacity(groupSelected ? 0.4 : 0), lineWidth: 1.2)
+                .allowsHitTesting(false)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 24))
+        .onTapGesture {
+            toggleGroupSelection(group)
+        }
     }
 
     private func groupTaskChip(groupID: UUID, index: Int) -> some View {
-        HStack(spacing: 8) {
+        return HStack(spacing: 8) {
             TextField(L10n.task, text: groupTaskBinding(groupID: groupID, index: index))
                 .font(.system(size: scaled(13, pad: 17), weight: .medium, design: .rounded))
                 .foregroundColor(NeumorphicColors.text)
@@ -2427,6 +2824,97 @@ private struct CommonTasksEditorView: View {
                 library.groups[groupIndex].tasks[index] = String(newValue.prefix(AppSettings.maxTaskLength))
             }
         )
+    }
+
+    private func toggleSelection(for key: String) {
+        if let index = selectedTaskKeys.firstIndex(of: key) {
+            selectedTaskKeys.remove(at: index)
+        } else {
+            selectedTaskKeys.append(key)
+        }
+    }
+
+    private func groupSelectableTaskKeys(_ group: MyTaskGroup) -> [String] {
+        group.tasks.indices.compactMap { index in
+            let text = group.tasks[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            return "group-\(group.id.uuidString)-\(index)"
+        }
+    }
+
+    private func isGroupSelected(_ group: MyTaskGroup) -> Bool {
+        let keys = groupSelectableTaskKeys(group)
+        guard !keys.isEmpty else { return false }
+        return keys.allSatisfy { selectedTaskKeys.contains($0) }
+    }
+
+    private func toggleGroupSelection(_ group: MyTaskGroup) {
+        let keys = groupSelectableTaskKeys(group)
+        guard !keys.isEmpty else { return }
+
+        if isGroupSelected(group) {
+            let keySet = Set(keys)
+            selectedTaskKeys.removeAll { keySet.contains($0) }
+        } else {
+            for key in keys where !selectedTaskKeys.contains(key) {
+                selectedTaskKeys.append(key)
+            }
+        }
+    }
+
+    private func applySelectionToBoard() {
+        focusedField = nil
+        finalizeLibrary(showSuccessToast: false)
+        let tasks = selectedTasks
+        viewModel.applyTaskPool(tasks, targetGridSize: targetGridSize)
+        didApplyToBoard = true
+        onSaveSuccess(L10n.quickEditAppliedSuccess(min(tasks.count, targetGridSize * targetGridSize)))
+        dismiss()
+    }
+
+    private func initialSelectedKeys(from taskTexts: [String], candidates: [TaskCandidate]) -> [String] {
+        var pendingByText = Dictionary(grouping: candidates, by: \.text)
+        var resolved: [String] = []
+
+        for text in taskTexts {
+            guard var list = pendingByText[text], let candidate = list.first else { continue }
+            resolved.append(candidate.id)
+            list.removeFirst()
+            pendingByText[text] = list
+        }
+
+        return resolved
+    }
+
+    private func syncSelectedTaskKeysWithCurrentLibrary() {
+        let validKeys = Set(allTaskCandidates.map(\.id))
+        selectedTaskKeys = selectedTaskKeys.filter { validKeys.contains($0) }
+    }
+
+    private func migrateStandaloneTasksIntoGroupsIfNeeded() {
+        let legacyTasks = library.tasks
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !legacyTasks.isEmpty else { return }
+
+        var remaining = legacyTasks
+
+        for index in library.groups.indices where !remaining.isEmpty {
+            let capacity = max(AppSettings.maxTasksPerGroup - library.groups[index].tasks.count, 0)
+            guard capacity > 0 else { continue }
+            let chunk = Array(remaining.prefix(capacity))
+            library.groups[index].tasks.append(contentsOf: chunk)
+            remaining.removeFirst(chunk.count)
+        }
+
+        while !remaining.isEmpty && library.groups.count < AppSettings.maxTaskGroups {
+            let chunk = Array(remaining.prefix(AppSettings.maxTasksPerGroup))
+            library.groups.append(MyTaskGroup(name: L10n.groupDefaultName, tasks: chunk))
+            remaining.removeFirst(chunk.count)
+        }
+
+        library.tasks = []
     }
 
     private func finalizeLibrary(showSuccessToast: Bool = false) {
@@ -2600,24 +3088,17 @@ private struct CommonTasksEditorView: View {
     private func sectionHeader(title: String, subtitle: String, detail: String, actionTitle: String?, action: (() -> Void)?) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
+                VStack(alignment: .leading, spacing: subtitle.isEmpty ? 0 : 4) {
+                    Text("\(title) (\(detail))")
                         .font(.system(size: scaled(18, pad: 30), weight: .bold, design: .rounded))
                         .foregroundColor(NeumorphicColors.text)
 
-                    Text(subtitle)
-                        .font(.system(size: scaled(12, pad: 16), weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.56))
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: scaled(12, pad: 16), weight: .medium, design: .rounded))
+                            .foregroundColor(NeumorphicColors.text.opacity(0.56))
+                    }
                 }
-
-                Spacer()
-
-                Text(detail)
-                    .font(.system(size: scaled(11, pad: 15), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.48))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.clear.neumorphicConvex(radius: 12))
             }
 
             if let actionTitle, let action {
@@ -2692,6 +3173,14 @@ private struct BingoDiaryScreen: View {
     @State private var displayedMonth = Date()
     @State private var selectedEntry: BingoDiaryEntry?
     @State private var statsRange: BingoDiaryStatsRange = .week
+    @State private var statsMode: BingoDiaryStatsMode = .completed
+    private typealias DiaryTaskStat = (
+        task: String,
+        totalCount: Int,
+        activeDays: Int,
+        completionRate: Double,
+        dailyCounts: [Int]
+    )
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -2709,7 +3198,8 @@ private struct BingoDiaryScreen: View {
         let entriesByKey = Dictionary(uniqueKeysWithValues: entries.map { (dateKey(for: $0.date), $0) })
         let days = calendarDays(for: displayedMonth, startDate: startDate, endDate: today)
         let weeks = calendarWeeks(from: days)
-        let taskCounts = BingoDiaryStore.completedTaskCounts(lastDays: statsRange.days, referenceDate: today)
+        let taskStats = BingoDiaryStore.taskCompletionStats(lastDays: statsRange.days, referenceDate: today)
+        let timeoutStats = BingoTimeoutStore.taskTimeoutStats(lastDays: statsRange.days, referenceDate: today)
         let previousMonth = calendar.date(byAdding: .month, value: -1, to: displayedMonth) ?? displayedMonth
         let nextMonth = calendar.date(byAdding: .month, value: 1, to: displayedMonth) ?? displayedMonth
         let canGoToPreviousMonth = calendar.compare(previousMonth, to: startDate, toGranularity: .month) != .orderedAscending
@@ -2731,7 +3221,7 @@ private struct BingoDiaryScreen: View {
                             nextMonth: nextMonth
                         )
 
-                        taskStatsSection(taskCounts: taskCounts)
+                        taskStatsSection(taskStats: taskStats, timeoutStats: timeoutStats)
                     }
                     .frame(maxWidth: isPadLayout ? 920 : .infinity, alignment: .topLeading)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -2850,46 +3340,228 @@ private struct BingoDiaryScreen: View {
         }
     }
 
-    private func taskStatsSection(taskCounts: [(task: String, count: Int)]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+    private func taskStatsSection(taskStats: [DiaryTaskStat], timeoutStats: [DiaryTaskStat]) -> some View {
+        let displayedStats = statsMode == .completed ? taskStats : timeoutStats
+
+        return VStack(alignment: .leading, spacing: 14) {
+            statsModePicker
             HStack {
-                Text(L10n.taskCompletions)
-                    .font(.system(size: scaled(17, pad: 21), weight: .bold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-
                 Spacer()
-
                 statsRangePicker
             }
 
-            if taskCounts.isEmpty {
-                Text(L10n.noTaskCompletions)
+            if displayedStats.isEmpty {
+                Text(statsMode == .completed ? L10n.noTaskCompletions : L10n.noTimeoutUnfinishedTasks)
                     .font(.system(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
                     .foregroundColor(NeumorphicColors.text.opacity(0.6))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 6)
             } else {
-                VStack(spacing: 10) {
-                    ForEach(Array(taskCounts.prefix(8)), id: \.task) { item in
-                        HStack(spacing: 12) {
-                            Text(item.task)
-                                .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.75)
-
-                            Text(L10n.completedTimes(item.count))
-                                .font(.system(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text.opacity(0.68))
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .neumorphicConvex(radius: 16)
+                VStack(spacing: 12) {
+                    ForEach(Array(displayedStats.prefix(6)), id: \.task) { item in
+                        taskStatsCard(item)
                     }
                 }
             }
         }
+    }
+
+    private func taskStatsCard(_ item: DiaryTaskStat) -> some View {
+        let heatValues = statsHeatValues(for: item.dailyCounts)
+        let columnsCount = statsHeatColumnCount
+        let paddedValues = paddedHeatValues(heatValues, columns: columnsCount)
+        let maxHeatValue = heatValues.max() ?? 0
+        let columns = Array(repeating: GridItem(.fixed(statsHeatCellSize), spacing: statsHeatSpacing), count: columnsCount)
+
+        return HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(item.task)
+                        .font(.system(size: scaled(16, pad: 20), weight: .bold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+
+                    Text(L10n.completedTimesCompact(item.totalCount))
+                        .font(.system(size: scaled(14, pad: 17), weight: .bold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.accent)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            LazyVGrid(columns: columns, spacing: statsHeatSpacing) {
+                ForEach(Array(paddedValues.enumerated()), id: \.offset) { _, value in
+                    statsHeatCell(value, maxValue: maxHeatValue)
+                }
+            }
+            .frame(width: CGFloat(columnsCount) * statsHeatCellSize + CGFloat(max(columnsCount - 1, 0)) * statsHeatSpacing, alignment: .trailing)
+            .padding(.top, 2)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .neumorphicConvex(radius: 20)
+    }
+
+    private var statsHeatColumnCount: Int {
+        switch statsRange {
+        case .year:
+            return 6
+        case .week, .month:
+            return 7
+        }
+    }
+
+    private var statsHeatCellSize: CGFloat {
+        switch statsRange {
+        case .year:
+            return scaled(20, pad: 24)
+        case .week, .month:
+            return scaled(20, pad: 24)
+        }
+    }
+
+    private var statsHeatSpacing: CGFloat {
+        switch statsRange {
+        case .year:
+            return 4
+        case .week, .month:
+            return 6
+        }
+    }
+
+    private func statsHeatValues(for dailyCounts: [Int]) -> [Int] {
+        switch statsRange {
+        case .week, .month:
+            return dailyCounts
+        case .year:
+            return yearlyMonthValues(from: dailyCounts)
+        }
+    }
+
+    private func yearlyMonthValues(from dailyCounts: [Int]) -> [Int] {
+        let calendar = Calendar.current
+        let referenceDate = calendar.startOfDay(for: .now)
+        guard let startDate = calendar.date(byAdding: .day, value: -(max(statsRange.days, 1) - 1), to: referenceDate) else {
+            return Array(repeating: 0, count: 12)
+        }
+        guard let currentMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: referenceDate)),
+              let earliestMonthStart = calendar.date(byAdding: .month, value: -11, to: currentMonthStart) else {
+            return Array(repeating: 0, count: 12)
+        }
+
+        var monthValues = Array(repeating: 0, count: 12)
+        for (index, value) in dailyCounts.enumerated() where value > 0 {
+            guard let day = calendar.date(byAdding: .day, value: index, to: startDate),
+                  let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: day)) else {
+                continue
+            }
+
+            let monthOffset = calendar.dateComponents([.month], from: earliestMonthStart, to: monthStart).month ?? -1
+            guard monthOffset >= 0 && monthOffset < 12 else { continue }
+            monthValues[monthOffset] += value
+        }
+
+        return monthValues
+    }
+
+    private func paddedHeatValues(_ values: [Int], columns: Int) -> [Int?] {
+        guard columns > 0 else { return values.map(Optional.some) }
+        let remainder = values.count % columns
+        let padding = remainder == 0 ? 0 : columns - remainder
+        return values.map(Optional.some) + Array(repeating: nil, count: padding)
+    }
+
+    @ViewBuilder
+    private func statsHeatCell(_ value: Int?, maxValue: Int) -> some View {
+        let cornerRadius = statsRange == .year ? CGFloat(4) : CGFloat(6)
+
+        if let value {
+            ZStack {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(statsHeatFillColor(value: value, maxValue: maxValue))
+
+                if value > 0 {
+                    Text(statsHeatLabel(for: value))
+                        .font(.system(size: statsRange == .year ? scaled(7, pad: 8) : scaled(9, pad: 11), weight: .bold, design: .rounded))
+                        .foregroundColor(statsHeatTextColor(value: value, maxValue: maxValue))
+                }
+            }
+            .frame(width: statsHeatCellSize, height: statsHeatCellSize)
+        } else {
+            Color.clear
+                .frame(width: statsHeatCellSize, height: statsHeatCellSize)
+        }
+    }
+
+    private var statsModePicker: some View {
+        HStack(spacing: 0) {
+            ForEach(BingoDiaryStatsMode.allCases, id: \.self) { mode in
+                Button {
+                    withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+                        statsMode = mode
+                    }
+                } label: {
+                    Text(mode.title)
+                        .font(.system(size: scaled(16, pad: 19), weight: .bold, design: .rounded))
+                        .foregroundColor(statsMode == mode ? .white : NeumorphicColors.text.opacity(0.72))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: scaled(42, pad: 50))
+                        .background(
+                            Group {
+                                if statsMode == mode {
+                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                        .fill(NeumorphicColors.accent)
+                                        .shadow(color: NeumorphicColors.accent.opacity(0.26), radius: 8, x: 0, y: 4)
+                                } else {
+                                    Color.clear
+                                }
+                            }
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(NeumorphicColors.background)
+                .shadow(color: NeumorphicColors.darkShadow.opacity(0.14), radius: 8, x: 4, y: 4)
+                .shadow(color: Color.white.opacity(0.7), radius: 7, x: -4, y: -4)
+        )
+    }
+
+    private func statsHeatFillColor(value: Int, maxValue: Int) -> Color {
+        guard value > 0 else {
+            return NeumorphicColors.text.opacity(0.08)
+        }
+
+        let normalizedMax = max(maxValue, 1)
+        let ratio = Double(value) / Double(normalizedMax)
+
+        switch ratio {
+        case ..<0.25:
+            return NeumorphicColors.accent.opacity(0.38)
+        case ..<0.5:
+            return NeumorphicColors.accent.opacity(0.52)
+        case ..<0.75:
+            return NeumorphicColors.accent.opacity(0.68)
+        default:
+            return NeumorphicColors.accent.opacity(0.84)
+        }
+    }
+
+    private func statsHeatLabel(for value: Int) -> String {
+        if value > 99 {
+            return "99+"
+        }
+        return "\(value)"
+    }
+
+    private func statsHeatTextColor(value: Int, maxValue: Int) -> Color {
+        guard value > 0 else { return .clear }
+        let normalizedMax = max(maxValue, 1)
+        let ratio = Double(value) / Double(normalizedMax)
+        return ratio >= 0.58 ? .white : NeumorphicColors.text.opacity(0.86)
     }
 
     private func monthTitle(for date: Date) -> String {
@@ -2962,7 +3634,7 @@ private struct BingoDiaryScreen: View {
     }
 
     private var statsRangePicker: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             ForEach(BingoDiaryStatsRange.allCases, id: \.self) { range in
                 Button {
                     withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
@@ -2970,25 +3642,14 @@ private struct BingoDiaryScreen: View {
                     }
                 } label: {
                     Text(range.title)
-                        .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                        .foregroundColor(statsRange == range ? .white : NeumorphicColors.text.opacity(0.66))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background {
-                            Capsule()
-                                .fill(statsRange == range ? NeumorphicColors.accent : NeumorphicColors.background)
-                                .shadow(
-                                    color: statsRange == range ? NeumorphicColors.accent.opacity(0.16) : NeumorphicColors.darkShadow.opacity(0.1),
-                                    radius: 4,
-                                    x: 2,
-                                    y: 2
-                                )
-                                .shadow(
-                                    color: Color.white.opacity(statsRange == range ? 0.08 : 0.72),
-                                    radius: 4,
-                                    x: -2,
-                                    y: -2
-                                )
+                        .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                        .foregroundColor(statsRange == range ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.64))
+                        .padding(.horizontal, 2)
+                        .padding(.bottom, 6)
+                        .overlay(alignment: .bottom) {
+                            Capsule(style: .continuous)
+                                .fill(statsRange == range ? NeumorphicColors.accent : Color.clear)
+                                .frame(height: 3)
                         }
                 }
                 .buttonStyle(.plain)
@@ -3061,18 +3722,35 @@ private struct DiaryCalendarDay: Identifiable {
 private enum BingoDiaryStatsRange: CaseIterable {
     case week
     case month
+    case year
 
     var days: Int {
         switch self {
         case .week: return 7
         case .month: return 30
+        case .year: return 365
         }
     }
 
     var title: String {
         switch self {
-        case .week: return L10n.last7Days
-        case .month: return L10n.last30Days
+        case .week: return L10n.statsWeekShort
+        case .month: return L10n.statsMonthShort
+        case .year: return L10n.statsYearShort
+        }
+    }
+}
+
+private enum BingoDiaryStatsMode: CaseIterable {
+    case completed
+    case timeoutUnfinished
+
+    var title: String {
+        switch self {
+        case .completed:
+            return L10n.taskCompletions
+        case .timeoutUnfinished:
+            return L10n.timeoutUnfinishedStats
         }
     }
 }

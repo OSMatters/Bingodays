@@ -6,6 +6,7 @@ struct BingoCellView: View {
     private static let tapThreshold: CGFloat = 10
 
     let cell: BingoCell
+    let currentTime: Date
     let isInBingoLine: Bool
     let isLocked: Bool
     let cellSize: CGFloat
@@ -45,7 +46,7 @@ struct BingoCellView: View {
                 if isInBingoLine {
                     bingoLineContent
                 } else if !cell.isEmpty {
-                    VStack(spacing: cell.isCompleted ? 10 : 0) {
+                    VStack(spacing: cell.isCompleted ? 10 : 4) {
                         Text(cell.text)
                             .font(.system(size: dynamicFontSize, weight: .medium))
                             .foregroundColor(cellTextColor)
@@ -53,6 +54,18 @@ struct BingoCellView: View {
                             .lineLimit(3)
                             .minimumScaleFactor(0.5)
                             .padding(8)
+
+                        if let countdownText = taskCountdownText, !cell.isCompleted {
+                            Text(countdownText)
+                                .font(.system(size: max(dynamicFontSize * 0.42, 9), weight: .bold, design: .rounded))
+                                .foregroundColor(NeumorphicColors.accent.opacity(0.9))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(Color.white.opacity(0.88))
+                                )
+                        }
 
                         if cell.isCompleted && !isLocked {
                             completionIcon(isLarge: false)
@@ -148,6 +161,19 @@ struct BingoCellView: View {
 
     private var cellTextColor: Color {
         isLocked ? primaryTextColor.opacity(0.35) : primaryTextColor
+    }
+
+    private var taskCountdownText: String? {
+        guard let deadline = cell.countdownEndsAt else { return nil }
+        let remainingSeconds = max(Int(deadline.timeIntervalSince(currentTime)), 0)
+        let hours = remainingSeconds / 3600
+        let minutes = (remainingSeconds % 3600) / 60
+        let seconds = remainingSeconds % 60
+
+        if hours > 0 {
+            return String(format: "%d:%02d", hours, minutes)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
     }
 
     private var backgroundSurface: some View {

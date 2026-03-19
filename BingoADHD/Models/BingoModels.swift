@@ -88,7 +88,7 @@ enum L10n {
     static var themeColor: String { tr("Theme Color", zhHans: "主题颜色") }
     static var myPoints: String { tr("My Points", zhHans: "我的积分") }
     static var stickers: String { tr("Stickers", zhHans: "贴纸") }
-    static var myRewards: String { tr("My Rewards", zhHans: "我的奖励") }
+    static var myRewards: String { tr("Custom Rewards", zhHans: "自定义奖励") }
     static var addReward: String { tr("Add Reward", zhHans: "添加奖励") }
     static var editReward: String { tr("Edit Reward", zhHans: "编辑奖励") }
     static var rewardTitle: String { tr("Reward Title", zhHans: "奖励名称") }
@@ -109,13 +109,34 @@ enum L10n {
     }
     static var tasks: String { tr("Tasks", zhHans: "任务") }
     static var groups: String { tr("Groups", zhHans: "分组") }
-    static var myTasksHint: String { tr("Tasks and groups you add here will appear in Quick Add when you edit a Bingo tile.", zhHans: "你在这里添加的任务和分组，会在编辑 Bingo 格子时显示在 Quick Add 中。") }
+    static var myTasksHint: String { tr("Edit tasks and groups here, choose what to use, then tap Save to apply to the board.", zhHans: "在这里编辑任务和分组，勾选要使用的内容，点左上角保存应用到棋盘。") }
     static var tasksSectionHint: String { tr("Save the quick tasks you use most often.", zhHans: "保存你最常用的快捷任务。") }
     static var groupsSectionHint: String { tr("Bundle a few tasks together so you can apply them in one tap.", zhHans: "把多个任务打包成分组，方便一键应用。") }
     static var noTasksYet: String { tr("You haven't added any tasks yet.", zhHans: "你还没有添加任何任务。") }
     static var noGroupsYet: String { tr("You haven't added any groups yet.", zhHans: "你还没有添加任何分组。") }
     static var addTask: String { tr("Add Task", zhHans: "添加任务") }
     static var addGroup: String { tr("Add Group", zhHans: "添加分组") }
+    static var quickEdit: String { tr("Quick Edit", zhHans: "快速编辑") }
+    static var apply: String { tr("Apply", zhHans: "应用") }
+    static var selectAll: String { tr("Select All", zhHans: "全选") }
+    static var deselectAll: String { tr("Deselect All", zhHans: "全取消") }
+    static var random: String { tr("Random", zhHans: "随机") }
+    static var gridSize: String { tr("Grid Size", zhHans: "格子大小") }
+    static func selectedTaskCount(_ count: Int, usedCount: Int) -> String {
+        tr("Selected \(count) (\(usedCount) used for current board)", zhHans: "已选 \(count) 个（当前尺寸使用前 \(usedCount) 个）")
+    }
+    static func quickEditSelectionSummary(selected: Int, missing: Int) -> String {
+        if missing > 0 {
+            return tr("Selected \(selected), need \(missing)", zhHans: "已选\(selected)，差\(missing)")
+        }
+        return tr("Selected \(selected), full", zhHans: "已选\(selected)，已满")
+    }
+    static func quickEditAppliedSuccess(_ count: Int) -> String {
+        tr("Applied \(count) tasks", zhHans: "已应用 \(count) 个任务")
+    }
+    static func quickEditNeedMoreTasks(_ count: Int) -> String {
+        tr("Add \(count) more tasks to fill this grid", zhHans: "还需 \(count) 个任务可填满当前尺寸")
+    }
     static var taskAddedSuccess: String { tr("Task added", zhHans: "任务已添加") }
     static var groupAddedSuccess: String { tr("Group added", zhHans: "分组已添加") }
     static var tasksAndGroupsAddedSuccess: String { tr("Changes saved", zhHans: "已保存更改") }
@@ -130,17 +151,35 @@ enum L10n {
     static func taskNumber(_ index: Int) -> String { tr("Task \(index)", zhHans: "任务 \(index)") }
     static var task: String { tr("Task", zhHans: "任务") }
     static var diaryHint: String { tr("Tap a completed date to view that day's Bingo board.", zhHans: "点击已完成的日期，查看当天的 Bingo 面板。") }
-    static var taskCompletions: String { tr("Task Completions", zhHans: "任务完成次数") }
+    static var taskCompletions: String { tr("Completed Task Stats", zhHans: "完成任务统计") }
+    static var timeoutUnfinishedStats: String { tr("Timed-out Unfinished", zhHans: "超时未完成") }
     static var completion: String { tr("Completion", zhHans: "完成度") }
     static var last7Days: String { tr("7 Days", zhHans: "近 7 天") }
     static var last30Days: String { tr("30 Days", zhHans: "近 30 天") }
+    static var statsWeekShort: String { tr("Week", zhHans: "周") }
+    static var statsMonthShort: String { tr("Month", zhHans: "月") }
+    static var statsYearShort: String { tr("Year", zhHans: "年") }
     static var noTaskCompletions: String { tr("No completed tasks yet.", zhHans: "暂时还没有已完成的任务。") }
+    static var noTimeoutUnfinishedTasks: String { tr("No timed-out unfinished tasks.", zhHans: "暂无超时未完成任务。") }
     static func completedTimes(_ count: Int) -> String {
         tr("\(count) times", zhHans: "\(count) 次")
+    }
+    static func completedTimesCompact(_ count: Int) -> String {
+        tr("x\(count)", zhHans: "x\(count)")
+    }
+    static func completionDaysCompact(_ days: Int) -> String {
+        tr("\(days) days", zhHans: "\(days)天")
+    }
+    static func completionPercentCompact(_ percent: Int) -> String {
+        "\(percent)%"
     }
     static var pointsUnit: String { tr("pts", zhHans: "积分") }
     static var boardCountdownTitle: String { tr("Bingo Board Countdown", zhHans: "Bingo 面板倒计时") }
     static var boardCountdownDescription: String { tr("Auto-clear the entire board when time runs out.", zhHans: "时间结束后自动清空整个面板。") }
+    static var clearBoard: String { tr("Clear Board", zhHans: "清空棋盘") }
+    static var clearBoardConfirmationTitle: String { tr("Clear board?", zhHans: "清空棋盘？") }
+    static var clearBoardConfirmationMessage: String { tr("This will remove all tasks and completion states on the current board.", zhHans: "这会清除当前棋盘的所有任务和完成状态。") }
+    static var boardClearedSuccess: String { tr("Board cleared", zhHans: "棋盘已清空") }
     static var hours: String { tr("Hours", zhHans: "小时") }
     static var minutes: String { tr("Minutes", zhHans: "分钟") }
     static var residentDays: String { tr("Repeat Days", zhHans: "常驻时间") }
@@ -157,6 +196,44 @@ enum L10n {
     static var boardWillClearIn24Hours: String { tr("The board will clear in 24 hours.", zhHans: "面板将在 24 小时后清空。") }
     static func hourValue(_ hour: Int) -> String { tr("\(hour)h", zhHans: "\(hour)小时") }
     static func minuteValue(_ minute: Int) -> String { tr("\(minute)m", zhHans: "\(minute)分") }
+    static var estimatedCompletionTime: String { tr("Estimated Time", zhHans: "预计完成时间") }
+    static var taskTimerEnabled: String { tr("Start countdown after saving", zhHans: "保存后开始倒计时") }
+    static func taskTimerSummary(hours: Int, minutes: Int) -> String {
+        tr("Countdown: \(hours)h \(minutes)m", zhHans: "倒计时：\(hours)小时\(minutes)分")
+    }
+    static var taskTimerSummary24Hours: String { tr("Countdown: 24 hours", zhHans: "倒计时：24小时") }
+    static var taskTimedOutTitle: String { tr("Task timed out", zhHans: "任务超时了") }
+    static func taskTimedOutHeadline(task: String, seconds: Int) -> String {
+        tr("\(task) timed out by \(seconds)s", zhHans: "\(task)任务已超时\(seconds)秒")
+    }
+    static func boardTimedOutHeadline(seconds: Int) -> String {
+        tr("Board timed out by \(seconds)s", zhHans: "面板任务已超时\(seconds)秒")
+    }
+    static func taskTimedOutMessage(task: String, overtime: String) -> String {
+        tr("“\(task)” timed out (\(overtime)).", zhHans: "「\(task)」\(overtime)。")
+    }
+    static var markAsCompleted: String { tr("Completed", zhHans: "已完成") }
+    static var abandonTask: String { tr("Abandon task", zhHans: "放弃此任务") }
+    static func postponeTaskByMinutes(_ minutes: Int) -> String {
+        tr("Delay \(minutes)m", zhHans: "延期\(minutes)分钟")
+    }
+    static func postponeByMinutes(_ minutes: Int) -> String {
+        tr("Postpone \(minutes)m", zhHans: "延期 \(minutes) 分钟")
+    }
+    static var postponeDuration: String { tr("Delay duration", zhHans: "延期时长") }
+    static func timedOutFor(_ duration: String) -> String {
+        tr("Timed out for \(duration)", zhHans: "已超时 \(duration)")
+    }
+    static var taskMarkedCompletedSuccess: String { tr("Task marked completed", zhHans: "任务已标记为完成") }
+    static var boardMarkedCompletedSuccess: String { tr("Board tasks marked completed", zhHans: "面板任务已标记为完成") }
+    static var taskAbandonedSuccess: String { tr("Task abandoned", zhHans: "任务已放弃") }
+    static func taskPostponedSuccess(_ minutes: Int) -> String {
+        tr("Postponed by \(minutes)m", zhHans: "已延期 \(minutes) 分钟")
+    }
+    static var boardCountdownCanceledSuccess: String { tr("Countdown canceled", zhHans: "已取消倒计时") }
+    static func boardCountdownPostponedSuccess(_ minutes: Int) -> String {
+        tr("Board countdown postponed by \(minutes)m", zhHans: "面板倒计时已延期 \(minutes) 分钟")
+    }
     static var enterTaskForDay: String { tr("Enter a task for your day...", zhHans: "输入今天要完成的任务...") }
     static var forceCompletion: String { tr("Force Completion", zhHans: "强制完成") }
     static var recording: String { tr("Recording...", zhHans: "正在录音...") }
@@ -534,7 +611,7 @@ enum AppSettings {
     static let homeStickerPlacementsKey = "home_sticker_placements_v1"
     static let customRewardsKey = "custom_rewards_v1"
     static let maxCommonTasks = 8
-    static let maxTaskGroups = 3
+    static let maxTaskGroups = 6
     static let maxTasksPerGroup = 5
     static let maxTaskLength = 20
     static let maxRewardTitleLength = 30
@@ -941,6 +1018,55 @@ enum BingoDiaryStore {
             .map { (task: $0.key, count: $0.value) }
     }
 
+    static func taskCompletionStats(
+        lastDays: Int,
+        referenceDate: Date = .now
+    ) -> [(task: String, totalCount: Int, activeDays: Int, completionRate: Double, dailyCounts: [Int])] {
+        let calendar = Calendar.current
+        let days = max(lastDays, 1)
+        let endDate = calendar.startOfDay(for: referenceDate)
+        guard let startDate = calendar.date(byAdding: .day, value: -(days - 1), to: endDate) else {
+            return []
+        }
+
+        var dayIndexByKey: [String: Int] = [:]
+        for offset in 0..<days {
+            guard let day = calendar.date(byAdding: .day, value: offset, to: startDate) else { continue }
+            dayIndexByKey[dateKey(for: day)] = offset
+        }
+
+        let emptyDailyCounts = Array(repeating: 0, count: days)
+        var taskDailyCounts: [String: [Int]] = [:]
+
+        for entry in loadEntriesDictionary().values {
+            let entryKey = dateKey(for: entry.date)
+            guard let dayIndex = dayIndexByKey[entryKey] else { continue }
+
+            for cell in entry.board.cells.flatMap({ $0 }) where cell.isCompleted && !cell.isEmpty {
+                let task = cell.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !task.isEmpty else { continue }
+
+                var counts = taskDailyCounts[task] ?? emptyDailyCounts
+                counts[dayIndex] += 1
+                taskDailyCounts[task] = counts
+            }
+        }
+
+        return taskDailyCounts
+            .map { task, dailyCounts in
+                let totalCount = dailyCounts.reduce(0, +)
+                let activeDays = dailyCounts.reduce(0) { $0 + ($1 > 0 ? 1 : 0) }
+                let completionRate = Double(activeDays) / Double(days)
+                return (task: task, totalCount: totalCount, activeDays: activeDays, completionRate: completionRate, dailyCounts: dailyCounts)
+            }
+            .sorted { lhs, rhs in
+                if lhs.totalCount == rhs.totalCount {
+                    return lhs.task.localizedCaseInsensitiveCompare(rhs.task) == .orderedAscending
+                }
+                return lhs.totalCount > rhs.totalCount
+            }
+    }
+
     private static func loadEntriesDictionary() -> [String: BingoDiaryEntry] {
         if let data = sharedDefaults.data(forKey: key),
            let entries = try? JSONDecoder().decode([String: BingoDiaryEntry].self, from: data) {
@@ -969,6 +1095,102 @@ enum BingoDiaryStore {
         let taskCells = board.cells.flatMap { $0 }.filter { !$0.isEmpty }
         guard !taskCells.isEmpty else { return false }
         return taskCells.allSatisfy(\.isCompleted)
+    }
+
+    private static func dateKey(for date: Date) -> String {
+        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        let year = components.year ?? 0
+        let month = components.month ?? 0
+        let day = components.day ?? 0
+        return String(format: "%04d-%02d-%02d", year, month, day)
+    }
+}
+
+enum BingoTimeoutStore {
+    private static let key = "bingo_timeout_unfinished_stats_v1"
+
+    static func recordUnfinishedTimeout(task: String, on date: Date = .now) {
+        let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTask.isEmpty else { return }
+
+        var payload = loadPayload()
+        let dayKey = dateKey(for: date)
+        var dayStats = payload[dayKey] ?? [:]
+        dayStats[trimmedTask, default: 0] += 1
+        payload[dayKey] = dayStats
+        persist(payload)
+    }
+
+    static func taskTimeoutStats(
+        lastDays: Int,
+        referenceDate: Date = .now
+    ) -> [(task: String, totalCount: Int, activeDays: Int, completionRate: Double, dailyCounts: [Int])] {
+        let calendar = Calendar.current
+        let days = max(lastDays, 1)
+        let endDate = calendar.startOfDay(for: referenceDate)
+        guard let startDate = calendar.date(byAdding: .day, value: -(days - 1), to: endDate) else {
+            return []
+        }
+
+        var dayIndexByKey: [String: Int] = [:]
+        for offset in 0..<days {
+            guard let day = calendar.date(byAdding: .day, value: offset, to: startDate) else { continue }
+            dayIndexByKey[dateKey(for: day)] = offset
+        }
+
+        let emptyDailyCounts = Array(repeating: 0, count: days)
+        var taskDailyCounts: [String: [Int]] = [:]
+
+        for (dayKey, taskCounts) in loadPayload() {
+            guard let dayIndex = dayIndexByKey[dayKey] else { continue }
+            for (task, count) in taskCounts where count > 0 {
+                let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedTask.isEmpty else { continue }
+
+                var counts = taskDailyCounts[trimmedTask] ?? emptyDailyCounts
+                counts[dayIndex] += count
+                taskDailyCounts[trimmedTask] = counts
+            }
+        }
+
+        return taskDailyCounts
+            .map { task, dailyCounts in
+                let totalCount = dailyCounts.reduce(0, +)
+                let activeDays = dailyCounts.reduce(0) { $0 + ($1 > 0 ? 1 : 0) }
+                let completionRate = Double(activeDays) / Double(days)
+                return (task: task, totalCount: totalCount, activeDays: activeDays, completionRate: completionRate, dailyCounts: dailyCounts)
+            }
+            .sorted { lhs, rhs in
+                if lhs.totalCount == rhs.totalCount {
+                    return lhs.task.localizedCaseInsensitiveCompare(rhs.task) == .orderedAscending
+                }
+                return lhs.totalCount > rhs.totalCount
+            }
+    }
+
+    private static func loadPayload() -> [String: [String: Int]] {
+        if let data = sharedDefaults.data(forKey: key),
+           let payload = try? JSONDecoder().decode([String: [String: Int]].self, from: data) {
+            return payload
+        }
+
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let payload = try? JSONDecoder().decode([String: [String: Int]].self, from: data) else {
+            return [:]
+        }
+
+        sharedDefaults.set(data, forKey: key)
+        return payload
+    }
+
+    private static func persist(_ payload: [String: [String: Int]]) {
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        sharedDefaults.set(data, forKey: key)
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    private static var sharedDefaults: UserDefaults {
+        UserDefaults(suiteName: BingoBoardStore.appGroupID) ?? .standard
     }
 
     private static func dateKey(for date: Date) -> String {

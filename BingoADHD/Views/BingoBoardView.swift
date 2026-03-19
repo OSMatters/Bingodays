@@ -24,6 +24,7 @@ struct BingoBoardView: View {
     }
 
     @ObservedObject var viewModel: BingoViewModel
+    let currentTime: Date
     @State private var editingTarget: EditingTarget?
     @State private var actionTarget: EditingTarget?
     @State private var dragState: DragState?
@@ -76,6 +77,7 @@ struct BingoBoardView: View {
 
                                     BingoCellView(
                                         cell: viewModel.cells[row][col],
+                                        currentTime: currentTime,
                                         isInBingoLine: viewModel.isInCompletedLine(row: row, col: col),
                                         isLocked: viewModel.isLocked(row: row, col: col),
                                         cellSize: cellSize,
@@ -251,13 +253,6 @@ struct BingoBoardView: View {
                     Capsule(style: .continuous)
                         .stroke(.white.opacity(0.28), lineWidth: 1)
                 )
-                .overlay(alignment: .bottom) {
-                    Capsule(style: .continuous)
-                        .fill(.white.opacity(0.16))
-                        .frame(height: 8)
-                        .padding(.horizontal, 14)
-                        .offset(y: 1)
-                }
         )
         .shadow(color: NeumorphicColors.accent.opacity(0.34), radius: 10, x: 0, y: 6)
     }
@@ -281,14 +276,8 @@ struct BingoBoardView: View {
             text: viewModel.cells[target.row][target.col].storedTaskText,
             isForcedTask: viewModel.cells[target.row][target.col].isForced,
             residentWeekdays: viewModel.cells[target.row][target.col].residentWeekdays,
-            onApplyGroup: { tasks in
-                let didApply = viewModel.applyTasksToEmptyCells(tasks)
-                if didApply {
-                    editingTarget = nil
-                }
-                return didApply
-            },
-            onSave: { newText, isForcedTask, residentWeekdays in
+            estimatedDurationMinutes: viewModel.remainingTaskCountdownMinutes(row: target.row, col: target.col),
+            onSave: { newText, isForcedTask, residentWeekdays, estimatedDurationMinutes in
                 let scheduleNotice = residentVisibilityNotice(
                     text: newText,
                     residentWeekdays: residentWeekdays
@@ -298,7 +287,8 @@ struct BingoBoardView: View {
                     col: target.col,
                     text: newText,
                     isForced: isForcedTask,
-                    residentWeekdays: residentWeekdays
+                    residentWeekdays: residentWeekdays,
+                    estimatedDurationMinutes: estimatedDurationMinutes
                 )
                 editingTarget = nil
                 residentScheduleNotice = scheduleNotice
@@ -355,6 +345,7 @@ struct BingoBoardView: View {
 
         return BingoCellView(
             cell: sourceCell,
+            currentTime: currentTime,
             isInBingoLine: viewModel.isInCompletedLine(row: dragState.source.row, col: dragState.source.col),
             isLocked: false,
             cellSize: cellSize,
