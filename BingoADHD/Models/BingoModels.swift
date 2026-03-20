@@ -117,6 +117,84 @@ enum L10n {
     static var addTask: String { tr("Add Task", zhHans: "添加任务") }
     static var addGroup: String { tr("Add Group", zhHans: "添加分组") }
     static var quickEdit: String { tr("Quick Edit", zhHans: "快速编辑") }
+    static var blackBoxMode: String { tr("Black Box Mode", zhHans: "黑盒模式") }
+    static var blackBoxModeDescription: String {
+        tr(
+            "2048 x themed tasks mode is now available on this branch. Select a theme, complete tasks, and merge completed tiles into Bingo progress.",
+            zhHans: "2048 x 主题任务模式已在这个分支开启。选择主题、完成任务，并把已完成格子合并成 Bingo 进度。"
+        )
+    }
+    static var blackBoxModeFeatureTheme: String {
+        tr("Generate random tasks by theme.", zhHans: "按主题生成随机任务。")
+    }
+    static var blackBoxModeFeatureMerge: String {
+        tr("Merge completed tiles with 2048 rules.", zhHans: "按 2048 规则合并已完成格子。")
+    }
+    static var blackBoxModeFeatureBingo: String {
+        tr("Progressively build Bingo milestones.", zhHans: "逐步构建 Bingo 里程碑。")
+    }
+    static var blackBoxModeStart: String { tr("Start", zhHans: "开始") }
+    static var blackBoxModeHowToTitle: String { tr("How to Play", zhHans: "玩法说明") }
+    static var blackBoxModeThemeTitle: String { tr("Theme", zhHans: "主题") }
+    static var blackBoxModeGridSizeTitle: String { tr("Grid", zhHans: "棋盘") }
+    static var blackBoxModeTapHint: String {
+        tr("Tap a tile to mark task completed.", zhHans: "点击任务格可切换完成状态。")
+    }
+    static var blackBoxModeSwipeHint: String {
+        tr("Swipe to move and merge completed tiles.", zhHans: "滑动棋盘可移动并合并已完成任务格。")
+    }
+    static var blackBoxModeRestart: String { tr("Restart", zhHans: "重开") }
+    static var blackBoxModeBackToIntro: String { tr("Intro", zhHans: "简介") }
+    static var blackBoxModeMoves: String { tr("Moves", zhHans: "步数") }
+    static var blackBoxModeMerges: String { tr("Merges", zhHans: "合并") }
+    static var blackBoxModeBingos: String { tr("Bingos", zhHans: "Bingo") }
+    static var blackBoxModeGameOver: String { tr("No more moves", zhHans: "无可用移动") }
+    static var blackBoxModeHealthTheme: String { tr("Healthy Life", zhHans: "健康生活") }
+    static var blackBoxModeFocusTheme: String { tr("Focus Sprint", zhHans: "专注冲刺") }
+    static var blackBoxModeHomeTheme: String { tr("Home Reset", zhHans: "居家整理") }
+    static var blackBoxModeTileDetailTitle: String { tr("Tile Details", zhHans: "格子详情") }
+    static var blackBoxModeContainsTasks: String { tr("Contains", zhHans: "包含任务") }
+    static var blackBoxModeCompletionCount: String { tr("Completion Count", zhHans: "完成次数") }
+    static var blackBoxModeTotalCompletions: String { tr("Total", zhHans: "总计") }
+    static func blackBoxModeTileScore(_ score: Int) -> String {
+        tr("\(score) pts", zhHans: "\(score)分")
+    }
+    static func blackBoxModeThemeScore(themeTitle: String, score: Int) -> String {
+        tr("\(themeTitle) \(score) pts", zhHans: "\(themeTitle)\(score)分")
+    }
+    static var updateWhatsNewTitle: String { tr("What's New", zhHans: "版本更新") }
+    static func updateVersionTitle(_ version: String) -> String {
+        tr("Bingodays \(version)", zhHans: "Bingodays \(version)")
+    }
+    static var updateItemQuickEdit: String {
+        tr(
+            "Quick Edit rebuilt: apply confirmation, no-selection protection, and clearer task/group interactions.",
+            zhHans: "重构快速编辑：新增替换确认、无选择保护，任务/分组交互更清晰。"
+        )
+    }
+    static var updateItemCountdown: String {
+        tr(
+            "Timeout flow upgraded: task and board timeout popups are unified with completion/delete/postpone actions.",
+            zhHans: "升级超时流程：任务与面板倒计时结束弹窗统一，支持完成/删除/延期。"
+        )
+    }
+    static var updateItemPoints: String {
+        tr(
+            "Points logic fixed: completion/undo/line rewards are now settled consistently with anti-drift guardrails.",
+            zhHans: "修复积分逻辑：完成/取消/Bingo 连线结算一致，并加入防漂移修正。"
+        )
+    }
+    static var updateItemLayout: String {
+        tr(
+            "Home experience refined: iPad layout expanded, stats panel polished, and neumorphic visuals aligned.",
+            zhHans: "优化首页体验：iPad 布局铺满优化，统计模块改版，新拟态视觉统一。"
+        )
+    }
+    static var updatePrimaryAction: String { tr("Update Now", zhHans: "去更新") }
+    static var updateSecondaryAction: String { tr("Later", zhHans: "稍后") }
+    static var updateStoreOpenFailed: String {
+        tr("Unable to open App Store right now.", zhHans: "暂时无法打开 App Store。")
+    }
     static var apply: String { tr("Apply", zhHans: "应用") }
     static var selectAll: String { tr("Select All", zhHans: "全选") }
     static var deselectAll: String { tr("Deselect All", zhHans: "全取消") }
@@ -133,6 +211,15 @@ enum L10n {
     }
     static func quickEditAppliedSuccess(_ count: Int) -> String {
         tr("Applied \(count) tasks", zhHans: "已应用 \(count) 个任务")
+    }
+    static var quickEditReplaceConfirmationTitle: String {
+        tr("Apply and replace current board?", zhHans: "确认应用？")
+    }
+    static var quickEditReplaceConfirmationMessage: String {
+        tr("This will replace existing tasks on the current board.", zhHans: "将替换当前棋盘已有任务。")
+    }
+    static var quickEditKeptBoardWithoutSelection: String {
+        tr("No selection. Kept current board.", zhHans: "未选择任务，已保留当前棋盘。")
     }
     static func quickEditNeedMoreTasks(_ count: Int) -> String {
         tr("Add \(count) more tasks to fill this grid", zhHans: "还需 \(count) 个任务可填满当前尺寸")
@@ -863,6 +950,109 @@ enum RewardStore {
         guard let data = try? JSONEncoder().encode(rewards) else { return }
         UserDefaults.standard.set(data, forKey: AppSettings.customRewardsKey)
     }
+}
+
+struct AppUpdateInfo: Equatable {
+    let latestVersion: String
+    let trackViewURL: URL
+    let releaseNotes: String?
+}
+
+enum AppUpdateService {
+    static func fetchUpdateInfo(
+        currentVersion: String,
+        bundleIdentifier: String,
+        countryCode: String?
+    ) async -> AppUpdateInfo? {
+        guard let lookupURL = buildLookupURL(bundleIdentifier: bundleIdentifier, countryCode: countryCode) else {
+            return nil
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: lookupURL)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                return nil
+            }
+
+            let payload = try JSONDecoder().decode(AppStoreLookupResponse.self, from: data)
+            guard let app = payload.results.first,
+                  let latestVersion = app.version?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  let trackViewURLString = app.trackViewUrl,
+                  let trackViewURL = URL(string: trackViewURLString),
+                  isVersion(latestVersion, greaterThan: currentVersion) else {
+                return nil
+            }
+
+            let notes = app.releaseNotes?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return AppUpdateInfo(
+                latestVersion: latestVersion,
+                trackViewURL: trackViewURL,
+                releaseNotes: notes?.isEmpty == false ? notes : nil
+            )
+        } catch {
+            return nil
+        }
+    }
+
+#if DEBUG
+    static func debugMockUpdateInfo(currentVersion: String) -> AppUpdateInfo {
+        let mockVersion = currentVersion + ".1"
+        let fallbackURL = URL(string: "https://apps.apple.com/us/search?term=Bingodays")!
+        return AppUpdateInfo(
+            latestVersion: mockVersion,
+            trackViewURL: fallbackURL,
+            releaseNotes: nil
+        )
+    }
+#endif
+
+    private static func buildLookupURL(bundleIdentifier: String, countryCode: String?) -> URL? {
+        let fallbackCountry = Locale.current.region?.identifier ?? "US"
+        let country = (countryCode?.isEmpty == false ? countryCode! : fallbackCountry).uppercased()
+
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "itunes.apple.com"
+        components.path = "/lookup"
+        components.queryItems = [
+            URLQueryItem(name: "bundleId", value: bundleIdentifier),
+            URLQueryItem(name: "country", value: country)
+        ]
+        return components.url
+    }
+
+    private static func isVersion(_ lhs: String, greaterThan rhs: String) -> Bool {
+        let lhsParts = lhs.split(separator: ".").map(versionPartValue)
+        let rhsParts = rhs.split(separator: ".").map(versionPartValue)
+        let maxCount = max(lhsParts.count, rhsParts.count)
+
+        for index in 0..<maxCount {
+            let left = index < lhsParts.count ? lhsParts[index] : 0
+            let right = index < rhsParts.count ? rhsParts[index] : 0
+
+            if left != right {
+                return left > right
+            }
+        }
+
+        return false
+    }
+
+    private static func versionPartValue(_ part: Substring) -> Int {
+        let digits = part.prefix { $0.isNumber }
+        return Int(digits) ?? 0
+    }
+}
+
+private struct AppStoreLookupResponse: Decodable {
+    let resultCount: Int
+    let results: [AppStoreLookupApp]
+}
+
+private struct AppStoreLookupApp: Decodable {
+    let version: String?
+    let trackViewUrl: String?
+    let releaseNotes: String?
 }
 
 enum CommonTasksStore {

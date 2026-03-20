@@ -97,6 +97,8 @@ class BingoViewModel: ObservableObject {
             currentCompletedLines: self.completedLines,
             isBoardFullyCompleted: self.isBoardFullyCompleted
         )
+        // Self-heal persisted point inconsistencies on launch.
+        settleRewardsIfNeeded(on: now)
         syncDiarySnapshot()
     }
 
@@ -319,6 +321,7 @@ class BingoViewModel: ObservableObject {
         boardCountdownEndsAt = nil
         expiredTaskEvent = nil
         expiredBoardCountdownEvent = nil
+        settleRewardsIfNeeded()
         save()
     }
 
@@ -632,7 +635,6 @@ class BingoViewModel: ObservableObject {
     }
 
     func processDailyCompletionReset(now: Date = Date()) {
-        guard boardCountdownEndsAt == nil else { return }
         guard let lastSavedAt = BingoBoardStore.loadBoardLastSavedAt() else {
             BingoBoardStore.saveBoardLastSavedAt(now)
             return
@@ -640,6 +642,21 @@ class BingoViewModel: ObservableObject {
 
         let calendar = Calendar.current
         guard !calendar.isDate(lastSavedAt, inSameDayAs: now) else { return }
+
+        if boardCountdownEndsAt != nil {
+            // Countdown crossing midnight should not re-grant yesterday's points.
+            dailyRewardState = Self.dailyRewardSnapshot(
+                for: now,
+                cells: cells,
+                completedLines: completedLines,
+                isBoardFullyCompleted: isBoardFullyCompleted
+            )
+            save(
+                persistDiary: false,
+                savedAt: now
+            )
+            return
+        }
 
         let hadCompletedTasks = fullBoardCells
             .flatMap { $0 }
@@ -777,9 +794,37 @@ class BingoViewModel: ObservableObject {
             }
         }
 
+        // Guardrail: if state says there are already rewarded completions/lines today,
+        // totalPoints must not be lower than the currently earned board points.
+        if totalPoints < newPoints {
+            let correction = newPoints - totalPoints
+            totalPoints = newPoints
+            lifetimePoints += correction
+        }
+
+        // Guardrail: keep points ledger consistent with historical spending.
+        // totalPoints is cumulative earned points, while spending is tracked separately.
+        // So cumulative earned should never be lower than (spent points + today's earned points).
+        let minimumExpectedTotalPoints = consumedPointsTotal() + newPoints
+        if totalPoints < minimumExpectedTotalPoints {
+            let correction = minimumExpectedTotalPoints - totalPoints
+            totalPoints = minimumExpectedTotalPoints
+            lifetimePoints += correction
+        }
+
         dailyRewardState.rewardedCellIDs = completedCellIDs
         dailyRewardState.peakCompletedLineCount = newLineCount
         dailyRewardState.fullBoardRewardGranted = newFullBoardRewardGranted
+    }
+
+    private func consumedPointsTotal() -> Int {
+        let spentStickerPoints = StickerStore.loadInventoryCounts().reduce(0) { partial, entry in
+            partial + (entry.key.requiredPoints * entry.value)
+        }
+        let spentRewardPoints = RewardStore.loadRewards().reduce(0) { partial, reward in
+            partial + reward.totalSpentPoints
+        }
+        return spentStickerPoints + spentRewardPoints
     }
 
     private func resetDailyRewardStateIfNeeded(for date: Date) {
@@ -839,16 +884,31 @@ class BingoViewModel: ObservableObject {
             return emptyDailyRewardState(for: referenceDate)
         }
 
+        return dailyRewardSnapshot(
+            for: referenceDate,
+            cells: currentCells,
+            completedLines: currentCompletedLines,
+            isBoardFullyCompleted: isBoardFullyCompleted
+        )
+    }
+
+    private static func dailyRewardSnapshot(
+        for date: Date,
+        cells: [[BingoCell]],
+        completedLines: Set<BingoLine>,
+        isBoardFullyCompleted: Bool
+    ) -> DailyRewardState {
         let rewardedCellIDs = Set(
-            currentCells
+            cells
                 .flatMap { $0 }
                 .filter { $0.isCompleted && !$0.isEmpty }
                 .map(\.id)
         )
+
         return DailyRewardState(
-            dateKey: todayKey,
+            dateKey: PointsStore.dateKey(for: date),
             rewardedCellIDs: rewardedCellIDs,
-            peakCompletedLineCount: currentCompletedLines.count,
+            peakCompletedLineCount: completedLines.count,
             fullBoardRewardGranted: isBoardFullyCompleted
         )
     }

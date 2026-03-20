@@ -77,6 +77,7 @@ struct NineTenthsSheetContainer<Content: View>: View {
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.openURL) private var openURL
     @StateObject private var viewModel = BingoViewModel()
     @State private var isSidebarPresented = false
     @State private var isSettingsExpanded = true
@@ -87,6 +88,7 @@ struct ContentView: View {
     @State private var selectedStickerID: UUID?
     @State private var isDiaryPresented = false
     @State private var isQuickEditPresented = false
+    @State private var isBlackBoxModePresented = false
     @State private var isClearBoardConfirmationPresented = false
     @State private var commonTasksToastMessage: String?
     @State private var isCommonTasksToastVisible = false
@@ -97,6 +99,9 @@ struct ContentView: View {
     @State private var isDailyResetToastVisible = false
     @State private var taskTimeoutDelayMinutes = 10
     @State private var boardTimeoutDelayMinutes = 10
+    @State private var isUpdatePromptPresented = false
+    @State private var hasCheckedAppUpdateOnLaunch = false
+    @State private var pendingUpdateInfo: AppUpdateInfo?
     @State private var stickerInventoryCounts = StickerStore.loadInventoryCounts()
     @State private var homeStickerPlacements = StickerStore.loadPlacements()
     @State private var customRewards = RewardStore.loadRewards()
@@ -110,6 +115,17 @@ struct ContentView: View {
     private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .sky }
     private var activeThemeColor: Color { activeTheme.color }
     private var conciseSurfaceColor: Color { Color(hex: "EBF0F7") }
+    private var appShortVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
+    }
+    private var releaseNotesItems: [String] {
+        [
+            L10n.updateItemQuickEdit,
+            L10n.updateItemCountdown,
+            L10n.updateItemPoints,
+            L10n.updateItemLayout
+        ]
+    }
     private var spentStickerPoints: Int {
         stickerInventoryCounts.reduce(0) { partial, entry in
             partial + (entry.key.requiredPoints * entry.value)
@@ -147,7 +163,14 @@ struct ContentView: View {
         GeometryReader { geo in
             let usesPadLayout = isPadLayout && geo.size.width >= 768
             let horizontalPadding: CGFloat = usesPadLayout ? 30 : 20
-            let contentWidth = min(usesPadLayout ? 520 : 353, geo.size.width - (horizontalPadding * 2))
+            let widthLimitedContent = geo.size.width - (horizontalPadding * 2)
+            let heightLimitedContent = geo.size.height
+                - max(geo.safeAreaInsets.top, 0)
+                - max(geo.safeAreaInsets.bottom, 0)
+                - (usesPadLayout ? 250 : 0)
+            let contentWidth = usesPadLayout
+                ? max(300, min(widthLimitedContent, heightLimitedContent))
+                : min(353, widthLimitedContent)
 
             ZStack(alignment: .top) {
                 conciseSurfaceColor
@@ -170,6 +193,11 @@ struct ContentView: View {
                             quickEditTrigger
                         }
                         .padding(.top, 4)
+
+                        HStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            blackBoxModeTrigger
+                        }
                     }
                     .frame(width: contentWidth)
                     .padding(.top, 62)
@@ -233,6 +261,11 @@ struct ContentView: View {
                         .allowsHitTesting(false)
                 }
 
+                if isUpdatePromptPresented, pendingUpdateInfo != nil {
+                    updatePromptOverlay
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+
                 if isClearBoardConfirmationPresented {
                     clearBoardConfirmationOverlay
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -253,6 +286,9 @@ struct ContentView: View {
             QuickEditView(viewModel: viewModel) { message in
                 showCommonTasksToast(message)
             }
+        }
+        .fullScreenCover(isPresented: $isBlackBoxModePresented) {
+            BlackBoxModeEntryView()
         }
         .sheet(isPresented: Binding(
             get: { !isPadLayout && isPointsDetailsPresented },
@@ -341,6 +377,12 @@ struct ContentView: View {
             viewModel.processDailyCompletionReset(now: countdownNow)
             PAGCompletionView.preload(resourceName: "cat_bmp")
             PointsSoundPlayer.shared.preload()
+            if !hasCheckedAppUpdateOnLaunch {
+                hasCheckedAppUpdateOnLaunch = true
+                Task {
+                    await checkForAppUpdateIfNeeded()
+                }
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
@@ -400,6 +442,158 @@ struct ContentView: View {
         }
         .onChange(of: viewModel.expiredBoardCountdownEvent?.id) { _, _ in
             boardTimeoutDelayMinutes = 10
+        }
+    }
+
+    private var shouldForceShowUpdatePromptInDebug: Bool {
+#if DEBUG
+        true
+#else
+        false
+#endif
+    }
+
+    @MainActor
+    private func checkForAppUpdateIfNeeded() async {
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.bingoday.app"
+        let countryCode = Locale.current.region?.identifier
+
+        if let info = await AppUpdateService.fetchUpdateInfo(
+            currentVersion: appShortVersion,
+            bundleIdentifier: bundleIdentifier,
+            countryCode: countryCode
+        ) {
+            presentUpdatePrompt(with: info)
+            return
+        }
+
+#if DEBUG
+        if shouldForceShowUpdatePromptInDebug {
+            presentUpdatePrompt(with: AppUpdateService.debugMockUpdateInfo(currentVersion: appShortVersion))
+        }
+#endif
+    }
+
+    private func presentUpdatePrompt(with info: AppUpdateInfo) {
+        pendingUpdateInfo = info
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+            isUpdatePromptPresented = true
+        }
+    }
+
+    private func dismissUpdatePrompt() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            isUpdatePromptPresented = false
+        }
+    }
+
+    private func updatePromptItems(for info: AppUpdateInfo) -> [String] {
+        if let notes = info.releaseNotes, !notes.isEmpty {
+            let lines = notes
+                .split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            if !lines.isEmpty {
+                return Array(lines.prefix(4))
+            }
+        }
+        return releaseNotesItems
+    }
+
+    private func openAppStoreForUpdate() {
+        guard let info = pendingUpdateInfo else { return }
+        dismissUpdatePrompt()
+        openURL(info.trackViewURL) { accepted in
+            if !accepted {
+                showCommonTasksToast(L10n.updateStoreOpenFailed)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var updatePromptOverlay: some View {
+        if let info = pendingUpdateInfo {
+            ZStack {
+                Color.black.opacity(0.16)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        dismissUpdatePrompt()
+                    }
+
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(L10n.updateWhatsNewTitle)
+                            .font(.system(size: scaled(20, pad: 26), weight: .heavy, design: .rounded))
+                            .foregroundColor(NeumorphicColors.text)
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(Array(updatePromptItems(for: info).enumerated()), id: \.offset) { index, item in
+                            HStack(alignment: .top, spacing: 10) {
+                                Text("\(index + 1)")
+                                    .font(.system(size: scaled(11, pad: 13), weight: .bold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .frame(width: scaled(20, pad: 24), height: scaled(20, pad: 24))
+                                    .background(
+                                        Circle()
+                                            .fill(NeumorphicColors.accent)
+                                            .shadow(color: NeumorphicColors.accent.opacity(0.28), radius: 6, x: 0, y: 3)
+                                    )
+                                    .padding(.top, 1)
+
+                                Text(item)
+                                    .font(.system(size: scaled(13, pad: 16), weight: .medium, design: .rounded))
+                                    .foregroundColor(NeumorphicColors.text.opacity(0.88))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+
+                    HStack(spacing: 12) {
+                        Button {
+                            dismissUpdatePrompt()
+                        } label: {
+                            Text(L10n.updateSecondaryAction)
+                                .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+                                .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 44)
+                                .background(Color.clear.neumorphicConvex(radius: 18))
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            openAppStoreForUpdate()
+                        } label: {
+                            Text(L10n.updatePrimaryAction)
+                                .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 44)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                        .fill(NeumorphicColors.bingoAccent)
+                                        .shadow(color: NeumorphicColors.bingoAccent.opacity(0.24), radius: 10, x: 0, y: 4)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 2)
+                }
+                .padding(22)
+                .frame(maxWidth: isPadLayout ? 560 : 350)
+                .background(
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .fill(NeumorphicColors.background)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                                .stroke(NeumorphicColors.lightShadow.opacity(0.42), lineWidth: 1)
+                        )
+                        .shadow(color: NeumorphicColors.darkShadow.opacity(0.18), radius: 16, x: 0, y: 8)
+                        .shadow(color: Color.white.opacity(0.72), radius: 10, x: -4, y: -4)
+                )
+                .padding(.horizontal, 24)
+            }
         }
     }
 
@@ -671,6 +865,32 @@ struct ContentView: View {
                     .foregroundColor(NeumorphicColors.text)
 
                 Image(systemName: "square.and.pencil")
+                    .font(.system(size: scaled(13, pad: 15), weight: .bold))
+                    .foregroundColor(NeumorphicColors.accent)
+            }
+            .padding(.horizontal, isPadLayout ? 20 : 16)
+            .frame(height: isPadLayout ? 42 : 36)
+            .background(
+                conciseRaisedSurface(
+                    cornerRadius: isPadLayout ? 21 : 18,
+                    shadowRadius: isPadLayout ? 12 : 10,
+                    offset: isPadLayout ? 6 : 5
+                )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var blackBoxModeTrigger: some View {
+        Button {
+            isBlackBoxModePresented = true
+        } label: {
+            HStack(spacing: 10) {
+                Text(L10n.blackBoxMode)
+                    .font(.system(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
+
+                Image(systemName: "cube.fill")
                     .font(.system(size: scaled(13, pad: 15), weight: .bold))
                     .foregroundColor(NeumorphicColors.accent)
             }
@@ -1590,6 +1810,1323 @@ struct ContentView: View {
     }
 }
 
+private struct BlackBoxModeEntryView: View {
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("hasSeenBlackBoxRules") private var hasSeenBlackBoxRules = false
+    @State private var showRulesAlert = false
+
+    @State private var selectedTheme: BlackBoxTheme = .health
+    @State private var selectedGridSize: Int = 4
+    @State private var gameState = BlackBoxGameState(theme: .health, size: 4)
+
+    var body: some View {
+        ZStack {
+            BlackBoxClassicPalette.background.ignoresSafeArea()
+
+            BlackBoxModeGameView(
+                game: $gameState,
+                selectedTheme: $selectedTheme,
+                selectedGridSize: $selectedGridSize,
+                onRestart: {
+                    gameState = BlackBoxGameState(theme: selectedTheme, size: selectedGridSize)
+                },
+                onBackToIntro: {
+                    dismiss()
+                },
+                onShowRules: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        showRulesAlert = true
+                    }
+                }
+            )
+
+            if showRulesAlert {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showRulesAlert = false
+                        }
+                    }
+
+                VStack(spacing: 20) {
+                    Text("玩法说明")
+                        .font(.system(size: 22, weight: .heavy, design: .rounded))
+                        .foregroundColor(BlackBoxClassicPalette.text)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("• 选择主题，系统将按照主题生成对应的任务")
+                        Text("• 点击格子完成任务，完成的格子任务可按照2048规则滑动合并")
+                        Text("• 看看你最后能获得多少分吧！")
+                    }
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundColor(BlackBoxClassicPalette.text.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 8)
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showRulesAlert = false
+                        }
+                    } label: {
+                        Text("知道了")
+                            .font(.system(size: 18, weight: .heavy, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(
+                                RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                                    .fill(BlackBoxClassicPalette.restart)
+                                    .shadow(color: BlackBoxClassicPalette.boardShadow.opacity(0.4), radius: 4, x: 0, y: 2)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 28)
+                .background(
+                    RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                        .fill(BlackBoxClassicPalette.background)
+                        .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 10)
+                )
+                .padding(.horizontal, 40)
+                .transition(.scale(scale: 0.95).combined(with: .opacity))
+            }
+        }
+        .onAppear {
+            if !hasSeenBlackBoxRules {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    showRulesAlert = true
+                }
+                hasSeenBlackBoxRules = true
+            }
+        }
+    }
+}
+
+private enum BlackBoxDirection {
+    case up
+    case down
+    case left
+    case right
+}
+
+private enum BlackBoxTheme: String, CaseIterable, Identifiable {
+    case health
+    case focus
+    case home
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .health:
+            return L10n.blackBoxModeHealthTheme
+        case .focus:
+            return L10n.blackBoxModeFocusTheme
+        case .home:
+            return L10n.blackBoxModeHomeTheme
+        }
+    }
+
+    var taskDefinitions: [BlackBoxTaskDefinition] {
+        switch self {
+        case .health:
+            return [
+                BlackBoxTaskDefinition(
+                    id: "health_drink_water",
+                    baseScore: 2,
+                    baseTitle: L10n.tr("Drink 1 cup of water", zhHans: "喝1杯水"),
+                    maxCount: 8
+                ),
+                BlackBoxTaskDefinition(
+                    id: "health_breakfast",
+                    baseScore: 2,
+                    baseTitle: L10n.tr("Eat breakfast", zhHans: "吃早餐"),
+                    maxCount: 1
+                ),
+                BlackBoxTaskDefinition(
+                    id: "health_walk_10",
+                    baseScore: 4,
+                    baseTitle: L10n.tr("Walk 10 minutes", zhHans: "散步10分钟"),
+                    maxCount: 3
+                ),
+                BlackBoxTaskDefinition(
+                    id: "health_stretch_10",
+                    baseScore: 4,
+                    baseTitle: L10n.tr("Stretch 10 minutes", zhHans: "拉伸10分钟"),
+                    maxCount: 2
+                ),
+                BlackBoxTaskDefinition(
+                    id: "health_sleep_2330",
+                    baseScore: 4,
+                    baseTitle: L10n.tr("Sleep before 23:30", zhHans: "23:30前睡觉"),
+                    maxCount: 1
+                ),
+                BlackBoxTaskDefinition(
+                    id: "health_fruit",
+                    baseScore: 2,
+                    baseTitle: L10n.tr("Eat fruit", zhHans: "吃水果"),
+                    maxCount: 2
+                )
+            ]
+        case .focus:
+            return [
+                BlackBoxTaskDefinition(id: "focus_pomodoro", baseScore: 2, baseTitle: L10n.tr("Pomodoro 25 min", zhHans: "番茄专注25分钟"), maxCount: 4),
+                BlackBoxTaskDefinition(id: "focus_read", baseScore: 2, baseTitle: L10n.tr("Read 10 pages", zhHans: "阅读10页"), maxCount: 3),
+                BlackBoxTaskDefinition(id: "focus_plan", baseScore: 4, baseTitle: L10n.tr("Write task plan", zhHans: "写任务计划"), maxCount: 1),
+                BlackBoxTaskDefinition(id: "focus_finish_one", baseScore: 4, baseTitle: L10n.tr("Finish one small task", zhHans: "完成一个小任务"), maxCount: 3),
+                BlackBoxTaskDefinition(id: "focus_no_social", baseScore: 4, baseTitle: L10n.tr("No social app 30 min", zhHans: "30分钟不刷社媒"), maxCount: 2)
+            ]
+        case .home:
+            return [
+                BlackBoxTaskDefinition(id: "home_trash", baseScore: 2, baseTitle: L10n.tr("Take out trash", zhHans: "倒垃圾"), maxCount: 1),
+                BlackBoxTaskDefinition(id: "home_dishes", baseScore: 2, baseTitle: L10n.tr("Wash dishes", zhHans: "洗碗"), maxCount: 2),
+                BlackBoxTaskDefinition(id: "home_wipe", baseScore: 2, baseTitle: L10n.tr("Wipe desk", zhHans: "擦桌子"), maxCount: 1),
+                BlackBoxTaskDefinition(id: "home_laundry", baseScore: 4, baseTitle: L10n.tr("Laundry 1 cycle", zhHans: "洗衣1轮"), maxCount: 1),
+                BlackBoxTaskDefinition(id: "home_drawer", baseScore: 4, baseTitle: L10n.tr("Organize one drawer", zhHans: "整理一个抽屉"), maxCount: 2)
+            ]
+        }
+    }
+
+    var definitionMap: [String: BlackBoxTaskDefinition] {
+        Dictionary(uniqueKeysWithValues: taskDefinitions.map { ($0.id, $0) })
+    }
+
+    func mergedTitle(score: Int) -> String {
+        title
+    }
+}
+
+private enum BlackBoxClassicPalette {
+    static let edgeRadius: CGFloat = 2
+    static let background = Color(hex: "FAF8EF")
+    static let board = Color(hex: "BBADA0")
+    static let boardShadow = Color(hex: "A89C90")
+    static let boardHighlight = Color(hex: "D7CCBF")
+    static let emptyTile = Color(hex: "CDC1B4")
+    static let text = Color(hex: "776E65")
+    static let darkText = Color(hex: "F9F6F2")
+    static let restart = Color(hex: "8F7A66")
+}
+
+private struct BlackBoxTaskDefinition: Identifiable, Hashable {
+    let id: String
+    let baseScore: Int
+    let baseTitle: String
+    let maxCount: Int
+
+    init(id: String, baseScore: Int, baseTitle: String, maxCount: Int = 99) {
+        self.id = id
+        self.baseScore = baseScore
+        self.baseTitle = baseTitle
+        self.maxCount = maxCount
+    }
+
+    func title(forCount count: Int) -> String {
+        guard count > 1 else { return baseTitle }
+        switch id {
+        case "health_drink_water":
+            return L10n.tr("Drink \(count) cups of water", zhHans: "喝\(count)杯水")
+        default:
+            return L10n.tr("\(baseTitle) x\(count)", zhHans: "\(baseTitle) x\(count)")
+        }
+    }
+}
+
+private struct BlackBoxTile: Identifiable, Equatable {
+    var id = UUID()
+    var displayTitle: String
+    var score: Int
+    var isCompleted: Bool
+    var components: [String: Int]
+}
+
+private struct BlackBoxLineResult {
+    let line: [BlackBoxTile?]
+    let mergeCount: Int
+}
+
+private struct BlackBoxGameSnapshot {
+    let board: [[BlackBoxTile?]]
+    let moveCount: Int
+    let mergeCount: Int
+    let bingoCount: Int
+    let isGameOver: Bool
+}
+
+private struct BlackBoxGameState {
+    let theme: BlackBoxTheme
+    let size: Int
+    var board: [[BlackBoxTile?]]
+    var moveCount: Int
+    var mergeCount: Int
+    var bingoCount: Int
+    var isGameOver: Bool
+    var history: [BlackBoxGameSnapshot]
+
+    init(theme: BlackBoxTheme, size: Int) {
+        self.theme = theme
+        self.size = size
+        self.board = Array(repeating: Array(repeating: nil, count: size), count: size)
+        self.moveCount = 0
+        self.mergeCount = 0
+        self.bingoCount = 0
+        self.isGameOver = false
+        self.history = []
+        spawnRandomTile()
+        spawnRandomTile()
+    }
+
+    mutating func toggleCompletion(row: Int, col: Int) {
+        guard row >= 0, row < size, col >= 0, col < size else { return }
+        guard var tile = board[row][col] else { return }
+        pushHistory()
+        let wasCompleted = tile.isCompleted
+        tile.isCompleted.toggle()
+        board[row][col] = tile
+        if !wasCompleted, tile.isCompleted {
+            spawnStrategicTile(preferredScore: tile.score)
+        }
+        isGameOver = !hasMoveAvailable()
+    }
+
+    mutating func undoLastAction() {
+        guard let snapshot = history.popLast() else { return }
+        board = snapshot.board
+        moveCount = snapshot.moveCount
+        mergeCount = snapshot.mergeCount
+        bingoCount = snapshot.bingoCount
+        isGameOver = snapshot.isGameOver
+    }
+
+    mutating func swipe(_ direction: BlackBoxDirection) {
+        guard !isGameOver else { return }
+
+        var nextBoard = board
+        var mergedTiles = 0
+
+        switch direction {
+        case .left, .right:
+            for row in 0..<size {
+                let processed = processLine(board[row], reverse: direction == .right)
+                nextBoard[row] = processed.line
+                mergedTiles += processed.mergeCount
+            }
+        case .up, .down:
+            for col in 0..<size {
+                let line = (0..<size).map { board[$0][col] }
+                let processed = processLine(line, reverse: direction == .down)
+                for row in 0..<size {
+                    nextBoard[row][col] = processed.line[row]
+                }
+                mergedTiles += processed.mergeCount
+            }
+        }
+
+        guard nextBoard != board else { return }
+
+        pushHistory()
+        board = nextBoard
+        moveCount += 1
+        mergeCount += mergedTiles
+        bingoCount += mergedTiles
+        spawnStrategicTile()
+        isGameOver = !hasMoveAvailable()
+    }
+
+    mutating func refreshPendingTiles() {
+        var targets: [(row: Int, col: Int)] = []
+        for row in 0..<size {
+            for col in 0..<size {
+                guard let tile = board[row][col] else { continue }
+                // Keep merged or completed tiles untouched.
+                if tile.isCompleted || tile.components.count > 1 {
+                    continue
+                }
+                targets.append((row, col))
+            }
+        }
+
+        guard !targets.isEmpty else { return }
+        pushHistory()
+
+        for target in targets {
+            guard let tile = board[target.row][target.col] else { continue }
+            let task = taskDefinition(forScore: tile.score)
+            board[target.row][target.col] = BlackBoxTile(
+                displayTitle: task.title(forCount: 1),
+                score: task.baseScore,
+                isCompleted: false,
+                components: [task.id: 1]
+            )
+        }
+        isGameOver = !hasMoveAvailable()
+    }
+
+    private mutating func spawnRandomTile() {
+        spawnStrategicTile(preferredScore: theme.taskDefinitions.map(\.baseScore).min())
+    }
+
+    private mutating func spawnStrategicTile(preferredScore: Int? = nil) {
+        let emptyCoordinates = allEmptyCoordinates()
+        guard !emptyCoordinates.isEmpty else { return }
+
+        let targetScore = chooseSpawnScore(preferredScore: preferredScore)
+        let preferredCoordinates = preferredScore.map { preferredSpawnCoordinates(for: $0) } ?? []
+        let targetCoordinates = preferredCoordinates.isEmpty ? emptyCoordinates : preferredCoordinates
+        guard let randomCoordinate = targetCoordinates.randomElement() else { return }
+
+        let task = taskDefinition(forScore: targetScore)
+        board[randomCoordinate.row][randomCoordinate.col] = BlackBoxTile(
+            displayTitle: task.title(forCount: 1),
+            score: task.baseScore,
+            isCompleted: false,
+            components: [task.id: 1]
+        )
+    }
+
+    private func allEmptyCoordinates() -> [(row: Int, col: Int)] {
+        var result: [(row: Int, col: Int)] = []
+        for row in 0..<size {
+            for col in 0..<size where board[row][col] == nil {
+                result.append((row, col))
+            }
+        }
+        return result
+    }
+
+    private func hasMoveAvailable() -> Bool {
+        if board.flatMap(\.self).contains(where: { $0 == nil }) {
+            return true
+        }
+
+        for row in 0..<size {
+            for col in 0..<size {
+                guard let current = board[row][col] else { continue }
+                if row + 1 < size,
+                   let nextRow = board[row + 1][col],
+                   nextRow.score == current.score,
+                   current.isCompleted,
+                   nextRow.isCompleted {
+                    return true
+                }
+                if col + 1 < size,
+                   let nextCol = board[row][col + 1],
+                   nextCol.score == current.score,
+                   current.isCompleted,
+                   nextCol.isCompleted {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    private mutating func pushHistory() {
+        history.append(
+            BlackBoxGameSnapshot(
+                board: board,
+                moveCount: moveCount,
+                mergeCount: mergeCount,
+                bingoCount: bingoCount,
+                isGameOver: isGameOver
+            )
+        )
+        if history.count > 24 {
+            history.removeFirst(history.count - 24)
+        }
+    }
+
+    private func chooseSpawnScore(preferredScore: Int? = nil) -> Int {
+        let completedCounts = completedScoreCounts()
+        if let preferredScore, completedCounts[preferredScore] != nil {
+            return preferredScore
+        }
+
+        if let bestExisting = completedCounts
+            .sorted(by: { lhs, rhs in
+                if lhs.value != rhs.value { return lhs.value > rhs.value }
+                return lhs.key < rhs.key
+            })
+            .first?
+            .key {
+            return bestExisting
+        }
+
+        return theme.taskDefinitions.map(\.baseScore).min() ?? 2
+    }
+
+    private func completedScoreCounts() -> [Int: Int] {
+        var counts: [Int: Int] = [:]
+        for row in board {
+            for case let tile? in row where tile.isCompleted {
+                counts[tile.score, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    private func preferredSpawnCoordinates(for score: Int) -> [(row: Int, col: Int)] {
+        var coordinates: [(row: Int, col: Int)] = []
+        for row in 0..<size {
+            for col in 0..<size {
+                guard let tile = board[row][col], tile.isCompleted, tile.score == score else { continue }
+                coordinates.append(contentsOf: adjacentEmptyCoordinates(row: row, col: col))
+            }
+        }
+        return uniqueCoordinates(coordinates)
+    }
+
+    private func adjacentEmptyCoordinates(row: Int, col: Int) -> [(row: Int, col: Int)] {
+        var result: [(row: Int, col: Int)] = []
+        let neighbors = [
+            (row - 1, col),
+            (row + 1, col),
+            (row, col - 1),
+            (row, col + 1)
+        ]
+
+        for neighbor in neighbors where neighbor.0 >= 0 && neighbor.0 < size && neighbor.1 >= 0 && neighbor.1 < size {
+            if board[neighbor.0][neighbor.1] == nil {
+                result.append(neighbor)
+            }
+        }
+
+        return result
+    }
+
+    private func uniqueCoordinates(_ coordinates: [(row: Int, col: Int)]) -> [(row: Int, col: Int)] {
+        var seen = Set<String>()
+        var result: [(row: Int, col: Int)] = []
+        for coordinate in coordinates {
+            let key = "\(coordinate.row)-\(coordinate.col)"
+            if seen.insert(key).inserted {
+                result.append(coordinate)
+            }
+        }
+        return result
+    }
+
+    private func taskDefinition(forScore score: Int) -> BlackBoxTaskDefinition {
+        let boardTaskCounts = boardTaskCounts()
+        let matches = theme.taskDefinitions.filter { $0.baseScore == score }
+        let available = matches.filter { def in
+            let currentCount = boardTaskCounts[def.id] ?? 0
+            return currentCount < def.maxCount
+        }
+        return available.randomElement() ?? matches.randomElement() ?? theme.taskDefinitions.first ?? BlackBoxTaskDefinition(
+            id: "fallback",
+            baseScore: score,
+            baseTitle: L10n.tr("Task", zhHans: "任务")
+        )
+    }
+
+    private func boardTaskCounts() -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for row in board {
+            for case let tile? in row {
+                for (taskID, count) in tile.components {
+                    counts[taskID, default: 0] += count
+                }
+            }
+        }
+        return counts
+    }
+
+    private func processLine(_ line: [BlackBoxTile?], reverse: Bool) -> BlackBoxLineResult {
+        let normalizedLine = reverse ? Array(line.reversed()) : line
+        let compacted = normalizedLine.compactMap { $0 }
+
+        var mergedLine: [BlackBoxTile] = []
+        var mergeCount = 0
+        var index = 0
+
+        while index < compacted.count {
+            if index + 1 < compacted.count {
+                let first = compacted[index]
+                let second = compacted[index + 1]
+                if first.score == second.score, first.isCompleted, second.isCompleted {
+                    let mergedComponents = mergeComponents(first.components, second.components)
+                    let mergedScore = first.score * 2
+                    mergedLine.append(
+                        BlackBoxTile(
+                            displayTitle: titleForMergedTile(components: mergedComponents, score: mergedScore),
+                            score: mergedScore,
+                            isCompleted: true,
+                            components: mergedComponents
+                        )
+                    )
+                    mergeCount += 1
+                    index += 2
+                    continue
+                }
+            }
+
+            mergedLine.append(compacted[index])
+            index += 1
+        }
+
+        var filledLine: [BlackBoxTile?] = mergedLine.map { $0 }
+        while filledLine.count < size {
+            filledLine.append(nil)
+        }
+
+        if reverse {
+            filledLine.reverse()
+        }
+
+        return BlackBoxLineResult(line: filledLine, mergeCount: mergeCount)
+    }
+
+    private func mergeComponents(_ lhs: [String: Int], _ rhs: [String: Int]) -> [String: Int] {
+        var merged = lhs
+        for (key, value) in rhs {
+            merged[key, default: 0] += value
+        }
+        return merged
+    }
+
+    private func titleForMergedTile(components: [String: Int], score: Int) -> String {
+        if components.count == 1, let (taskID, count) = components.first, let definition = theme.definitionMap[taskID] {
+            return definition.title(forCount: count)
+        }
+        return theme.mergedTitle(score: score)
+    }
+}
+
+private struct BlackBoxHistoryRecord: Codable, Identifiable {
+    let id: UUID
+    let createdAt: Date
+    let themeRawValue: String
+    let gridSize: Int
+    let score: Int
+    let moves: Int
+    let merges: Int
+    let completedTiles: Int
+
+    var themeTitle: String {
+        BlackBoxTheme(rawValue: themeRawValue)?.title ?? themeRawValue
+    }
+}
+
+private enum BlackBoxHistoryStore {
+    private static let key = "blackBox2048HistoryRecords.v1"
+
+    static func load() -> [BlackBoxHistoryRecord] {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
+        return (try? JSONDecoder().decode([BlackBoxHistoryRecord].self, from: data)) ?? []
+    }
+
+    static func append(_ record: BlackBoxHistoryRecord, keep maxCount: Int = 50) {
+        var records = load()
+        records.insert(record, at: 0)
+        if records.count > maxCount {
+            records.removeLast(records.count - maxCount)
+        }
+        guard let data = try? JSONEncoder().encode(records) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+}
+
+private struct BlackBoxModeGameView: View {
+    private enum ConfirmAction: Identifiable {
+        case exit
+        case restart
+        case switchTheme(BlackBoxTheme)
+        case showRules
+        case refreshPendingTasks
+
+        var id: String {
+            switch self {
+            case .exit:
+                return "exit"
+            case .restart:
+                return "restart"
+            case .switchTheme(let theme):
+                return "theme-\(theme.rawValue)"
+            case .showRules:
+                return "rules"
+            case .refreshPendingTasks:
+                return "refresh-pending"
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .exit:
+                return "确认退出?"
+            case .restart:
+                return "确认重开?"
+            case .switchTheme(let theme):
+                return "切换到\(theme.title)?"
+            case .showRules:
+                return "查看玩法说明?"
+            case .refreshPendingTasks:
+                return "刷新未完成任务?"
+            }
+        }
+
+        var message: String {
+            switch self {
+            case .exit:
+                return "会离开 2048 模式，当前棋盘进度不会保留。"
+            case .restart:
+                return "会清空当前棋盘并重新生成任务。"
+            case .switchTheme:
+                return "会切换主题并重置当前棋盘。"
+            case .showRules:
+                return "将打开玩法说明弹窗。"
+            case .refreshPendingTasks:
+                return "仅刷新未完成且未合并的任务格。"
+            }
+        }
+
+        var confirmTitle: String {
+            switch self {
+            case .exit:
+                return "退出"
+            case .restart:
+                return "重开"
+            case .switchTheme:
+                return "切换"
+            case .showRules:
+                return "查看"
+            case .refreshPendingTasks:
+                return "刷新"
+            }
+        }
+    }
+
+    @Binding var game: BlackBoxGameState
+    @Binding var selectedTheme: BlackBoxTheme
+    @Binding var selectedGridSize: Int
+    let onRestart: () -> Void
+    let onBackToIntro: () -> Void
+    let onShowRules: () -> Void
+    @State private var selectedDetail: BlackBoxTileDetailContext?
+    @State private var confirmAction: ConfirmAction?
+    @State private var isHistoryPresented = false
+    @State private var historyRecords: [BlackBoxHistoryRecord] = BlackBoxHistoryStore.load()
+
+    private var currentScore: Int {
+        game.board.flatMap { $0 }.compactMap { $0 }.filter { $0.isCompleted }.reduce(0) { $0 + $1.score }
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let safeBoardSide = min(geo.size.width - 32, geo.size.height * 0.55)
+
+            ZStack {
+                VStack(spacing: 24) {
+                    Spacer(minLength: 16)
+
+                    HStack(alignment: .center) {
+                        HStack(spacing: 8) {
+                            Text("2048")
+                                .font(.system(size: 44, weight: .heavy, design: .rounded))
+                                .foregroundColor(BlackBoxClassicPalette.text)
+                                .padding(.vertical, 8)
+
+                            Button {
+                                requestConfirmation(.showRules)
+                            } label: {
+                                Image(systemName: "questionmark.circle.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(BlackBoxClassicPalette.text.opacity(0.3))
+                            }
+
+                            Button {
+                                historyRecords = BlackBoxHistoryStore.load()
+                                isHistoryPresented = true
+                            } label: {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.system(size: 21, weight: .bold))
+                                    .foregroundColor(BlackBoxClassicPalette.text.opacity(0.3))
+                            }
+                        }
+
+                        Spacer()
+
+                        scoreBox(title: "分数", value: "\(currentScore)")
+                    }
+
+                    VStack(spacing: 16) {
+                        HStack(spacing: 12) {
+                            neumorphicButton(title: "退出", action: {
+                                requestConfirmation(.exit)
+                            })
+                            Spacer()
+                            neumorphicButton(title: "撤销", action: {
+                                withAnimation(.spring(response: 0.2, dampingFraction: 0.92)) {
+                                    game.undoLastAction()
+                                }
+                            })
+                            neumorphicButton(title: "重新开始", action: {
+                                requestConfirmation(.restart)
+                            })
+                        }
+
+                        HStack(spacing: 10) {
+                            ForEach(BlackBoxTheme.allCases) { theme in
+                                Button {
+                                    guard selectedTheme != theme else { return }
+                                    requestConfirmation(.switchTheme(theme))
+                                } label: {
+                                    Text(theme.title)
+                                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                                        .foregroundColor(selectedTheme == theme ? .white : BlackBoxClassicPalette.darkText)
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 40)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                                                .fill(selectedTheme == theme ? BlackBoxClassicPalette.restart : BlackBoxClassicPalette.emptyTile)
+                                                .shadow(color: BlackBoxClassicPalette.boardShadow.opacity(selectedTheme == theme ? 0.4 : 0.1), radius: 4, x: 0, y: 2)
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    Spacer(minLength: 20)
+
+                    VStack(spacing: 8) {
+                        BlackBoxBoardGridView(game: $game) { row, col, tile in
+                            if tile.components.count > 1 {
+                                selectedDetail = BlackBoxTileDetailContext(tile: tile, theme: game.theme)
+                            } else {
+                                withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+                                    game.toggleCompletion(row: row, col: col)
+                                }
+                            }
+                        }
+                        .frame(width: safeBoardSide, height: safeBoardSide)
+                        .gesture(
+                            DragGesture(minimumDistance: 22)
+                                .onEnded { value in
+                                    guard let direction = swipeDirection(for: value.translation) else { return }
+                                    withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+                                        game.swipe(direction)
+                                    }
+                                }
+                        )
+
+                        if game.isGameOver {
+                            Text(L10n.blackBoxModeGameOver)
+                                .font(.system(size: 16, weight: .heavy, design: .rounded))
+                                .foregroundColor(BlackBoxClassicPalette.text)
+                                .padding(.top, 8)
+                        }
+                    }
+                    .offset(y: -45)
+
+                    HStack {
+                        HStack(spacing: 8) {
+                            ForEach([3, 4, 5], id: \.self) { size in
+                                Button {
+                                    saveCurrentHistoryIfNeeded()
+                                    selectedGridSize = size
+                                    onRestart()
+                                } label: {
+                                    Text("\(size)x\(size)")
+                                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                                        .foregroundColor(selectedGridSize == size ? .white : BlackBoxClassicPalette.darkText)
+                                        .frame(width: 52, height: 32)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                                                .fill(selectedGridSize == size ? BlackBoxClassicPalette.restart : BlackBoxClassicPalette.emptyTile)
+                                                .shadow(color: BlackBoxClassicPalette.boardShadow.opacity(selectedGridSize == size ? 0.4 : 0.1), radius: 4, x: 0, y: 2)
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        Spacer()
+
+                        Button {
+                            requestConfirmation(.refreshPendingTasks)
+                        } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 16, weight: .heavy))
+                                .foregroundColor(BlackBoxClassicPalette.darkText)
+                                .frame(width: 42, height: 32)
+                                .background(
+                                    RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                                        .fill(BlackBoxClassicPalette.restart)
+                                        .shadow(color: BlackBoxClassicPalette.boardHighlight.opacity(0.65), radius: 5, x: -2, y: -2)
+                                        .shadow(color: BlackBoxClassicPalette.boardShadow.opacity(0.35), radius: 5, x: 2, y: 2)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .frame(width: safeBoardSide)
+                    .offset(y: -34)
+
+                    Spacer(minLength: 40)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 16)
+                .sheet(item: $selectedDetail) { context in
+                    BlackBoxTileDetailSheet(context: context)
+                        .presentationDetents([.fraction(0.44), .medium])
+                        .presentationDragIndicator(.visible)
+                }
+                .sheet(isPresented: $isHistoryPresented) {
+                    BlackBoxHistorySheet(records: historyRecords)
+                        .presentationDetents([.fraction(0.4), .medium, .large])
+                        .presentationDragIndicator(.visible)
+                }
+
+                if let action = confirmAction {
+                    confirmOverlay(for: action)
+                }
+            }
+        }
+    }
+
+    private func swipeDirection(for translation: CGSize) -> BlackBoxDirection? {
+        let x = translation.width
+        let y = translation.height
+        guard max(abs(x), abs(y)) > 24 else { return nil }
+        if abs(x) > abs(y) { return x > 0 ? .right : .left }
+        return y > 0 ? .down : .up
+    }
+
+    private func neumorphicButton(title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundColor(BlackBoxClassicPalette.darkText)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                        .fill(BlackBoxClassicPalette.restart)
+                        .shadow(color: BlackBoxClassicPalette.boardHighlight.opacity(0.65), radius: 5, x: -2, y: -2)
+                        .shadow(color: BlackBoxClassicPalette.boardShadow.opacity(0.35), radius: 5, x: 2, y: 2)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func scoreBox(title: String, value: String) -> some View {
+        VStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 14, weight: .heavy, design: .rounded))
+                .foregroundColor(Color.white.opacity(0.9))
+                .shadow(color: Color.black.opacity(0.1), radius: 1, x: 0, y: 1)
+            Text(value)
+                .font(.system(size: 24, weight: .heavy, design: .rounded))
+                .foregroundColor(Color.white)
+                .shadow(color: Color.black.opacity(0.1), radius: 1, x: 0, y: 1)
+        }
+        .frame(minWidth: 88)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                .fill(BlackBoxClassicPalette.board)
+                .shadow(color: BlackBoxClassicPalette.boardHighlight.opacity(0.5), radius: 4, x: -2, y: -2)
+                .shadow(color: BlackBoxClassicPalette.boardShadow.opacity(0.2), radius: 4, x: 2, y: 2)
+        )
+    }
+
+    private func requestConfirmation(_ action: ConfirmAction) {
+        withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+            confirmAction = action
+        }
+    }
+
+    private func dismissConfirmation() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            confirmAction = nil
+        }
+    }
+
+    private func performConfirmedAction(_ action: ConfirmAction) {
+        dismissConfirmation()
+        switch action {
+        case .exit:
+            saveCurrentHistoryIfNeeded()
+            onBackToIntro()
+        case .restart:
+            saveCurrentHistoryIfNeeded()
+            selectedDetail = nil
+            withAnimation(.easeInOut(duration: 0.2)) {
+                onRestart()
+            }
+        case .switchTheme(let theme):
+            saveCurrentHistoryIfNeeded()
+            selectedTheme = theme
+            onRestart()
+        case .showRules:
+            onShowRules()
+        case .refreshPendingTasks:
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+                game.refreshPendingTiles()
+            }
+        }
+    }
+
+    private func saveCurrentHistoryIfNeeded() {
+        let completedTiles = game.board.flatMap { $0 }.compactMap { $0 }.filter { $0.isCompleted }.count
+        let hasProgress = game.moveCount > 0 || game.mergeCount > 0 || currentScore > 0 || completedTiles > 0
+        guard hasProgress else { return }
+
+        BlackBoxHistoryStore.append(
+            BlackBoxHistoryRecord(
+                id: UUID(),
+                createdAt: Date(),
+                themeRawValue: game.theme.rawValue,
+                gridSize: game.size,
+                score: currentScore,
+                moves: game.moveCount,
+                merges: game.mergeCount,
+                completedTiles: completedTiles
+            )
+        )
+    }
+
+    @ViewBuilder
+    private func confirmOverlay(for action: ConfirmAction) -> some View {
+        ZStack {
+            Color.black.opacity(0.38)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    dismissConfirmation()
+                }
+
+            VStack(spacing: 16) {
+                Text(action.title)
+                    .font(.system(size: 24, weight: .heavy, design: .rounded))
+                    .foregroundColor(BlackBoxClassicPalette.text)
+
+                Text(action.message)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundColor(BlackBoxClassicPalette.text.opacity(0.82))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 12) {
+                    Button {
+                        dismissConfirmation()
+                    } label: {
+                        Text(L10n.cancel)
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundColor(BlackBoxClassicPalette.darkText)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                                    .fill(BlackBoxClassicPalette.board)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        performConfirmedAction(action)
+                    } label: {
+                        Text(action.confirmTitle)
+                            .font(.system(size: 16, weight: .heavy, design: .rounded))
+                            .foregroundColor(BlackBoxClassicPalette.darkText)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                                    .fill(BlackBoxClassicPalette.restart)
+                                    .shadow(color: BlackBoxClassicPalette.boardShadow.opacity(0.4), radius: 4, x: 0, y: 2)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 24)
+            .frame(maxWidth: 340)
+            .background(
+                RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                    .fill(BlackBoxClassicPalette.background)
+                    .shadow(color: BlackBoxClassicPalette.boardHighlight.opacity(0.65), radius: 6, x: -3, y: -3)
+                    .shadow(color: BlackBoxClassicPalette.boardShadow.opacity(0.22), radius: 8, x: 4, y: 4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                            .stroke(BlackBoxClassicPalette.board.opacity(0.28), lineWidth: 1)
+                    )
+            )
+            .padding(.horizontal, 28)
+        }
+        .zIndex(50)
+        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+    }
+}
+
+private struct BlackBoxBoardGridView: View {
+    @Binding var game: BlackBoxGameState
+    let onTileTap: (_ row: Int, _ col: Int, _ tile: BlackBoxTile) -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            let spacing: CGFloat = 10
+            let outerPadding: CGFloat = 10
+            let totalSpacing = CGFloat(game.size - 1) * spacing
+            let side = min(geo.size.width, geo.size.height)
+            let cellSide = (side - (outerPadding * 2) - totalSpacing) / CGFloat(game.size)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                    .fill(BlackBoxClassicPalette.board)
+                    .shadow(color: BlackBoxClassicPalette.boardHighlight.opacity(0.72), radius: 8, x: -4, y: -4)
+                    .shadow(color: BlackBoxClassicPalette.boardShadow.opacity(0.32), radius: 8, x: 4, y: 4)
+
+                VStack(spacing: spacing) {
+                    ForEach(0..<game.size, id: \.self) { row in
+                        HStack(spacing: spacing) {
+                            ForEach(0..<game.size, id: \.self) { col in
+                                BlackBoxTileCellView(tile: game.board[row][col])
+                                    .frame(width: cellSide, height: cellSide)
+                                    .contentShape(RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous))
+                                    .onTapGesture {
+                                        guard let tile = game.board[row][col] else { return }
+                                        onTileTap(row, col, tile)
+                                    }
+                            }
+                        }
+                    }
+                }
+                .padding(outerPadding)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
+}
+
+private struct BlackBoxTileCellView: View {
+    let tile: BlackBoxTile?
+
+    var body: some View {
+        ZStack {
+            if let tile {
+                RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                    .fill(tileBackground(for: tile))
+                    .shadow(color: tile.isCompleted ? BlackBoxClassicPalette.boardShadow.opacity(0.2) : BlackBoxClassicPalette.boardShadow.opacity(0.1), radius: 4, x: 0, y: 2)
+
+                VStack(spacing: 2) {
+                    Text("\(tile.score)")
+                        .font(.system(size: tile.score >= 1000 ? 24 : 32, weight: .heavy, design: .rounded))
+                        .foregroundColor(tileTextColor(for: tile))
+                        .minimumScaleFactor(0.5)
+
+                    if tile.score < 2048 {
+                        Text(tile.displayTitle)
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundColor(tileTextColor(for: tile).opacity(0.8))
+                            .lineLimit(1)
+                            .padding(.horizontal, 4)
+                    }
+                }
+            } else {
+                RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                    .fill(BlackBoxClassicPalette.emptyTile)
+                    .shadow(color: Color.white.opacity(0.3), radius: 4, x: -2, y: -2)
+                    .shadow(color: BlackBoxClassicPalette.boardShadow.opacity(0.1), radius: 4, x: 2, y: 2)
+            }
+        }
+    }
+
+    private func tileBackground(for tile: BlackBoxTile) -> Color {
+        guard tile.isCompleted else { return BlackBoxClassicPalette.emptyTile.opacity(0.9) }
+        switch tile.score {
+        case ..<4:
+            return Color(hex: "EEE4DA")
+        case 4:
+            return Color(hex: "EDE0C8")
+        case 8:
+            return Color(hex: "F2B179")
+        case 16:
+            return Color(hex: "F59563")
+        case 32:
+            return Color(hex: "F67C5F")
+        case 64:
+            return Color(hex: "F65E3B")
+        case 128:
+            return Color(hex: "EDCF72")
+        case 256:
+            return Color(hex: "EDCC61")
+        case 512:
+            return Color(hex: "EDC850")
+        case 1024:
+            return Color(hex: "EDC53F")
+        case 2048:
+            return Color(hex: "EDC22E")
+        default:
+            return Color(hex: "3C3A32")
+        }
+    }
+
+    private func tileTextColor(for tile: BlackBoxTile) -> Color {
+        if !tile.isCompleted {
+            return BlackBoxClassicPalette.text
+        }
+        return tile.score >= 8 ? BlackBoxClassicPalette.darkText : BlackBoxClassicPalette.text
+    }
+}
+
+private struct BlackBoxTileDetailContext: Identifiable {
+    let id = UUID()
+    let tile: BlackBoxTile
+    let theme: BlackBoxTheme
+}
+
+private struct BlackBoxTileDetailSheet: View {
+    let context: BlackBoxTileDetailContext
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                BlackBoxClassicPalette.background
+                    .ignoresSafeArea()
+
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(context.tile.displayTitle)
+                                .font(.system(size: 24, weight: .heavy, design: .rounded))
+                                .foregroundColor(BlackBoxClassicPalette.text)
+                                .lineLimit(2)
+                        }
+
+                        Spacer()
+                    }
+
+                    Text(L10n.blackBoxModeContainsTasks)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundColor(BlackBoxClassicPalette.text.opacity(0.84))
+
+                    ForEach(componentRows, id: \.id) { row in
+                        HStack {
+                            Text(row.title)
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundColor(BlackBoxClassicPalette.text)
+                            Spacer()
+                            Text("x\(row.count)")
+                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                .foregroundColor(BlackBoxClassicPalette.restart)
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                                .fill(Color.white.opacity(0.32))
+                        )
+                    }
+
+                    Divider()
+                        .overlay(BlackBoxClassicPalette.text.opacity(0.15))
+
+                    HStack {
+                        Text(L10n.blackBoxModeCompletionCount)
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundColor(BlackBoxClassicPalette.text.opacity(0.84))
+                        Spacer()
+                        Text("\(L10n.blackBoxModeTotalCompletions) \(totalCompletions)")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundColor(BlackBoxClassicPalette.text)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 20)
+                .padding(.bottom, 24)
+            }
+            .navigationTitle(L10n.blackBoxModeTileDetailTitle)
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var componentRows: [(id: String, title: String, count: Int)] {
+        context.tile.components
+            .sorted { $0.key < $1.key }
+            .map { key, count in
+                let title = context.theme.definitionMap[key]?.baseTitle ?? key
+                return (id: key, title: title, count: count)
+            }
+    }
+
+    private var totalCompletions: Int {
+        context.tile.components.values.reduce(0, +)
+    }
+}
+
+private struct BlackBoxHistorySheet: View {
+    let records: [BlackBoxHistoryRecord]
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                BlackBoxClassicPalette.background
+                    .ignoresSafeArea()
+
+                if records.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(BlackBoxClassicPalette.text.opacity(0.5))
+                        Text("暂无历史记录")
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
+                            .foregroundColor(BlackBoxClassicPalette.text.opacity(0.75))
+                    }
+                } else {
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 10) {
+                            ForEach(records) { record in
+                                HStack(spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(record.themeTitle)
+                                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                                            .foregroundColor(BlackBoxClassicPalette.text)
+                                        Text("\(record.gridSize)x\(record.gridSize) · \(record.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                            .foregroundColor(BlackBoxClassicPalette.text.opacity(0.7))
+                                    }
+
+                                    Spacer(minLength: 8)
+
+                                    VStack(alignment: .trailing, spacing: 4) {
+                                        Text("分数 \(record.score)")
+                                            .font(.system(size: 15, weight: .heavy, design: .rounded))
+                                            .foregroundColor(BlackBoxClassicPalette.restart)
+                                        Text("步数 \(record.moves) · 合并 \(record.merges)")
+                                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                            .foregroundColor(BlackBoxClassicPalette.text.opacity(0.72))
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                                        .fill(BlackBoxClassicPalette.board.opacity(0.12))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: BlackBoxClassicPalette.edgeRadius, style: .continuous)
+                                                .stroke(BlackBoxClassicPalette.board.opacity(0.24), lineWidth: 1)
+                                        )
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+                }
+            }
+            .navigationTitle("历史记录")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
 private struct PointsDetailSheet: View {
     private enum PointsTab: String, CaseIterable, Identifiable {
         case stickers
@@ -2307,6 +3844,7 @@ private struct QuickEditView: View {
     @State private var selectedTaskKeys: [String] = []
     @State private var targetGridSize = 4
     @State private var didApplyToBoard = false
+    @State private var pendingApplyPlan: ApplyPlan?
 
     private enum FocusedMyTaskField: Hashable {
         case task(Int)
@@ -2351,6 +3889,11 @@ private struct QuickEditView: View {
         let text: String
     }
 
+    private struct ApplyPlan: Equatable {
+        let tasks: [String]
+        let targetGridSize: Int
+    }
+
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
     }
@@ -2364,6 +3907,16 @@ private struct QuickEditView: View {
             return [GridItem(.flexible(), spacing: 18)]
         }
         return [GridItem(.flexible(), spacing: 14)]
+    }
+
+    private var taskItemColumns: [GridItem] {
+        let spacing: CGFloat = isPadLayout ? 12 : 10
+        let count = isPadLayout ? 3 : 2
+        return Array(repeating: GridItem(.flexible(), spacing: spacing), count: count)
+    }
+
+    private var hasExistingBoardTasks: Bool {
+        !viewModel.currentTaskPoolTasks().isEmpty
     }
 
     private var allTaskCandidates: [TaskCandidate] {
@@ -2450,6 +4003,11 @@ private struct QuickEditView: View {
                     deleteConfirmationOverlay(for: deleteConfirmationTarget)
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
+
+                if let pendingApplyPlan {
+                    applyConfirmationOverlay(for: pendingApplyPlan)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -2463,7 +4021,7 @@ private struct QuickEditView: View {
 
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.done) {
-                        applySelectionToBoard()
+                        handleDoneTap()
                     }
                     .fontWeight(.semibold)
                     .foregroundColor(NeumorphicColors.accent)
@@ -2587,7 +4145,7 @@ private struct QuickEditView: View {
                     action: library.tasks.count < AppSettings.maxCommonTasks ? appendTask : nil
                 )
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 10)], spacing: 10) {
+                LazyVGrid(columns: taskItemColumns, spacing: 10) {
                     ForEach(library.tasks.indices, id: \.self) { index in
                         taskCard(for: index)
                     }
@@ -2621,10 +4179,11 @@ private struct QuickEditView: View {
         let isSelected = selectedTaskKeys.contains(key)
 
         return HStack(spacing: 8) {
-            TextField(L10n.taskNumber(index + 1), text: taskBinding(for: index), axis: .vertical)
+            TextField(L10n.taskNumber(index + 1), text: taskBinding(for: index))
                 .font(.system(size: scaled(13, pad: 17), weight: .medium, design: .rounded))
                 .foregroundColor(NeumorphicColors.text)
                 .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .focused($focusedField, equals: .task(index))
 
             Button {
@@ -2651,7 +4210,7 @@ private struct QuickEditView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 10)
-        .frame(minHeight: 42)
+        .frame(maxWidth: .infinity, minHeight: 42)
         .background(Color.clear.neumorphicConvex(radius: 14))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -2712,7 +4271,7 @@ private struct QuickEditView: View {
                     .foregroundColor(NeumorphicColors.text.opacity(0.52))
             }
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 10)], spacing: 10) {
+            LazyVGrid(columns: taskItemColumns, spacing: 10) {
                 ForEach(group.tasks.indices, id: \.self) { taskIndex in
                     groupTaskChip(groupID: group.id, index: taskIndex)
                 }
@@ -2746,6 +4305,8 @@ private struct QuickEditView: View {
             TextField(L10n.task, text: groupTaskBinding(groupID: groupID, index: index))
                 .font(.system(size: scaled(13, pad: 17), weight: .medium, design: .rounded))
                 .foregroundColor(NeumorphicColors.text)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .focused($focusedField, equals: .groupTask(groupID, index))
 
             Button {
@@ -2753,14 +4314,16 @@ private struct QuickEditView: View {
                 deleteConfirmationTarget = .groupTask(groupID, index)
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: scaled(8, pad: 9), weight: .bold))
-                    .foregroundColor(NeumorphicColors.accent.opacity(0.88))
+                    .font(.system(size: scaled(9, pad: 10), weight: .bold))
+                    .foregroundColor(NeumorphicColors.accent)
+                    .frame(width: 18, height: 18)
+                    .neumorphicConvex(radius: 9)
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 10)
-        .frame(minHeight: 42)
+        .frame(maxWidth: .infinity, minHeight: 42)
         .background(Color.clear.neumorphicConvex(radius: 14))
     }
 
@@ -2862,13 +4425,30 @@ private struct QuickEditView: View {
         }
     }
 
-    private func applySelectionToBoard() {
+    private func handleDoneTap() {
         focusedField = nil
-        finalizeLibrary(showSuccessToast: false)
-        let tasks = selectedTasks
-        viewModel.applyTaskPool(tasks, targetGridSize: targetGridSize)
+        finalizeLibrary(showSuccessToast: false, emitChangeToast: false)
+        let plan = ApplyPlan(tasks: selectedTasks, targetGridSize: targetGridSize)
+
+        guard !plan.tasks.isEmpty else {
+            didApplyToBoard = true
+            onSaveSuccess(L10n.quickEditKeptBoardWithoutSelection)
+            dismiss()
+            return
+        }
+
+        if hasExistingBoardTasks {
+            pendingApplyPlan = plan
+            return
+        }
+
+        applySelectionToBoard(plan)
+    }
+
+    private func applySelectionToBoard(_ plan: ApplyPlan) {
+        viewModel.applyTaskPool(plan.tasks, targetGridSize: plan.targetGridSize)
         didApplyToBoard = true
-        onSaveSuccess(L10n.quickEditAppliedSuccess(min(tasks.count, targetGridSize * targetGridSize)))
+        onSaveSuccess(L10n.quickEditAppliedSuccess(min(plan.tasks.count, plan.targetGridSize * plan.targetGridSize)))
         dismiss()
     }
 
@@ -2917,7 +4497,7 @@ private struct QuickEditView: View {
         library.tasks = []
     }
 
-    private func finalizeLibrary(showSuccessToast: Bool = false) {
+    private func finalizeLibrary(showSuccessToast: Bool = false, emitChangeToast: Bool = true) {
         let previousLibrary = lastTrackedLibrary
         CommonTasksStore.saveLibrary(library)
         let savedLibrary = CommonTasksStore.loadLibrary()
@@ -2925,7 +4505,8 @@ private struct QuickEditView: View {
 
         if showSuccessToast {
             onSaveSuccess(L10n.tasksSavedSuccess)
-        } else if savedLibrary != lastTrackedLibrary,
+        } else if emitChangeToast,
+                  savedLibrary != lastTrackedLibrary,
                   let message = saveSuccessMessage(previous: previousLibrary, current: savedLibrary) {
             onSaveSuccess(message)
         }
@@ -3015,6 +4596,75 @@ private struct QuickEditView: View {
         }
         hideLocalToastWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8, execute: workItem)
+    }
+
+    @ViewBuilder
+    private func applyConfirmationOverlay(for plan: ApplyPlan) -> some View {
+        ZStack {
+            Color.black.opacity(0.16)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    pendingApplyPlan = nil
+                }
+
+            VStack(spacing: 18) {
+                VStack(spacing: 10) {
+                    Text(L10n.quickEditReplaceConfirmationTitle)
+                        .font(.system(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+
+                    Text(L10n.quickEditReplaceConfirmationMessage)
+                        .font(.system(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text.opacity(0.64))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 12) {
+                    Button {
+                        pendingApplyPlan = nil
+                    } label: {
+                        Text(L10n.cancel)
+                            .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+                            .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Color.clear.neumorphicConvex(radius: 18))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        pendingApplyPlan = nil
+                        applySelectionToBoard(plan)
+                    } label: {
+                        Text(L10n.apply)
+                            .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(NeumorphicColors.bingoAccent)
+                                    .shadow(color: NeumorphicColors.bingoAccent.opacity(0.25), radius: 10, x: 0, y: 4)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: 320)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(NeumorphicColors.background)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .stroke(NeumorphicColors.lightShadow.opacity(0.42), lineWidth: 1)
+                    )
+                    .shadow(color: NeumorphicColors.darkShadow.opacity(0.18), radius: 16, x: 0, y: 8)
+                    .shadow(color: Color.white.opacity(0.72), radius: 10, x: -4, y: -4)
+            )
+            .padding(.horizontal, 28)
+        }
     }
 
     @ViewBuilder
