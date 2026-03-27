@@ -9,6 +9,41 @@ enum BingoBoardStore {
     private static let lastSavedAtKey = "bingo_board_last_saved_at_v1"
     private static let sharedFileName = "bingo_board_v1.json"
     private static let metricsFileName = "bingo_metrics_v1.json"
+    private static let boardsSaveKey = "bingo_boards_v1"
+    private static let boardsFileName = "bingo_boards_v1.json"
+    private static let maxBoardNameLength = 20
+
+    struct NamedBoard: Identifiable, Codable, Equatable {
+        let id: UUID
+        var name: String
+        var board: SavedBoard
+        var countdownEndsAt: Date?
+        var updatedAt: Date
+
+        init(
+            id: UUID = UUID(),
+            name: String,
+            board: SavedBoard,
+            countdownEndsAt: Date? = nil,
+            updatedAt: Date = .now
+        ) {
+            self.id = id
+            self.name = name
+            self.board = board
+            self.countdownEndsAt = countdownEndsAt
+            self.updatedAt = updatedAt
+        }
+    }
+
+    struct NamedBoardsSnapshot: Codable, Equatable {
+        var selectedBoardID: UUID?
+        var boards: [NamedBoard]
+
+        init(selectedBoardID: UUID?, boards: [NamedBoard]) {
+            self.selectedBoardID = selectedBoardID
+            self.boards = boards
+        }
+    }
 
     private struct WidgetMetrics: Codable {
         let firstSeenAt: Date
@@ -42,6 +77,71 @@ enum BingoBoardStore {
         sharedDefaults.set(data, forKey: saveKey)
         UserDefaults.standard.set(data, forKey: saveKey)
         saveBoardLastSavedAt(savedAt)
+
+        #if canImport(WidgetKit)
+        WidgetCenter.shared.reloadAllTimelines()
+        #endif
+    }
+
+    static func clearBoard() {
+        try? FileManager.default.removeItem(at: sharedFileURL)
+        sharedDefaults.removeObject(forKey: saveKey)
+        UserDefaults.standard.removeObject(forKey: saveKey)
+        sharedDefaults.removeObject(forKey: lastSavedAtKey)
+        UserDefaults.standard.removeObject(forKey: lastSavedAtKey)
+        saveBoardCountdownEndsAt(nil)
+
+        #if canImport(WidgetKit)
+        WidgetCenter.shared.reloadAllTimelines()
+        #endif
+    }
+
+    static func loadNamedBoardsSnapshot() -> NamedBoardsSnapshot {
+        if let data = try? Data(contentsOf: namedBoardsFileURL),
+           let decoded = try? JSONDecoder().decode(NamedBoardsSnapshot.self, from: data) {
+            let sanitized = sanitizeNamedBoardsSnapshot(decoded)
+            if sanitized != decoded {
+                saveNamedBoardsSnapshot(sanitized)
+            }
+            return sanitized
+        }
+
+        if let data = sharedDefaults.data(forKey: boardsSaveKey),
+           let decoded = try? JSONDecoder().decode(NamedBoardsSnapshot.self, from: data) {
+            let sanitized = sanitizeNamedBoardsSnapshot(decoded)
+            saveNamedBoardsSnapshot(sanitized)
+            return sanitized
+        }
+
+        if let data = UserDefaults.standard.data(forKey: boardsSaveKey),
+           let decoded = try? JSONDecoder().decode(NamedBoardsSnapshot.self, from: data) {
+            let sanitized = sanitizeNamedBoardsSnapshot(decoded)
+            saveNamedBoardsSnapshot(sanitized)
+            return sanitized
+        }
+
+        if let legacyBoard = loadBoard() {
+            let migratedBoard = NamedBoard(
+                name: L10n.boardDefaultName(1),
+                board: legacyBoard,
+                countdownEndsAt: loadBoardCountdownEndsAt(),
+                updatedAt: loadBoardLastSavedAt() ?? .now
+            )
+            let snapshot = NamedBoardsSnapshot(selectedBoardID: migratedBoard.id, boards: [migratedBoard])
+            saveNamedBoardsSnapshot(snapshot)
+            return snapshot
+        }
+
+        return NamedBoardsSnapshot(selectedBoardID: nil, boards: [])
+    }
+
+    static func saveNamedBoardsSnapshot(_ snapshot: NamedBoardsSnapshot) {
+        let sanitized = sanitizeNamedBoardsSnapshot(snapshot)
+        guard let data = try? JSONEncoder().encode(sanitized) else { return }
+
+        persistNamedBoardsFile(data)
+        sharedDefaults.set(data, forKey: boardsSaveKey)
+        UserDefaults.standard.set(data, forKey: boardsSaveKey)
 
         #if canImport(WidgetKit)
         WidgetCenter.shared.reloadAllTimelines()
@@ -103,6 +203,51 @@ enum BingoBoardStore {
         Calendar.current.startOfDay(for: loadOrCreateMetrics(referenceDate: referenceDate).firstSeenAt)
     }
 
+    static func setFirstSeenDate(_ date: Date) {
+        persistMetrics(WidgetMetrics(firstSeenAt: date))
+    }
+
+    static func clearFirstSeenDate() {
+        try? FileManager.default.removeItem(at: metricsFileURL)
+    }
+
+    private static func sanitizeNamedBoardsSnapshot(_ snapshot: NamedBoardsSnapshot) -> NamedBoardsSnapshot {
+        var seenIDs = Set<UUID>()
+        var sanitizedBoards: [NamedBoard] = []
+        sanitizedBoards.reserveCapacity(snapshot.boards.count)
+
+        for board in snapshot.boards {
+            guard seenIDs.insert(board.id).inserted else { continue }
+            sanitizedBoards.append(
+                NamedBoard(
+                    id: board.id,
+                    name: board.name,
+                    board: board.board,
+                    countdownEndsAt: board.countdownEndsAt,
+                    updatedAt: board.updatedAt
+                )
+            )
+        }
+
+        for index in sanitizedBoards.indices {
+            let fallbackIndex = index + 1
+            let trimmed = sanitizedBoards[index].name
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let limited = String(trimmed.prefix(maxBoardNameLength))
+            sanitizedBoards[index].name = limited.isEmpty ? L10n.boardDefaultName(fallbackIndex) : limited
+        }
+
+        let selectedBoardID: UUID?
+        if let existingSelected = snapshot.selectedBoardID,
+           sanitizedBoards.contains(where: { $0.id == existingSelected }) {
+            selectedBoardID = existingSelected
+        } else {
+            selectedBoardID = sanitizedBoards.first?.id
+        }
+
+        return NamedBoardsSnapshot(selectedBoardID: selectedBoardID, boards: sanitizedBoards)
+    }
+
     private static var sharedDefaults: UserDefaults {
         UserDefaults(suiteName: appGroupID) ?? .standard
     }
@@ -111,8 +256,16 @@ enum BingoBoardStore {
         sharedURL(for: sharedFileName)
     }
 
+    private static var namedBoardsFileURL: URL {
+        sharedURL(for: boardsFileName)
+    }
+
     private static func persistSharedFile(_ data: Data) {
         try? data.write(to: sharedFileURL, options: .atomic)
+    }
+
+    private static func persistNamedBoardsFile(_ data: Data) {
+        try? data.write(to: namedBoardsFileURL, options: .atomic)
     }
 
     private static var metricsFileURL: URL {

@@ -14,6 +14,7 @@ struct BingoCellView: View {
     let isInteractive: Bool
     let isDragSource: Bool
     let isDropTarget: Bool
+    let emptyHintText: String?
     let onTap: () -> Void
     let onLongPressRelease: () -> Void
     let onDragStart: () -> Void
@@ -21,7 +22,7 @@ struct BingoCellView: View {
     let onDragEnd: (CGSize) -> Void
 
     @AppStorage(AppSettings.hapticsEnabledKey) private var isHapticsEnabled = true
-    @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.sky.rawValue
+    @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isPressed = false
     @State private var isLongPressRecognized = false
@@ -29,59 +30,37 @@ struct BingoCellView: View {
     @State private var hasActiveTouch = false
     @State private var pendingLongPressWorkItem: DispatchWorkItem?
 
-    private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .sky }
-    private let boardSurfaceColor = Color(hex: "EBF0F7")
+    private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
+    private var boardSurfaceColor: Color { NeumorphicColors.innerSurface }
     private var bingoLineColor: Color { activeTheme.bingoSurfaceColor }
     private var selectedColor: Color { activeTheme.bingoSurfaceColor.opacity(0.34) }
-    private let primaryTextColor = Color(hex: "373F4B")
-    private let cellShadowDark = Color(hex: "CFD4DA").opacity(0.70)
-    private let cellShadowLight = Color.white.opacity(0.70)
+    private var primaryTextColor: Color { NeumorphicColors.text }
+    private var cellShadowDark: Color { NeumorphicColors.darkShadow.opacity(0.70) }
+    private var cellShadowLight: Color { NeumorphicColors.lightShadow.opacity(0.70) }
     private var isPadLayout: Bool { horizontalSizeClass == .regular }
+    private var isTaskHiddenFaceVisible: Bool { cell.isCompleted && cell.isTaskHidden && !cell.isEmpty }
 
     var body: some View {
         let baseView = ZStack {
-            backgroundSurface
+            frontFace
+                .opacity(isTaskHiddenFaceVisible ? 0 : 1)
 
-            if !isDragSource {
-                if isInBingoLine {
-                    bingoLineContent
-                } else if !cell.isEmpty {
-                    VStack(spacing: cell.isCompleted ? 10 : 4) {
-                        Text(cell.text)
-                            .font(.system(size: dynamicFontSize, weight: .medium))
-                            .foregroundColor(cellTextColor)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(3)
-                            .minimumScaleFactor(0.5)
-                            .padding(8)
-
-                        if let countdownText = taskCountdownText, !cell.isCompleted {
-                            Text(countdownText)
-                                .font(.system(size: max(dynamicFontSize * 0.42, 9), weight: .bold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.accent.opacity(0.9))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(
-                                    Capsule(style: .continuous)
-                                        .fill(Color.white.opacity(0.88))
-                                )
-                        }
-
-                        if cell.isCompleted && !isLocked {
-                            completionIcon(isLarge: false)
-                        }
-                    }
-                }
-
-                if isLocked {
-                    lockOverlay
-                }
+            hiddenBackFace
+                .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
+                .opacity(isTaskHiddenFaceVisible ? 1 : 0)
+        }
+        .rotation3DEffect(.degrees(isTaskHiddenFaceVisible ? 180 : 0), axis: (x: 0, y: 1, z: 0))
+        .overlay(alignment: .topTrailing) {
+            if comboBadgeVisible {
+                comboBadge
+                    .padding(8)
             }
         }
         .frame(width: cellSize, height: cellSize)
         .scaleEffect(interactionScale)
         .opacity(isDragSource ? 0.18 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: cell.isCompleted)
+        .animation(.easeInOut(duration: 0.45), value: isTaskHiddenFaceVisible)
         .animation(.interactiveSpring(response: 0.22, dampingFraction: 0.8), value: interactionScale)
         .animation(.easeInOut(duration: 0.18), value: isDragSource)
         .animation(.easeInOut(duration: 0.18), value: isDropTarget)
@@ -141,6 +120,86 @@ struct BingoCellView: View {
             return max(baseSize * 0.88, minimumSize)
         }
         return baseSize
+    }
+
+    private var comboBadgeVisible: Bool {
+        !cell.isEmpty && cell.completionStreakCount > 1 && !isDragSource
+    }
+
+    private var frontFace: some View {
+        ZStack {
+            backgroundSurface
+
+            if !isDragSource {
+                if isInBingoLine {
+                    bingoLineContent
+                } else if !cell.isEmpty {
+                    VStack(spacing: cell.isCompleted ? 10 : 4) {
+                        Text(cell.text)
+                            .font(.system(size: dynamicFontSize, weight: .medium))
+                            .foregroundColor(cellTextColor)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                            .minimumScaleFactor(0.5)
+                            .padding(8)
+
+                        if let countdownText = taskCountdownText, !cell.isCompleted {
+                            Text(countdownText)
+                                .font(.system(size: max(dynamicFontSize * 0.42, 9), weight: .bold, design: .rounded))
+                                .foregroundColor(NeumorphicColors.accent.opacity(0.9))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(Color.white.opacity(0.88))
+                                )
+                        }
+
+                        if cell.isCompleted && !isLocked {
+                            completionIcon(isLarge: false)
+                        }
+                    }
+                } else if let emptyHintText, !emptyHintText.isEmpty {
+                    Text(emptyHintText)
+                        .font(.system(size: max(dynamicFontSize * 0.68, 10), weight: .semibold, design: .rounded))
+                        .foregroundColor(primaryTextColor.opacity(0.46))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.75)
+                        .padding(.horizontal, 10)
+                }
+
+                if isLocked {
+                    lockOverlay
+                }
+            }
+        }
+    }
+
+    private var hiddenBackFace: some View {
+        ZStack {
+            hiddenBackgroundSurface
+
+            if !isDragSource {
+                completionIcon(isLarge: true)
+
+                if isLocked {
+                    lockOverlay
+                }
+            }
+        }
+    }
+
+    private var comboBadge: some View {
+        Text("x\(cell.completionStreakCount)")
+            .font(.system(size: max(dynamicFontSize * 0.42, 10), weight: .bold, design: .rounded))
+            .foregroundColor(.white.opacity(0.96))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(activeTheme.bingoSurfaceColor.opacity(cell.isCompleted ? 0.92 : 0.82))
+            )
     }
 
     private var bingoLineContent: some View {
@@ -226,6 +285,15 @@ struct BingoCellView: View {
                     .padding(4)
             }
         }
+    }
+
+    private var hiddenBackgroundSurface: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(selectedColor)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.white.opacity(0.28), lineWidth: 1)
+            )
     }
 
     private func completionIcon(isLarge: Bool) -> some View {

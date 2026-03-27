@@ -1,6 +1,7 @@
 import SwiftUI
 
 enum AppTheme: String, CaseIterable, Identifiable {
+    case concise
     case sky
     case mint
     case coral
@@ -16,6 +17,8 @@ enum AppTheme: String, CaseIterable, Identifiable {
 
     var color: Color {
         switch self {
+        case .concise:
+            return Color(hex: "D3A375")
         case .sky:
             return Color(hex: "67B7FF")
         case .mint:
@@ -41,6 +44,8 @@ enum AppTheme: String, CaseIterable, Identifiable {
 
     var bingoSurfaceColor: Color {
         switch self {
+        case .concise:
+            return Color(hex: "E7D5C4")
         case .sky:
             return Color(hex: "8CCBFF")
         case .mint:
@@ -66,6 +71,8 @@ enum AppTheme: String, CaseIterable, Identifiable {
 
     var bingoSurfaceShadowColor: Color {
         switch self {
+        case .concise:
+            return Color(hex: "C1A184")
         case .sky:
             return Color(hex: "4D99D6")
         case .mint:
@@ -93,19 +100,92 @@ enum AppTheme: String, CaseIterable, Identifiable {
         let sharedDefaults = UserDefaults(suiteName: "group.com.bingoday.app")
         let stored = sharedDefaults?.string(forKey: AppSettings.themeKey)
             ?? UserDefaults.standard.string(forKey: AppSettings.themeKey)
-        return AppTheme(rawValue: stored ?? "") ?? .sky
+        return AppTheme(rawValue: stored ?? "") ?? .concise
+    }
+
+    var backgroundColor: Color {
+        switch self {
+        case .concise:
+            return Color(hex: "F4EFE9")
+        default:
+            return Color(hex: "E0E5EC")
+        }
+    }
+
+    var innerSurfaceColor: Color {
+        switch self {
+        case .concise:
+            return Color(hex: "F2E9DF")
+        default:
+            return Color(hex: "E0E5EC")
+        }
+    }
+
+    var lightShadowColor: Color {
+        switch self {
+        case .concise:
+            return Color(hex: "FDF7F1")
+        default:
+            return Color.white.opacity(0.8)
+        }
+    }
+
+    var darkShadowColor: Color {
+        switch self {
+        case .concise:
+            return Color(hex: "C1A184").opacity(0.55)
+        default:
+            return Color(hex: "A3B1C6").opacity(0.7)
+        }
+    }
+
+    var textColor: Color {
+        switch self {
+        case .concise:
+            return Color(hex: "4B463F")
+        default:
+            return Color(hex: "5A6789")
+        }
+    }
+
+    var bingoAccentColor: Color {
+        switch self {
+        case .concise:
+            return Color(hex: "C39060")
+        default:
+            return Color(hex: "FF6B6B")
+        }
+    }
+
+    var lineTextColor: Color {
+        switch self {
+        case .concise:
+            return Color(hex: "C1A184")
+        default:
+            return Color(hex: "AAB3C2")
+        }
+    }
+
+    var pencilStrokeColor: Color {
+        switch self {
+        case .concise:
+            return Color(hex: "C1A184")
+        default:
+            return Color(hex: "B8C0CC")
+        }
     }
 }
 
 struct NeumorphicColors {
-    static let background = Color(hex: "E0E5EC")
-    static let lightShadow = Color.white.opacity(0.8)
-    static let darkShadow = Color(hex: "A3B1C6").opacity(0.7)
-    static let text = Color(hex: "5A6789")
+    static var background: Color { AppTheme.current.backgroundColor }
+    static var innerSurface: Color { AppTheme.current.innerSurfaceColor }
+    static var lightShadow: Color { AppTheme.current.lightShadowColor }
+    static var darkShadow: Color { AppTheme.current.darkShadowColor }
+    static var text: Color { AppTheme.current.textColor }
     static var accent: Color { AppTheme.current.color }
-    static let bingoAccent = Color(hex: "FF6B6B")
-    static let lineText = Color(hex: "AAB3C2")
-    static let pencilStroke = Color(hex: "B8C0CC")
+    static var bingoAccent: Color { AppTheme.current.bingoAccentColor }
+    static var lineText: Color { AppTheme.current.lineTextColor }
+    static var pencilStroke: Color { AppTheme.current.pencilStrokeColor }
     static let bingoGold = Color(hex: "E7C76A")
     static let bingoGoldDark = Color(hex: "C9A642")
 }
@@ -142,7 +222,7 @@ struct NeumorphicConcaveModifier: ViewModifier {
             .background(
                 ZStack {
                     RoundedRectangle(cornerRadius: radius)
-                        .fill(NeumorphicColors.background)
+                        .fill(NeumorphicColors.innerSurface)
                     
                     RoundedRectangle(cornerRadius: radius)
                         .stroke(Color.clear, lineWidth: 4)
