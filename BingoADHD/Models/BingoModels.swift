@@ -5,11 +5,33 @@ import UIKit
 enum AppLanguage {
     case english
     case simplifiedChinese
+    case traditionalChinese
+    case japanese
 
     static var current: AppLanguage {
-        if let primaryLanguage = preferredLanguageIdentifiers.first?.lowercased(),
-           primaryLanguage.hasPrefix("zh") {
-            return .simplifiedChinese
+        let regionCode = currentRegionCode
+        if regionCode == "HK" {
+            return .english
+        }
+        if regionCode == "TW" {
+            return .traditionalChinese
+        }
+
+        if let primaryLanguage = preferredLanguageIdentifiers.first?.lowercased() {
+            if primaryLanguage.hasPrefix("zh") {
+                if primaryLanguage.contains("hant") || primaryLanguage.contains("tw") {
+                    return .traditionalChinese
+                }
+                return .simplifiedChinese
+            }
+
+            if primaryLanguage.hasPrefix("ja") {
+                return .japanese
+            }
+        }
+
+        if hasTaiwanLanguageHint {
+            return .traditionalChinese
         }
 
         return .english
@@ -28,12 +50,36 @@ enum AppLanguage {
             .filter { !$0.isEmpty }
     }
 
+    static var currentRegionCode: String {
+        let candidates: [String] = [
+            Locale.autoupdatingCurrent.region?.identifier,
+            Locale.current.region?.identifier
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+
+        return candidates.first?.uppercased() ?? "US"
+    }
+
+    static var hasTaiwanLanguageHint: Bool {
+        preferredLanguageIdentifiers
+            .map { $0.lowercased() }
+            .contains { identifier in
+                identifier.contains("-tw") || identifier.contains("_tw") || identifier.hasSuffix("tw")
+            }
+    }
+
+
     static var displayLocale: Locale {
         switch current {
         case .english:
             return Locale(identifier: "en_US")
         case .simplifiedChinese:
             return Locale(identifier: "zh_Hans_CN")
+        case .traditionalChinese:
+            return Locale(identifier: "zh_Hant_TW")
+        case .japanese:
+            return Locale(identifier: "ja_JP")
         }
     }
 
@@ -43,17 +89,28 @@ enum AppLanguage {
             return "en-US"
         case .simplifiedChinese:
             return "zh-Hans"
+        case .traditionalChinese:
+            return "zh-Hant"
+        case .japanese:
+            return "ja-JP"
         }
     }
 }
 
 enum L10n {
-    static func tr(_ english: String, zhHans: String) -> String {
+    static func tr(_ english: String, zhHans: String, zhHant: String? = nil) -> String {
         switch AppLanguage.current {
         case .english:
             return english
         case .simplifiedChinese:
             return zhHans
+        case .traditionalChinese:
+            if let zhHant {
+                return zhHant
+            }
+            return zhHans.applyingTransform(StringTransform("Hans-Hant"), reverse: false) ?? zhHans
+        case .japanese:
+            return english
         }
     }
 
@@ -74,6 +131,50 @@ enum L10n {
     static var myTasks: String { tr("My Tasks", zhHans: "我的任务") }
     static var bingoDiary: String { tr("Bingo Diary", zhHans: "Bingo 日记") }
     static var setting: String { tr("Setting", zhHans: "设置") }
+    static var subscription: String { tr("Subscription", zhHans: "订阅", zhHant: "訂閱") }
+    static var subscriptionStatusActive: String { tr("Premium active", zhHans: "已开通会员", zhHant: "已開通會員") }
+    static var subscriptionStatusInactive: String { tr("Not subscribed", zhHans: "未订阅", zhHant: "未訂閱") }
+    static var subscriptionMonthly: String { tr("Monthly", zhHans: "月订阅", zhHant: "月訂閱") }
+    static var subscriptionYearly: String { tr("Yearly", zhHans: "年订阅", zhHant: "年訂閱") }
+    static var subscriptionLifetime: String { tr("Lifetime", zhHans: "终身", zhHant: "終身") }
+    static var subscriptionRestore: String { tr("Restore", zhHans: "恢复购买", zhHant: "恢復購買") }
+    static var subscriptionRestoreSubscription: String { tr("Restore Subscription", zhHans: "恢复订阅", zhHant: "恢復訂閱") }
+    static var subscriptionManage: String { tr("Manage", zhHans: "管理订阅", zhHant: "管理訂閱") }
+    static var proEntryTitle: String { tr("Get Pro", zhHans: "开通Pro", zhHant: "開通Pro") }
+    static var proEntrySubtitle: String { tr("Unlock more Pro features", zhHans: "解锁更多 Pro 功能", zhHant: "解鎖更多 Pro 功能") }
+    static var proEntryMemberTitle: String { tr("Pro Member", zhHans: "Pro 会员", zhHant: "Pro 會員") }
+    static var proEntryMemberSubtitle: String { tr("Enjoying Pro features", zhHans: "畅享 Pro 功能", zhHant: "暢享 Pro 功能") }
+    static var proPaywallHeadline: String { tr("Choose your plan", zhHans: "选择你的订阅方案", zhHant: "選擇你的訂閱方案") }
+    static var subscriptionPleaseWait: String { tr("Please wait...", zhHans: "请稍候...", zhHant: "請稍候...") }
+    static var subscriptionProductUnavailable: String { tr("Product is unavailable.", zhHans: "商品暂不可用。", zhHant: "商品暫不可用。") }
+    static var subscriptionVerificationFailed: String { tr("Verification failed.", zhHans: "购买校验失败。", zhHant: "購買校驗失敗。") }
+    static var subscriptionPurchaseSucceeded: String { tr("Purchase successful.", zhHans: "购买成功。", zhHant: "購買成功。") }
+    static var subscriptionPurchasePending: String { tr("Purchase is pending approval.", zhHans: "购买待确认。", zhHant: "購買待確認。") }
+    static var subscriptionPurchaseCancelled: String { tr("Purchase cancelled.", zhHans: "已取消购买。", zhHant: "已取消購買。") }
+    static var subscriptionUnknownResult: String { tr("Unknown purchase result.", zhHans: "未知购买结果。", zhHant: "未知購買結果。") }
+    static var subscriptionPurchaseFailed: String { tr("Purchase failed. Please try again.", zhHans: "购买失败，请稍后重试。", zhHant: "購買失敗，請稍後重試。") }
+    static var subscriptionRestoreSucceeded: String { tr("Restored successfully.", zhHans: "恢复购买成功。", zhHant: "恢復購買成功。") }
+    static var subscriptionNotFound: String { tr("No purchase found to restore.", zhHans: "未找到可恢复的购买。", zhHant: "未找到可恢復的購買。") }
+    static var subscriptionRestoreFailed: String { tr("Restore failed. Please try again.", zhHans: "恢复购买失败，请稍后重试。", zhHant: "恢復購買失敗，請稍後重試。") }
+    static var subscriptionManageFailed: String { tr("Unable to open subscription settings.", zhHans: "暂时无法打开订阅管理。", zhHant: "暫時無法打開訂閱管理。") }
+    static var paywallUnlockProFeatures: String { tr("Unlock Pro features", zhHans: "解锁 Pro 功能", zhHant: "解鎖 Pro 功能") }
+    static var paywallUnlimitedBoards: String { tr("Unlimited Bingo boards", zhHans: "无限创建 Bingo 棋盘", zhHant: "無限建立 Bingo 棋盤") }
+    static var paywallUnlimitedQuickTasksAndGroups: String { tr("Unlimited quick tasks and groups", zhHans: "无限创建快捷任务和分组", zhHant: "無限建立快捷任務與分組") }
+    static var paywallUnlimitedThemesAndCustomization: String { tr("Unlimited themes and customization", zhHans: "无限主题与自定义", zhHant: "無限主題與自訂") }
+    static var paywallSubscribeNow: String { tr("Subscribe Now", zhHans: "立即订阅", zhHant: "立即訂閱") }
+    static var paywallPopular: String { tr("Popular", zhHans: "热门", zhHant: "熱門") }
+    static var paywallOneMonth: String { tr("1 Month", zhHans: "1个月", zhHant: "1個月") }
+    static var paywallOneYear: String { tr("1 Year", zhHans: "1年", zhHant: "1年") }
+    static var paywallLifetime: String { tr("Lifetime", zhHans: "终身", zhHant: "終身") }
+    static var paywallOneTimePayment: String { tr("One-time payment", zhHans: "一次性付款", zhHant: "一次性付款") }
+    static var paywallLegalPrefix: String { tr("By continuing, you agree to our", zhHans: "继续即表示你同意我们的", zhHant: "繼續即表示你同意我們的") }
+    static var paywallLegalAnd: String { tr("and", zhHans: "和", zhHant: "和") }
+    static var paywallTermsOfUse: String { tr("Terms of Use", zhHans: "使用条款", zhHant: "使用條款") }
+    static var paywallPrivacyPolicy: String { tr("Privacy Policy", zhHans: "隐私政策", zhHant: "隱私政策") }
+    static var paywallLegalOneLine: String { tr("By continuing, you agree to Terms of Use and Privacy Policy.", zhHans: "继续即表示你同意《使用条款》和《隐私政策》。", zhHant: "繼續即表示你同意《使用條款》和《隱私政策》。") }
+    static func paywallPerMonth(_ value: String) -> String {
+        tr("\(value) / month", zhHans: "\(value) / 月", zhHant: "\(value) / 月")
+    }
     static var haptics: String { tr("Haptics", zhHans: "震动反馈") }
     static var soundEffects: String { tr("Sound Effects", zhHans: "音效") }
     static var homeWidget: String { tr("Home Widget", zhHans: "桌面小组件") }
@@ -117,84 +218,95 @@ enum L10n {
     static var addTask: String { tr("Add Task", zhHans: "添加任务") }
     static var addGroup: String { tr("Add Group", zhHans: "添加分组") }
     static var quickEdit: String { tr("Quick Edit", zhHans: "快速编辑") }
-    static var blackBoxMode: String { tr("Black Box Mode", zhHans: "黑盒模式") }
+    static var blackBoxMode: String { tr("Black Box Mode", zhHans: "黑盒模式", zhHant: "黑盒模式") }
     static var blackBoxModeDescription: String {
         tr(
             "2048 x themed tasks mode is now available on this branch. Select a theme, complete tasks, and merge completed tiles into Bingo progress.",
-            zhHans: "2048 x 主题任务模式已在这个分支开启。选择主题、完成任务，并把已完成格子合并成 Bingo 进度。"
+            zhHans: "2048 x 主题任务模式已在这个分支开启。选择主题、完成任务，并把已完成格子合并成 Bingo 进度。",
+            zhHant: "2048 x 主題任務模式已在這個分支開啟。選擇主題、完成任務，並把已完成格子合併成 Bingo 進度。"
         )
     }
     static var blackBoxModeFeatureTheme: String {
-        tr("Generate random tasks by theme.", zhHans: "按主题生成随机任务。")
+        tr("Generate random tasks by theme.", zhHans: "按主题生成随机任务。", zhHant: "按主題生成隨機任務。")
     }
     static var blackBoxModeFeatureMerge: String {
-        tr("Merge completed tiles with 2048 rules.", zhHans: "按 2048 规则合并已完成格子。")
+        tr("Merge completed tiles with 2048 rules.", zhHans: "按 2048 规则合并已完成格子。", zhHant: "按 2048 規則合併已完成格子。")
     }
     static var blackBoxModeFeatureBingo: String {
-        tr("Progressively build Bingo milestones.", zhHans: "逐步构建 Bingo 里程碑。")
+        tr("Progressively build Bingo milestones.", zhHans: "逐步构建 Bingo 里程碑。", zhHant: "逐步建立 Bingo 里程碑。")
     }
-    static var blackBoxModeStart: String { tr("Start", zhHans: "开始") }
-    static var blackBoxModeHowToTitle: String { tr("How to Play", zhHans: "玩法说明") }
-    static var blackBoxModeThemeTitle: String { tr("Theme", zhHans: "主题") }
-    static var blackBoxModeGridSizeTitle: String { tr("Grid", zhHans: "棋盘") }
+    static var blackBoxModeStart: String { tr("Start", zhHans: "开始", zhHant: "開始") }
+    static var blackBoxModeHowToTitle: String { tr("How to Play", zhHans: "玩法说明", zhHant: "玩法說明") }
+    static var blackBoxModeThemeTitle: String { tr("Theme", zhHans: "主题", zhHant: "主題") }
+    static var blackBoxModeGridSizeTitle: String { tr("Grid", zhHans: "棋盘", zhHant: "棋盤") }
     static var blackBoxModeTapHint: String {
-        tr("Tap a tile to mark task completed.", zhHans: "点击任务格可切换完成状态。")
+        tr("Tap a tile to mark task completed.", zhHans: "点击任务格可切换完成状态。", zhHant: "點擊任務格可切換完成狀態。")
     }
     static var blackBoxModeSwipeHint: String {
-        tr("Swipe to move and merge completed tiles.", zhHans: "滑动棋盘可移动并合并已完成任务格。")
+        tr("Swipe to move and merge completed tiles.", zhHans: "滑动棋盘可移动并合并已完成任务格。", zhHant: "滑動棋盤可移動並合併已完成任務格。")
     }
-    static var blackBoxModeRestart: String { tr("Restart", zhHans: "重开") }
-    static var blackBoxModeBackToIntro: String { tr("Intro", zhHans: "简介") }
-    static var blackBoxModeMoves: String { tr("Moves", zhHans: "步数") }
-    static var blackBoxModeMerges: String { tr("Merges", zhHans: "合并") }
-    static var blackBoxModeBingos: String { tr("Bingos", zhHans: "Bingo") }
-    static var blackBoxModeGameOver: String { tr("No more moves", zhHans: "无可用移动") }
-    static var blackBoxModeHealthTheme: String { tr("Healthy Life", zhHans: "健康生活") }
-    static var blackBoxModeFocusTheme: String { tr("Focus Sprint", zhHans: "专注冲刺") }
-    static var blackBoxModeHomeTheme: String { tr("Home Reset", zhHans: "居家整理") }
-    static var blackBoxModeTileDetailTitle: String { tr("Tile Details", zhHans: "格子详情") }
-    static var blackBoxModeContainsTasks: String { tr("Contains", zhHans: "包含任务") }
-    static var blackBoxModeCompletionCount: String { tr("Completion Count", zhHans: "完成次数") }
-    static var blackBoxModeTotalCompletions: String { tr("Total", zhHans: "总计") }
+    static var blackBoxModeRestart: String { tr("Restart", zhHans: "重开", zhHant: "重開") }
+    static var blackBoxModeBackToIntro: String { tr("Intro", zhHans: "简介", zhHant: "簡介") }
+    static var blackBoxModeMoves: String { tr("Moves", zhHans: "步数", zhHant: "步數") }
+    static var blackBoxModeMerges: String { tr("Merges", zhHans: "合并", zhHant: "合併") }
+    static var blackBoxModeBingos: String { tr("Bingos", zhHans: "Bingo", zhHant: "Bingo") }
+    static var blackBoxModeGameOver: String { tr("No more moves", zhHans: "无可用移动", zhHant: "無可用移動") }
+    static var blackBoxModeHealthTheme: String { tr("Healthy Life", zhHans: "健康生活", zhHant: "健康生活") }
+    static var blackBoxModeFocusTheme: String { tr("Focus Sprint", zhHans: "专注冲刺", zhHant: "專注衝刺") }
+    static var blackBoxModeHomeTheme: String { tr("Home Reset", zhHans: "居家整理", zhHant: "居家整理") }
+    static var blackBoxModeTileDetailTitle: String { tr("Tile Details", zhHans: "格子详情", zhHant: "格子詳情") }
+    static var blackBoxModeContainsTasks: String { tr("Contains", zhHans: "包含任务", zhHant: "包含任務") }
+    static var blackBoxModeCompletionCount: String { tr("Completion Count", zhHans: "完成次数", zhHant: "完成次數") }
+    static var blackBoxModeTotalCompletions: String { tr("Total", zhHans: "总计", zhHant: "總計") }
     static func blackBoxModeTileScore(_ score: Int) -> String {
-        tr("\(score) pts", zhHans: "\(score)分")
+        tr("\(score) pts", zhHans: "\(score)分", zhHant: "\(score)分")
     }
     static func blackBoxModeThemeScore(themeTitle: String, score: Int) -> String {
-        tr("\(themeTitle) \(score) pts", zhHans: "\(themeTitle)\(score)分")
+        tr("\(themeTitle) \(score) pts", zhHans: "\(themeTitle)\(score)分", zhHant: "\(themeTitle)\(score)分")
     }
     static var updateWhatsNewTitle: String { tr("What's New", zhHans: "版本更新") }
     static func updateVersionTitle(_ version: String) -> String {
         tr("Bingodays \(version)", zhHans: "Bingodays \(version)")
     }
-    static var updateItemQuickEdit: String {
-        tr(
-            "Quick Edit rebuilt: apply confirmation, no-selection protection, and clearer task/group interactions.",
-            zhHans: "重构快速编辑：新增替换确认、无选择保护，任务/分组交互更清晰。"
-        )
+    static var updateItemUIRefined: String {
+        tr("UI / UX improvements for easier task editing", zhHans: "UI / UX优化，更好地编辑任务", zhHant: "UI / UX 優化，更好地編輯任務")
     }
-    static var updateItemCountdown: String {
-        tr(
-            "Timeout flow upgraded: task and board timeout popups are unified with completion/delete/postpone actions.",
-            zhHans: "升级超时流程：任务与面板倒计时结束弹窗统一，支持完成/删除/延期。"
-        )
-    }
-    static var updateItemPoints: String {
-        tr(
-            "Points logic fixed: completion/undo/line rewards are now settled consistently with anti-drift guardrails.",
-            zhHans: "修复积分逻辑：完成/取消/Bingo 连线结算一致，并加入防漂移修正。"
-        )
-    }
-    static var updateItemLayout: String {
-        tr(
-            "Home experience refined: iPad layout expanded, stats panel polished, and neumorphic visuals aligned.",
-            zhHans: "优化首页体验：iPad 布局铺满优化，统计模块改版，新拟态视觉统一。"
-        )
+    static var updateItemBugFixes: String {
+        tr("Added product onboarding pages", zhHans: "新增产品Onbording介绍页", zhHant: "新增產品 Onbording 介紹頁")
     }
     static var updatePrimaryAction: String { tr("Update Now", zhHans: "去更新") }
     static var updateSecondaryAction: String { tr("Later", zhHans: "稍后") }
     static var updateStoreOpenFailed: String {
         tr("Unable to open App Store right now.", zhHans: "暂时无法打开 App Store。")
     }
+    static var onboardingMadeForADHDBrains: String { tr("Made for ADHD brains", zhHans: "Made for ADHD brains") }
+    static var onboardingIntroHeadline: String { tr("Turn Daily\nLife into", zhHans: "将日常生活\n变成") }
+    static var onboardingGetStarted: String { tr("Get Started", zhHans: "开始") }
+    static var onboardingExistingAccount: String { tr("I already have an account", zhHans: "我已经有账号") }
+    static var onboardingFooterPrefix: String { tr("By continuing you're accepting our ", zhHans: "继续即表示你同意我们的") }
+    static var onboardingTermsOfService: String { tr("Terms of Service", zhHans: "服务条款") }
+    static var onboardingAnd: String { tr(" and", zhHans: "和") }
+    static var onboardingPrivacyPolicy: String { tr("Privacy Policy", zhHans: "隐私政策") }
+    static var onboardingResearchHeadline: String { tr("Well\naccording\nto the\nresearch", zhHans: "根据一直以来\n的研究表明") }
+    static var onboardingResearchBody: String {
+        tr("Traditional to do list doesn't work especially\nwith ADHD", zhHans: "传统的To Do List并不适合ADHD人群")
+    }
+    static var onboardingNext: String { tr("Next", zhHans: "继续") }
+    static var onboardingBrandHeadline: String { tr("That's\nwhy you\nshould try", zhHans: "所以我们向\n你推荐") }
+    static var onboardingStressFree: String { tr("Stress-free", zhHans: "Stress-free") }
+    static var onboardingSimplified: String { tr("Simplified", zhHans: "Simplified") }
+    static var onboardingGridHeadline: String { tr("Turn your\nto-do list\ninto a Bingo\nboard", zhHans: "把待办清单\n变为Bingo格子") }
+    static var onboardingPaceHeadline: String { tr("Complete\nTasks at\nYour Own\nPace", zhHans: "用自己的专\n属节奏打卡\n任务") }
+    static var onboardingBestMode: String { tr("Best Mode", zhHans: "Best Mode") }
+    static var onboardingPersonalized: String { tr("- Personalized -", zhHans: "- Personalized -") }
+    static var onboardingRewardsHeadline: String { tr("Make Every\nDay a Bingo", zhHans: "把每一天都\n变成Bingo") }
+    static var onboardingRewardsSubtitle: String {
+        tr("Earn points and redeem your own rewards", zhHans: "积分兑换奖励，更有动力继续")
+    }
+    static var onboardingLetsBingo: String { tr("Let's Bingo", zhHans: "Let's Bingo") }
+    static var onboardingLoginWelcomeTo: String { tr("Welcome to", zhHans: "Welcome to") }
+    static var onboardingContinueWithApple: String { tr("Continue with Apple", zhHans: "使用苹果登录") }
+    static var onboardingContinueWithGoogle: String { tr("Continue with Google", zhHans: "使用Google登录") }
     static var apply: String { tr("Apply", zhHans: "应用") }
     static var selectAll: String { tr("Select All", zhHans: "全选") }
     static var deselectAll: String { tr("Deselect All", zhHans: "全取消") }
@@ -224,6 +336,9 @@ enum L10n {
     static func quickEditNeedMoreTasks(_ count: Int) -> String {
         tr("Add \(count) more tasks to fill this grid", zhHans: "还需 \(count) 个任务可填满当前尺寸")
     }
+    static var quickEditPremiumLimitMessage: String {
+        tr("Upgrade to Pro for unlimited tasks and groups.", zhHans: "开通 Pro 后可无限创建任务和分组。", zhHant: "開通 Pro 後可無限建立任務與分組。")
+    }
     static var taskAddedSuccess: String { tr("Task added", zhHans: "任务已添加") }
     static var groupAddedSuccess: String { tr("Group added", zhHans: "分组已添加") }
     static var tasksAndGroupsAddedSuccess: String { tr("Changes saved", zhHans: "已保存更改") }
@@ -240,6 +355,8 @@ enum L10n {
     static var diaryHint: String { tr("Tap a completed date to view that day's Bingo board.", zhHans: "点击已完成的日期，查看当天的 Bingo 面板。") }
     static var taskCompletions: String { tr("Completed Task Stats", zhHans: "完成任务统计") }
     static var timeoutUnfinishedStats: String { tr("Timed-out Unfinished", zhHans: "超时未完成") }
+    static var completedTasksShort: String { tr("Completed Tasks", zhHans: "完成任务") }
+    static var timeoutTasksShort: String { tr("Timed-out Tasks", zhHans: "超时任务") }
     static var completion: String { tr("Completion", zhHans: "完成度") }
     static var last7Days: String { tr("7 Days", zhHans: "近 7 天") }
     static var last30Days: String { tr("30 Days", zhHans: "近 30 天") }
@@ -263,6 +380,24 @@ enum L10n {
     static var pointsUnit: String { tr("pts", zhHans: "积分") }
     static var boardCountdownTitle: String { tr("Bingo Board Countdown", zhHans: "Bingo 面板倒计时") }
     static var boardCountdownDescription: String { tr("Auto-clear the entire board when time runs out.", zhHans: "时间结束后自动清空整个面板。") }
+    static var boardSwitcherTitle: String { tr("Boards", zhHans: "棋盘", zhHant: "棋盤") }
+    static var boardCreateTitle: String { tr("Create board", zhHans: "创建棋盘", zhHant: "建立棋盤") }
+    static var boardRenameTitle: String { tr("Rename board", zhHans: "重命名棋盘", zhHant: "重新命名棋盤") }
+    static var boardNamePlaceholder: String { tr("Board name", zhHans: "棋盘名称", zhHant: "棋盤名稱") }
+    static var boardCreateAction: String { tr("Create", zhHans: "创建", zhHant: "建立") }
+    static var boardRenameAction: String { tr("Rename", zhHans: "重命名", zhHant: "重新命名") }
+    static var boardCreateButton: String { tr("New Board", zhHans: "新建棋盘", zhHant: "新增棋盤") }
+    static var boardManageAction: String { tr("Manage boards", zhHans: "管理棋盘", zhHant: "管理棋盤") }
+    static var boardPremiumLimitMessage: String {
+        tr(
+        "Pro required for multiple boards.",
+        zhHans: "开通 Pro 后可创建多个棋盘。",
+        zhHant: "開通 Pro 後可建立多個棋盤。"
+        )
+    }
+    static func boardDefaultName(_ index: Int) -> String {
+        tr("Board \(index)", zhHans: "棋盘\(index)", zhHant: "棋盤\(index)")
+}
     static var clearBoard: String { tr("Clear Board", zhHans: "清空棋盘") }
     static var clearBoardConfirmationTitle: String { tr("Clear board?", zhHans: "清空棋盘？") }
     static var clearBoardConfirmationMessage: String { tr("This will remove all tasks and completion states on the current board.", zhHans: "这会清除当前棋盘的所有任务和完成状态。") }
@@ -271,6 +406,7 @@ enum L10n {
     static var minutes: String { tr("Minutes", zhHans: "分钟") }
     static var residentDays: String { tr("Repeat Days", zhHans: "常驻时间") }
     static var alwaysVisible: String { tr("Always", zhHans: "每天") }
+    static var todayOnly: String { tr("Today Only", zhHans: "仅当天") }
     static var taskScheduledTitle: String { tr("Task Scheduled", zhHans: "任务已安排") }
     static func taskScheduledMessage(_ days: String) -> String {
         tr("This task will appear on \(days).", zhHans: "此任务会在 \(days) 显示。")
@@ -322,11 +458,14 @@ enum L10n {
         tr("Board countdown postponed by \(minutes)m", zhHans: "面板倒计时已延期 \(minutes) 分钟")
     }
     static var enterTaskForDay: String { tr("Enter a task for your day...", zhHans: "输入今天要完成的任务...") }
+    static var emptyBoardLongPressHint: String { tr("Long press to edit tasks", zhHans: "长按编辑任务") }
     static var forceCompletion: String { tr("Force Completion", zhHans: "强制完成") }
     static var recording: String { tr("Recording...", zhHans: "正在录音...") }
     static var quickAdd: String { tr("Quick Add", zhHans: "快速添加") }
     static var editTask: String { tr("Edit Task", zhHans: "编辑任务") }
     static var deleteTask: String { tr("Delete Task", zhHans: "删除任务") }
+    static var hideTask: String { tr("Hide Task", zhHans: "隐藏任务") }
+    static var showTask: String { tr("Show Task", zhHans: "显示任务") }
     static var deleteReward: String { tr("Delete Reward", zhHans: "删除奖励") }
     static var taskDeleted: String { tr("Task deleted", zhHans: "任务已删除") }
     static var undo: String { tr("Undo", zhHans: "撤销") }
@@ -354,18 +493,26 @@ struct BingoCell: Identifiable, Codable, Equatable {
     var text: String
     var residentTaskText: String?
     var residentWeekdays: Set<Int>
+    var oneTimeVisibleDate: Date?
+    var isTaskHidden: Bool
     var isCompleted: Bool
     var isForced: Bool
     var countdownEndsAt: Date?
+    var completionStreakCount: Int
+    var lastCompletedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case id
         case text
         case residentTaskText
         case residentWeekdays
+        case oneTimeVisibleDate
+        case isTaskHidden
         case isCompleted
         case isForced
         case countdownEndsAt
+        case completionStreakCount
+        case lastCompletedAt
     }
 
     init(
@@ -373,17 +520,25 @@ struct BingoCell: Identifiable, Codable, Equatable {
         text: String = "",
         residentTaskText: String? = nil,
         residentWeekdays: Set<Int> = [],
+        oneTimeVisibleDate: Date? = nil,
+        isTaskHidden: Bool = false,
         isCompleted: Bool = false,
         isForced: Bool = false,
-        countdownEndsAt: Date? = nil
+        countdownEndsAt: Date? = nil,
+        completionStreakCount: Int = 0,
+        lastCompletedAt: Date? = nil
     ) {
         self.id = id
         self.text = text
         self.residentTaskText = residentTaskText
         self.residentWeekdays = residentWeekdays
+        self.oneTimeVisibleDate = oneTimeVisibleDate
+        self.isTaskHidden = isTaskHidden
         self.isCompleted = isCompleted
         self.isForced = isForced
         self.countdownEndsAt = countdownEndsAt
+        self.completionStreakCount = max(completionStreakCount, 0)
+        self.lastCompletedAt = lastCompletedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -392,9 +547,13 @@ struct BingoCell: Identifiable, Codable, Equatable {
         text = try container.decode(String.self, forKey: .text)
         residentTaskText = try container.decodeIfPresent(String.self, forKey: .residentTaskText)
         residentWeekdays = try container.decodeIfPresent(Set<Int>.self, forKey: .residentWeekdays) ?? []
+        oneTimeVisibleDate = try container.decodeIfPresent(Date.self, forKey: .oneTimeVisibleDate)
+        isTaskHidden = try container.decodeIfPresent(Bool.self, forKey: .isTaskHidden) ?? false
         isCompleted = try container.decode(Bool.self, forKey: .isCompleted)
         isForced = try container.decodeIfPresent(Bool.self, forKey: .isForced) ?? false
         countdownEndsAt = try container.decodeIfPresent(Date.self, forKey: .countdownEndsAt)
+        completionStreakCount = try container.decodeIfPresent(Int.self, forKey: .completionStreakCount) ?? 0
+        lastCompletedAt = try container.decodeIfPresent(Date.self, forKey: .lastCompletedAt)
     }
 
     var isEmpty: Bool {
@@ -417,6 +576,10 @@ struct BingoCell: Identifiable, Codable, Equatable {
         !residentWeekdays.isEmpty && !(residentTaskText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
 
+    var isOneTimeTask: Bool {
+        oneTimeVisibleDate != nil && !(residentTaskText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
     func isResidentActive(on date: Date, calendar: Calendar = .current) -> Bool {
         guard hasResidentSchedule else { return true }
         let weekday = calendar.component(.weekday, from: date)
@@ -424,12 +587,18 @@ struct BingoCell: Identifiable, Codable, Equatable {
     }
 
     func projectedForDisplay(on date: Date, calendar: Calendar = .current) -> BingoCell {
-        guard hasResidentSchedule else { return self }
-
         var projected = self
-        let activeToday = isResidentActive(on: date, calendar: calendar)
+        let activeToday: Bool
+        if isOneTimeTask, let oneTimeVisibleDate {
+            activeToday = calendar.isDate(oneTimeVisibleDate, inSameDayAs: date)
+        } else if hasResidentSchedule {
+            activeToday = isResidentActive(on: date, calendar: calendar)
+        } else {
+            return self
+        }
         projected.text = activeToday ? storedTaskText : ""
         projected.isCompleted = activeToday ? isCompleted : false
+        projected.isTaskHidden = activeToday ? isTaskHidden : false
         projected.countdownEndsAt = nil
         return projected
     }
@@ -442,7 +611,7 @@ enum BingoLine: Hashable, Codable {
     case diagonalAnti
 }
 
-struct SavedBoard: Codable {
+struct SavedBoard: Codable, Equatable {
     let gridSize: Int
     let cells: [[BingoCell]]
     let completedLines: Set<BingoLine>
@@ -681,12 +850,28 @@ struct HomeStickerPlacement: Identifiable, Codable, Equatable {
         try container.encode(yRatio, forKey: .yRatio)
         try container.encode(scale, forKey: .scale)
     }
+
+    func normalized() -> HomeStickerPlacement {
+        HomeStickerPlacement(
+            id: id,
+            kind: kind,
+            xRatio: Self.clamp(xRatio, min: 0.02, max: 0.98, fallback: 0.5),
+            yRatio: Self.clamp(yRatio, min: 0.02, max: 0.98, fallback: 0.5),
+            scale: Self.clamp(scale, min: 0.5, max: 1.6, fallback: 1.0)
+        )
+    }
+
+    private static func clamp(_ value: Double, min lowerBound: Double, max upperBound: Double, fallback: Double) -> Double {
+        guard value.isFinite else { return fallback }
+        return Swift.max(lowerBound, Swift.min(value, upperBound))
+    }
 }
 
 enum AppSettings {
     static let hapticsEnabledKey = "haptics_enabled"
     static let soundEffectsEnabledKey = "sound_effects_enabled"
     static let themeKey = "theme_color"
+    static let hasSeenOnboardingKey = "has_seen_onboarding_v2"
     static let commonTasksKey = "common_tasks"
     static let boardCountdownKey = "board_countdown_v1"
     static let totalPointsKey = "total_points_v2"
@@ -870,21 +1055,41 @@ enum StickerStore {
               let placements = try? JSONDecoder().decode([HomeStickerPlacement].self, from: data) else {
             return []
         }
-        var seenKinds = Set<StickerKind>()
-        let normalized = placements.filter { placement in
-            if seenKinds.contains(placement.kind) {
-                return false
-            }
-            seenKinds.insert(placement.kind)
-            return true
-        }
+        let normalized = normalizedPlacements(placements)
         savePlacements(normalized)
         return normalized
     }
 
     static func savePlacements(_ placements: [HomeStickerPlacement]) {
-        guard let data = try? JSONEncoder().encode(placements) else { return }
+        let normalized = normalizedPlacements(placements)
+        guard let data = try? JSONEncoder().encode(normalized) else { return }
         UserDefaults.standard.set(data, forKey: AppSettings.homeStickerPlacementsKey)
+    }
+
+    static func clearPlacements() {
+        UserDefaults.standard.removeObject(forKey: AppSettings.homeStickerPlacementsKey)
+    }
+
+    static func clearInventoryCounts() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: AppSettings.stickerInventoryCountsKey)
+        defaults.removeObject(forKey: AppSettings.redeemedStickersKey)
+        defaults.removeObject(forKey: AppSettings.redeemedStickerOrderKey)
+    }
+
+    private static func normalizedPlacements(_ placements: [HomeStickerPlacement]) -> [HomeStickerPlacement] {
+        var seenKinds = Set<StickerKind>()
+        var result: [HomeStickerPlacement] = []
+        result.reserveCapacity(placements.count)
+
+        for placement in placements {
+            let normalized = placement.normalized()
+            guard !seenKinds.contains(normalized.kind) else { continue }
+            seenKinds.insert(normalized.kind)
+            result.append(normalized)
+        }
+
+        return result
     }
 }
 
@@ -927,6 +1132,14 @@ enum PointsStore {
         UserDefaults.standard.removeObject(forKey: AppSettings.dailyRewardStateKey)
     }
 
+    static func clearTotalPoints() {
+        UserDefaults.standard.removeObject(forKey: AppSettings.totalPointsKey)
+    }
+
+    static func clearLifetimePoints() {
+        UserDefaults.standard.removeObject(forKey: AppSettings.lifetimePointsKey)
+    }
+
     static func dateKey(for date: Date, calendar: Calendar = .current) -> String {
         let components = calendar.dateComponents([.year, .month, .day], from: date)
         let year = components.year ?? 0
@@ -949,6 +1162,10 @@ enum RewardStore {
     static func saveRewards(_ rewards: [CustomReward]) {
         guard let data = try? JSONEncoder().encode(rewards) else { return }
         UserDefaults.standard.set(data, forKey: AppSettings.customRewardsKey)
+    }
+
+    static func clearRewards() {
+        UserDefaults.standard.removeObject(forKey: AppSettings.customRewardsKey)
     }
 }
 
@@ -1101,20 +1318,15 @@ enum CommonTasksStore {
         tasks
             .map { String($0.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .prefix(AppSettings.maxCommonTasks)
-            .map { $0 }
     }
 
     private static func sanitizeGroups(_ groups: [MyTaskGroup]) -> [MyTaskGroup] {
         groups
-            .prefix(AppSettings.maxTaskGroups)
             .compactMap { group in
                 let trimmedName = String(group.name.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
                 let sanitizedTasks = group.tasks
                     .map { String($0.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty }
-                    .prefix(AppSettings.maxTasksPerGroup)
-                    .map { $0 }
 
                 guard !trimmedName.isEmpty || !sanitizedTasks.isEmpty else { return nil }
                 return MyTaskGroup(
@@ -1257,6 +1469,14 @@ enum BingoDiaryStore {
             }
     }
 
+    static func loadAllEntriesDictionary() -> [String: BingoDiaryEntry] {
+        loadEntriesDictionary()
+    }
+
+    static func replaceAllEntriesDictionary(_ entries: [String: BingoDiaryEntry]) {
+        persist(entries)
+    }
+
     private static func loadEntriesDictionary() -> [String: BingoDiaryEntry] {
         if let data = sharedDefaults.data(forKey: key),
            let entries = try? JSONDecoder().decode([String: BingoDiaryEntry].self, from: data) {
@@ -1356,6 +1576,14 @@ enum BingoTimeoutStore {
                 }
                 return lhs.totalCount > rhs.totalCount
             }
+    }
+
+    static func loadAllPayload() -> [String: [String: Int]] {
+        loadPayload()
+    }
+
+    static func replacePayload(_ payload: [String: [String: Int]]) {
+        persist(payload)
     }
 
     private static func loadPayload() -> [String: [String: Int]] {

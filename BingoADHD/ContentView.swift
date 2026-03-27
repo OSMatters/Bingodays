@@ -1,5 +1,7 @@
 import SwiftUI
 import AVFoundation
+import FloatingButton
+import StoreKit
 #if canImport(WidgetKit)
 import WidgetKit
 #endif
@@ -77,18 +79,23 @@ struct NineTenthsSheetContainer<Content: View>: View {
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @Environment(\.openURL) private var openURL
+    @EnvironmentObject private var accountSession: AccountSession
     @StateObject private var viewModel = BingoViewModel()
     @State private var isSidebarPresented = false
-    @State private var isSettingsExpanded = true
+    @State private var isSettingsExpanded = false
     @State private var isWidgetGuideExpanded = false
     @State private var isThemePickerExpanded = false
     @State private var isPointsDetailsPresented = false
     @State private var isBoardCountdownPresented = false
     @State private var selectedStickerID: UUID?
     @State private var isDiaryPresented = false
+    @State private var isPremiumPaywallPresented = false
     @State private var isQuickEditPresented = false
     @State private var isBlackBoxModePresented = false
+    @State private var isEditActionsExpanded = false
+    @State private var isGridSizeSheetPresented = false
     @State private var isClearBoardConfirmationPresented = false
     @State private var commonTasksToastMessage: String?
     @State private var isCommonTasksToastVisible = false
@@ -102,28 +109,34 @@ struct ContentView: View {
     @State private var isUpdatePromptPresented = false
     @State private var hasCheckedAppUpdateOnLaunch = false
     @State private var pendingUpdateInfo: AppUpdateInfo?
+    @State private var namedBoards: [BingoBoardStore.NamedBoard] = []
+    @State private var selectedBoardID: UUID?
+    @State private var hasLoadedBoardSwitcherState = false
+    @State private var isCreateBoardAlertPresented = false
+    @State private var createBoardNameDraft = ""
+    @State private var isRenameBoardAlertPresented = false
+    @State private var renameBoardNameDraft = ""
+    @State private var boardPendingRenameID: UUID?
     @State private var stickerInventoryCounts = StickerStore.loadInventoryCounts()
     @State private var homeStickerPlacements = StickerStore.loadPlacements()
     @State private var customRewards = RewardStore.loadRewards()
     @AppStorage(AppSettings.hapticsEnabledKey) private var isHapticsEnabled = true
     @AppStorage(AppSettings.soundEffectsEnabledKey) private var isSoundEffectsEnabled = true
-    @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.sky.rawValue
+    @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
     private let countdownTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     @State private var countdownNow = Date()
     private var bingoStreakDays: Int { BingoDiaryStore.consecutiveBingoDays() }
     private var streakGoals: [Int] { bingoStreakDays >= 60 ? [60, 180, 270, 365] : [7, 14, 30, 60] }
-    private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .sky }
+    private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
     private var activeThemeColor: Color { activeTheme.color }
-    private var conciseSurfaceColor: Color { Color(hex: "EBF0F7") }
+    private var conciseSurfaceColor: Color { NeumorphicColors.background }
     private var appShortVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
     }
     private var releaseNotesItems: [String] {
         [
-            L10n.updateItemQuickEdit,
-            L10n.updateItemCountdown,
-            L10n.updateItemPoints,
-            L10n.updateItemLayout
+            L10n.updateItemUIRefined,
+            L10n.updateItemBugFixes
         ]
     }
     private var spentStickerPoints: Int {
@@ -150,6 +163,15 @@ struct ContentView: View {
     private var completionPercent: Int {
         Int((completionProgress * 100).rounded())
     }
+
+private let boardNameMaxLength = 20
+private var canCreateAdditionalBoard: Bool {
+    subscriptionManager.hasPremiumAccess || namedBoards.count < 1
+}
+private var selectedNamedBoardIndex: Int? {
+    guard let selectedBoardID else { return nil }
+    return namedBoards.firstIndex(where: { $0.id == selectedBoardID })
+}
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -181,26 +203,23 @@ struct ContentView: View {
                         .frame(width: contentWidth)
                         .padding(.top, max(geo.safeAreaInsets.top, 0) + 12)
 
-                    VStack(spacing: 16) {
-                        gridControls
+VStack(spacing: 16) {
+    boardSwitcherControls(contentWidth: contentWidth)
+        .padding(.top, 14)
 
-                        BingoBoardView(viewModel: viewModel, currentTime: countdownNow)
-                            .frame(width: contentWidth, height: contentWidth)
+    BingoBoardView(viewModel: viewModel, currentTime: countdownNow)
+        .frame(width: contentWidth, height: contentWidth)
+        .padding(.top, 8)
 
-                        HStack(spacing: 12) {
-                            boardCountdownTrigger
-                            Spacer(minLength: 0)
-                            quickEditTrigger
-                        }
-                        .padding(.top, 4)
-
-                        HStack(spacing: 0) {
-                            Spacer(minLength: 0)
-                            blackBoxModeTrigger
-                        }
-                    }
+    HStack(alignment: .bottom, spacing: 12) {
+        gameModeTrigger
+        Spacer(minLength: 0)
+        editActionsTrigger
+    }
+    .padding(.top, 10)
+}
                     .frame(width: contentWidth)
-                    .padding(.top, 62)
+                    .padding(.top, 32)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
@@ -227,6 +246,7 @@ struct ContentView: View {
                 )
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     .offset(x: isSidebarPresented ? 0 : -(usesPadLayout ? min(geo.size.width * 0.42, 420) : min(geo.size.width * 0.8, 320)))
+                    .allowsHitTesting(isSidebarPresented)
                     .animation(.spring(response: 0.35, dampingFraction: 0.82), value: isSidebarPresented)
 
                 if viewModel.showCelebration {
@@ -367,10 +387,39 @@ struct ContentView: View {
             .presentationDetents([.height(360)])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $isGridSizeSheetPresented) {
+            gridSizeAdjustmentSheet
+                .presentationDetents([.height(280)])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(NeumorphicColors.background)
+        }
         .fullScreenCover(isPresented: $isDiaryPresented) {
             BingoDiaryScreen()
         }
+        .fullScreenCover(isPresented: $isPremiumPaywallPresented) {
+            PremiumPaywallView()
+        }
+.alert(L10n.boardCreateTitle, isPresented: $isCreateBoardAlertPresented) {
+    TextField(L10n.boardNamePlaceholder, text: $createBoardNameDraft)
+    Button(L10n.cancel, role: .cancel) {
+        createBoardNameDraft = ""
+    }
+    Button(L10n.boardCreateAction) {
+        createBoard()
+    }
+}
+.alert(L10n.boardRenameTitle, isPresented: $isRenameBoardAlertPresented) {
+    TextField(L10n.boardNamePlaceholder, text: $renameBoardNameDraft)
+    Button(L10n.cancel, role: .cancel) {
+        renameBoardNameDraft = ""
+        boardPendingRenameID = nil
+    }
+    Button(L10n.boardRenameAction) {
+        renameBoard()
+    }
+}
         .onAppear {
+            ensureBoardSwitcherLoaded()
             countdownNow = Date()
             viewModel.processExpiredCountdowns(now: countdownNow)
             viewModel.processExpiredTaskCountdowns(now: countdownNow)
@@ -383,14 +432,45 @@ struct ContentView: View {
                     await checkForAppUpdateIfNeeded()
                 }
             }
+            Task {
+                await subscriptionManager.refreshAll()
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
+            ensureBoardSwitcherLoaded()
             countdownNow = Date()
             viewModel.processExpiredCountdowns(now: countdownNow)
             viewModel.processExpiredTaskCountdowns(now: countdownNow)
             viewModel.processDailyCompletionReset(now: countdownNow)
+            Task {
+                await subscriptionManager.refreshEntitlements()
+            }
         }
+        .onChange(of: isQuickEditPresented) { _, newValue in
+            if newValue { isEditActionsExpanded = false }
+        }
+        .onChange(of: isBoardCountdownPresented) { _, newValue in
+            if newValue { isEditActionsExpanded = false }
+        }
+        .onChange(of: isBlackBoxModePresented) { _, newValue in
+            if newValue { isEditActionsExpanded = false }
+        }
+        .onChange(of: isGridSizeSheetPresented) { _, newValue in
+            if newValue { isEditActionsExpanded = false }
+        }
+.onChange(of: viewModel.cells) { _, _ in
+    syncSelectedBoardSnapshotIfNeeded()
+}
+.onChange(of: viewModel.gridSize) { _, _ in
+    syncSelectedBoardSnapshotIfNeeded()
+}
+.onChange(of: viewModel.completedLines) { _, _ in
+    syncSelectedBoardSnapshotIfNeeded()
+}
+.onChange(of: viewModel.boardCountdownEndsAt) { _, _ in
+    syncSelectedBoardSnapshotIfNeeded()
+}
         .onChange(of: availablePoints) { oldValue, newValue in
             let delta = newValue - oldValue
             guard delta != 0 else { return }
@@ -447,7 +527,7 @@ struct ContentView: View {
 
     private var shouldForceShowUpdatePromptInDebug: Bool {
 #if DEBUG
-        true
+        ProcessInfo.processInfo.arguments.contains("-ForceUpdatePrompt")
 #else
         false
 #endif
@@ -488,15 +568,7 @@ struct ContentView: View {
     }
 
     private func updatePromptItems(for info: AppUpdateInfo) -> [String] {
-        if let notes = info.releaseNotes, !notes.isEmpty {
-            let lines = notes
-                .split(whereSeparator: \.isNewline)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            if !lines.isEmpty {
-                return Array(lines.prefix(4))
-            }
-        }
+        _ = info
         return releaseNotesItems
     }
 
@@ -555,7 +627,7 @@ struct ContentView: View {
                         } label: {
                             Text(L10n.updateSecondaryAction)
                                 .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                                .foregroundColor(NeumorphicColors.text.opacity(0.78))
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 44)
                                 .background(Color.clear.neumorphicConvex(radius: 18))
@@ -852,7 +924,264 @@ struct ContentView: View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(conciseSurfaceColor)
             .shadow(color: Color.white.opacity(0.72), radius: shadowRadius, x: -offset, y: -offset)
-            .shadow(color: Color(hex: "CFD4DA").opacity(0.72), radius: shadowRadius, x: offset, y: offset)
+            .shadow(color: NeumorphicColors.darkShadow.opacity(0.72), radius: shadowRadius, x: offset, y: offset)
+    }
+
+    private func conciseFlatSurface(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(conciseSurfaceColor)
+    }
+
+    private func conciseOutlineSurface(cornerRadius: CGFloat, lineWidth: CGFloat = 1) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(conciseSurfaceColor)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(NeumorphicColors.accent.opacity(0.6), lineWidth: lineWidth)
+            )
+    }
+
+    private var gameModeTrigger: some View {
+        let buttonSize: CGFloat = isPadLayout ? 66 : 60
+
+        return Button {
+            isBlackBoxModePresented = true
+        } label: {
+            Image(systemName: "gamecontroller.fill")
+                .font(.system(size: isPadLayout ? 22 : 20, weight: .bold))
+                .foregroundColor(NeumorphicColors.accent)
+                .frame(width: buttonSize, height: buttonSize)
+                .background(
+                    conciseRaisedSurface(
+                        cornerRadius: buttonSize / 2,
+                        shadowRadius: isPadLayout ? 11 : 9,
+                        offset: isPadLayout ? 5 : 4
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var editActionsTrigger: some View {
+        let buttonSize: CGFloat = isPadLayout ? 66 : 60
+        let actionTitles = [
+            L10n.tr("Grid Size", zhHans: "格子大小"),
+            L10n.quickEdit,
+            L10n.setBoardCountdown,
+            L10n.clearBoard,
+            L10n.tr("Shuffle", zhHans: "随机排序")
+        ]
+        let actionMenuWidth = editActionsMenuWidth(for: actionTitles)
+        let actionMenuRadius = editActionsMenuRadius(for: actionMenuWidth)
+
+        let actionButtons: [AnyView] = [
+            AnyView(editActionsMenuItem(
+                title: actionTitles[0],
+                icon: "square.grid.3x3",
+                menuWidth: actionMenuWidth,
+                menuHeight: isPadLayout ? 48 : 44,
+                xOffset: 5,
+                yOffset: -9
+            ) {
+                isGridSizeSheetPresented = true
+            }),
+            AnyView(editActionsMenuItem(
+                title: actionTitles[1],
+                icon: "square.and.pencil",
+                menuWidth: actionMenuWidth,
+                menuHeight: isPadLayout ? 48 : 44,
+                xOffset: -14,
+                yOffset: -14
+            ) {
+                isQuickEditPresented = true
+            }),
+            AnyView(editActionsMenuItem(
+                title: actionTitles[2],
+                icon: "timer",
+                menuWidth: actionMenuWidth,
+                menuHeight: isPadLayout ? 48 : 44,
+                xOffset: -10,
+                yOffset: -1
+            ) {
+                isBoardCountdownPresented = true
+            }),
+            AnyView(editActionsMenuItem(
+                title: actionTitles[3],
+                icon: "trash",
+                menuWidth: actionMenuWidth,
+                menuHeight: isPadLayout ? 48 : 44,
+                xOffset: -14,
+                yOffset: 12
+            ) {
+                isClearBoardConfirmationPresented = true
+            }),
+            AnyView(editActionsMenuItem(
+                title: actionTitles[4],
+                icon: "arrow.up.arrow.down",
+                menuWidth: actionMenuWidth,
+                menuHeight: isPadLayout ? 48 : 44,
+                xOffset: 5,
+                yOffset: 7
+            ) {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                    viewModel.shuffleBoard()
+                }
+            })
+        ]
+
+        let mainButton = AnyView(
+            Image(systemName: isEditActionsExpanded ? "xmark" : "square.and.pencil")
+                .font(.system(size: isPadLayout ? 28 : 26, weight: .bold))
+                .foregroundColor(NeumorphicColors.accent)
+                .frame(width: buttonSize, height: buttonSize)
+                .background(
+                    conciseRaisedSurface(
+                        cornerRadius: buttonSize / 2,
+                        shadowRadius: isPadLayout ? 11 : 9,
+                        offset: isPadLayout ? 5 : 4
+                    )
+                )
+        )
+
+        return FloatingButton(mainButtonView: mainButton, buttons: actionButtons, isOpen: $isEditActionsExpanded)
+            .circle()
+            .startAngle((2.0 / 3.0) * .pi)
+            .endAngle((4.0 / 3.0) * .pi)
+            .radius(actionMenuRadius)
+            .spacing(isPadLayout ? 14 : 12)
+            .initialOpacity(0)
+            .initialScaling(0.7)
+            .animation(.spring(response: 0.3, dampingFraction: 0.82))
+            .delays(delayDelta: 0.02)
+            .frame(width: buttonSize, height: buttonSize, alignment: .bottomTrailing)
+            .offset(x: 25)
+    }
+
+    private var gridSizeAdjustmentSheet: some View {
+        let controlSize: CGFloat = isPadLayout ? 56 : 50
+        let iconSize: CGFloat = isPadLayout ? 24 : 22
+
+        return GeometryReader { proxy in
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+
+                HStack(spacing: isPadLayout ? 20 : 16) {
+                    Button {
+                        withAnimation(.spring(response: 0.4)) {
+                            viewModel.resizeGrid(to: viewModel.gridSize - 1)
+                        }
+                    } label: {
+                        Image(systemName: "minus")
+                            .font(.system(size: iconSize, weight: .bold))
+                            .foregroundColor(NeumorphicColors.accent)
+                            .frame(width: controlSize, height: controlSize)
+                            .background(
+                                conciseRaisedSurface(
+                                    cornerRadius: controlSize / 2,
+                                    shadowRadius: isPadLayout ? 10 : 8,
+                                    offset: isPadLayout ? 5 : 4
+                                )
+                            )
+                    }
+                    .disabled(viewModel.gridSize <= 2)
+                    .buttonStyle(.plain)
+                    .opacity(viewModel.gridSize <= 2 ? 0.45 : 1)
+
+                    Text("\(viewModel.gridSize) × \(viewModel.gridSize)")
+                        .font(.system(size: scaled(30, pad: 36), weight: .bold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+                        .frame(minWidth: isPadLayout ? 140 : 120)
+                        .multilineTextAlignment(.center)
+
+                    Button {
+                        withAnimation(.spring(response: 0.4)) {
+                            viewModel.resizeGrid(to: viewModel.gridSize + 1)
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: iconSize, weight: .bold))
+                            .foregroundColor(NeumorphicColors.accent)
+                            .frame(width: controlSize, height: controlSize)
+                            .background(
+                                conciseRaisedSurface(
+                                    cornerRadius: controlSize / 2,
+                                    shadowRadius: isPadLayout ? 10 : 8,
+                                    offset: isPadLayout ? 5 : 4
+                                )
+                            )
+                    }
+                    .disabled(viewModel.gridSize >= 5)
+                    .buttonStyle(.plain)
+                    .opacity(viewModel.gridSize >= 5 ? 0.45 : 1)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: proxy.size.height * 0.42)
+
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding(.horizontal, isPadLayout ? 28 : 22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(NeumorphicColors.background)
+    }
+
+    private func editActionsMenuItem(
+        title: String,
+        icon: String,
+        menuWidth: CGFloat,
+        menuHeight: CGFloat,
+        xOffset: CGFloat = 0,
+        yOffset: CGFloat = 0,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: isPadLayout ? 8 : 7) {
+            Image(systemName: icon)
+                .font(.system(size: isPadLayout ? 17 : 15, weight: .bold))
+                .foregroundColor(NeumorphicColors.accent)
+
+            Text(title)
+                .font(.system(size: isPadLayout ? 14 : 13, weight: .bold, design: .rounded))
+                .foregroundColor(NeumorphicColors.text)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.horizontal, isPadLayout ? 14 : 12)
+        .frame(width: menuWidth, height: menuHeight)
+        .background(conciseOutlineSurface(cornerRadius: isPadLayout ? 24 : 22))
+        .offset(x: xOffset, y: yOffset)
+        .onTapGesture {
+            isEditActionsExpanded = false
+            action()
+        }
+    }
+
+    private func editActionsMenuWidth(for titles: [String]) -> CGFloat {
+        let baseWidth: CGFloat = isPadLayout ? 132 : 116
+        let fontSize: CGFloat = isPadLayout ? 14 : 13
+        let font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+        let iconWidth: CGFloat = isPadLayout ? 17 : 15
+        let horizontalPadding: CGFloat = isPadLayout ? 28 : 24
+        let contentSpacing: CGFloat = isPadLayout ? 8 : 7
+
+        let textWidth = titles
+            .map { title -> CGFloat in
+                (title as NSString).boundingRect(
+                    with: CGSize(width: .greatestFiniteMagnitude, height: font.lineHeight),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: [.font: font],
+                    context: nil
+                ).width
+            }
+            .max() ?? 0
+
+        return ceil(max(baseWidth, textWidth + iconWidth + horizontalPadding * 2 + contentSpacing))
+    }
+
+    private func editActionsMenuRadius(for menuWidth: CGFloat) -> CGFloat {
+        let baseRadius: CGFloat = isPadLayout ? 142 : 122
+        let widthDrivenRadius = menuWidth + (isPadLayout ? 12 : 10)
+        return max(baseRadius, ceil(widthDrivenRadius)) - 8
     }
 
     private var quickEditTrigger: some View {
@@ -975,6 +1304,256 @@ struct ContentView: View {
         .frame(width: 180, alignment: .leading)
     }
 
+    private func boardSwitcherControls(contentWidth: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text(L10n.boardSwitcherTitle)
+                    .font(.system(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.76))
+
+                Spacer(minLength: 0)
+
+                Button {
+                    beginRenameSelectedBoard()
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: scaled(13, pad: 15), weight: .bold))
+                        .foregroundColor(NeumorphicColors.accent)
+                        .frame(width: isPadLayout ? 34 : 30, height: isPadLayout ? 34 : 30)
+                        .background(
+                            conciseRaisedSurface(
+                                cornerRadius: isPadLayout ? 17 : 15,
+                                shadowRadius: isPadLayout ? 8 : 6,
+                                offset: isPadLayout ? 4 : 3
+                            )
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(selectedNamedBoardIndex == nil)
+                .opacity(selectedNamedBoardIndex == nil ? 0.45 : 1)
+
+                Button {
+                    beginCreateBoard()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                            .font(.system(size: scaled(11, pad: 12), weight: .bold))
+
+                        Text(L10n.boardCreateButton)
+                            .font(.system(size: scaled(12.5, pad: 14), weight: .bold, design: .rounded))
+                            .lineLimit(1)
+                    }
+                    .foregroundColor(NeumorphicColors.accent)
+                    .padding(.horizontal, isPadLayout ? 12 : 10)
+                    .frame(height: isPadLayout ? 34 : 30)
+                    .background(
+                        conciseRaisedSurface(
+                            cornerRadius: isPadLayout ? 17 : 15,
+                            shadowRadius: isPadLayout ? 8 : 6,
+                            offset: isPadLayout ? 4 : 3
+                        )
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(namedBoards) { board in
+                        let isSelected = board.id == selectedBoardID
+                        Button {
+                            selectBoard(board.id)
+                        } label: {
+                            Text(board.name)
+                                .font(.system(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
+                                .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.74))
+                                .lineLimit(1)
+                                .padding(.horizontal, isPadLayout ? 14 : 12)
+                                .frame(height: isPadLayout ? 34 : 30)
+                                .background(
+                                    RoundedRectangle(cornerRadius: isPadLayout ? 17 : 15, style: .continuous)
+                                        .fill(isSelected ? NeumorphicColors.accent.opacity(0.16) : NeumorphicColors.background)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: isPadLayout ? 17 : 15, style: .continuous)
+                                                .stroke(
+                                                    isSelected ? NeumorphicColors.accent.opacity(0.56) : NeumorphicColors.text.opacity(0.16),
+                                                    lineWidth: 1
+                                                )
+                                        )
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(L10n.boardRenameAction) {
+                                beginRenameBoard(board.id)
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .frame(width: contentWidth, alignment: .leading)
+    }
+
+    private func ensureBoardSwitcherLoaded() {
+        guard !hasLoadedBoardSwitcherState else { return }
+        hasLoadedBoardSwitcherState = true
+
+        var snapshot = BingoBoardStore.loadNamedBoardsSnapshot()
+
+        if snapshot.boards.isEmpty {
+            let initialBoard = BingoBoardStore.NamedBoard(
+                name: L10n.boardDefaultName(1),
+                board: viewModel.makeSavedBoardSnapshot(),
+                countdownEndsAt: viewModel.boardCountdownEndsAt,
+                updatedAt: .now
+            )
+            snapshot = BingoBoardStore.NamedBoardsSnapshot(
+                selectedBoardID: initialBoard.id,
+                boards: [initialBoard]
+            )
+            BingoBoardStore.saveNamedBoardsSnapshot(snapshot)
+        }
+
+        namedBoards = snapshot.boards
+        selectedBoardID = snapshot.selectedBoardID ?? snapshot.boards.first?.id
+
+        if let selectedBoardID,
+           let selectedBoard = namedBoards.first(where: { $0.id == selectedBoardID }) {
+            viewModel.applySavedBoardSnapshot(
+                selectedBoard.board,
+                countdownEndsAt: selectedBoard.countdownEndsAt,
+                referenceDate: .now
+            )
+            syncSelectedBoardSnapshotIfNeeded()
+        }
+    }
+
+    private func persistNamedBoardsSnapshot() {
+        let snapshot = BingoBoardStore.NamedBoardsSnapshot(
+            selectedBoardID: selectedBoardID,
+            boards: namedBoards
+        )
+        BingoBoardStore.saveNamedBoardsSnapshot(snapshot)
+    }
+
+    private func persistBoardState(for boardID: UUID, save: Bool = true) {
+        guard let boardIndex = namedBoards.firstIndex(where: { $0.id == boardID }) else { return }
+        namedBoards[boardIndex].board = viewModel.makeSavedBoardSnapshot()
+        namedBoards[boardIndex].countdownEndsAt = viewModel.boardCountdownEndsAt
+        namedBoards[boardIndex].updatedAt = .now
+        if save {
+            persistNamedBoardsSnapshot()
+        }
+    }
+
+    private func syncSelectedBoardSnapshotIfNeeded() {
+        guard hasLoadedBoardSwitcherState, let selectedBoardID else { return }
+        persistBoardState(for: selectedBoardID)
+    }
+
+    private func selectBoard(_ boardID: UUID) {
+        guard selectedBoardID != boardID else { return }
+
+        if let previousBoardID = selectedBoardID {
+            persistBoardState(for: previousBoardID, save: false)
+        }
+
+        selectedBoardID = boardID
+
+        if let selectedBoard = namedBoards.first(where: { $0.id == boardID }) {
+            viewModel.applySavedBoardSnapshot(
+                selectedBoard.board,
+                countdownEndsAt: selectedBoard.countdownEndsAt,
+                referenceDate: .now
+            )
+        }
+
+        persistNamedBoardsSnapshot()
+    }
+
+    private func beginCreateBoard() {
+        guard canCreateAdditionalBoard else {
+            showCommonTasksToast(L10n.boardPremiumLimitMessage)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                isPremiumPaywallPresented = true
+            }
+            return
+        }
+
+        createBoardNameDraft = L10n.boardDefaultName(namedBoards.count + 1)
+        isCreateBoardAlertPresented = true
+    }
+
+    private func createBoard() {
+        guard canCreateAdditionalBoard else {
+            showCommonTasksToast(L10n.boardPremiumLimitMessage)
+            return
+        }
+
+        if let selectedBoardID {
+            persistBoardState(for: selectedBoardID, save: false)
+        }
+
+        let fallbackName = L10n.boardDefaultName(namedBoards.count + 1)
+        let boardName = sanitizedBoardName(createBoardNameDraft, fallback: fallbackName)
+        let newBoard = BingoBoardStore.NamedBoard(
+            name: boardName,
+            board: BingoViewModel.createDefaultSavedBoard(),
+            countdownEndsAt: nil,
+            updatedAt: .now
+        )
+
+        namedBoards.append(newBoard)
+        selectedBoardID = newBoard.id
+        viewModel.applySavedBoardSnapshot(
+            newBoard.board,
+            countdownEndsAt: nil,
+            referenceDate: .now
+        )
+        createBoardNameDraft = ""
+        persistNamedBoardsSnapshot()
+    }
+
+    private func beginRenameSelectedBoard() {
+        guard let selectedNamedBoardIndex else { return }
+        let board = namedBoards[selectedNamedBoardIndex]
+        boardPendingRenameID = board.id
+        renameBoardNameDraft = board.name
+        isRenameBoardAlertPresented = true
+    }
+
+    private func beginRenameBoard(_ boardID: UUID) {
+        guard let board = namedBoards.first(where: { $0.id == boardID }) else { return }
+        boardPendingRenameID = boardID
+        renameBoardNameDraft = board.name
+        isRenameBoardAlertPresented = true
+    }
+
+    private func renameBoard() {
+        defer {
+            renameBoardNameDraft = ""
+            boardPendingRenameID = nil
+        }
+
+        guard let boardPendingRenameID,
+              let boardIndex = namedBoards.firstIndex(where: { $0.id == boardPendingRenameID }) else {
+            return
+        }
+
+        let fallbackName = L10n.boardDefaultName(boardIndex + 1)
+        namedBoards[boardIndex].name = sanitizedBoardName(renameBoardNameDraft, fallback: fallbackName)
+        namedBoards[boardIndex].updatedAt = .now
+        persistNamedBoardsSnapshot()
+    }
+
+    private func sanitizedBoardName(_ rawName: String, fallback: String) -> String {
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let limited = String(trimmed.prefix(boardNameMaxLength))
+        return limited.isEmpty ? fallback : limited
+    }
+
     private var boardCountdownText: String? {
         guard let endsAt = viewModel.boardCountdownEndsAt, endsAt > countdownNow else {
             return nil
@@ -1035,11 +1614,7 @@ struct ContentView: View {
                     .foregroundColor(NeumorphicColors.accent)
                     .frame(width: iconSize, height: iconSize)
                     .background(
-                        conciseRaisedSurface(
-                            cornerRadius: iconSize / 2,
-                            shadowRadius: isPadLayout ? 14 : 12,
-                            offset: isPadLayout ? 7 : 6
-                        )
+                        conciseFlatSurface(cornerRadius: iconSize / 2)
                     )
             }
             .buttonStyle(.plain)
@@ -1065,11 +1640,7 @@ struct ContentView: View {
                     .padding(.horizontal, isPadLayout ? 22 : 20)
                     .frame(height: isPadLayout ? 52 : 48)
                     .background(
-                        conciseRaisedSurface(
-                            cornerRadius: isPadLayout ? 26 : 24,
-                            shadowRadius: isPadLayout ? 14 : 12,
-                            offset: isPadLayout ? 7 : 6
-                        )
+                        conciseFlatSurface(cornerRadius: isPadLayout ? 26 : 24)
                     )
                 }
                 .buttonStyle(.plain)
@@ -1129,7 +1700,7 @@ struct ContentView: View {
 
                             Image(systemName: "chevron.right")
                                 .font(.system(size: scaled(14, pad: 16), weight: .bold))
-                                .foregroundColor(NeumorphicColors.accent)
+                                .foregroundColor(NeumorphicColors.text.opacity(0.42))
                         }
                     }
                     .buttonStyle(.plain)
@@ -1157,7 +1728,7 @@ struct ContentView: View {
 
                             Image(systemName: "chevron.down")
                                 .font(.system(size: scaled(14, pad: 16), weight: .bold))
-                                .foregroundColor(NeumorphicColors.accent)
+                                .foregroundColor(NeumorphicColors.text.opacity(0.42))
                                 .rotationEffect(.degrees(isSettingsExpanded ? 0 : -90))
                         }
                     }
@@ -1165,6 +1736,8 @@ struct ContentView: View {
                     .listRowInsets(EdgeInsets(top: 12, leading: 22, bottom: 12, trailing: 22))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
+
+                    sidebarProEntryRow
 
                     if isSettingsExpanded {
                         sidebarToggleRow(title: L10n.haptics, isOn: $isHapticsEnabled)
@@ -1182,6 +1755,15 @@ struct ContentView: View {
 
                         if isThemePickerExpanded {
                             themePickerRow
+                        }
+
+                        subscriptionSectionRow
+#if DEBUG
+                        pricingDebugInfoRow
+#endif
+
+                        if let profile = accountSession.profile {
+                            sidebarAccountSection(profile: profile)
                         }
                     }
                 }
@@ -1224,7 +1806,7 @@ struct ContentView: View {
 
                 Text(value)
                     .font(.system(size: scaled(16, pad: 18), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
             }
 
             Spacer()
@@ -1312,8 +1894,10 @@ struct ContentView: View {
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(NeumorphicColors.background)
-                .shadow(color: NeumorphicColors.darkShadow.opacity(0.22), radius: 8, x: 4, y: 4)
-                .shadow(color: Color.white.opacity(0.65), radius: 8, x: -3, y: -3)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(activeThemeColor.opacity(0.5), lineWidth: 1)
+                )
         )
         .listRowInsets(EdgeInsets(top: 6, leading: 22, bottom: 14, trailing: 22))
         .listRowSeparator(.hidden)
@@ -1355,18 +1939,23 @@ struct ContentView: View {
                 .fill(
                     isAchieved
                     ? activeThemeColor.opacity(0.18)
-                    : NeumorphicColors.background.opacity(isCurrent ? 0.99 : 0.98)
+                    : NeumorphicColors.background.opacity(isCurrent ? 0.96 : 0.92)
                 )
                 .frame(width: 44, height: 48)
                 .overlay(alignment: .top) {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(isAchieved ? activeThemeColor.opacity(0.72) : NeumorphicColors.darkShadow.opacity(isCurrent ? 0.22 : 0.18))
+                        .fill(isAchieved ? activeThemeColor.opacity(0.72) : activeThemeColor.opacity(isCurrent ? 0.2 : 0.12))
                         .frame(width: 34, height: 10)
                         .padding(.top, 4)
                 }
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(isAchieved ? activeThemeColor.opacity(0.9) : NeumorphicColors.darkShadow.opacity(isCurrent ? 0.28 : 0.22), lineWidth: 1.2)
+                        .stroke(
+                            isAchieved
+                                ? activeThemeColor.opacity(0.9)
+                                : activeThemeColor.opacity(isCurrent ? 0.62 : 0.42),
+                            lineWidth: 1.2
+                        )
                 }
                 .overlay(alignment: .top) {
                     HStack(spacing: 14) {
@@ -1381,22 +1970,10 @@ struct ContentView: View {
                 }
                 .overlay {
                     Rectangle()
-                        .fill((isAchieved ? activeThemeColor : NeumorphicColors.darkShadow).opacity(isCurrent ? 0.2 : 0.16))
+                        .fill((isAchieved ? activeThemeColor : activeThemeColor).opacity(isCurrent ? 0.22 : 0.14))
                         .frame(width: 28, height: 1)
                         .offset(y: -6)
                 }
-                .shadow(
-                    color: isAchieved ? activeThemeColor.opacity(0.18) : NeumorphicColors.darkShadow.opacity(isCurrent ? 0.1 : 0.08),
-                    radius: 3,
-                    x: 1.5,
-                    y: 1.5
-                )
-                .shadow(
-                    color: Color.white.opacity(0.72),
-                    radius: 3,
-                    x: -1.5,
-                    y: -1.5
-                )
 
             Text("\(goal)")
                 .font(.system(size: scaled(16, pad: 18), weight: .bold, design: .rounded))
@@ -1432,7 +2009,7 @@ struct ContentView: View {
 
                 Text(value)
                     .font(.system(size: 16, weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
             }
 
             Spacer()
@@ -1551,6 +2128,249 @@ struct ContentView: View {
         .listRowBackground(Color.clear)
     }
 
+    private var subscriptionSectionRow: some View {
+        HStack {
+            Button {
+                Task {
+                    let message = await subscriptionManager.restorePurchases()
+                    showCommonTasksToast(message)
+                }
+            } label: {
+                Text(L10n.subscriptionRestoreSubscription)
+                    .font(.system(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .buttonStyle(.plain)
+            .disabled(subscriptionManager.isPurchasing)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 4)
+        .listRowInsets(EdgeInsets(top: 8, leading: 22, bottom: 12, trailing: 22))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+#if DEBUG
+    private var pricingDebugInfoRow: some View {
+        let regionCode = AppLanguage.currentRegionCode
+        let languageCode: String
+        switch AppLanguage.current {
+        case .english:
+            languageCode = "en"
+        case .simplifiedChinese:
+            languageCode = "zh-Hans"
+        case .traditionalChinese:
+            languageCode = "zh-Hant"
+        case .japanese:
+            languageCode = "ja"
+        }
+
+        let loaded = subscriptionManager.loadedProductIDs.isEmpty ? "none" : subscriptionManager.loadedProductIDs.joined(separator: ", ")
+        let missing = subscriptionManager.missingProductIDs.isEmpty ? "none" : subscriptionManager.missingProductIDs.joined(separator: ", ")
+
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("Debug")
+                .font(.system(size: scaled(12, pad: 13), weight: .semibold, design: .rounded))
+                .foregroundColor(NeumorphicColors.text.opacity(0.6))
+            Text("Locale Region: \(regionCode)")
+                .font(.system(size: scaled(12, pad: 13), weight: .medium, design: .rounded))
+                .foregroundColor(NeumorphicColors.text.opacity(0.66))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text("Storefront: \(subscriptionManager.storefrontCountryCode) | \(subscriptionManager.storefrontID)")
+                .font(.system(size: scaled(12, pad: 13), weight: .medium, design: .rounded))
+                .foregroundColor(NeumorphicColors.text.opacity(0.66))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text("Language: \(languageCode)")
+                .font(.system(size: scaled(12, pad: 13), weight: .medium, design: .rounded))
+                .foregroundColor(NeumorphicColors.text.opacity(0.66))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text("Loaded Products: \(loaded)")
+                .font(.system(size: scaled(12, pad: 13), weight: .medium, design: .rounded))
+                .foregroundColor(NeumorphicColors.text.opacity(0.66))
+                .lineLimit(1)
+                .minimumScaleFactor(0.45)
+            Text("Missing Products: \(missing)")
+                .font(.system(size: scaled(12, pad: 13), weight: .medium, design: .rounded))
+                .foregroundColor(NeumorphicColors.text.opacity(0.66))
+                .lineLimit(1)
+                .minimumScaleFactor(0.45)
+        }
+        .listRowInsets(EdgeInsets(top: 2, leading: 22, bottom: 10, trailing: 22))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+#endif
+
+    private var sidebarProEntryRow: some View {
+        let cardWidth: CGFloat = 254
+        let cardHeight: CGFloat = 75
+        let cornerRadius: CGFloat = 16
+        let isPremiumMember = subscriptionManager.hasPremiumAccess
+        let isEnglish = AppLanguage.current == .english
+        let titleText = isPremiumMember ? L10n.proEntryMemberTitle : L10n.proEntryTitle
+        let subtitleText = isPremiumMember ? L10n.proEntryMemberSubtitle : L10n.proEntrySubtitle
+        let proTitleWidth: CGFloat = {
+            if isPremiumMember {
+                return isEnglish ? 172 : 132
+            }
+            return isEnglish ? 70 : 88
+        }()
+        let subtitleWidth: CGFloat = {
+            if isPremiumMember {
+                return isEnglish ? 214 : 188
+            }
+            return 168
+        }()
+        let proTitleCenterX: CGFloat = 27 + (proTitleWidth / 2)
+        let proStarCenterX: CGFloat = {
+            if isPremiumMember {
+                return proTitleCenterX + (isEnglish ? 71 : 52)
+            }
+            return isEnglish ? 101.5 : 116.5
+        }()
+        let titleFrameWidth: CGFloat = isPremiumMember ? 220 : proTitleWidth
+        let subtitleFrameWidth: CGFloat = isPremiumMember ? 224 : subtitleWidth
+        let titlePositionX: CGFloat = isPremiumMember ? cardWidth / 2 : proTitleCenterX
+        let subtitlePositionX: CGFloat = isPremiumMember ? cardWidth / 2 : 111
+        let textAlignment: SwiftUI.Alignment = isPremiumMember ? .center : .leading
+        let subtitleColor: Color = isPremiumMember ? .white : .white.opacity(0.82)
+        let backgroundGradient = LinearGradient(
+            colors: [Color(hex: "D3A375"), Color(hex: "DFAE7F")],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+
+        return Button {
+            guard !isPremiumMember else { return }
+            isSidebarPresented = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isPremiumPaywallPresented = true
+            }
+        } label: {
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(backgroundGradient)
+
+                Image("ProEntryCrown")
+                    .resizable()
+                    .interpolation(.high)
+                    .renderingMode(.original)
+                    .frame(width: 140.42, height: 140.42)
+                    .rotationEffect(.degrees(-24.92))
+                    .blendMode(.screen)
+                    .opacity(0.6)
+                    .position(x: 103.258, y: 37.5)
+
+                Path { path in
+                    path.move(to: CGPoint(x: 4.19505, y: 0.39209))
+                    path.addCurve(
+                        to: CGPoint(x: 5.17148, y: 0.392089),
+                        control1: CGPoint(x: 4.3106, y: -0.130696),
+                        control2: CGPoint(x: 5.05593, y: -0.130697)
+                    )
+                    path.addLine(to: CGPoint(x: 5.58452, y: 2.26079))
+                    path.addCurve(
+                        to: CGPoint(x: 7.10574, y: 3.78201),
+                        control1: CGPoint(x: 5.75247, y: 3.02063),
+                        control2: CGPoint(x: 6.34591, y: 3.61406)
+                    )
+                    path.addLine(to: CGPoint(x: 8.97444, y: 4.19505))
+                    path.addCurve(
+                        to: CGPoint(x: 8.97444, y: 5.17148),
+                        control1: CGPoint(x: 9.49723, y: 4.3106),
+                        control2: CGPoint(x: 9.49723, y: 5.05593)
+                    )
+                    path.addLine(to: CGPoint(x: 7.10575, y: 5.58452))
+                    path.addCurve(
+                        to: CGPoint(x: 5.58452, y: 7.10574),
+                        control1: CGPoint(x: 6.34591, y: 5.75247),
+                        control2: CGPoint(x: 5.75247, y: 6.34591)
+                    )
+                    path.addLine(to: CGPoint(x: 5.17148, y: 8.97444))
+                    path.addCurve(
+                        to: CGPoint(x: 4.19505, y: 8.97444),
+                        control1: CGPoint(x: 5.05593, y: 9.49723),
+                        control2: CGPoint(x: 4.3106, y: 9.49723)
+                    )
+                    path.addLine(to: CGPoint(x: 3.78201, y: 7.10575))
+                    path.addCurve(
+                        to: CGPoint(x: 2.26079, y: 5.58452),
+                        control1: CGPoint(x: 3.61406, y: 6.34591),
+                        control2: CGPoint(x: 3.02063, y: 5.75247)
+                    )
+                    path.addLine(to: CGPoint(x: 0.39209, y: 5.17148))
+                    path.addCurve(
+                        to: CGPoint(x: 0.392089, y: 4.19505),
+                        control1: CGPoint(x: -0.130696, y: 5.05593),
+                        control2: CGPoint(x: -0.130697, y: 4.3106)
+                    )
+                    path.addLine(to: CGPoint(x: 2.26079, y: 3.78201))
+                    path.addCurve(
+                        to: CGPoint(x: 3.78201, y: 2.26079),
+                        control1: CGPoint(x: 3.02063, y: 3.61406),
+                        control2: CGPoint(x: 3.61406, y: 3.02063)
+                    )
+                    path.addLine(to: CGPoint(x: 4.19505, y: 0.39209))
+                    path.closeSubpath()
+                }
+                .fill(Color.white)
+                .frame(width: 13, height: 13)
+                .position(x: proStarCenterX, y: 21.5)
+
+                Text(titleText)
+                    .font(OnboardingFonts.supporting(size: 20, weight: 600))
+                    .foregroundColor(.white)
+                    .frame(width: titleFrameWidth, height: 25, alignment: textAlignment)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .allowsTightening(true)
+                    .position(x: titlePositionX, y: 28.5)
+
+                Text(subtitleText)
+                    .font(OnboardingFonts.supporting(size: 14, weight: 500))
+                    .foregroundColor(subtitleColor)
+                    .frame(width: subtitleFrameWidth, height: 18, alignment: textAlignment)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .allowsTightening(true)
+                    .position(x: subtitlePositionX, y: 51)
+
+                if !isPremiumMember {
+                    ZStack {
+                        Circle()
+                            .fill(Color.white.opacity(0.2))
+
+                        Path { path in
+                            path.move(to: CGPoint(x: 7.39049, y: 5.25716))
+                            path.addLine(to: CGPoint(x: 10.1334, y: 8.00002))
+                            path.addLine(to: CGPoint(x: 7.39049, y: 10.7429))
+                        }
+                        .stroke(
+                            Color.white,
+                            style: StrokeStyle(lineWidth: 1.06667, lineCap: .round, lineJoin: .round)
+                        )
+                    }
+                    .frame(width: 16, height: 16)
+                    .position(x: 227.5, y: 38)
+                }
+            }
+            .frame(width: cardWidth, height: cardHeight, alignment: .topLeading)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .frame(maxWidth: .infinity, alignment: .center)
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 10, leading: 22, bottom: 12, trailing: 22))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
     private var gridControls: some View {
         let controlSize: CGFloat = isPadLayout ? 38 : 32
         let iconSize: CGFloat = isPadLayout ? 18 : 16
@@ -1651,6 +2471,80 @@ struct ContentView: View {
         }
     }
 
+    private func sidebarAccountSection(profile: AccountProfile) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Account")
+                .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                .foregroundColor(NeumorphicColors.text)
+
+            Text(profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                 ? profile.displayName!
+                 : (profile.email ?? profile.uid))
+                .font(.system(size: scaled(16, pad: 18), weight: .bold, design: .rounded))
+                .foregroundColor(NeumorphicColors.text)
+
+            if let email = profile.email, !email.isEmpty {
+                Text(email)
+                    .font(.system(size: scaled(12.5, pad: 14.5), weight: .medium, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.62))
+            }
+
+            Text(profile.providerIDs.map(providerDisplayName).joined(separator: " · "))
+                .font(.system(size: scaled(12.5, pad: 14.5), weight: .medium, design: .rounded))
+                .foregroundColor(NeumorphicColors.text.opacity(0.52))
+
+            Button {
+                accountSession.signOut()
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    isSidebarPresented = false
+                }
+            } label: {
+                Text("Sign Out")
+                    .font(.system(size: scaled(13.5, pad: 15.5), weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(activeThemeColor.opacity(0.92))
+                    )
+            }
+            .buttonStyle(.plain)
+
+            if let errorMessage = accountSession.errorMessage, !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(.system(size: scaled(11.5, pad: 13), weight: .medium, design: .rounded))
+                    .foregroundColor(Color.red.opacity(0.82))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(NeumorphicColors.background)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(activeThemeColor.opacity(0.24), lineWidth: 1)
+                )
+        )
+        .listRowInsets(EdgeInsets(top: 8, leading: 22, bottom: 14, trailing: 22))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+    private func providerDisplayName(_ providerID: String) -> String {
+        switch providerID {
+        case "apple.com":
+            return "Apple"
+        case "google.com":
+            return "Google"
+        case "password":
+            return "Email"
+        default:
+            return providerID
+        }
+    }
+
     @ViewBuilder
     private var clearBoardConfirmationOverlay: some View {
         ZStack {
@@ -1679,7 +2573,7 @@ struct ContentView: View {
                     } label: {
                         Text(L10n.cancel)
                             .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                            .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                            .foregroundColor(NeumorphicColors.text.opacity(0.78))
                             .frame(maxWidth: .infinity)
                             .frame(height: 44)
                             .background(Color.clear.neumorphicConvex(radius: 18))
@@ -1818,6 +2712,25 @@ private struct BlackBoxModeEntryView: View {
     @State private var selectedTheme: BlackBoxTheme = .health
     @State private var selectedGridSize: Int = 4
     @State private var gameState = BlackBoxGameState(theme: .health, size: 4)
+    @State private var analyticsSessionStartDate: Date?
+    @State private var hasLoggedAnalyticsSessionEnd = false
+    @State private var hasLogged2048ScoreReached = false
+
+    private var currentScore: Int {
+        gameState.board
+            .flatMap { $0 }
+            .compactMap { $0 }
+            .filter { $0.isCompleted }
+            .reduce(0) { $0 + $1.score }
+    }
+
+    private var maxTileScore: Int {
+        gameState.board
+            .flatMap { $0 }
+            .compactMap { $0 }
+            .map(\.score)
+            .max() ?? 0
+    }
 
     var body: some View {
         ZStack {
@@ -1850,14 +2763,14 @@ private struct BlackBoxModeEntryView: View {
                     }
 
                 VStack(spacing: 20) {
-                    Text("玩法说明")
+                    Text(L10n.blackBoxModeHowToTitle)
                         .font(.system(size: 22, weight: .heavy, design: .rounded))
                         .foregroundColor(BlackBoxClassicPalette.text)
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("• 选择主题，系统将按照主题生成对应的任务")
-                        Text("• 点击格子完成任务，完成的格子任务可按照2048规则滑动合并")
-                        Text("• 看看你最后能获得多少分吧！")
+                        Text("• \(L10n.blackBoxModeFeatureTheme)")
+                        Text("• \(L10n.blackBoxModeFeatureMerge)")
+                        Text("• \(L10n.tr("See how high you can score!", zhHans: "看看你最后能获得多少分吧！", zhHant: "看看你最後能獲得多少分吧！"))")
                     }
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundColor(BlackBoxClassicPalette.text.opacity(0.8))
@@ -1869,7 +2782,7 @@ private struct BlackBoxModeEntryView: View {
                             showRulesAlert = false
                         }
                     } label: {
-                        Text("知道了")
+                        Text(L10n.tr("Got it", zhHans: "知道了", zhHant: "知道了"))
                             .font(.system(size: 18, weight: .heavy, design: .rounded))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
@@ -1894,6 +2807,16 @@ private struct BlackBoxModeEntryView: View {
             }
         }
         .onAppear {
+            if analyticsSessionStartDate == nil {
+                analyticsSessionStartDate = Date()
+                hasLoggedAnalyticsSessionEnd = false
+                hasLogged2048ScoreReached = false
+                AnalyticsService.logBB2048SessionStart(
+                    themeID: selectedTheme.rawValue,
+                    gridSize: selectedGridSize
+                )
+            }
+
             if !hasSeenBlackBoxRules {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     showRulesAlert = true
@@ -1901,6 +2824,41 @@ private struct BlackBoxModeEntryView: View {
                 hasSeenBlackBoxRules = true
             }
         }
+        .onDisappear {
+            log2048SessionEndIfNeeded()
+        }
+        .onChange(of: currentScore) { oldValue, newValue in
+            guard !hasLogged2048ScoreReached else { return }
+            guard oldValue < 2048, newValue >= 2048 else { return }
+
+            hasLogged2048ScoreReached = true
+            AnalyticsService.logBB2048ScoreReached(
+                themeID: selectedTheme.rawValue,
+                gridSize: selectedGridSize,
+                score: newValue,
+                maxTileScore: maxTileScore,
+                moveCount: gameState.moveCount,
+                mergeCount: gameState.mergeCount
+            )
+        }
+    }
+
+    private func log2048SessionEndIfNeeded() {
+        guard !hasLoggedAnalyticsSessionEnd else { return }
+        guard let sessionStart = analyticsSessionStartDate else { return }
+
+        hasLoggedAnalyticsSessionEnd = true
+        let durationSeconds = max(Int(Date().timeIntervalSince(sessionStart)), 0)
+        AnalyticsService.logBB2048SessionEnd(
+            themeID: selectedTheme.rawValue,
+            gridSize: selectedGridSize,
+            durationSeconds: durationSeconds,
+            finalScore: currentScore,
+            maxTileScore: maxTileScore,
+            moveCount: gameState.moveCount,
+            mergeCount: gameState.mergeCount,
+            bingoCount: gameState.bingoCount
+        )
     }
 }
 
@@ -1936,55 +2894,55 @@ private enum BlackBoxTheme: String, CaseIterable, Identifiable {
                 BlackBoxTaskDefinition(
                     id: "health_drink_water",
                     baseScore: 2,
-                    baseTitle: L10n.tr("Drink 1 cup of water", zhHans: "喝1杯水"),
+                    baseTitle: L10n.tr("Drink 1 cup of water", zhHans: "喝1杯水", zhHant: "喝1杯水"),
                     maxCount: 8
                 ),
                 BlackBoxTaskDefinition(
                     id: "health_breakfast",
                     baseScore: 2,
-                    baseTitle: L10n.tr("Eat breakfast", zhHans: "吃早餐"),
+                    baseTitle: L10n.tr("Eat breakfast", zhHans: "吃早餐", zhHant: "吃早餐"),
                     maxCount: 1
                 ),
                 BlackBoxTaskDefinition(
                     id: "health_walk_10",
                     baseScore: 4,
-                    baseTitle: L10n.tr("Walk 10 minutes", zhHans: "散步10分钟"),
+                    baseTitle: L10n.tr("Walk 10 minutes", zhHans: "散步10分钟", zhHant: "散步10分鐘"),
                     maxCount: 3
                 ),
                 BlackBoxTaskDefinition(
                     id: "health_stretch_10",
                     baseScore: 4,
-                    baseTitle: L10n.tr("Stretch 10 minutes", zhHans: "拉伸10分钟"),
+                    baseTitle: L10n.tr("Stretch 10 minutes", zhHans: "拉伸10分钟", zhHant: "拉伸10分鐘"),
                     maxCount: 2
                 ),
                 BlackBoxTaskDefinition(
                     id: "health_sleep_2330",
                     baseScore: 4,
-                    baseTitle: L10n.tr("Sleep before 23:30", zhHans: "23:30前睡觉"),
+                    baseTitle: L10n.tr("Sleep before 23:30", zhHans: "23:30前睡觉", zhHant: "23:30前睡覺"),
                     maxCount: 1
                 ),
                 BlackBoxTaskDefinition(
                     id: "health_fruit",
                     baseScore: 2,
-                    baseTitle: L10n.tr("Eat fruit", zhHans: "吃水果"),
+                    baseTitle: L10n.tr("Eat fruit", zhHans: "吃水果", zhHant: "吃水果"),
                     maxCount: 2
                 )
             ]
         case .focus:
             return [
-                BlackBoxTaskDefinition(id: "focus_pomodoro", baseScore: 2, baseTitle: L10n.tr("Pomodoro 25 min", zhHans: "番茄专注25分钟"), maxCount: 4),
-                BlackBoxTaskDefinition(id: "focus_read", baseScore: 2, baseTitle: L10n.tr("Read 10 pages", zhHans: "阅读10页"), maxCount: 3),
-                BlackBoxTaskDefinition(id: "focus_plan", baseScore: 4, baseTitle: L10n.tr("Write task plan", zhHans: "写任务计划"), maxCount: 1),
-                BlackBoxTaskDefinition(id: "focus_finish_one", baseScore: 4, baseTitle: L10n.tr("Finish one small task", zhHans: "完成一个小任务"), maxCount: 3),
-                BlackBoxTaskDefinition(id: "focus_no_social", baseScore: 4, baseTitle: L10n.tr("No social app 30 min", zhHans: "30分钟不刷社媒"), maxCount: 2)
+                BlackBoxTaskDefinition(id: "focus_pomodoro", baseScore: 2, baseTitle: L10n.tr("Pomodoro 25 min", zhHans: "番茄专注25分钟", zhHant: "番茄專注25分鐘"), maxCount: 4),
+                BlackBoxTaskDefinition(id: "focus_read", baseScore: 2, baseTitle: L10n.tr("Read 10 pages", zhHans: "阅读10页", zhHant: "閱讀10頁"), maxCount: 3),
+                BlackBoxTaskDefinition(id: "focus_plan", baseScore: 4, baseTitle: L10n.tr("Write task plan", zhHans: "写任务计划", zhHant: "寫任務計劃"), maxCount: 1),
+                BlackBoxTaskDefinition(id: "focus_finish_one", baseScore: 4, baseTitle: L10n.tr("Finish one small task", zhHans: "完成一个小任务", zhHant: "完成一個小任務"), maxCount: 3),
+                BlackBoxTaskDefinition(id: "focus_no_social", baseScore: 4, baseTitle: L10n.tr("No social app 30 min", zhHans: "30分钟不刷社媒", zhHant: "30分鐘不刷社群媒體"), maxCount: 2)
             ]
         case .home:
             return [
-                BlackBoxTaskDefinition(id: "home_trash", baseScore: 2, baseTitle: L10n.tr("Take out trash", zhHans: "倒垃圾"), maxCount: 1),
-                BlackBoxTaskDefinition(id: "home_dishes", baseScore: 2, baseTitle: L10n.tr("Wash dishes", zhHans: "洗碗"), maxCount: 2),
-                BlackBoxTaskDefinition(id: "home_wipe", baseScore: 2, baseTitle: L10n.tr("Wipe desk", zhHans: "擦桌子"), maxCount: 1),
-                BlackBoxTaskDefinition(id: "home_laundry", baseScore: 4, baseTitle: L10n.tr("Laundry 1 cycle", zhHans: "洗衣1轮"), maxCount: 1),
-                BlackBoxTaskDefinition(id: "home_drawer", baseScore: 4, baseTitle: L10n.tr("Organize one drawer", zhHans: "整理一个抽屉"), maxCount: 2)
+                BlackBoxTaskDefinition(id: "home_trash", baseScore: 2, baseTitle: L10n.tr("Take out trash", zhHans: "倒垃圾", zhHant: "倒垃圾"), maxCount: 1),
+                BlackBoxTaskDefinition(id: "home_dishes", baseScore: 2, baseTitle: L10n.tr("Wash dishes", zhHans: "洗碗", zhHant: "洗碗"), maxCount: 2),
+                BlackBoxTaskDefinition(id: "home_wipe", baseScore: 2, baseTitle: L10n.tr("Wipe desk", zhHans: "擦桌子", zhHant: "擦桌子"), maxCount: 1),
+                BlackBoxTaskDefinition(id: "home_laundry", baseScore: 4, baseTitle: L10n.tr("Laundry 1 cycle", zhHans: "洗衣1轮", zhHant: "洗衣1輪"), maxCount: 1),
+                BlackBoxTaskDefinition(id: "home_drawer", baseScore: 4, baseTitle: L10n.tr("Organize one drawer", zhHans: "整理一个抽屉", zhHant: "整理一個抽屜"), maxCount: 2)
             ]
         }
     }
@@ -2027,9 +2985,9 @@ private struct BlackBoxTaskDefinition: Identifiable, Hashable {
         guard count > 1 else { return baseTitle }
         switch id {
         case "health_drink_water":
-            return L10n.tr("Drink \(count) cups of water", zhHans: "喝\(count)杯水")
+            return L10n.tr("Drink \(count) cups of water", zhHans: "喝\(count)杯水", zhHant: "喝\(count)杯水")
         default:
-            return L10n.tr("\(baseTitle) x\(count)", zhHans: "\(baseTitle) x\(count)")
+            return L10n.tr("\(baseTitle) x\(count)", zhHans: "\(baseTitle) x\(count)", zhHant: "\(baseTitle) x\(count)")
         }
     }
 }
@@ -2082,12 +3040,8 @@ private struct BlackBoxGameState {
         guard row >= 0, row < size, col >= 0, col < size else { return }
         guard var tile = board[row][col] else { return }
         pushHistory()
-        let wasCompleted = tile.isCompleted
         tile.isCompleted.toggle()
         board[row][col] = tile
-        if !wasCompleted, tile.isCompleted {
-            spawnStrategicTile(preferredScore: tile.score)
-        }
         isGameOver = !hasMoveAvailable()
     }
 
@@ -2319,7 +3273,7 @@ private struct BlackBoxGameState {
         return available.randomElement() ?? matches.randomElement() ?? theme.taskDefinitions.first ?? BlackBoxTaskDefinition(
             id: "fallback",
             baseScore: score,
-            baseTitle: L10n.tr("Task", zhHans: "任务")
+            baseTitle: L10n.tr("Task", zhHans: "任务", zhHant: "任務")
         )
     }
 
@@ -2456,45 +3410,45 @@ private struct BlackBoxModeGameView: View {
         var title: String {
             switch self {
             case .exit:
-                return "确认退出?"
+                return L10n.tr("Confirm exit?", zhHans: "确认退出?", zhHant: "確認退出?")
             case .restart:
-                return "确认重开?"
+                return L10n.tr("Confirm restart?", zhHans: "确认重开?", zhHant: "確認重開?")
             case .switchTheme(let theme):
-                return "切换到\(theme.title)?"
+                return L10n.tr("Switch to \(theme.title)?", zhHans: "切换到\(theme.title)?", zhHant: "切換到\(theme.title)?")
             case .showRules:
-                return "查看玩法说明?"
+                return L10n.tr("View how to play?", zhHans: "查看玩法说明?", zhHant: "查看玩法說明?")
             case .refreshPendingTasks:
-                return "刷新未完成任务?"
+                return L10n.tr("Refresh pending tasks?", zhHans: "刷新未完成任务?", zhHant: "刷新未完成任務?")
             }
         }
 
         var message: String {
             switch self {
             case .exit:
-                return "会离开 2048 模式，当前棋盘进度不会保留。"
+                return L10n.tr("You'll leave 2048 mode and current board progress won't be kept.", zhHans: "会离开 2048 模式，当前棋盘进度不会保留。", zhHant: "會離開 2048 模式，當前棋盤進度不會保留。")
             case .restart:
-                return "会清空当前棋盘并重新生成任务。"
+                return L10n.tr("This will clear the board and generate tasks again.", zhHans: "会清空当前棋盘并重新生成任务。", zhHant: "會清空當前棋盤並重新生成任務。")
             case .switchTheme:
-                return "会切换主题并重置当前棋盘。"
+                return L10n.tr("This will switch theme and reset the current board.", zhHans: "会切换主题并重置当前棋盘。", zhHant: "會切換主題並重置當前棋盤。")
             case .showRules:
-                return "将打开玩法说明弹窗。"
+                return L10n.tr("This will open the how-to-play popup.", zhHans: "将打开玩法说明弹窗。", zhHant: "將打開玩法說明彈窗。")
             case .refreshPendingTasks:
-                return "仅刷新未完成且未合并的任务格。"
+                return L10n.tr("Only incomplete and unmerged tiles will be refreshed.", zhHans: "仅刷新未完成且未合并的任务格。", zhHant: "僅刷新未完成且未合併的任務格。")
             }
         }
 
         var confirmTitle: String {
             switch self {
             case .exit:
-                return "退出"
+                return L10n.tr("Exit", zhHans: "退出", zhHant: "退出")
             case .restart:
-                return "重开"
+                return L10n.tr("Restart", zhHans: "重开", zhHant: "重開")
             case .switchTheme:
-                return "切换"
+                return L10n.tr("Switch", zhHans: "切换", zhHant: "切換")
             case .showRules:
-                return "查看"
+                return L10n.tr("View", zhHans: "查看", zhHant: "查看")
             case .refreshPendingTasks:
-                return "刷新"
+                return L10n.tr("Refresh", zhHans: "刷新", zhHant: "刷新")
             }
         }
     }
@@ -2549,21 +3503,21 @@ private struct BlackBoxModeGameView: View {
 
                         Spacer()
 
-                        scoreBox(title: "分数", value: "\(currentScore)")
+                        scoreBox(title: L10n.tr("Score", zhHans: "分数", zhHant: "分數"), value: "\(currentScore)")
                     }
 
                     VStack(spacing: 16) {
                         HStack(spacing: 12) {
-                            neumorphicButton(title: "退出", action: {
+                            neumorphicButton(title: L10n.tr("Exit", zhHans: "退出", zhHant: "退出"), action: {
                                 requestConfirmation(.exit)
                             })
                             Spacer()
-                            neumorphicButton(title: "撤销", action: {
+                            neumorphicButton(title: L10n.undo, action: {
                                 withAnimation(.spring(response: 0.2, dampingFraction: 0.92)) {
                                     game.undoLastAction()
                                 }
                             })
-                            neumorphicButton(title: "重新开始", action: {
+                            neumorphicButton(title: L10n.tr("Restart", zhHans: "重新开始", zhHant: "重新開始"), action: {
                                 requestConfirmation(.restart)
                             })
                         }
@@ -3075,7 +4029,7 @@ private struct BlackBoxHistorySheet: View {
                         Image(systemName: "clock.arrow.circlepath")
                             .font(.system(size: 28, weight: .bold))
                             .foregroundColor(BlackBoxClassicPalette.text.opacity(0.5))
-                        Text("暂无历史记录")
+                        Text(L10n.tr("No history yet", zhHans: "暂无历史记录", zhHant: "暫無歷史記錄"))
                             .font(.system(size: 18, weight: .bold, design: .rounded))
                             .foregroundColor(BlackBoxClassicPalette.text.opacity(0.75))
                     }
@@ -3096,10 +4050,10 @@ private struct BlackBoxHistorySheet: View {
                                     Spacer(minLength: 8)
 
                                     VStack(alignment: .trailing, spacing: 4) {
-                                        Text("分数 \(record.score)")
+                                        Text("\(L10n.tr("Score", zhHans: "分数", zhHant: "分數")) \(record.score)")
                                             .font(.system(size: 15, weight: .heavy, design: .rounded))
                                             .foregroundColor(BlackBoxClassicPalette.restart)
-                                        Text("步数 \(record.moves) · 合并 \(record.merges)")
+                                        Text("\(L10n.blackBoxModeMoves) \(record.moves) · \(L10n.blackBoxModeMerges) \(record.merges)")
                                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                                             .foregroundColor(BlackBoxClassicPalette.text.opacity(0.72))
                                     }
@@ -3121,7 +4075,7 @@ private struct BlackBoxHistorySheet: View {
                     }
                 }
             }
-            .navigationTitle("历史记录")
+            .navigationTitle(L10n.tr("History", zhHans: "历史记录", zhHant: "歷史記錄"))
             .navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -3373,25 +4327,17 @@ private struct PointsDetailSheet: View {
     }
 
     private func tabBackground(isSelected: Bool) -> some View {
-        let base = Capsule(style: .continuous)
-            .fill(isSelected ? NeumorphicColors.background : NeumorphicColors.background.opacity(0.48))
+        Capsule(style: .continuous)
+            .fill(isSelected ? NeumorphicColors.accent.opacity(0.12) : NeumorphicColors.background.opacity(0.5))
             .overlay(
                 Capsule(style: .continuous)
                     .stroke(
                         isSelected
-                            ? NeumorphicColors.accent.opacity(0.24)
-                            : NeumorphicColors.lightShadow.opacity(0.24),
+                            ? NeumorphicColors.accent.opacity(0.72)
+                            : NeumorphicColors.accent.opacity(0.38),
                         lineWidth: 1
                     )
             )
-
-        return Group {
-            if isSelected {
-                base.neumorphicConvex(radius: 20)
-            } else {
-                base
-            }
-        }
     }
 
     private func stickerCard(_ sticker: StickerKind) -> some View {
@@ -3431,7 +4377,7 @@ private struct PointsDetailSheet: View {
                     .foregroundColor((canRedeem || hasOwned) ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.42))
                     .frame(maxWidth: .infinity)
                     .frame(height: isPadLayout ? 38 : 34)
-                    .background(Color.clear.neumorphicConvex(radius: isPadLayout ? 19 : 17))
+                    .background(flatStickerButtonSurface(cornerRadius: isPadLayout ? 19 : 17))
                     .opacity((canRedeem || hasOwned) ? 1 : 0.68)
             }
             .buttonStyle(.plain)
@@ -3440,7 +4386,7 @@ private struct PointsDetailSheet: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
         .padding(.horizontal, 12)
-        .background(Color.clear.neumorphicConvex(radius: 22))
+        .background(flatStickerCardSurface(cornerRadius: 22))
         .opacity((hasOwned || canRedeem) ? 1 : 0.9)
     }
 
@@ -3486,7 +4432,7 @@ private struct PointsDetailSheet: View {
                         .foregroundColor(canRedeem ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.42))
                         .frame(maxWidth: .infinity)
                         .frame(height: isPadLayout ? 38 : 34)
-                        .background(Color.clear.neumorphicConvex(radius: isPadLayout ? 19 : 17))
+                        .background(themedOutlineSurface(cornerRadius: isPadLayout ? 19 : 17))
                         .opacity(canRedeem ? 1 : 0.68)
                 }
                 .buttonStyle(.plain)
@@ -3499,16 +4445,15 @@ private struct PointsDetailSheet: View {
             } label: {
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: scaled(12, pad: 14), weight: .bold))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
                     .frame(width: 30, height: 30)
-                    .background(Color.clear.neumorphicConvex(radius: 15))
             }
             .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, minHeight: isPadLayout ? 192 : 176, alignment: .top)
         .padding(.vertical, 16)
         .padding(.horizontal, 12)
-        .background(Color.clear.neumorphicConvex(radius: 22))
+        .background(themedOutlineSurface(cornerRadius: 22))
         .opacity(canRedeem ? 1 : 0.9)
     }
 
@@ -3528,9 +4473,32 @@ private struct PointsDetailSheet: View {
             .frame(maxWidth: .infinity, minHeight: isPadLayout ? 192 : 176)
             .padding(.vertical, 16)
             .padding(.horizontal, 12)
-            .background(Color.clear.neumorphicConvex(radius: 22))
+            .background(themedOutlineSurface(cornerRadius: 22))
         }
         .buttonStyle(.plain)
+    }
+
+    private func themedOutlineSurface(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(NeumorphicColors.background.opacity(0.94))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(NeumorphicColors.accent.opacity(0.58), lineWidth: 1)
+            )
+    }
+
+    private func flatStickerCardSurface(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(NeumorphicColors.background.opacity(0.78))
+    }
+
+    private func flatStickerButtonSurface(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(NeumorphicColors.background.opacity(0.92))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(NeumorphicColors.text.opacity(0.08), lineWidth: 0.8)
+            )
     }
 }
 
@@ -3608,7 +4576,7 @@ private struct RewardEditorSheet: View {
                             .foregroundColor(NeumorphicColors.text)
                             .padding(.horizontal, 16)
                             .frame(height: isPadLayout ? 56 : 50)
-                            .background(Color.clear.neumorphicConvex(radius: isPadLayout ? 18 : 16))
+                            .background(rewardEditorOutlineSurface(cornerRadius: isPadLayout ? 18 : 16))
                             .focused($focusedField, equals: .title)
                             .submitLabel(.done)
                     }
@@ -3624,7 +4592,7 @@ private struct RewardEditorSheet: View {
                             .foregroundColor(NeumorphicColors.text)
                             .padding(.horizontal, 16)
                             .frame(height: isPadLayout ? 56 : 50)
-                            .background(Color.clear.neumorphicConvex(radius: isPadLayout ? 18 : 16))
+                            .background(rewardEditorOutlineSurface(cornerRadius: isPadLayout ? 18 : 16))
                             .focused($focusedField, equals: .points)
                     }
 
@@ -3637,7 +4605,7 @@ private struct RewardEditorSheet: View {
                                 .foregroundColor(NeumorphicColors.bingoAccent)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: isPadLayout ? 50 : 46)
-                                .background(Color.clear.neumorphicConvex(radius: isPadLayout ? 20 : 18))
+                                .background(rewardEditorOutlineSurface(cornerRadius: isPadLayout ? 20 : 18))
                         }
                         .buttonStyle(.plain)
                     }
@@ -3663,7 +4631,7 @@ private struct RewardEditorSheet: View {
                     Button(L10n.cancel) {
                         onCancel()
                     }
-                    .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
@@ -3688,6 +4656,15 @@ private struct RewardEditorSheet: View {
             }
         }
     }
+
+    private func rewardEditorOutlineSurface(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(NeumorphicColors.background.opacity(0.94))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(NeumorphicColors.accent.opacity(0.58), lineWidth: 1)
+            )
+    }
 }
 
 private struct EditableHomeStickerView: View {
@@ -3706,7 +4683,19 @@ private struct EditableHomeStickerView: View {
     }
 
     private var stickerWidth: CGFloat {
-        baseStickerWidth * placement.scale
+        baseStickerWidth * CGFloat(normalizedScale)
+    }
+
+    private var normalizedXRatio: Double {
+        normalized(placement.xRatio, min: 0.02, max: 0.98, fallback: 0.5)
+    }
+
+    private var normalizedYRatio: Double {
+        normalized(placement.yRatio, min: 0.02, max: 0.98, fallback: 0.5)
+    }
+
+    private var normalizedScale: Double {
+        normalized(placement.scale, min: 0.5, max: 1.6, fallback: 1.0)
     }
 
     private var horizontalInsetRatio: Double {
@@ -3721,8 +4710,8 @@ private struct EditableHomeStickerView: View {
 
     var body: some View {
         let position = CGPoint(
-            x: canvasSize.width * placement.xRatio,
-            y: canvasSize.height * placement.yRatio
+            x: canvasSize.width * normalizedXRatio,
+            y: canvasSize.height * normalizedYRatio
         )
 
         ZStack(alignment: .topTrailing) {
@@ -3826,6 +4815,11 @@ private struct EditableHomeStickerView: View {
         let normalized = Double(value)
         return Swift.max(0.02, Swift.min(normalized, 0.48))
     }
+
+    private func normalized(_ value: Double, min lowerBound: Double, max upperBound: Double, fallback: Double) -> Double {
+        guard value.isFinite else { return fallback }
+        return Swift.max(lowerBound, Swift.min(value, upperBound))
+    }
 }
 
 private struct QuickEditView: View {
@@ -3834,6 +4828,7 @@ private struct QuickEditView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @State private var library = CommonTasksStore.loadLibrary()
     @State private var lastTrackedLibrary = CommonTasksStore.loadLibrary()
     @FocusState private var focusedField: FocusedMyTaskField?
@@ -3845,6 +4840,7 @@ private struct QuickEditView: View {
     @State private var targetGridSize = 4
     @State private var didApplyToBoard = false
     @State private var pendingApplyPlan: ApplyPlan?
+    @State private var isPremiumPaywallPresented = false
 
     private enum FocusedMyTaskField: Hashable {
         case task(Int)
@@ -3898,6 +4894,13 @@ private struct QuickEditView: View {
         horizontalSizeClass == .regular
     }
 
+    private var quickEditSectionFlatBackground: Color { NeumorphicColors.innerSurface }
+    private var quickEditTaskFlatBackground: Color { NeumorphicColors.background.opacity(0.96) }
+    private var quickEditGroupFlatBackground: Color { NeumorphicColors.background.opacity(0.98) }
+    private var quickEditGroupTaskFlatBackground: Color { NeumorphicColors.background.opacity(0.92) }
+    private var quickEditFieldStroke: Color { NeumorphicColors.text.opacity(0.06) }
+    private var quickEditPlaceholderColor: Color { NeumorphicColors.text.opacity(0.34) }
+
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
         isPadLayout ? (pad ?? base * 1.18) : base
     }
@@ -3917,6 +4920,22 @@ private struct QuickEditView: View {
 
     private var hasExistingBoardTasks: Bool {
         !viewModel.currentTaskPoolTasks().isEmpty
+    }
+
+    private var isPremiumUser: Bool {
+        subscriptionManager.hasPremiumAccess
+    }
+
+    private var canAddStandaloneTask: Bool {
+        isPremiumUser || library.tasks.count < AppSettings.maxCommonTasks
+    }
+
+    private var canAddGroup: Bool {
+        isPremiumUser || library.groups.count < AppSettings.maxTaskGroups
+    }
+
+    private func canAddTask(to group: MyTaskGroup) -> Bool {
+        isPremiumUser || group.tasks.count < AppSettings.maxTasksPerGroup
     }
 
     private var allTaskCandidates: [TaskCandidate] {
@@ -3961,7 +4980,7 @@ private struct QuickEditView: View {
                     VStack(alignment: .leading, spacing: 24) {
                         quickEditControlsCard
                         tasksSection
-                            .padding(.top, -30)
+                            .padding(.top, -10)
                         groupsSection
                         hintCard
                     }
@@ -4024,7 +5043,7 @@ private struct QuickEditView: View {
                         handleDoneTap()
                     }
                     .fontWeight(.semibold)
-                    .foregroundColor(NeumorphicColors.accent)
+                    .foregroundColor(NeumorphicColors.text)
                 }
 
                 ToolbarItemGroup(placement: .keyboard) {
@@ -4043,7 +5062,6 @@ private struct QuickEditView: View {
             finalizeLibrary()
         }
         .onAppear {
-            migrateStandaloneTasksIntoGroupsIfNeeded()
             targetGridSize = viewModel.gridSize
             selectedTaskKeys = initialSelectedKeys(
                 from: viewModel.currentTaskPoolTasks(),
@@ -4052,6 +5070,9 @@ private struct QuickEditView: View {
         }
         .onChange(of: library) { _, _ in
             syncSelectedTaskKeysWithCurrentLibrary()
+        }
+        .fullScreenCover(isPresented: $isPremiumPaywallPresented) {
+            PremiumPaywallView()
         }
     }
 
@@ -4125,24 +5146,28 @@ private struct QuickEditView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 40)
                 .background(
-                    Capsule(style: .continuous)
-                        .fill(isAccent ? NeumorphicColors.accent : NeumorphicColors.background)
-                        .shadow(color: Color.white.opacity(0.68), radius: 6, x: -3, y: -3)
-                        .shadow(color: Color(hex: "CFD4DA").opacity(0.7), radius: 6, x: 3, y: 3)
+                    Group {
+                        if isAccent {
+                            Capsule(style: .continuous)
+                                .fill(NeumorphicColors.accent)
+                        } else {
+                            Color.clear.neumorphicConvex(radius: 16)
+                        }
+                    }
                 )
         }
         .buttonStyle(.plain)
     }
 
     private var tasksSection: some View {
-        sectionCard {
+        flatSectionCard {
             VStack(alignment: .leading, spacing: 18) {
                 sectionHeader(
                     title: L10n.tasks,
                     subtitle: "",
-                    detail: "\(library.tasks.count)/\(AppSettings.maxCommonTasks)",
-                    actionTitle: library.tasks.count < AppSettings.maxCommonTasks ? L10n.addTask : nil,
-                    action: library.tasks.count < AppSettings.maxCommonTasks ? appendTask : nil
+                    detail: "",
+                    actionTitle: L10n.addTask,
+                    action: appendTask
                 )
 
                 LazyVGrid(columns: taskItemColumns, spacing: 10) {
@@ -4155,14 +5180,14 @@ private struct QuickEditView: View {
     }
 
     private var groupsSection: some View {
-        sectionCard {
+        flatSectionCard {
             VStack(alignment: .leading, spacing: 18) {
                 sectionHeader(
                     title: L10n.groups,
                     subtitle: "",
-                    detail: "\(library.groups.count)/\(AppSettings.maxTaskGroups)",
-                    actionTitle: library.groups.count < AppSettings.maxTaskGroups ? L10n.addGroup : nil,
-                    action: library.groups.count < AppSettings.maxTaskGroups ? appendGroup : nil
+                    detail: "",
+                    actionTitle: L10n.addGroup,
+                    action: appendGroup
                 )
 
                 LazyVGrid(columns: groupColumns, spacing: 14) {
@@ -4179,7 +5204,14 @@ private struct QuickEditView: View {
         let isSelected = selectedTaskKeys.contains(key)
 
         return HStack(spacing: 8) {
-            TextField(L10n.taskNumber(index + 1), text: taskBinding(for: index))
+            TextField(
+                text: taskBinding(for: index),
+                prompt: Text(L10n.taskNumber(index + 1))
+                    .foregroundColor(quickEditPlaceholderColor)
+            ) {
+                EmptyView()
+            }
+                .textInputAutocapitalization(.sentences)
                 .font(.system(size: scaled(13, pad: 17), weight: .medium, design: .rounded))
                 .foregroundColor(NeumorphicColors.text)
                 .lineLimit(1)
@@ -4202,16 +5234,23 @@ private struct QuickEditView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: scaled(9, pad: 10), weight: .bold))
-                    .foregroundColor(NeumorphicColors.accent)
+                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
                     .frame(width: 18, height: 18)
-                    .neumorphicConvex(radius: 9)
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, minHeight: 42)
-        .background(Color.clear.neumorphicConvex(radius: 14))
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(quickEditTaskFlatBackground)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(quickEditFieldStroke, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(NeumorphicColors.accent.opacity(isSelected ? 0.12 : 0))
@@ -4234,7 +5273,14 @@ private struct QuickEditView: View {
 
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {
-                TextField(L10n.groupName, text: groupNameBinding(for: group.id))
+                TextField(
+                    text: groupNameBinding(for: group.id),
+                    prompt: Text(L10n.groupName)
+                        .foregroundColor(quickEditPlaceholderColor)
+                ) {
+                    EmptyView()
+                }
+                    .textInputAutocapitalization(.sentences)
                     .font(.system(size: scaled(16, pad: 22), weight: .bold, design: .rounded))
                     .foregroundColor(NeumorphicColors.text)
                     .focused($focusedField, equals: .groupName(group.id))
@@ -4258,9 +5304,8 @@ private struct QuickEditView: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: scaled(9, pad: 10), weight: .bold))
-                        .foregroundColor(NeumorphicColors.accent)
+                        .foregroundColor(NeumorphicColors.text.opacity(0.78))
                         .frame(width: 18, height: 18)
-                        .neumorphicConvex(radius: 9)
                 }
                 .buttonStyle(.plain)
             }
@@ -4276,14 +5321,20 @@ private struct QuickEditView: View {
                     groupTaskChip(groupID: group.id, index: taskIndex)
                 }
 
-                if group.tasks.count < AppSettings.maxTasksPerGroup {
-                    addGroupTaskChip(groupID: group.id)
-                }
+                addGroupTaskChip(groupID: group.id)
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(Color.clear.neumorphicConvex(radius: 24))
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(quickEditGroupFlatBackground)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(quickEditFieldStroke, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(NeumorphicColors.accent.opacity(groupSelected ? 0.12 : 0))
@@ -4302,7 +5353,14 @@ private struct QuickEditView: View {
 
     private func groupTaskChip(groupID: UUID, index: Int) -> some View {
         return HStack(spacing: 8) {
-            TextField(L10n.task, text: groupTaskBinding(groupID: groupID, index: index))
+            TextField(
+                text: groupTaskBinding(groupID: groupID, index: index),
+                prompt: Text(L10n.task)
+                    .foregroundColor(quickEditPlaceholderColor)
+            ) {
+                EmptyView()
+            }
+                .textInputAutocapitalization(.sentences)
                 .font(.system(size: scaled(13, pad: 17), weight: .medium, design: .rounded))
                 .foregroundColor(NeumorphicColors.text)
                 .lineLimit(1)
@@ -4315,26 +5373,34 @@ private struct QuickEditView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: scaled(9, pad: 10), weight: .bold))
-                    .foregroundColor(NeumorphicColors.accent)
+                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
                     .frame(width: 18, height: 18)
-                    .neumorphicConvex(radius: 9)
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, minHeight: 42)
-        .background(Color.clear.neumorphicConvex(radius: 14))
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(quickEditGroupTaskFlatBackground)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(quickEditFieldStroke, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
     }
 
     private func addGroupTaskChip(groupID: UUID) -> some View {
         Button {
             guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }) else { return }
-            library.groups[groupIndex].tasks.append("")
-            let newIndex = library.groups[groupIndex].tasks.count - 1
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                focusedField = .groupTask(groupID, newIndex)
+            guard canAddTask(to: library.groups[groupIndex]) else {
+                presentPremiumPaywallForLimit()
+                return
             }
+            focusedField = nil
+            library.groups[groupIndex].tasks.append("")
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "plus")
@@ -4342,9 +5408,16 @@ private struct QuickEditView: View {
                 Text(L10n.addTask)
                     .font(.system(size: scaled(13, pad: 17), weight: .semibold, design: .rounded))
             }
-            .foregroundColor(NeumorphicColors.accent)
+            .foregroundColor(NeumorphicColors.text)
             .frame(maxWidth: .infinity, minHeight: 42)
-            .background(Color.clear.neumorphicConvex(radius: 14))
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(quickEditGroupTaskFlatBackground)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(quickEditFieldStroke, lineWidth: 1)
+            }
         }
         .buttonStyle(.plain)
     }
@@ -4471,32 +5544,6 @@ private struct QuickEditView: View {
         selectedTaskKeys = selectedTaskKeys.filter { validKeys.contains($0) }
     }
 
-    private func migrateStandaloneTasksIntoGroupsIfNeeded() {
-        let legacyTasks = library.tasks
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        guard !legacyTasks.isEmpty else { return }
-
-        var remaining = legacyTasks
-
-        for index in library.groups.indices where !remaining.isEmpty {
-            let capacity = max(AppSettings.maxTasksPerGroup - library.groups[index].tasks.count, 0)
-            guard capacity > 0 else { continue }
-            let chunk = Array(remaining.prefix(capacity))
-            library.groups[index].tasks.append(contentsOf: chunk)
-            remaining.removeFirst(chunk.count)
-        }
-
-        while !remaining.isEmpty && library.groups.count < AppSettings.maxTaskGroups {
-            let chunk = Array(remaining.prefix(AppSettings.maxTasksPerGroup))
-            library.groups.append(MyTaskGroup(name: L10n.groupDefaultName, tasks: chunk))
-            remaining.removeFirst(chunk.count)
-        }
-
-        library.tasks = []
-    }
-
     private func finalizeLibrary(showSuccessToast: Bool = false, emitChangeToast: Bool = true) {
         let previousLibrary = lastTrackedLibrary
         CommonTasksStore.saveLibrary(library)
@@ -4520,20 +5567,28 @@ private struct QuickEditView: View {
         dismiss()
     }
 
+    private func presentPremiumPaywallForLimit() {
+        focusedField = nil
+        isPremiumPaywallPresented = true
+    }
+
     private func appendTask() {
-        library.tasks.append("")
-        let newIndex = library.tasks.count - 1
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            focusedField = .task(newIndex)
+        guard canAddStandaloneTask else {
+            presentPremiumPaywallForLimit()
+            return
         }
+        focusedField = nil
+        library.tasks.append("")
     }
 
     private func appendGroup() {
+        guard canAddGroup else {
+            presentPremiumPaywallForLimit()
+            return
+        }
+        focusedField = nil
         let newGroup = MyTaskGroup(name: "", tasks: [""])
         library.groups.append(newGroup)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            focusedField = .groupName(newGroup.id)
-        }
     }
 
     private func confirmDelete(_ target: DeleteTarget) {
@@ -4626,7 +5681,7 @@ private struct QuickEditView: View {
                     } label: {
                         Text(L10n.cancel)
                             .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                            .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                            .foregroundColor(NeumorphicColors.text.opacity(0.78))
                             .frame(maxWidth: .infinity)
                             .frame(height: 44)
                             .background(Color.clear.neumorphicConvex(radius: 18))
@@ -4695,7 +5750,7 @@ private struct QuickEditView: View {
                     } label: {
                         Text(L10n.cancel)
                             .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                            .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                            .foregroundColor(NeumorphicColors.text.opacity(0.78))
                             .frame(maxWidth: .infinity)
                             .frame(height: 44)
                             .background(Color.clear.neumorphicConvex(radius: 18))
@@ -4736,20 +5791,20 @@ private struct QuickEditView: View {
     }
 
     private func sectionHeader(title: String, subtitle: String, detail: String, actionTitle: String?, action: (() -> Void)?) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: subtitle.isEmpty ? 0 : 4) {
-                    Text("\(title) (\(detail))")
-                        .font(.system(size: scaled(18, pad: 30), weight: .bold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: subtitle.isEmpty ? 0 : 4) {
+                Text(detail.isEmpty ? title : "\(title) (\(detail))")
+                    .font(.system(size: scaled(15, pad: 19), weight: .semibold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
 
-                    if !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.system(size: scaled(12, pad: 16), weight: .medium, design: .rounded))
-                            .foregroundColor(NeumorphicColors.text.opacity(0.56))
-                    }
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.system(size: scaled(12, pad: 16), weight: .medium, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text.opacity(0.56))
                 }
             }
+
+            Spacer(minLength: 0)
 
             if let actionTitle, let action {
                 Button(action: action) {
@@ -4759,7 +5814,7 @@ private struct QuickEditView: View {
                         Text(actionTitle)
                             .font(.system(size: scaled(13, pad: 18), weight: .semibold, design: .rounded))
                     }
-                    .foregroundColor(NeumorphicColors.accent)
+                    .foregroundColor(NeumorphicColors.text)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(Color.clear.neumorphicConvex(radius: 16))
@@ -4767,6 +5822,15 @@ private struct QuickEditView: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    private func flatSectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0, content: content)
+            .padding(isPadLayout ? 22 : 18)
+            .background(
+                RoundedRectangle(cornerRadius: isPadLayout ? 30 : 26, style: .continuous)
+                    .fill(quickEditSectionFlatBackground)
+            )
     }
 
     private func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -4817,7 +5881,587 @@ private struct QuickEditView: View {
     }
 }
 
+
+private struct PremiumPaywallView: View {
+    private enum PaywallPlan: String, CaseIterable, Identifiable {
+        case monthly
+        case yearly
+        case lifetime
+
+        var id: String { rawValue }
+
+        var productID: String {
+            switch self {
+            case .monthly:
+                return SubscriptionManager.monthlyProductID
+            case .yearly:
+                return SubscriptionManager.yearlyProductID
+            case .lifetime:
+                return SubscriptionManager.lifetimeProductID
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .monthly:
+                return L10n.paywallOneMonth
+            case .yearly:
+                return L10n.paywallOneYear
+            case .lifetime:
+                return L10n.paywallLifetime
+            }
+        }
+    }
+
+    private enum PaywallRegion {
+        case mainlandChina
+        case taiwan
+        case international
+
+        static var current: PaywallRegion {
+            let regionIdentifier = AppLanguage.currentRegionCode
+
+            if regionIdentifier == "HK" {
+                return .international
+            }
+            if regionIdentifier == "TW" || AppLanguage.hasTaiwanLanguageHint {
+                return .taiwan
+            }
+            if regionIdentifier == "CN" {
+                return .mainlandChina
+            }
+
+            return .international
+        }
+    }
+
+    private struct PlanPriceDisplay {
+        let displayPrice: String
+        let subtitle: String?
+    }
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
+
+    @State private var selectedPlan: PaywallPlan = .monthly
+    @State private var feedbackMessage: String?
+
+    private let designWidth: CGFloat = 393
+    private let designHeight: CGFloat = 852
+
+    private var usesLifetimeTheme: Bool {
+        selectedPlan == .lifetime
+    }
+
+    private var backgroundGradient: LinearGradient {
+        if usesLifetimeTheme {
+            return LinearGradient(
+                stops: [
+                    .init(color: Color(hex: "734A37"), location: 0),
+                    .init(color: Color(hex: "1D1002"), location: 0.52549),
+                    .init(color: Color(hex: "1D1002"), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+
+        return LinearGradient(
+            stops: [
+                .init(color: Color(hex: "D3A375"), location: 0),
+                .init(color: Color(hex: "F2E9DF"), location: 0.42324),
+                .init(color: Color(hex: "F2E9DF"), location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var featureTitleColor: Color {
+        usesLifetimeTheme ? .white : Color(hex: "3F270F")
+    }
+
+    private var featureBodyColor: Color {
+        usesLifetimeTheme ? .white : Color(hex: "373F4B")
+    }
+
+    private var actionButtonColor: Color {
+        usesLifetimeTheme ? Color(hex: "D3A375") : Color(hex: "3F270F")
+    }
+
+    private var actionButtonTextColor: Color {
+        .white
+    }
+
+    private var backButtonFillColor: Color {
+        Color.black.opacity(0.06)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let scale = min(geo.size.width / designWidth, geo.size.height / designHeight)
+            let contentWidth = designWidth * scale
+            let horizontalOffset = max((geo.size.width - contentWidth) / 2, 0)
+
+            ZStack(alignment: .topLeading) {
+                paywallBackground
+                    .ignoresSafeArea()
+
+                ZStack(alignment: .topLeading) {
+                    heroSection
+                    featureSection
+                    planCardsSection
+                    subscribeButton
+                    legalFooter
+                }
+                .frame(width: designWidth, height: designHeight, alignment: .topLeading)
+                .scaleEffect(scale, anchor: .topLeading)
+                .offset(x: horizontalOffset, y: 0)
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                .clipped()
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+        }
+        .task {
+            await subscriptionManager.refreshAll()
+        }
+        .alert(L10n.subscription, isPresented: feedbackAlertBinding) {
+            Button(L10n.ok) {
+                feedbackMessage = nil
+            }
+        } message: {
+            Text(feedbackMessage ?? "")
+        }
+    }
+
+    private var feedbackAlertBinding: Binding<Bool> {
+        Binding(
+            get: { feedbackMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    feedbackMessage = nil
+                }
+            }
+        )
+    }
+
+    private var heroSection: some View {
+        ZStack(alignment: .topLeading) {
+            backButton
+                .offset(x: 10, y: 49)
+
+            Image("PaywallBearAndStar")
+                .resizable()
+                .interpolation(.high)
+                .renderingMode(.original)
+                .frame(width: 196.5, height: 146)
+                .opacity(usesLifetimeTheme ? 0.98 : 1)
+                .offset(x: 98, y: 6)
+        }
+    }
+
+    private var backButton: some View {
+        Button {
+            dismiss()
+        } label: {
+            Image("PaywallBack")
+                .resizable()
+                .interpolation(.high)
+                .renderingMode(.original)
+                .frame(width: 48, height: 48)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var featureSection: some View {
+        ZStack(alignment: .topLeading) {
+            featurePanelBackground
+
+            Text(L10n.paywallUnlockProFeatures)
+                .font(paywallFont(size: 24, weight: .bold))
+                .foregroundColor(featureTitleColor)
+                .frame(width: 373, alignment: .center)
+                .offset(x: 0, y: 28)
+
+            featureRow(
+                text: L10n.paywallUnlimitedBoards,
+                x: 36,
+                y: 94
+            )
+
+            featureRow(
+                text: L10n.paywallUnlimitedQuickTasksAndGroups,
+                x: 36,
+                y: 145
+            )
+
+        }
+        .frame(width: 373, height: 244)
+        .offset(x: 10, y: 183)
+    }
+
+    private var featurePanelBackground: some View {
+        Image(usesLifetimeTheme ? "PaywallPrivilegeBGDark" : "PaywallPrivilegeBG")
+            .resizable()
+            .interpolation(.high)
+            .renderingMode(.original)
+            .frame(width: 373, height: 244)
+    }
+
+    private func featureRow(text: String, x: CGFloat, y: CGFloat) -> some View {
+        HStack(spacing: 12) {
+            featureCheckIcon
+                .frame(width: 19, height: 19)
+
+            Text(text)
+                .font(paywallFont(size: 18, weight: .medium))
+                .foregroundColor(featureBodyColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .offset(x: x, y: y)
+    }
+
+    private var featureCheckIcon: some View {
+        ZStack {
+            Circle()
+                .fill(Color(hex: "D3A375"))
+
+            Image(systemName: "checkmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(.white)
+        }
+    }
+
+    private var planCardsSection: some View {
+        ZStack(alignment: .topLeading) {
+            planCard(.monthly, y: 455)
+            planCard(.yearly, y: 551)
+            planCard(.lifetime, y: 647)
+        }
+    }
+
+    private func planCard(_ plan: PaywallPlan, y: CGFloat) -> some View {
+        let price = priceDisplay(for: plan)
+        let isSelected = selectedPlan == plan
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedPlan = plan
+            }
+        } label: {
+            ZStack(alignment: .topLeading) {
+                if usesLifetimeTheme {
+                    darkPlanCardBackground(for: plan, isSelected: isSelected)
+                } else {
+                    lightPlanCardBackground(isSelected: isSelected)
+                }
+
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 8) {
+                            Text(plan.title)
+                                .font(paywallFont(size: 20, weight: .semibold))
+                                .foregroundColor(usesLifetimeTheme ? .white : Color(hex: "3F270F"))
+                                .lineLimit(1)
+                                .minimumScaleFactor(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .layoutPriority(1)
+
+                            if plan == .yearly {
+                                popularBadge
+                            }
+                        }
+
+                        if let subtitle = price.subtitle {
+                            Text(subtitle)
+                                .font(paywallFont(size: 13, weight: .medium))
+                                .foregroundColor(Color(hex: "828282"))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text(price.displayPrice)
+                        .font(paywallFont(size: 32, weight: .medium))
+                        .foregroundColor(usesLifetimeTheme ? .white : Color(hex: "3F270F"))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                        .multilineTextAlignment(.trailing)
+                }
+                .padding(.horizontal, usesLifetimeTheme ? 20 : 24)
+                .padding(.vertical, 16)
+                .frame(width: 349, height: 80)
+            }
+            .frame(width: 349, height: 80)
+        }
+        .buttonStyle(.plain)
+        .disabled(subscriptionManager.isPurchasing)
+        .opacity(subscriptionManager.isPurchasing ? 0.92 : 1)
+        .offset(x: 21, y: y)
+    }
+
+    @ViewBuilder
+    private func lightPlanCardBackground(isSelected: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+
+        ZStack {
+            if isSelected {
+                shape
+                    .fill(Color.clear)
+                    .overlay(
+                        shape
+                            .stroke(Color(hex: "D3A375"), lineWidth: 3)
+                    )
+            } else {
+                shape
+                    .fill(Color(hex: "EDE2D7").opacity(0.88))
+                    .overlay(
+                        shape
+                            .stroke(Color.white.opacity(0.92), lineWidth: 1)
+                    )
+            }
+        }
+        .shadow(color: Color.white.opacity(isSelected ? 0.45 : 0.7), radius: 10, x: -4, y: -4)
+        .shadow(color: Color(hex: "D3A375").opacity(isSelected ? 0.16 : 0.12), radius: 12, x: 6, y: 6)
+    }
+
+    @ViewBuilder
+    private func darkPlanCardBackground(for plan: PaywallPlan, isSelected: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+
+        shape
+            .fill(Color(hex: "321B06"))
+            .overlay(
+                shape
+                    .stroke(isSelected ? Color(hex: "D3A375") : Color(hex: "3F270F"), lineWidth: isSelected ? 3 : 1)
+            )
+            .shadow(color: Color(hex: "0A0500").opacity(0.35), radius: 10, x: 4, y: 6)
+            .shadow(color: Color(hex: "8C5F39").opacity(0.12), radius: 8, x: -3, y: -3)
+    }
+
+    private var popularBadge: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(
+                    usesLifetimeTheme
+                    ? LinearGradient(
+                        colors: [Color(hex: "643D19"), Color(hex: "9B6E45"), Color(hex: "58310E")],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    : LinearGradient(
+                        colors: [Color(hex: "E6B17D"), Color(hex: "E6B78A"), Color(hex: "DBA169")],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .shadow(
+                    color: usesLifetimeTheme ? Color(hex: "0A0500") : Color(hex: "CFD4DA").opacity(0.7),
+                    radius: 12,
+                    x: 6,
+                    y: 6
+                )
+                .shadow(
+                    color: usesLifetimeTheme ? Color(hex: "9D734B").opacity(0.3) : .white.opacity(0.7),
+                    radius: 12,
+                    x: -6,
+                    y: -6
+                )
+
+            Text(L10n.paywallPopular)
+                .font(paywallFont(size: 13, weight: .medium))
+                .foregroundColor(.white)
+        }
+        .frame(width: 85, height: 26)
+    }
+
+    private var subscribeButton: some View {
+        Button {
+            Task {
+                let message = await subscriptionManager.purchase(productID: selectedPlan.productID)
+                if subscriptionManager.hasPremiumAccess {
+                    dismiss()
+                } else {
+                    feedbackMessage = message
+                }
+            }
+        } label: {
+            RoundedRectangle(cornerRadius: 100, style: .continuous)
+                .fill(actionButtonColor)
+                .frame(width: 350, height: 56)
+                .overlay {
+                    Text(subscriptionManager.isPurchasing ? L10n.subscriptionPleaseWait : L10n.paywallSubscribeNow)
+                        .font(paywallFont(size: 20, weight: .semibold))
+                        .foregroundColor(actionButtonTextColor)
+                }
+                .shadow(
+                    color: usesLifetimeTheme ? .clear : Color(hex: "CFD4DA").opacity(0.7),
+                    radius: 12,
+                    x: 6,
+                    y: 6
+                )
+                .shadow(
+                    color: usesLifetimeTheme ? .clear : .white.opacity(0.7),
+                    radius: 12,
+                    x: -6,
+                    y: -6
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(subscriptionManager.isPurchasing)
+        .opacity(subscriptionManager.isPurchasing ? 0.92 : 1)
+        .offset(x: 20, y: 755)
+    }
+
+    private var legalFooter: some View {
+        Text(legalFooterAttributedText)
+            .font(paywallFont(size: 11, weight: .medium))
+            .foregroundColor(.white.opacity(0.92))
+            .tint(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.42)
+            .allowsTightening(true)
+            .truncationMode(.tail)
+            .frame(width: 350)
+            .multilineTextAlignment(.center)
+            .offset(x: 20, y: 818)
+    }
+    private var legalFooterAttributedText: AttributedString {
+        var text = AttributedString(L10n.paywallLegalOneLine)
+
+        if let termsRange = text.range(of: L10n.paywallTermsOfUse) {
+            text[termsRange].link = URL(string: "https://osmatters.github.io/bingodays-legal/")
+        }
+
+        if let privacyRange = text.range(of: L10n.paywallPrivacyPolicy) {
+            text[privacyRange].link = URL(string: "https://osmatters.github.io/bingoday-support/privacy")
+        }
+
+        return text
+    }
+
+    private var paywallBackground: some View {
+        Image(usesLifetimeTheme ? "PaywallDarkBG" : "PaywallLightBG")
+            .resizable()
+            .interpolation(.high)
+            .renderingMode(.original)
+            .aspectRatio(contentMode: .fill)
+    }
+
+    private var wordmarkPositions: [(x: CGFloat, y: CGFloat, opacity: Double)] {
+        let baseOpacity = usesLifetimeTheme ? 0.30 : 1.0
+        return [
+            (-17.7, -73.3, 0.20 * baseOpacity),
+            (-7.7, -22.3, 0.20 * baseOpacity),
+            (1.8, 30.25, 0.15 * baseOpacity),
+            (10.7, 79.46, 0.10 * baseOpacity),
+            (19.58, 128.66, 0.05 * baseOpacity),
+            (359, -0.86, 0.20 * baseOpacity),
+            (369, 50.14, 0.20 * baseOpacity),
+            (378.5, 102.73, 0.15 * baseOpacity),
+            (387.39, 151.93, 0.10 * baseOpacity),
+            (396.29, 201.13, 0.05 * baseOpacity)
+        ]
+    }
+
+    private func priceDisplay(for plan: PaywallPlan) -> PlanPriceDisplay {
+        if let product = subscriptionManager.productsByID[plan.productID] {
+            let subtitle: String?
+            switch plan {
+            case .yearly:
+                subtitle = yearlyPerMonthSubtitle(for: product)
+            case .lifetime:
+                subtitle = L10n.paywallOneTimePayment
+            case .monthly:
+                subtitle = nil
+            }
+            return PlanPriceDisplay(displayPrice: product.displayPrice, subtitle: subtitle)
+        }
+
+        let fallbackSubtitle: String?
+        switch plan {
+        case .lifetime:
+            fallbackSubtitle = L10n.paywallOneTimePayment
+        case .yearly, .monthly:
+            fallbackSubtitle = nil
+        }
+        return PlanPriceDisplay(displayPrice: "--", subtitle: fallbackSubtitle)
+    }
+
+    private func yearlyPerMonthSubtitle(for product: Product) -> String {
+        let monthlyPrice = NSDecimalNumber(decimal: product.price).dividing(by: 12).decimalValue
+        let formattedMonthlyPrice = formattedMonthlyPrice(monthlyPrice, from: product.displayPrice)
+        return L10n.paywallPerMonth(formattedMonthlyPrice)
+    }
+
+    private func formattedMonthlyPrice(_ monthlyPrice: Decimal, from displayPrice: String) -> String {
+        guard let firstDigit = displayPrice.firstIndex(where: { $0.isNumber }),
+              let lastDigit = displayPrice.lastIndex(where: { $0.isNumber }) else {
+            return decimalString(monthlyPrice, decimalSeparator: ".")
+        }
+
+        let prefix = String(displayPrice[..<firstDigit])
+        let suffixStart = displayPrice.index(after: lastDigit)
+        let suffix = suffixStart < displayPrice.endIndex ? String(displayPrice[suffixStart...]) : ""
+        let numericPortion = String(displayPrice[firstDigit...lastDigit])
+        let decimalSeparator: String = (numericPortion.contains(",") && !numericPortion.contains(".")) ? "," : "."
+        let amount = decimalString(monthlyPrice, decimalSeparator: decimalSeparator)
+
+        return "\(prefix)\(amount)\(suffix)"
+    }
+
+    private func decimalString(_ value: Decimal, decimalSeparator: String) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+        formatter.usesGroupingSeparator = false
+        formatter.decimalSeparator = decimalSeparator
+        formatter.groupingSeparator = ""
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        return formatter.string(from: NSDecimalNumber(decimal: value)) ?? NSDecimalNumber(decimal: value).stringValue
+    }
+
+    private func paywallFont(size: CGFloat, weight: Font.Weight) -> Font {
+        switch AppLanguage.current {
+        case .english:
+            return .custom("Outfit", size: size).weight(weight)
+        case .simplifiedChinese, .traditionalChinese, .japanese:
+            return .system(size: size, weight: weight, design: .default)
+        }
+    }
+
+    private func sparkleShape(fill: Color) -> some View {
+        Path { path in
+            path.move(to: CGPoint(x: 4.19505, y: 0.39209))
+            path.addCurve(to: CGPoint(x: 5.17148, y: 0.39209), control1: CGPoint(x: 4.3106, y: -0.1307), control2: CGPoint(x: 5.05593, y: -0.1307))
+            path.addLine(to: CGPoint(x: 5.58452, y: 2.26079))
+            path.addCurve(to: CGPoint(x: 7.10574, y: 3.78201), control1: CGPoint(x: 5.75247, y: 3.02063), control2: CGPoint(x: 6.34591, y: 3.61406))
+            path.addLine(to: CGPoint(x: 8.97444, y: 4.19505))
+            path.addCurve(to: CGPoint(x: 8.97444, y: 5.17148), control1: CGPoint(x: 9.49723, y: 4.3106), control2: CGPoint(x: 9.49723, y: 5.05593))
+            path.addLine(to: CGPoint(x: 7.10575, y: 5.58452))
+            path.addCurve(to: CGPoint(x: 5.58452, y: 7.10574), control1: CGPoint(x: 6.34591, y: 5.75247), control2: CGPoint(x: 5.75247, y: 6.34591))
+            path.addLine(to: CGPoint(x: 5.17148, y: 8.97444))
+            path.addCurve(to: CGPoint(x: 4.19505, y: 8.97444), control1: CGPoint(x: 5.05593, y: 9.49723), control2: CGPoint(x: 4.3106, y: 9.49723))
+            path.addLine(to: CGPoint(x: 3.78201, y: 7.10575))
+            path.addCurve(to: CGPoint(x: 2.26079, y: 5.58452), control1: CGPoint(x: 3.61406, y: 6.34591), control2: CGPoint(x: 3.02063, y: 5.75247))
+            path.addLine(to: CGPoint(x: 0.39209, y: 5.17148))
+            path.addCurve(to: CGPoint(x: 0.39209, y: 4.19505), control1: CGPoint(x: -0.1307, y: 5.05593), control2: CGPoint(x: -0.1307, y: 4.3106))
+            path.addLine(to: CGPoint(x: 2.26079, y: 3.78201))
+            path.addCurve(to: CGPoint(x: 3.78201, y: 2.26079), control1: CGPoint(x: 3.02063, y: 3.61406), control2: CGPoint(x: 3.61406, y: 3.02063))
+            path.addLine(to: CGPoint(x: 4.19505, y: 0.39209))
+        }
+        .fill(fill)
+        .shadow(color: fill.opacity(0.4), radius: 3, x: 0, y: 1)
+    }
+}
+
 private struct BingoDiaryScreen: View {
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var displayedMonth = Date()
@@ -4879,17 +6523,6 @@ private struct BingoDiaryScreen: View {
                     .padding(.top, 24)
                     .padding(.bottom, 88)
                 }
-            }
-            .safeAreaInset(edge: .bottom) {
-                Text(L10n.diaryHint)
-                    .font(.system(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.66))
-                    .frame(maxWidth: isPadLayout ? 920 : .infinity, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 8)
-                    .padding(.bottom, 24)
-                    .background(NeumorphicColors.background)
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -4995,10 +6628,7 @@ private struct BingoDiaryScreen: View {
 
         return VStack(alignment: .leading, spacing: 14) {
             statsModePicker
-            HStack {
-                Spacer()
-                statsRangePicker
-            }
+            statsRangePicker
 
             if displayedStats.isEmpty {
                 Text(statsMode == .completed ? L10n.noTaskCompletions : L10n.noTimeoutUnfinishedTasks)
@@ -5008,7 +6638,7 @@ private struct BingoDiaryScreen: View {
                     .padding(.vertical, 6)
             } else {
                 VStack(spacing: 12) {
-                    ForEach(Array(displayedStats.prefix(6)), id: \.task) { item in
+                    ForEach(displayedStats, id: \.task) { item in
                         taskStatsCard(item)
                     }
                 }
@@ -5049,7 +6679,14 @@ private struct BingoDiaryScreen: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .neumorphicConvex(radius: 20)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(NeumorphicColors.innerSurface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(NeumorphicColors.text.opacity(0.05), lineWidth: 1)
+                )
+        )
     }
 
     private var statsHeatColumnCount: Int {
@@ -5144,7 +6781,7 @@ private struct BingoDiaryScreen: View {
     }
 
     private var statsModePicker: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 10) {
             ForEach(BingoDiaryStatsMode.allCases, id: \.self) { mode in
                 Button {
                     withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
@@ -5152,32 +6789,28 @@ private struct BingoDiaryScreen: View {
                     }
                 } label: {
                     Text(mode.title)
-                        .font(.system(size: scaled(16, pad: 19), weight: .bold, design: .rounded))
+                        .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
                         .foregroundColor(statsMode == mode ? .white : NeumorphicColors.text.opacity(0.72))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: scaled(42, pad: 50))
+                        .padding(.horizontal, 16)
+                        .frame(height: scaled(36, pad: 42))
                         .background(
-                            Group {
-                                if statsMode == mode {
-                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                        .fill(NeumorphicColors.accent)
-                                        .shadow(color: NeumorphicColors.accent.opacity(0.26), radius: 8, x: 0, y: 4)
-                                } else {
-                                    Color.clear
-                                }
-                            }
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(statsMode == mode ? NeumorphicColors.accent : NeumorphicColors.innerSurface)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .stroke(
+                                            statsMode == mode
+                                                ? NeumorphicColors.accent.opacity(0.16)
+                                                : NeumorphicColors.text.opacity(0.05),
+                                            lineWidth: 1
+                                        )
+                                )
                         )
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(4)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(NeumorphicColors.background)
-                .shadow(color: NeumorphicColors.darkShadow.opacity(0.14), radius: 8, x: 4, y: 4)
-                .shadow(color: Color.white.opacity(0.7), radius: 7, x: -4, y: -4)
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func statsHeatFillColor(value: Int, maxValue: Int) -> Color {
@@ -5398,9 +7031,9 @@ private enum BingoDiaryStatsMode: CaseIterable {
     var title: String {
         switch self {
         case .completed:
-            return L10n.taskCompletions
+            return L10n.completedTasksShort
         case .timeoutUnfinished:
-            return L10n.timeoutUnfinishedStats
+            return L10n.timeoutTasksShort
         }
     }
 }
@@ -5540,9 +7173,9 @@ private struct BingoDiaryCellView: View {
     let isLocked: Bool
     let cellSize: CGFloat
 
-    @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.sky.rawValue
+    @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .sky }
+    private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
     private var bingoSurfaceColor: Color { activeTheme.bingoSurfaceColor }
     private var bingoSurfaceShadowColor: Color { activeTheme.bingoSurfaceShadowColor }
     private var isPadLayout: Bool { horizontalSizeClass == .regular }
@@ -5878,7 +7511,14 @@ private struct BoardCountdownSheet: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-                .background(Color.clear.neumorphicConvex(radius: 12))
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(NeumorphicColors.background.opacity(0.94))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(NeumorphicColors.accent.opacity(0.58), lineWidth: 1)
+                        )
+                )
             }
         }
         .buttonStyle(.plain)

@@ -31,11 +31,11 @@ struct BingoBoardView: View {
     @State private var residentScheduleNotice: String?
     @State private var deletedCellSnapshot: DeletedCellSnapshot?
     @State private var undoDismissWorkItem: DispatchWorkItem?
-    private let boardSurfaceColor = Color(hex: "EBF0F7")
-    private let boardInnerShadowDark = Color(hex: "D1D9E6")
-    private let boardInnerShadowLight = Color.white
-    private let boardInnerShadowRadius: CGFloat = 8
-    private let boardInnerShadowOffset: CGFloat = 6
+    private var boardSurfaceColor: Color { NeumorphicColors.innerSurface }
+    private var boardInnerShadowDark: Color { NeumorphicColors.darkShadow.opacity(0.65) }
+    private var boardInnerShadowLight: Color { NeumorphicColors.lightShadow }
+    private let boardInnerShadowRadius: CGFloat = 12
+    private let boardInnerShadowOffset: CGFloat = 12
 
     private let boardOuterPadding: CGFloat = 0
     private var boardInnerPadding: CGFloat {
@@ -53,7 +53,7 @@ struct BingoBoardView: View {
         }
     }
     private var boardCornerRadius: CGFloat {
-        viewModel.gridSize <= 3 ? 24 : 20
+        12
     }
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -64,6 +64,8 @@ struct BingoBoardView: View {
             let totalSpacing = cellSpacing * CGFloat(viewModel.gridSize - 1)
             let availableWidth = geo.size.width - (boardOuterPadding * 2) - (boardInnerPadding * 2)
             let cellSize = (availableWidth - totalSpacing) / CGFloat(viewModel.gridSize)
+            let isBoardCompletelyEmpty = viewModel.cells.flatMap(\.self).allSatisfy(\.isEmpty)
+            let centerIndex = viewModel.gridSize / 2
 
             ZStack {
                 VStack(spacing: cellSpacing) {
@@ -85,6 +87,9 @@ struct BingoBoardView: View {
                                         isInteractive: dragState == nil || isDragSource,
                                         isDragSource: isDragSource,
                                         isDropTarget: isDropTarget,
+                                        emptyHintText: isBoardCompletelyEmpty && row == centerIndex && col == centerIndex
+                                            ? L10n.emptyBoardLongPressHint
+                                            : nil,
                                         onTap: {
                                             dismissActionMenu()
                                             if !viewModel.cells[row][col].isEmpty && !viewModel.isLocked(row: row, col: col) {
@@ -276,11 +281,13 @@ struct BingoBoardView: View {
             text: viewModel.cells[target.row][target.col].storedTaskText,
             isForcedTask: viewModel.cells[target.row][target.col].isForced,
             residentWeekdays: viewModel.cells[target.row][target.col].residentWeekdays,
+            isOneTimeTask: viewModel.cells[target.row][target.col].isOneTimeTask,
             estimatedDurationMinutes: viewModel.remainingTaskCountdownMinutes(row: target.row, col: target.col),
-            onSave: { newText, isForcedTask, residentWeekdays, estimatedDurationMinutes in
+            onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, estimatedDurationMinutes in
                 let scheduleNotice = residentVisibilityNotice(
                     text: newText,
-                    residentWeekdays: residentWeekdays
+                    residentWeekdays: residentWeekdays,
+                    isOneTimeTask: isOneTimeTask
                 )
                 viewModel.updateTask(
                     row: target.row,
@@ -288,6 +295,7 @@ struct BingoBoardView: View {
                     text: newText,
                     isForced: isForcedTask,
                     residentWeekdays: residentWeekdays,
+                    isOneTimeTask: isOneTimeTask,
                     estimatedDurationMinutes: estimatedDurationMinutes
                 )
                 editingTarget = nil
@@ -302,7 +310,9 @@ struct BingoBoardView: View {
     }
 
     private func actionMenu(for target: EditingTarget, cellSize: CGFloat, boardSize: CGSize) -> some View {
-        let menuSize = CGSize(width: 152, height: 104)
+        let cell = viewModel.cells[target.row][target.col]
+        let showsHideAction = cell.isCompleted
+        let menuSize = CGSize(width: 152, height: showsHideAction ? 146 : 104)
         let position = actionMenuPosition(
             for: target,
             cellSize: cellSize,
@@ -331,6 +341,21 @@ struct BingoBoardView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
+
+            if showsHideAction {
+                Button {
+                    dismissActionMenu()
+                    withAnimation(.easeInOut(duration: 0.45)) {
+                        viewModel.toggleTaskHidden(row: target.row, col: target.col)
+                    }
+                } label: {
+                    Label(cell.isTaskHidden ? L10n.showTask : L10n.hideTask, systemImage: cell.isTaskHidden ? "eye" : "eye.slash")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(NeumorphicColors.accent)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(14)
         .frame(width: menuSize.width, height: menuSize.height)
@@ -353,6 +378,7 @@ struct BingoBoardView: View {
             isInteractive: false,
             isDragSource: false,
             isDropTarget: false,
+            emptyHintText: nil,
             onTap: {},
             onLongPressRelease: {},
             onDragStart: {},
@@ -471,9 +497,14 @@ struct BingoBoardView: View {
         return target
     }
 
-    private func residentVisibilityNotice(text: String, residentWeekdays: Set<Int>, referenceDate: Date = .now) -> String? {
+    private func residentVisibilityNotice(
+        text: String,
+        residentWeekdays: Set<Int>,
+        isOneTimeTask: Bool,
+        referenceDate: Date = .now
+    ) -> String? {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty, !residentWeekdays.isEmpty else { return nil }
+        guard !trimmedText.isEmpty, !isOneTimeTask, !residentWeekdays.isEmpty else { return nil }
 
         let today = Calendar.current.component(.weekday, from: referenceDate)
         guard !residentWeekdays.contains(today) else { return nil }

@@ -10,7 +10,9 @@
 		007D47AD92E038CFF32C8BE2 /* BingodaysWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB77DB4D87E0770BB2F4B921 /* BingodaysWidget.swift */; };
 		0D97FFB2D91D5330540F77C0 /* BingoBoardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */; };
 		35971755A4E77F2BA6B9A4AE /* NeumorphicStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000010 /* NeumorphicStyles.swift */; };
+		397358A06E1C3E567950B9D9 /* AccountSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 463592A37399400738572375 /* AccountSession.swift */; };
 		3E8E2A4545074D50FD4FA89E /* BingodaysWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 7A6AD22025CB29BE7FEB97A9 /* BingodaysWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		70056F96F034D9AB21CB2B95 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = E54E14B6A345324C3E141AFB /* FirebaseAuth */; };
 		72020CAB0109FCCA58480539 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = C5F91D46E6B33A1CCCE05E7E /* FirebaseAnalytics */; };
 		82597C47732173B65D2B6793 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 0369CE2F651445ED297D64A7 /* GoogleService-Info.plist */; };
 		8E907B19D8A77ED5CA3F12E0 /* ColorHex.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEBABD257330F177F05EF511 /* ColorHex.swift */; };
@@ -24,6 +26,8 @@
 		AA30000000000000000008 /* BingoLineOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000008 /* BingoLineOverlay.swift */; };
 		AA30000000000000000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000009 /* Assets.xcassets */; };
 		AA30000000000000000010 /* NeumorphicStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000010 /* NeumorphicStyles.swift */; };
+		AA30000000000000000011 /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000011 /* OnboardingFlowView.swift */; };
+		AAF000000000000000000001 /* FloatingButton in Frameworks */ = {isa = PBXBuildFile; productRef = AAF000000000000000000011 /* FloatingButton */; };
 		C3DA38C1D37F02D4B7DDAB7A /* BingoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000003 /* BingoModels.swift */; };
 		C7C0E097420C7B27954960F4 /* BingoBoardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */; };
 		D6129FE6ECD4D6C2E0B7B3E6 /* ColorHex.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEBABD257330F177F05EF511 /* ColorHex.swift */; };
@@ -35,6 +39,11 @@
 		F1A000000000000000000004 /* PAGCompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000011 /* PAGCompletionView.swift */; };
 		F1A000000000000000000026 /* bingo.aiff in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000025 /* bingo.aiff */; };
 		F1A000000000000000000028 /* get1point.aiff in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000027 /* get1point.aiff */; };
+		F1A000000000000000000032 /* ArchivoBlack-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000029 /* ArchivoBlack-Regular.ttf */; };
+		F1A000000000000000000033 /* Outfit-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000030 /* Outfit-wght.ttf */; };
+		F1A000000000000000000034 /* Schoolbell-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000031 /* Schoolbell-Regular.ttf */; };
+		F661BE23ECAA3E0520614CC4 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = BD931AC15482E01DEDFAAB77 /* GoogleSignIn */; };
+		FC997B97351B0AB95DD53353 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = AD81121484D877697E1F8030 /* FirebaseFirestore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,6 +84,7 @@
 /* Begin PBXFileReference section */
 		0369CE2F651445ED297D64A7 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "../GoogleService-Info.plist"; sourceTree = "<group>"; };
 		42E7AD5FF00A0B3CB1427832 /* BingoADHD.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BingoADHD.entitlements; sourceTree = "<group>"; };
+		463592A37399400738572375 /* AccountSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AccountSession.swift; path = AccountSession.swift; sourceTree = "<group>"; };
 		5BD5B8B93106F3408E370AA2 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BingoBoardStore.swift; sourceTree = "<group>"; };
 		7A6AD22025CB29BE7FEB97A9 /* BingodaysWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; name = BingodaysWidgetExtension.appex; path = BingodaysWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -89,6 +99,7 @@
 		AA20000000000000000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA2000000000000000000A /* BingoADHD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BingoADHD.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA20000000000000000010 /* NeumorphicStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeumorphicStyles.swift; sourceTree = "<group>"; };
+		AA20000000000000000011 /* OnboardingFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlowView.swift; sourceTree = "<group>"; };
 		CEBABD257330F177F05EF511 /* ColorHex.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ColorHex.swift; sourceTree = "<group>"; };
 		DB77DB4D87E0770BB2F4B921 /* BingodaysWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BingodaysWidget.swift; sourceTree = "<group>"; };
 		DE212D5093D3B8D5B841BB8E /* BingodaysWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BingodaysWidget.entitlements; sourceTree = "<group>"; };
@@ -98,6 +109,9 @@
 		F1A000000000000000000013 /* libpag.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Vendor/libpag.xcframework; sourceTree = "<group>"; };
 		F1A000000000000000000025 /* bingo.aiff */ = {isa = PBXFileReference; lastKnownFileType = audio.aiff; path = bingo.aiff; sourceTree = "<group>"; };
 		F1A000000000000000000027 /* get1point.aiff */ = {isa = PBXFileReference; lastKnownFileType = audio.aiff; path = get1point.aiff; sourceTree = "<group>"; };
+		F1A000000000000000000029 /* ArchivoBlack-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ArchivoBlack-Regular.ttf"; sourceTree = "<group>"; };
+		F1A000000000000000000030 /* Outfit-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-wght.ttf"; sourceTree = "<group>"; };
+		F1A000000000000000000031 /* Schoolbell-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Schoolbell-Regular.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -116,6 +130,10 @@
 				F1A000000000000000000001 /* libpag.xcframework in Frameworks */,
 				72020CAB0109FCCA58480539 /* FirebaseAnalytics in Frameworks */,
 				DEE0056F533BED09AA349A7E /* FirebaseCore in Frameworks */,
+				AAF000000000000000000001 /* FloatingButton in Frameworks */,
+				70056F96F034D9AB21CB2B95 /* FirebaseAuth in Frameworks */,
+				FC997B97351B0AB95DD53353 /* FirebaseFirestore in Frameworks */,
+				F661BE23ECAA3E0520614CC4 /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -128,6 +146,15 @@
 				96D0124AEEE2C00E1F03D8F8 /* iOS */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		380EB4E171B6C6A42E72B718 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				463592A37399400738572375 /* AccountSession.swift */,
+			);
+			name = Services;
+			path = Services;
 			sourceTree = "<group>";
 		};
 		96D0124AEEE2C00E1F03D8F8 /* iOS */ = {
@@ -166,12 +193,14 @@
 				F1A000000000000000000012 /* cat_bmp.pag */,
 				F1A000000000000000000025 /* bingo.aiff */,
 				F1A000000000000000000027 /* get1point.aiff */,
+				AA10000000000000000008 /* Fonts */,
 				AA10000000000000000005 /* Models */,
 				AA10000000000000000006 /* ViewModels */,
 				AA10000000000000000007 /* Views */,
 				AA20000000000000000009 /* Assets.xcassets */,
 				42E7AD5FF00A0B3CB1427832 /* BingoADHD.entitlements */,
 				0369CE2F651445ED297D64A7 /* GoogleService-Info.plist */,
+				380EB4E171B6C6A42E72B718 /* Services */,
 			);
 			path = BingoADHD;
 			sourceTree = "<group>";
@@ -201,10 +230,21 @@
 				AA20000000000000000007 /* EditTaskSheet.swift */,
 				AA20000000000000000008 /* BingoLineOverlay.swift */,
 				AA20000000000000000010 /* NeumorphicStyles.swift */,
+				AA20000000000000000011 /* OnboardingFlowView.swift */,
 				CEBABD257330F177F05EF511 /* ColorHex.swift */,
 				F1A000000000000000000011 /* PAGCompletionView.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		AA10000000000000000008 /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				F1A000000000000000000029 /* ArchivoBlack-Regular.ttf */,
+				F1A000000000000000000030 /* Outfit-wght.ttf */,
+				F1A000000000000000000031 /* Schoolbell-Regular.ttf */,
+			);
+			path = Fonts;
 			sourceTree = "<group>";
 		};
 		CDE4069E1A3603F195E72F49 /* BingodaysWidget */ = {
@@ -257,6 +297,10 @@
 			packageProductDependencies = (
 				C5F91D46E6B33A1CCCE05E7E /* FirebaseAnalytics */,
 				DB82D96A52DC3B33C6260262 /* FirebaseCore */,
+				AAF000000000000000000011 /* FloatingButton */,
+				E54E14B6A345324C3E141AFB /* FirebaseAuth */,
+				AD81121484D877697E1F8030 /* FirebaseFirestore */,
+				BD931AC15482E01DEDFAAB77 /* GoogleSignIn */,
 			);
 			productName = BingoADHD;
 			productReference = AA2000000000000000000A /* BingoADHD.app */;
@@ -292,6 +336,8 @@
 			mainGroup = AA10000000000000000002;
 			packageReferences = (
 				9F5E85A358CC98E478BC47F1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				AAF000000000000000000010 /* XCRemoteSwiftPackageReference "FloatingButton" */,
+				E223DF9130EBC96BCCC663B5 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			productRefGroup = AA10000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -318,6 +364,9 @@
 				F1A000000000000000000003 /* cat_bmp.pag in Resources */,
 				F1A000000000000000000026 /* bingo.aiff in Resources */,
 				F1A000000000000000000028 /* get1point.aiff in Resources */,
+				F1A000000000000000000032 /* ArchivoBlack-Regular.ttf in Resources */,
+				F1A000000000000000000033 /* Outfit-wght.ttf in Resources */,
+				F1A000000000000000000034 /* Schoolbell-Regular.ttf in Resources */,
 				AA30000000000000000009 /* Assets.xcassets in Resources */,
 				82597C47732173B65D2B6793 /* GoogleService-Info.plist in Resources */,
 			);
@@ -341,20 +390,22 @@
 		AA40000000000000000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (
-				AA30000000000000000001 /* BingoADHDApp.swift in Sources */,
-				AA30000000000000000002 /* ContentView.swift in Sources */,
-				AA30000000000000000003 /* BingoModels.swift in Sources */,
-				AA30000000000000000004 /* BingoViewModel.swift in Sources */,
-				AA30000000000000000005 /* BingoBoardView.swift in Sources */,
-				AA30000000000000000006 /* BingoCellView.swift in Sources */,
-				AA30000000000000000007 /* EditTaskSheet.swift in Sources */,
-				AA30000000000000000008 /* BingoLineOverlay.swift in Sources */,
-				AA30000000000000000010 /* NeumorphicStyles.swift in Sources */,
-				0D97FFB2D91D5330540F77C0 /* BingoBoardStore.swift in Sources */,
-				D6129FE6ECD4D6C2E0B7B3E6 /* ColorHex.swift in Sources */,
-				F1A000000000000000000004 /* PAGCompletionView.swift in Sources */,
-			);
+				files = (
+					AA30000000000000000001 /* BingoADHDApp.swift in Sources */,
+					AA30000000000000000002 /* ContentView.swift in Sources */,
+					AA30000000000000000003 /* BingoModels.swift in Sources */,
+					AA30000000000000000004 /* BingoViewModel.swift in Sources */,
+					AA30000000000000000005 /* BingoBoardView.swift in Sources */,
+					AA30000000000000000006 /* BingoCellView.swift in Sources */,
+					AA30000000000000000007 /* EditTaskSheet.swift in Sources */,
+					AA30000000000000000008 /* BingoLineOverlay.swift in Sources */,
+					AA30000000000000000010 /* NeumorphicStyles.swift in Sources */,
+					AA30000000000000000011 /* OnboardingFlowView.swift in Sources */,
+					0D97FFB2D91D5330540F77C0 /* BingoBoardStore.swift in Sources */,
+					D6129FE6ECD4D6C2E0B7B3E6 /* ColorHex.swift in Sources */,
+					F1A000000000000000000004 /* PAGCompletionView.swift in Sources */,
+					397358A06E1C3E567950B9D9 /* AccountSession.swift in Sources */,
+				);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
@@ -376,7 +427,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = R2372567GG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
@@ -387,7 +438,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.3;
+				MARKETING_VERSION = 1.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PRODUCT_NAME = BingodaysWidgetExtension;
 				SDKROOT = iphoneos;
@@ -472,22 +523,15 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = R2372567GG;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Bingodays;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Bingodays uses the microphone for voice task input.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Bingodays uses speech recognition to turn your voice into task text.";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BingoADHD/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.3;
+				MARKETING_VERSION = 1.1.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -507,22 +551,15 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = R2372567GG;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Bingodays;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Bingodays uses the microphone for voice task input.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Bingodays uses speech recognition to turn your voice into task text.";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BingoADHD/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.3;
+				MARKETING_VERSION = 1.1.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -542,7 +579,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = R2372567GG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
@@ -553,7 +590,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.3;
+				MARKETING_VERSION = 1.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PRODUCT_NAME = BingodaysWidgetExtension;
 				SDKROOT = iphoneos;
@@ -604,9 +641,40 @@
 				minimumVersion = 12.0.0;
 			};
 		};
+		AAF000000000000000000010 /* XCRemoteSwiftPackageReference "FloatingButton" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/exyte/FloatingButton.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
+		E223DF9130EBC96BCCC663B5 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		AAF000000000000000000011 /* FloatingButton */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AAF000000000000000000010 /* XCRemoteSwiftPackageReference "FloatingButton" */;
+			productName = FloatingButton;
+		};
+		AD81121484D877697E1F8030 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9F5E85A358CC98E478BC47F1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+		BD931AC15482E01DEDFAAB77 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E223DF9130EBC96BCCC663B5 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
 		C5F91D46E6B33A1CCCE05E7E /* FirebaseAnalytics */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 9F5E85A358CC98E478BC47F1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
@@ -616,6 +684,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 9F5E85A358CC98E478BC47F1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseCore;
+		};
+		E54E14B6A345324C3E141AFB /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9F5E85A358CC98E478BC47F1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

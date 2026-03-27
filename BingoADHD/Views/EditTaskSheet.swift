@@ -6,7 +6,8 @@ struct EditTaskSheet: View {
     @State var text: String
     @State var isForcedTask: Bool
     @State var residentWeekdays: Set<Int>
-    let onSave: (String, Bool, Set<Int>, Int?) -> Void
+    @State var isOneTimeTask: Bool
+    let onSave: (String, Bool, Set<Int>, Bool, Int?) -> Void
     let onDelete: () -> Void
     let onCancel: () -> Void
 
@@ -26,14 +27,16 @@ struct EditTaskSheet: View {
         text: String,
         isForcedTask: Bool,
         residentWeekdays: Set<Int>,
+        isOneTimeTask: Bool,
         estimatedDurationMinutes: Int?,
-        onSave: @escaping (String, Bool, Set<Int>, Int?) -> Void,
+        onSave: @escaping (String, Bool, Set<Int>, Bool, Int?) -> Void,
         onDelete: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
         _text = State(initialValue: text)
         _isForcedTask = State(initialValue: isForcedTask)
         _residentWeekdays = State(initialValue: residentWeekdays)
+        _isOneTimeTask = State(initialValue: isOneTimeTask)
         self.onSave = onSave
         self.onDelete = onDelete
         self.onCancel = onCancel
@@ -61,19 +64,29 @@ struct EditTaskSheet: View {
                     VStack(spacing: 24) {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(alignment: .top, spacing: 16) {
-                                TextField(L10n.enterTaskForDay, text: $text, axis: .vertical)
-                                    .font(.system(size: scaled(17, pad: 20), weight: .medium, design: .rounded))
-                                    .foregroundColor(NeumorphicColors.text)
-                                    .padding(16)
-                                    .frame(minHeight: isPadLayout ? 84 : 74, alignment: .topLeading)
-                                    .background(Color.clear.neumorphicConcave(radius: 12))
-                                    .focused($isTextFieldFocused)
-                                    .lineLimit(3...5)
-                                    .onChange(of: text) { _, newValue in
-                                        if newValue.count > BingoViewModel.maxTaskLength {
-                                            text = String(newValue.prefix(BingoViewModel.maxTaskLength))
-                                        }
+                                ZStack(alignment: .topLeading) {
+                                    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                        Text(L10n.enterTaskForDay)
+                                            .font(.system(size: scaled(17, pad: 20), weight: .medium, design: .rounded))
+                                            .foregroundColor(NeumorphicColors.text.opacity(0.42))
+                                            .padding(16)
+                                            .allowsHitTesting(false)
                                     }
+
+                                    TextField("", text: $text, axis: .vertical)
+                                        .font(.system(size: scaled(17, pad: 20), weight: .medium, design: .rounded))
+                                        .foregroundColor(NeumorphicColors.text)
+                                        .padding(16)
+                                        .focused($isTextFieldFocused)
+                                        .lineLimit(3...5)
+                                        .onChange(of: text) { _, newValue in
+                                            if newValue.count > BingoViewModel.maxTaskLength {
+                                                text = String(newValue.prefix(BingoViewModel.maxTaskLength))
+                                            }
+                                        }
+                                }
+                                .frame(minHeight: isPadLayout ? 84 : 74, alignment: .topLeading)
+                                .background(Color.clear.neumorphicConcave(radius: 12))
 
                                 Button {
                                     if isHapticsEnabled {
@@ -117,7 +130,11 @@ struct EditTaskSheet: View {
                                         .font(.system(size: scaled(15, pad: 18), weight: .semibold, design: .rounded))
                                         .foregroundColor(NeumorphicColors.text)
 
-                                    if residentWeekdays.isEmpty {
+                                    if isOneTimeTask {
+                                        Text(L10n.todayOnly)
+                                            .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
+                                            .foregroundColor(NeumorphicColors.text.opacity(0.52))
+                                    } else if residentWeekdays.isEmpty {
                                         Text(L10n.alwaysVisible)
                                             .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
                                             .foregroundColor(NeumorphicColors.text.opacity(0.52))
@@ -125,32 +142,28 @@ struct EditTaskSheet: View {
                                 }
 
                                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                                    selectionButton(
+                                        title: L10n.todayOnly,
+                                        isSelected: isOneTimeTask
+                                    ) {
+                                        isOneTimeTask.toggle()
+                                        if isOneTimeTask {
+                                            residentWeekdays.removeAll()
+                                        }
+                                    }
+
                                     ForEach(weekdayOptions, id: \.value) { option in
-                                        Button {
+                                        selectionButton(
+                                            title: option.label,
+                                            isSelected: residentWeekdays.contains(option.value)
+                                        ) {
                                             if residentWeekdays.contains(option.value) {
                                                 residentWeekdays.remove(option.value)
                                             } else {
                                                 residentWeekdays.insert(option.value)
+                                                isOneTimeTask = false
                                             }
-                                        } label: {
-                                            Text(option.label)
-                                                .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                                                .foregroundColor(residentWeekdays.contains(option.value) ? .white : NeumorphicColors.text)
-                                                .frame(maxWidth: .infinity)
-                                                .padding(.vertical, 10)
-                                                .background(
-                                                    Group {
-                                                        if residentWeekdays.contains(option.value) {
-                                                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                                                .fill(NeumorphicColors.accent)
-                                                                .shadow(color: NeumorphicColors.accent.opacity(0.25), radius: 10, x: 0, y: 4)
-                                                        } else {
-                                                            Color.clear.neumorphicConvex(radius: 10)
-                                                        }
-                                                    }
-                                                )
                                         }
-                                        .buttonStyle(.plain)
                                     }
                                 }
                             }
@@ -253,7 +266,7 @@ struct EditTaskSheet: View {
                         .foregroundColor(NeumorphicColors.text.opacity(0.8))
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.save) { onSave(text, isForcedTask, residentWeekdays, normalizedEstimatedDurationMinutes) }
+                    Button(L10n.save) { onSave(text, isForcedTask, residentWeekdays, isOneTimeTask, normalizedEstimatedDurationMinutes) }
                         .fontWeight(.semibold)
                         .foregroundColor(NeumorphicColors.accent)
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -326,10 +339,47 @@ struct EditTaskSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(Color.clear.neumorphicConvex(radius: 12))
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(NeumorphicColors.background.opacity(0.94))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(NeumorphicColors.accent.opacity(0.58), lineWidth: 1)
+                    )
+            )
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
+    }
+
+    private func selectionButton(
+        title: String,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
+                .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(
+                            isSelected
+                            ? NeumorphicColors.accent.opacity(0.14)
+                            : NeumorphicColors.background.opacity(0.92)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(
+                                    NeumorphicColors.accent.opacity(isSelected ? 0.95 : 0.55),
+                                    lineWidth: 1
+                                )
+                        )
+                )
+        }
+        .buttonStyle(.plain)
     }
 }
 
