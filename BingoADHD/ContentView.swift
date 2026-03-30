@@ -117,6 +117,9 @@ struct ContentView: View {
     @State private var isRenameBoardAlertPresented = false
     @State private var renameBoardNameDraft = ""
     @State private var boardPendingRenameID: UUID?
+    @State private var boardActionSheetBoardID: UUID?
+    @State private var pendingBoardDeleteID: UUID?
+    @State private var isBoardDeleteAlertPresented = false
     @State private var stickerInventoryCounts = StickerStore.loadInventoryCounts()
     @State private var homeStickerPlacements = StickerStore.loadPlacements()
     @State private var customRewards = RewardStore.loadRewards()
@@ -291,6 +294,8 @@ VStack(spacing: 16) {
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
 
+                boardActionLayer(contentWidth: contentWidth, bottomInset: geo.safeAreaInsets.bottom)
+
                 if let expiredTaskEvent = viewModel.expiredTaskEvent {
                     taskTimeoutOverlay(for: expiredTaskEvent)
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -417,6 +422,20 @@ VStack(spacing: 16) {
     Button(L10n.boardRenameAction) {
         renameBoard()
     }
+}
+.alert(
+    L10n.tr("Delete board?", zhHans: "删除棋盘？", zhHant: "刪除棋盤？"),
+    isPresented: $isBoardDeleteAlertPresented
+) {
+    Button(L10n.cancel, role: .cancel) {
+        pendingBoardDeleteID = nil
+    }
+    Button(L10n.deleteConfirmationTitle, role: .destructive) {
+        guard let pendingBoardDeleteID else { return }
+        deleteBoard(pendingBoardDeleteID)
+    }
+} message: {
+    Text(pendingBoardDeleteMessage)
 }
         .onAppear {
             ensureBoardSwitcherLoaded()
@@ -1304,99 +1323,266 @@ VStack(spacing: 16) {
         .frame(width: 180, alignment: .leading)
     }
 
-    private func boardSwitcherControls(contentWidth: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Text(L10n.boardSwitcherTitle)
-                    .font(.system(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.76))
-
-                Spacer(minLength: 0)
+private func boardSwitcherControls(contentWidth: CGFloat) -> some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 10) {
+            ForEach(namedBoards) { board in
+                let isSelected = board.id == selectedBoardID
 
                 Button {
-                    beginRenameSelectedBoard()
+                    selectBoard(board.id)
                 } label: {
-                    Image(systemName: "pencil")
-                        .font(.system(size: scaled(13, pad: 15), weight: .bold))
-                        .foregroundColor(NeumorphicColors.accent)
-                        .frame(width: isPadLayout ? 34 : 30, height: isPadLayout ? 34 : 30)
+                    Text(board.name)
+                        .font(.system(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundColor(isSelected ? .white : NeumorphicColors.text)
+                        .padding(.horizontal, 14)
+                        .frame(height: isPadLayout ? 38 : 36)
                         .background(
-                            conciseRaisedSurface(
-                                cornerRadius: isPadLayout ? 17 : 15,
-                                shadowRadius: isPadLayout ? 8 : 6,
-                                offset: isPadLayout ? 4 : 3
-                            )
+                            Capsule(style: .continuous)
+                                .fill(isSelected ? NeumorphicColors.accent : NeumorphicColors.background)
                         )
-                }
-                .buttonStyle(.plain)
-                .disabled(selectedNamedBoardIndex == nil)
-                .opacity(selectedNamedBoardIndex == nil ? 0.45 : 1)
-
-                Button {
-                    beginCreateBoard()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus")
-                            .font(.system(size: scaled(11, pad: 12), weight: .bold))
-
-                        Text(L10n.boardCreateButton)
-                            .font(.system(size: scaled(12.5, pad: 14), weight: .bold, design: .rounded))
-                            .lineLimit(1)
-                    }
-                    .foregroundColor(NeumorphicColors.accent)
-                    .padding(.horizontal, isPadLayout ? 12 : 10)
-                    .frame(height: isPadLayout ? 34 : 30)
-                    .background(
-                        conciseRaisedSurface(
-                            cornerRadius: isPadLayout ? 17 : 15,
-                            shadowRadius: isPadLayout ? 8 : 6,
-                            offset: isPadLayout ? 4 : 3
-                        )
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(namedBoards) { board in
-                        let isSelected = board.id == selectedBoardID
-                        Button {
-                            selectBoard(board.id)
-                        } label: {
-                            Text(board.name)
-                                .font(.system(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                                .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.74))
-                                .lineLimit(1)
-                                .padding(.horizontal, isPadLayout ? 14 : 12)
-                                .frame(height: isPadLayout ? 34 : 30)
-                                .background(
-                                    RoundedRectangle(cornerRadius: isPadLayout ? 17 : 15, style: .continuous)
-                                        .fill(isSelected ? NeumorphicColors.accent.opacity(0.16) : NeumorphicColors.background)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: isPadLayout ? 17 : 15, style: .continuous)
-                                                .stroke(
-                                                    isSelected ? NeumorphicColors.accent.opacity(0.56) : NeumorphicColors.text.opacity(0.16),
-                                                    lineWidth: 1
-                                                )
-                                        )
+                        .overlay(
+                            Capsule(style: .continuous)
+                                .stroke(
+                                    isSelected ? NeumorphicColors.accent : NeumorphicColors.accent.opacity(0.22),
+                                    lineWidth: 1
                                 )
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button(L10n.boardRenameAction) {
-                                beginRenameBoard(board.id)
-                            }
-                        }
-                    }
+                        )
                 }
-                .padding(.vertical, 2)
+                .buttonStyle(.plain)
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.5)
+                        .onEnded { _ in
+                            beginBoardActions(for: board.id)
+                        }
+                )
             }
+
+            Button {
+                beginCreateBoard()
+            } label: {
+                Text(L10n.tr("+ add board", zhHans: "+ 添加棋盘", zhHant: "+ 新增棋盤"))
+                    .font(.system(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
+                    .lineLimit(1)
+                    .padding(.horizontal, 16)
+                    .frame(height: isPadLayout ? 38 : 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: isPadLayout ? 19 : 18, style: .continuous)
+                            .fill(conciseSurfaceColor)
+                            .shadow(color: Color.white.opacity(0.7), radius: isPadLayout ? 8 : 6, x: -4, y: -4)
+                            .shadow(color: NeumorphicColors.darkShadow.opacity(0.22), radius: isPadLayout ? 8 : 6, x: 4, y: 4)
+                    )
+            }
+            .buttonStyle(.plain)
         }
-        .frame(width: contentWidth, alignment: .leading)
+        .padding(.vertical, 2)
+        .padding(.horizontal, 1)
+    }
+    .frame(width: contentWidth, alignment: .leading)
+}
+
+private func beginBoardActions(for boardID: UUID) {
+    focusedEditingResetForBoardActions()
+    withAnimation(.easeInOut(duration: 0.2)) {
+        boardActionSheetBoardID = boardID
+    }
+}
+
+private func dismissBoardActions() {
+    withAnimation(.easeInOut(duration: 0.2)) {
+        boardActionSheetBoardID = nil
+    }
+}
+
+private func focusedEditingResetForBoardActions() {
+    isEditActionsExpanded = false
+    selectedStickerID = nil
+}
+
+private func boardName(for boardID: UUID) -> String {
+    guard let board = namedBoards.first(where: { $0.id == boardID }) else {
+        return L10n.boardDefaultName(1)
+    }
+    return board.name
+}
+
+private func requestDeleteBoard(_ boardID: UUID) {
+    guard canDeleteBoardFromActions(boardID) else {
+        showCommonTasksToast(boardDeleteBlockedMessage(for: boardID))
+        return
     }
 
-    private func ensureBoardSwitcherLoaded() {
+    pendingBoardDeleteID = boardID
+    isBoardDeleteAlertPresented = true
+}
+
+private func canDeleteBoardFromActions(_ boardID: UUID) -> Bool {
+    guard namedBoards.count > 1 else { return false }
+
+    if !subscriptionManager.hasPremiumAccess,
+       let firstBoardID = namedBoards.first?.id,
+       boardID == firstBoardID {
+        return false
+    }
+
+    return true
+}
+
+private func boardDeleteBlockedMessage(for boardID: UUID) -> String {
+    if namedBoards.count <= 1 {
+        return L10n.tr(
+            "At least one board must remain.",
+            zhHans: "至少需要保留一个棋盘。",
+            zhHant: "至少需要保留一個棋盤。"
+        )
+    }
+
+    if !subscriptionManager.hasPremiumAccess,
+       let firstBoardID = namedBoards.first?.id,
+       boardID == firstBoardID {
+        return L10n.tr(
+            "On Free plan, Board 1 cannot be deleted.",
+            zhHans: "非会员模式下，Board 1 不能删除。",
+            zhHant: "非會員模式下，Board 1 不能刪除。"
+        )
+    }
+
+    return L10n.tr(
+        "This board cannot be deleted right now.",
+        zhHans: "当前无法删除该棋盘。",
+        zhHant: "目前無法刪除該棋盤。"
+    )
+}
+
+private func deleteBoard(_ boardID: UUID) {
+    defer {
+        pendingBoardDeleteID = nil
+    }
+
+    guard canDeleteBoardFromActions(boardID),
+          let removeIndex = namedBoards.firstIndex(where: { $0.id == boardID }) else {
+        return
+    }
+
+    var nextSelectedID = selectedBoardID
+    if selectedBoardID == boardID {
+        let fallbackIndex = removeIndex == 0 ? 1 : removeIndex - 1
+        nextSelectedID = namedBoards.indices.contains(fallbackIndex) ? namedBoards[fallbackIndex].id : nil
+    }
+
+    namedBoards.remove(at: removeIndex)
+
+    if let nextSelectedID,
+       let selectedBoard = namedBoards.first(where: { $0.id == nextSelectedID }) {
+        selectedBoardID = nextSelectedID
+        viewModel.applySavedBoardSnapshot(
+            selectedBoard.board,
+            countdownEndsAt: selectedBoard.countdownEndsAt,
+            referenceDate: .now
+        )
+    } else if let firstBoard = namedBoards.first {
+        selectedBoardID = firstBoard.id
+        viewModel.applySavedBoardSnapshot(
+            firstBoard.board,
+            countdownEndsAt: firstBoard.countdownEndsAt,
+            referenceDate: .now
+        )
+    } else {
+        selectedBoardID = nil
+    }
+
+    persistNamedBoardsSnapshot()
+    showCommonTasksToast(L10n.tr("Board deleted", zhHans: "棋盘已删除", zhHant: "棋盤已刪除"))
+}
+
+
+private var pendingBoardDeleteMessage: String {
+    let targetBoardName = pendingBoardDeleteID.flatMap { boardName(for: $0) } ?? ""
+    return L10n.tr(
+        "This will permanently delete \"\(targetBoardName)\" and its progress.",
+        zhHans: "将永久删除「\(targetBoardName)」及其进度。",
+        zhHant: "將永久刪除「\(targetBoardName)」及其進度。"
+    )
+}
+
+@ViewBuilder
+private func boardActionLayer(contentWidth: CGFloat, bottomInset: CGFloat) -> some View {
+    if let boardActionSheetBoardID,
+       let board = namedBoards.first(where: { $0.id == boardActionSheetBoardID }) {
+        boardActionsOverlay(
+            for: board,
+            contentWidth: contentWidth,
+            bottomInset: bottomInset
+        )
+        .transition(.opacity)
+    }
+}
+
+private func boardActionsOverlay(
+    for board: BingoBoardStore.NamedBoard,
+    contentWidth: CGFloat,
+    bottomInset: CGFloat
+) -> some View {
+    let canDelete = canDeleteBoardFromActions(board.id)
+
+    return ZStack(alignment: .bottom) {
+        Color.black.opacity(0.42)
+            .ignoresSafeArea()
+            .onTapGesture {
+                dismissBoardActions()
+            }
+
+        VStack(spacing: 12) {
+            Button {
+                dismissBoardActions()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    beginRenameBoard(board.id)
+                }
+            } label: {
+                Text(L10n.tr("Edit", zhHans: "编辑", zhHant: "編輯"))
+                    .font(.system(size: scaled(16, pad: 18), weight: .semibold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(NeumorphicColors.background)
+                    )
+            }
+            .buttonStyle(.plain)
+
+            if canDelete {
+                Button {
+                    dismissBoardActions()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        requestDeleteBoard(board.id)
+                    }
+                } label: {
+                    Text(L10n.deleteConfirmationTitle)
+                        .font(.system(size: scaled(16, pad: 18), weight: .semibold, design: .rounded))
+                        .foregroundColor(Color.red.opacity(0.84))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(NeumorphicColors.background)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(width: min(contentWidth, isPadLayout ? 460 : 353))
+        .padding(.bottom, max(bottomInset, 14) + 12)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+}
+
+private func ensureBoardSwitcherLoaded() {
+
+
         guard !hasLoadedBoardSwitcherState else { return }
         hasLoadedBoardSwitcherState = true
 
@@ -4841,11 +5027,18 @@ private struct QuickEditView: View {
     @State private var didApplyToBoard = false
     @State private var pendingApplyPlan: ApplyPlan?
     @State private var isPremiumPaywallPresented = false
+    @State private var activeFilter: FilterTab = .all
+    @State private var isAddingTaskInline = false
+    @State private var newTaskDraft = ""
+    @State private var isAddingGroupModalPresented = false
+    @State private var newGroupNameDraft = ""
+    @State private var pendingGroupDeleteFinalConfirmation: UUID?
 
     private enum FocusedMyTaskField: Hashable {
         case task(Int)
-        case groupName(UUID)
         case groupTask(UUID, Int)
+        case newTask
+        case newGroupName
     }
 
     private enum DeleteTarget: Equatable {
@@ -4885,6 +5078,21 @@ private struct QuickEditView: View {
         let text: String
     }
 
+    private enum FilterTab: Equatable {
+        case all
+        case group(UUID)
+    }
+
+    private enum TaskLocation: Hashable {
+        case standalone(Int)
+        case group(UUID, Int)
+    }
+
+    private struct FilteredTaskItem: Identifiable {
+        let id: String
+        let location: TaskLocation
+    }
+
     private struct ApplyPlan: Equatable {
         let tasks: [String]
         let targetGridSize: Int
@@ -4896,28 +5104,13 @@ private struct QuickEditView: View {
 
     private var quickEditSectionFlatBackground: Color { NeumorphicColors.innerSurface }
     private var quickEditTaskFlatBackground: Color { NeumorphicColors.background.opacity(0.96) }
-    private var quickEditGroupFlatBackground: Color { NeumorphicColors.background.opacity(0.98) }
-    private var quickEditGroupTaskFlatBackground: Color { NeumorphicColors.background.opacity(0.92) }
+    private var quickEditSelectedBadgeBackground: Color { NeumorphicColors.accent.opacity(0.14) }
     private var quickEditFieldStroke: Color { NeumorphicColors.text.opacity(0.06) }
     private var quickEditPlaceholderColor: Color { NeumorphicColors.text.opacity(0.34) }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
         isPadLayout ? (pad ?? base * 1.18) : base
     }
-
-    private var groupColumns: [GridItem] {
-        if isPadLayout {
-            return [GridItem(.flexible(), spacing: 18)]
-        }
-        return [GridItem(.flexible(), spacing: 14)]
-    }
-
-    private var taskItemColumns: [GridItem] {
-        let spacing: CGFloat = isPadLayout ? 12 : 10
-        let count = isPadLayout ? 3 : 2
-        return Array(repeating: GridItem(.flexible(), spacing: spacing), count: count)
-    }
-
     private var hasExistingBoardTasks: Bool {
         !viewModel.currentTaskPoolTasks().isEmpty
     }
@@ -4938,24 +5131,59 @@ private struct QuickEditView: View {
         isPremiumUser || group.tasks.count < AppSettings.maxTasksPerGroup
     }
 
+    private func standaloneTaskKey(_ index: Int) -> String {
+        "task-\(index)"
+    }
+
+    private func groupedTaskKey(groupID: UUID, index: Int) -> String {
+        "group-\(groupID.uuidString)-\(index)"
+    }
+
     private var allTaskCandidates: [TaskCandidate] {
         var candidates: [TaskCandidate] = []
 
         for index in library.tasks.indices {
             let text = library.tasks[index].trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { continue }
-            candidates.append(TaskCandidate(id: "task-\(index)", text: text))
+            candidates.append(TaskCandidate(id: standaloneTaskKey(index), text: text))
         }
 
         for group in library.groups {
             for index in group.tasks.indices {
                 let text = group.tasks[index].trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { continue }
-                candidates.append(TaskCandidate(id: "group-\(group.id.uuidString)-\(index)", text: text))
+                candidates.append(TaskCandidate(id: groupedTaskKey(groupID: group.id, index: index), text: text))
             }
         }
 
         return candidates
+    }
+
+    private var filteredTaskItems: [FilteredTaskItem] {
+        switch activeFilter {
+        case .all:
+            var items: [FilteredTaskItem] = library.tasks.indices.map { index in
+                FilteredTaskItem(id: standaloneTaskKey(index), location: .standalone(index))
+            }
+
+            for group in library.groups {
+                items.append(contentsOf: group.tasks.indices.map { index in
+                    FilteredTaskItem(
+                        id: groupedTaskKey(groupID: group.id, index: index),
+                        location: .group(group.id, index)
+                    )
+                })
+            }
+            return items
+        case .group(let groupID):
+            guard let group = library.groups.first(where: { $0.id == groupID }) else { return [] }
+            return group.tasks.indices.map { index in
+                FilteredTaskItem(
+                    id: groupedTaskKey(groupID: groupID, index: index),
+                    location: .group(groupID, index)
+                )
+            }
+        }
     }
 
     private var selectedTasks: [String] {
@@ -4966,6 +5194,43 @@ private struct QuickEditView: View {
         }
     }
 
+    private var totalGridSlots: Int {
+        targetGridSize * targetGridSize
+    }
+
+    private var selectedPreviewCount: Int {
+        min(selectedTasks.count, totalGridSlots)
+    }
+
+    private var previewGridValues: [String?] {
+        let visibleTasks = Array(selectedTasks.prefix(totalGridSlots))
+        return (0..<totalGridSlots).map { index in
+            index < visibleTasks.count ? visibleTasks[index] : nil
+        }
+    }
+
+    private var selectedCountSummary: String {
+        L10n.quickEditSelectedCount(selected: selectedPreviewCount, total: totalGridSlots)
+    }
+
+private var activeFilterTitle: String {
+    switch activeFilter {
+    case .all:
+        return L10n.allTasks
+    case .group(let groupID):
+        guard let group = library.groups.first(where: { $0.id == groupID }) else {
+            return L10n.allTasks
+        }
+        return displayGroupName(group)
+    }
+}
+
+private var activeGroupID: UUID? {
+    if case .group(let groupID) = activeFilter {
+        return groupID
+    }
+    return nil
+}
     var body: some View {
         NavigationStack {
             ZStack {
@@ -4979,10 +5244,9 @@ private struct QuickEditView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                         quickEditControlsCard
-                        tasksSection
+                        filterTabsSection
                             .padding(.top, -10)
-                        groupsSection
-                        hintCard
+                        taskListSection
                     }
                     .frame(maxWidth: isPadLayout ? 760 : .infinity, alignment: .topLeading)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -5017,9 +5281,18 @@ private struct QuickEditView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .allowsHitTesting(false)
                 }
+                if isAddingGroupModalPresented {
+                    addGroupModal
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
 
                 if let deleteConfirmationTarget {
                     deleteConfirmationOverlay(for: deleteConfirmationTarget)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+
+                if let pendingGroupDeleteFinalConfirmation {
+                    deleteGroupFinalConfirmationOverlay(for: pendingGroupDeleteFinalConfirmation)
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
 
@@ -5063,185 +5336,278 @@ private struct QuickEditView: View {
         }
         .onAppear {
             targetGridSize = viewModel.gridSize
+            activeFilter = .all
             selectedTaskKeys = initialSelectedKeys(
                 from: viewModel.currentTaskPoolTasks(),
                 candidates: allTaskCandidates
             )
+            syncActiveFilterWithCurrentLibrary()
         }
         .onChange(of: library) { _, _ in
             syncSelectedTaskKeysWithCurrentLibrary()
+            syncActiveFilterWithCurrentLibrary()
         }
         .fullScreenCover(isPresented: $isPremiumPaywallPresented) {
             PremiumPaywallView()
         }
     }
 
-    private var quickEditControlsCard: some View {
-        sectionCard {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 10) {
-                    quickActionButton(title: L10n.selectAll) {
-                        selectedTaskKeys = allTaskCandidates.map(\.id)
-                    }
+private var quickEditControlsCard: some View {
+    let gridSpacing: CGFloat = isPadLayout ? 16 : 12
+    let controlSize: CGFloat = isPadLayout ? 38 : 32
+    let iconSize: CGFloat = isPadLayout ? 18 : 16
 
-                    quickActionButton(title: L10n.deselectAll) {
-                        selectedTaskKeys = []
+    return flatSectionCard {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                HStack(spacing: isPadLayout ? 14 : 11) {
+                    Button {
+                        targetGridSize = max(2, targetGridSize - 1)
+                    } label: {
+                        Image(systemName: "minus")
+                            .font(.system(size: iconSize, weight: .bold))
+                            .foregroundColor(NeumorphicColors.accent)
+                            .frame(width: controlSize, height: controlSize)
+                            .background(Color.clear.neumorphicConvex(radius: controlSize / 2))
                     }
+                    .buttonStyle(.plain)
+                    .disabled(targetGridSize <= 2)
+                    .opacity(targetGridSize <= 2 ? 0.45 : 1)
 
-                    quickActionButton(title: L10n.random) {
-                        selectedTaskKeys = allTaskCandidates.map(\.id).shuffled()
+                    Text("\(targetGridSize)")
+                        .font(.system(size: scaled(18, pad: 22), weight: .medium, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+
+                    Image(systemName: "xmark")
+                        .font(.system(size: scaled(10, pad: 12), weight: .bold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text.opacity(0.6))
+
+                    Text("\(targetGridSize)")
+                        .font(.system(size: scaled(18, pad: 22), weight: .medium, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+
+                    Button {
+                        targetGridSize = min(5, targetGridSize + 1)
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: iconSize, weight: .bold))
+                            .foregroundColor(NeumorphicColors.accent)
+                            .frame(width: controlSize, height: controlSize)
+                            .background(Color.clear.neumorphicConvex(radius: controlSize / 2))
                     }
+                    .buttonStyle(.plain)
+                    .disabled(targetGridSize >= 5)
+                    .opacity(targetGridSize >= 5 ? 0.45 : 1)
                 }
 
-                HStack {
-                    Spacer(minLength: 0)
-                    let controlSize: CGFloat = isPadLayout ? 38 : 32
-                    let iconSize: CGFloat = isPadLayout ? 18 : 16
+                Spacer(minLength: 0)
 
-                    HStack(spacing: isPadLayout ? 14 : 11) {
-                        Button {
-                            targetGridSize = max(2, targetGridSize - 1)
-                        } label: {
-                            Image(systemName: "minus")
-                                .font(.system(size: iconSize, weight: .bold))
-                                .foregroundColor(NeumorphicColors.accent)
-                                .frame(width: controlSize, height: controlSize)
-                                .background(Color.clear.neumorphicConvex(radius: controlSize / 2))
+                Text(selectedCountSummary)
+                    .font(.system(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.92))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(quickEditSelectedBadgeBackground)
+                    )
+            }
+
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: gridSpacing), count: targetGridSize),
+                spacing: gridSpacing
+            ) {
+                ForEach(Array(previewGridValues.enumerated()), id: \.offset) { _, task in
+                    ZStack {
+                        RoundedRectangle(cornerRadius: isPadLayout ? 18 : 16, style: .continuous)
+                            .fill(task == nil ? NeumorphicColors.background.opacity(0.9) : NeumorphicColors.accent.opacity(0.42))
+
+                        if let task, !task.isEmpty {
+                            Text(task)
+                                .font(.system(size: scaled(14, pad: 18), weight: .semibold, design: .rounded))
+                                .foregroundColor(NeumorphicColors.text)
+                                .lineLimit(3)
+                                .multilineTextAlignment(.center)
+                                .minimumScaleFactor(0.72)
+                                .padding(10)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(targetGridSize <= 2)
-                        .opacity(targetGridSize <= 2 ? 0.45 : 1)
-
-                        Text("\(targetGridSize) × \(targetGridSize)")
-                            .font(.system(size: scaled(18, pad: 22), weight: .medium, design: .rounded))
-                            .foregroundColor(NeumorphicColors.text)
-                            .frame(width: isPadLayout ? 72 : 62)
-                            .multilineTextAlignment(.center)
-
-                        Button {
-                            targetGridSize = min(5, targetGridSize + 1)
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: iconSize, weight: .bold))
-                                .foregroundColor(NeumorphicColors.accent)
-                                .frame(width: controlSize, height: controlSize)
-                                .background(Color.clear.neumorphicConvex(radius: controlSize / 2))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(targetGridSize >= 5)
-                        .opacity(targetGridSize >= 5 ? 0.45 : 1)
                     }
-                    Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fit)
                 }
-                .padding(.top, 10)
             }
         }
     }
+}
 
-    private func quickActionButton(title: String, isAccent: Bool = false, action: @escaping () -> Void) -> some View {
+    private var filterTabsSection: some View {
+        HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    filterTabButton(
+                        title: L10n.allTasks,
+                        isSelected: activeFilter == .all
+                    ) {
+                        activeFilter = .all
+                    }
+
+                    ForEach(library.groups) { group in
+                        filterTabButton(
+                            title: displayGroupName(group),
+                            isSelected: activeFilter == .group(group.id)
+                        ) {
+                            activeFilter = .group(group.id)
+                        }
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.8)
+                                .onEnded { _ in
+                                    focusedField = nil
+                                    deleteConfirmationTarget = .group(group.id)
+                                }
+                        )
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+
+            Button {
+                presentAddGroupModal()
+            } label: {
+                Text("+ \(L10n.addGroup)")
+                    .font(.system(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.clear.neumorphicConvex(radius: 16))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func filterTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
-                .foregroundColor(isAccent ? .white : NeumorphicColors.text)
-                .frame(maxWidth: .infinity)
-                .frame(height: 40)
+                .font(.system(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
+                .foregroundColor(isSelected ? .white : NeumorphicColors.text)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .background(
-                    Group {
-                        if isAccent {
-                            Capsule(style: .continuous)
-                                .fill(NeumorphicColors.accent)
-                        } else {
-                            Color.clear.neumorphicConvex(radius: 16)
-                        }
-                    }
+                    Capsule(style: .continuous)
+                        .fill(isSelected ? NeumorphicColors.accent : NeumorphicColors.background)
                 )
+                .overlay {
+                    Capsule(style: .continuous)
+                        .stroke(
+                            isSelected ? NeumorphicColors.accent : quickEditFieldStroke,
+                            lineWidth: 1
+                        )
+                }
         }
         .buttonStyle(.plain)
     }
 
-    private var tasksSection: some View {
-        flatSectionCard {
-            VStack(alignment: .leading, spacing: 18) {
-                sectionHeader(
-                    title: L10n.tasks,
-                    subtitle: "",
-                    detail: "",
-                    actionTitle: L10n.addTask,
-                    action: appendTask
-                )
+private var taskListSection: some View {
+    flatSectionCard {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Text(activeFilterTitle)
+                    .font(.system(size: scaled(15, pad: 19), weight: .semibold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
 
-                LazyVGrid(columns: taskItemColumns, spacing: 10) {
-                    ForEach(library.tasks.indices, id: \.self) { index in
-                        taskCard(for: index)
+                Spacer(minLength: 0)
+
+                if let activeGroupID {
+                    Button {
+                        focusedField = nil
+                        deleteConfirmationTarget = .group(activeGroupID)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "trash")
+                                .font(.system(size: scaled(11, pad: 13), weight: .semibold))
+                            Text(L10n.tr("Delete Group", zhHans: "删除分组", zhHant: "刪除分組"))
+                                .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
+                        }
+                        .foregroundColor(NeumorphicColors.bingoAccent)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(quickEditTaskFlatBackground)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(NeumorphicColors.bingoAccent.opacity(0.28), lineWidth: 1)
+                                )
+                        )
                     }
+                    .buttonStyle(.plain)
                 }
             }
-        }
-    }
 
-    private var groupsSection: some View {
-        flatSectionCard {
-            VStack(alignment: .leading, spacing: 18) {
-                sectionHeader(
-                    title: L10n.groups,
-                    subtitle: "",
-                    detail: "",
-                    actionTitle: L10n.addGroup,
-                    action: appendGroup
-                )
+            if filteredTaskItems.isEmpty && !isAddingTaskInline {
+                Text(L10n.quickEditNoTasksInFilter)
+                    .font(.system(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.56))
+                    .padding(.vertical, 8)
+            }
 
-                LazyVGrid(columns: groupColumns, spacing: 14) {
-                    ForEach(library.groups.indices, id: \.self) { index in
-                        groupCard(for: index)
-                    }
+            VStack(spacing: 10) {
+                ForEach(filteredTaskItems) { item in
+                    taskRow(for: item)
+                }
+
+                if isAddingTaskInline {
+                    newTaskInlineRow
                 }
             }
+
+            addTaskButton
+                .padding(.top, 6)
         }
     }
+}
 
-    private func taskCard(for index: Int) -> some View {
-        let key = "task-\(index)"
+    private func taskRow(for item: FilteredTaskItem) -> some View {
+        let key = item.id
         let isSelected = selectedTaskKeys.contains(key)
 
-        return HStack(spacing: 8) {
-            TextField(
-                text: taskBinding(for: index),
-                prompt: Text(L10n.taskNumber(index + 1))
-                    .foregroundColor(quickEditPlaceholderColor)
-            ) {
-                EmptyView()
-            }
-                .textInputAutocapitalization(.sentences)
-                .font(.system(size: scaled(13, pad: 17), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .focused($focusedField, equals: .task(index))
-
+        return HStack(spacing: 10) {
             Button {
                 toggleSelection(for: key)
             } label: {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: scaled(13, pad: 15), weight: .bold))
-                    .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
-                    .frame(width: 20, height: 20)
+                    .font(.system(size: scaled(18, pad: 20), weight: .bold))
+                    .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.38))
+                    .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
 
+            TextField(
+                text: taskBinding(for: item.location),
+                prompt: Text(placeholder(for: item.location))
+                    .foregroundColor(quickEditPlaceholderColor)
+            ) {
+                EmptyView()
+            }
+            .textInputAutocapitalization(.sentences)
+            .font(.system(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
+            .foregroundColor(NeumorphicColors.text)
+            .lineLimit(1)
+            .focused($focusedField, equals: focusedField(for: item.location))
+
             Button {
                 focusedField = nil
-                deleteConfirmationTarget = .task(index)
+                deleteConfirmationTarget = deleteTarget(for: item.location)
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: scaled(9, pad: 10), weight: .bold))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
-                    .frame(width: 18, height: 18)
+                Image(systemName: "trash")
+                    .font(.system(size: scaled(13, pad: 15), weight: .medium))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.52))
+                    .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: 42)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, minHeight: 50)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(quickEditTaskFlatBackground)
@@ -5251,175 +5617,292 @@ private struct QuickEditView: View {
                 .stroke(quickEditFieldStroke, lineWidth: 1)
                 .allowsHitTesting(false)
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(NeumorphicColors.accent.opacity(isSelected ? 0.12 : 0))
-                .allowsHitTesting(false)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(NeumorphicColors.accent.opacity(isSelected ? 0.4 : 0), lineWidth: 1.2)
-                .allowsHitTesting(false)
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 14))
-        .onTapGesture {
-            toggleSelection(for: key)
-        }
     }
 
-    private func groupCard(for index: Int) -> some View {
-        let group = library.groups[index]
-        let groupSelected = isGroupSelected(group)
-
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 12) {
-                TextField(
-                    text: groupNameBinding(for: group.id),
-                    prompt: Text(L10n.groupName)
-                        .foregroundColor(quickEditPlaceholderColor)
-                ) {
-                    EmptyView()
-                }
-                    .textInputAutocapitalization(.sentences)
-                    .font(.system(size: scaled(16, pad: 22), weight: .bold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-                    .focused($focusedField, equals: .groupName(group.id))
-
-                Button {
-                    toggleGroupSelection(group)
-                } label: {
-                    Image(systemName: groupSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: scaled(15, pad: 17), weight: .bold))
-                        .foregroundColor(groupSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.plain)
-                .disabled(groupSelectableTaskKeys(group).isEmpty)
-                .opacity(groupSelectableTaskKeys(group).isEmpty ? 0.35 : 1)
-                .offset(x: 5)
-
-                Button {
-                    focusedField = nil
-                    deleteConfirmationTarget = .group(group.id)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: scaled(9, pad: 10), weight: .bold))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.78))
-                        .frame(width: 18, height: 18)
-                }
-                .buttonStyle(.plain)
-            }
-
-            if group.tasks.isEmpty {
-                Text(L10n.addTask)
-                    .font(.system(size: scaled(13, pad: 17), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.52))
-            }
-
-            LazyVGrid(columns: taskItemColumns, spacing: 10) {
-                ForEach(group.tasks.indices, id: \.self) { taskIndex in
-                    groupTaskChip(groupID: group.id, index: taskIndex)
-                }
-
-                addGroupTaskChip(groupID: group.id)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(quickEditGroupFlatBackground)
+private var newTaskInlineRow: some View {
+    HStack(spacing: 10) {
+        TextField(
+            "",
+            text: $newTaskDraft,
+            prompt: Text(L10n.quickEditTaskNamePlaceholder)
+                .foregroundColor(quickEditPlaceholderColor)
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(quickEditFieldStroke, lineWidth: 1)
-                .allowsHitTesting(false)
+        .textInputAutocapitalization(.sentences)
+        .font(.system(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
+        .foregroundColor(NeumorphicColors.text)
+        .focused($focusedField, equals: .newTask)
+        .onSubmit {
+            commitAddingTaskInline()
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(NeumorphicColors.accent.opacity(groupSelected ? 0.12 : 0))
-                .allowsHitTesting(false)
+
+        Button(L10n.save) {
+            commitAddingTaskInline()
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(NeumorphicColors.accent.opacity(groupSelected ? 0.4 : 0), lineWidth: 1.2)
-                .allowsHitTesting(false)
+        .font(.system(size: scaled(12, pad: 14), weight: .bold, design: .rounded))
+        .foregroundColor(NeumorphicColors.accent)
+        .buttonStyle(.plain)
+        .disabled(newTaskDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .opacity(newTaskDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
+
+        Button(L10n.cancel) {
+            cancelAddingTaskInline()
         }
-        .contentShape(RoundedRectangle(cornerRadius: 24))
-        .onTapGesture {
-            toggleGroupSelection(group)
-        }
+        .font(.system(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
+        .foregroundColor(NeumorphicColors.text.opacity(0.62))
+        .buttonStyle(.plain)
     }
-
-    private func groupTaskChip(groupID: UUID, index: Int) -> some View {
-        return HStack(spacing: 8) {
-            TextField(
-                text: groupTaskBinding(groupID: groupID, index: index),
-                prompt: Text(L10n.task)
-                    .foregroundColor(quickEditPlaceholderColor)
-            ) {
-                EmptyView()
-            }
-                .textInputAutocapitalization(.sentences)
-                .font(.system(size: scaled(13, pad: 17), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .focused($focusedField, equals: .groupTask(groupID, index))
-
-            Button {
-                focusedField = nil
-                deleteConfirmationTarget = .groupTask(groupID, index)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: scaled(9, pad: 10), weight: .bold))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
-                    .frame(width: 18, height: 18)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: 42)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(quickEditGroupTaskFlatBackground)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(quickEditFieldStroke, lineWidth: 1)
-                .allowsHitTesting(false)
-        }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 11)
+    .frame(maxWidth: .infinity, minHeight: 50)
+    .background(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(quickEditTaskFlatBackground)
+    )
+    .overlay {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(NeumorphicColors.accent.opacity(0.45), lineWidth: 1)
+            .allowsHitTesting(false)
     }
+}
 
-    private func addGroupTaskChip(groupID: UUID) -> some View {
+    private var addTaskButton: some View {
         Button {
-            guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }) else { return }
+            startAddingTaskInline()
+        } label: {
+            Text(L10n.addTask)
+                .font(.system(size: scaled(15, pad: 17), weight: .semibold, design: .rounded))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(NeumorphicColors.accent)
+                        .shadow(color: NeumorphicColors.accent.opacity(0.24), radius: 10, x: 0, y: 6)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var addGroupModal: some View {
+        ZStack {
+            Color.black.opacity(0.16)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    dismissAddGroupModal()
+                }
+
+            VStack(spacing: 14) {
+                Text(L10n.quickEditAddGroupTitle)
+                    .font(.system(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
+
+                TextField(
+                    "",
+                    text: $newGroupNameDraft,
+                    prompt: Text(L10n.quickEditGroupNamePlaceholder)
+                        .foregroundColor(quickEditPlaceholderColor)
+                )
+                .textInputAutocapitalization(.sentences)
+                .font(.system(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
+                .foregroundColor(NeumorphicColors.text)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(quickEditTaskFlatBackground)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(quickEditFieldStroke, lineWidth: 1)
+                }
+                .focused($focusedField, equals: .newGroupName)
+                .onSubmit {
+                    commitAddGroup()
+                }
+
+                HStack(spacing: 12) {
+                    Button(L10n.cancel) {
+                        dismissAddGroupModal()
+                    }
+                    .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(Color.clear.neumorphicConvex(radius: 18))
+                    .buttonStyle(.plain)
+
+                    Button(L10n.addGroup) {
+                        commitAddGroup()
+                    }
+                    .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(NeumorphicColors.accent)
+                            .shadow(color: NeumorphicColors.accent.opacity(0.25), radius: 10, x: 0, y: 4)
+                    )
+                    .buttonStyle(.plain)
+                    .disabled(newGroupNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .opacity(newGroupNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: 320)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(NeumorphicColors.background)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .stroke(NeumorphicColors.lightShadow.opacity(0.42), lineWidth: 1)
+                    )
+                    .shadow(color: NeumorphicColors.darkShadow.opacity(0.18), radius: 16, x: 0, y: 8)
+                    .shadow(color: Color.white.opacity(0.72), radius: 10, x: -4, y: -4)
+            )
+            .padding(.horizontal, 28)
+        }
+    }
+
+    private func taskBinding(for location: TaskLocation) -> Binding<String> {
+        switch location {
+        case .standalone(let index):
+            return taskBinding(for: index)
+        case .group(let groupID, let index):
+            return groupTaskBinding(groupID: groupID, index: index)
+        }
+    }
+
+    private func focusedField(for location: TaskLocation) -> FocusedMyTaskField {
+        switch location {
+        case .standalone(let index):
+            return .task(index)
+        case .group(let groupID, let index):
+            return .groupTask(groupID, index)
+        }
+    }
+
+    private func placeholder(for location: TaskLocation) -> String {
+        switch location {
+        case .standalone(let index):
+            return L10n.taskNumber(index + 1)
+        case .group:
+            return L10n.task
+        }
+    }
+
+    private func deleteTarget(for location: TaskLocation) -> DeleteTarget {
+        switch location {
+        case .standalone(let index):
+            return .task(index)
+        case .group(let groupID, let index):
+            return .groupTask(groupID, index)
+        }
+    }
+
+    private func displayGroupName(_ group: MyTaskGroup) -> String {
+        let trimmed = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? L10n.groupDefaultName : trimmed
+    }
+
+    private func syncActiveFilterWithCurrentLibrary() {
+        switch activeFilter {
+        case .all:
+            return
+        case .group(let groupID):
+            if !library.groups.contains(where: { $0.id == groupID }) {
+                activeFilter = .all
+            }
+        }
+    }
+
+    private func startAddingTaskInline() {
+        if case .group(let groupID) = activeFilter,
+           let group = library.groups.first(where: { $0.id == groupID }) {
+            guard canAddTask(to: group) else {
+                presentPremiumPaywallForLimit()
+                return
+            }
+        } else {
+            guard canAddStandaloneTask else {
+                presentPremiumPaywallForLimit()
+                return
+            }
+        }
+
+        isAddingTaskInline = true
+        newTaskDraft = ""
+        DispatchQueue.main.async {
+            focusedField = .newTask
+        }
+    }
+
+    private func cancelAddingTaskInline() {
+        isAddingTaskInline = false
+        newTaskDraft = ""
+        focusedField = nil
+    }
+
+    private func commitAddingTaskInline() {
+        let text = String(newTaskDraft.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        switch activeFilter {
+        case .all:
+            guard canAddStandaloneTask else {
+                presentPremiumPaywallForLimit()
+                return
+            }
+            library.tasks.append(text)
+        case .group(let groupID):
+            guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }) else {
+                activeFilter = .all
+                return
+            }
             guard canAddTask(to: library.groups[groupIndex]) else {
                 presentPremiumPaywallForLimit()
                 return
             }
-            focusedField = nil
-            library.groups[groupIndex].tasks.append("")
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "plus")
-                    .font(.system(size: scaled(10, pad: 13), weight: .bold))
-                Text(L10n.addTask)
-                    .font(.system(size: scaled(13, pad: 17), weight: .semibold, design: .rounded))
-            }
-            .foregroundColor(NeumorphicColors.text)
-            .frame(maxWidth: .infinity, minHeight: 42)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(quickEditGroupTaskFlatBackground)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(quickEditFieldStroke, lineWidth: 1)
-            }
+            library.groups[groupIndex].tasks.append(text)
         }
-        .buttonStyle(.plain)
+
+        isAddingTaskInline = false
+        newTaskDraft = ""
+        focusedField = nil
+    }
+
+    private func presentAddGroupModal() {
+        guard canAddGroup else {
+            presentPremiumPaywallForLimit()
+            return
+        }
+        newGroupNameDraft = ""
+        isAddingGroupModalPresented = true
+        DispatchQueue.main.async {
+            focusedField = .newGroupName
+        }
+    }
+
+    private func dismissAddGroupModal() {
+        isAddingGroupModalPresented = false
+        newGroupNameDraft = ""
+        focusedField = nil
+    }
+
+    private func commitAddGroup() {
+        guard canAddGroup else {
+            presentPremiumPaywallForLimit()
+            return
+        }
+
+        let trimmedName = String(newGroupNameDraft.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+
+        let group = MyTaskGroup(name: trimmedName, tasks: [])
+        library.groups.append(group)
+        activeFilter = .group(group.id)
+        dismissAddGroupModal()
     }
 
     private func taskBinding(for index: Int) -> Binding<String> {
@@ -5431,18 +5914,6 @@ private struct QuickEditView: View {
             set: { newValue in
                 guard library.tasks.indices.contains(index) else { return }
                 library.tasks[index] = String(newValue.prefix(AppSettings.maxTaskLength))
-            }
-        )
-    }
-
-    private func groupNameBinding(for groupID: UUID) -> Binding<String> {
-        Binding(
-            get: {
-                library.groups.first(where: { $0.id == groupID })?.name ?? ""
-            },
-            set: { newValue in
-                guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }) else { return }
-                library.groups[groupIndex].name = String(newValue.prefix(AppSettings.maxTaskLength))
             }
         )
     }
@@ -5467,34 +5938,6 @@ private struct QuickEditView: View {
             selectedTaskKeys.remove(at: index)
         } else {
             selectedTaskKeys.append(key)
-        }
-    }
-
-    private func groupSelectableTaskKeys(_ group: MyTaskGroup) -> [String] {
-        group.tasks.indices.compactMap { index in
-            let text = group.tasks[index].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return nil }
-            return "group-\(group.id.uuidString)-\(index)"
-        }
-    }
-
-    private func isGroupSelected(_ group: MyTaskGroup) -> Bool {
-        let keys = groupSelectableTaskKeys(group)
-        guard !keys.isEmpty else { return false }
-        return keys.allSatisfy { selectedTaskKeys.contains($0) }
-    }
-
-    private func toggleGroupSelection(_ group: MyTaskGroup) {
-        let keys = groupSelectableTaskKeys(group)
-        guard !keys.isEmpty else { return }
-
-        if isGroupSelected(group) {
-            let keySet = Set(keys)
-            selectedTaskKeys.removeAll { keySet.contains($0) }
-        } else {
-            for key in keys where !selectedTaskKeys.contains(key) {
-                selectedTaskKeys.append(key)
-            }
         }
     }
 
@@ -5561,54 +6004,48 @@ private struct QuickEditView: View {
         lastTrackedLibrary = savedLibrary
     }
 
-    private func saveAndDismiss() {
-        focusedField = nil
-        finalizeLibrary(showSuccessToast: true)
-        dismiss()
-    }
-
     private func presentPremiumPaywallForLimit() {
         focusedField = nil
         isPremiumPaywallPresented = true
     }
-
-    private func appendTask() {
-        guard canAddStandaloneTask else {
-            presentPremiumPaywallForLimit()
-            return
-        }
+private func confirmDelete(_ target: DeleteTarget) {
+    switch target {
+    case .task(let index):
+        guard library.tasks.indices.contains(index) else { return }
+        library.tasks.remove(at: index)
+        showLocalToast(target.successMessage)
+        deleteConfirmationTarget = nil
         focusedField = nil
-        library.tasks.append("")
-    }
-
-    private func appendGroup() {
-        guard canAddGroup else {
-            presentPremiumPaywallForLimit()
-            return
-        }
+    case .group(let groupID):
+        deleteConfirmationTarget = nil
         focusedField = nil
-        let newGroup = MyTaskGroup(name: "", tasks: [""])
-        library.groups.append(newGroup)
-    }
-
-    private func confirmDelete(_ target: DeleteTarget) {
-        switch target {
-        case .task(let index):
-            guard library.tasks.indices.contains(index) else { return }
-            library.tasks.remove(at: index)
-        case .group(let groupID):
-            guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }) else { return }
-            library.groups.remove(at: groupIndex)
-        case .groupTask(let groupID, let index):
-            guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }),
-                  library.groups[groupIndex].tasks.indices.contains(index) else { return }
-            library.groups[groupIndex].tasks.remove(at: index)
-        }
-
+        pendingGroupDeleteFinalConfirmation = groupID
+    case .groupTask(let groupID, let index):
+        guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }),
+              library.groups[groupIndex].tasks.indices.contains(index) else { return }
+        library.groups[groupIndex].tasks.remove(at: index)
         showLocalToast(target.successMessage)
         deleteConfirmationTarget = nil
         focusedField = nil
     }
+}
+
+private func finalizeGroupDeletion(_ groupID: UUID) {
+    guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }) else {
+        pendingGroupDeleteFinalConfirmation = nil
+        return
+    }
+
+    library.groups.remove(at: groupIndex)
+    if activeFilter == .group(groupID) {
+        activeFilter = .all
+    }
+
+    showLocalToast(L10n.groupDeletedSuccess)
+    pendingGroupDeleteFinalConfirmation = nil
+    deleteConfirmationTarget = nil
+    focusedField = nil
+}
 
     private func saveSuccessMessage(previous: MyTasksLibrary, current: MyTasksLibrary) -> String? {
         let taskDelta = current.tasks.count - previous.tasks.count
@@ -5737,42 +6174,48 @@ private struct QuickEditView: View {
                         .font(.system(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
                         .foregroundColor(NeumorphicColors.text)
 
-                    Text(target.message)
+                    Text(deleteMessage(for: target))
                         .font(.system(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
                         .foregroundColor(NeumorphicColors.text.opacity(0.64))
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                HStack(spacing: 12) {
-                    Button {
-                        deleteConfirmationTarget = nil
-                    } label: {
-                        Text(L10n.cancel)
-                            .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                            .foregroundColor(NeumorphicColors.text.opacity(0.78))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
-                            .background(Color.clear.neumorphicConvex(radius: 18))
-                    }
-                    .buttonStyle(.plain)
+HStack(spacing: 12) {
+    Button {
+        deleteConfirmationTarget = nil
+    } label: {
+        Text(L10n.cancel)
+            .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+            .foregroundColor(NeumorphicColors.text.opacity(0.78))
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(quickEditTaskFlatBackground)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(quickEditFieldStroke, lineWidth: 1)
+                    )
+            )
+    }
+    .buttonStyle(.plain)
 
-                    Button {
-                        confirmDelete(target)
-                    } label: {
-                        Text(target.title)
-                            .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
-                            .background(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(NeumorphicColors.bingoAccent)
-                                    .shadow(color: NeumorphicColors.bingoAccent.opacity(0.25), radius: 10, x: 0, y: 4)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
+    Button {
+        confirmDelete(target)
+    } label: {
+        Text(target.title)
+            .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(NeumorphicColors.bingoAccent)
+            )
+    }
+    .buttonStyle(.plain)
+}
             }
             .padding(20)
             .frame(maxWidth: 320)
@@ -5789,6 +6232,110 @@ private struct QuickEditView: View {
             .padding(.horizontal, 28)
         }
     }
+
+
+private func deleteMessage(for target: DeleteTarget) -> String {
+    switch target {
+    case .groupTask(let groupID, _):
+        let name = groupName(for: groupID)
+        return L10n.tr(
+            "This task will be removed from \(name).",
+            zhHans: "该任务将从「\(name)」中移除。",
+            zhHant: "該任務將從「\(name)」中移除。"
+        )
+    default:
+        return target.message
+    }
+}
+
+private func groupName(for groupID: UUID) -> String {
+    guard let group = library.groups.first(where: { $0.id == groupID }) else {
+        return L10n.groupDefaultName
+    }
+    return displayGroupName(group)
+}
+
+@ViewBuilder
+private func deleteGroupFinalConfirmationOverlay(for groupID: UUID) -> some View {
+    let name = groupName(for: groupID)
+
+    ZStack {
+        Color.black.opacity(0.16)
+            .ignoresSafeArea()
+            .onTapGesture {
+                pendingGroupDeleteFinalConfirmation = nil
+            }
+
+        VStack(spacing: 18) {
+            VStack(spacing: 10) {
+                Text(L10n.tr("Delete this group?", zhHans: "删除该分组？", zhHant: "刪除該分組？"))
+                    .font(.system(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
+
+                Text(
+                    L10n.tr(
+                        "All tasks in \"\(name)\" will be deleted and cannot be undone.",
+                        zhHans: "「\(name)」中的所有任务将被删除，且不可恢复。",
+                        zhHant: "「\(name)」中的所有任務將被刪除，且不可恢復。"
+                    )
+                )
+                .font(.system(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
+                .foregroundColor(NeumorphicColors.text.opacity(0.64))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 12) {
+                Button {
+                    pendingGroupDeleteFinalConfirmation = nil
+                } label: {
+                    Text(L10n.cancel)
+                        .font(.system(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text.opacity(0.78))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(quickEditTaskFlatBackground)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                        .stroke(quickEditFieldStroke, lineWidth: 1)
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    finalizeGroupDeletion(groupID)
+                } label: {
+                    Text(L10n.deleteConfirmationTitle)
+                        .font(.system(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(NeumorphicColors.bingoAccent)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: 320)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(NeumorphicColors.background)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(NeumorphicColors.lightShadow.opacity(0.42), lineWidth: 1)
+                )
+                .shadow(color: NeumorphicColors.darkShadow.opacity(0.18), radius: 16, x: 0, y: 8)
+                .shadow(color: Color.white.opacity(0.72), radius: 10, x: -4, y: -4)
+        )
+        .padding(.horizontal, 28)
+    }
+}
 
     private func sectionHeader(title: String, subtitle: String, detail: String, actionTitle: String?, action: (() -> Void)?) -> some View {
         HStack(alignment: .top, spacing: 12) {
@@ -5867,17 +6414,6 @@ private struct QuickEditView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(isPadLayout ? 22 : 18)
         .background(Color.clear.neumorphicConvex(radius: 24))
-    }
-
-    private var hintCard: some View {
-        Text(L10n.myTasksHint)
-            .font(.system(size: scaled(13, pad: 17), weight: .medium, design: .rounded))
-            .foregroundColor(NeumorphicColors.text.opacity(0.66))
-            .multilineTextAlignment(.leading)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.clear.neumorphicConcave(radius: 22))
     }
 }
 

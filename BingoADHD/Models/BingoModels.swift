@@ -311,6 +311,22 @@ enum L10n {
     static var selectAll: String { tr("Select All", zhHans: "全选") }
     static var deselectAll: String { tr("Deselect All", zhHans: "全取消") }
     static var random: String { tr("Random", zhHans: "随机") }
+    static var allTasks: String { tr("All Tasks", zhHans: "全部任务") }
+    static func quickEditSelectedCount(selected: Int, total: Int) -> String {
+        tr("\(selected)/\(total) selected", zhHans: "已选 \(selected)/\(total)")
+    }
+    static var quickEditNoTasksInFilter: String {
+        tr("No tasks in this filter yet.", zhHans: "该筛选下还没有任务。")
+    }
+    static var quickEditAddGroupTitle: String {
+        tr("Add New Group", zhHans: "添加新分组")
+    }
+    static var quickEditGroupNamePlaceholder: String {
+        tr("Enter group name...", zhHans: "输入分组名称...")
+    }
+    static var quickEditTaskNamePlaceholder: String {
+        tr("Enter task name...", zhHans: "输入任务名称...")
+    }
     static var gridSize: String { tr("Grid Size", zhHans: "格子大小") }
     static func selectedTaskCount(_ count: Int, usedCount: Int) -> String {
         tr("Selected \(count) (\(usedCount) used for current board)", zhHans: "已选 \(count) 个（当前尺寸使用前 \(usedCount) 个）")
