@@ -5,6 +5,16 @@ import FirebaseAnalytics
 import GoogleSignIn
 import StoreKit
 
+enum AppFeatureFlags {
+    // Soft-off account capabilities for review builds.
+    // Set to true to restore account features later.
+    static let isAccountEnabled = false
+
+    // Soft-off template sharing capabilities.
+    // Set to true to restore share/import template flows later.
+    static let isTemplateSharingEnabled = true
+}
+
 enum AppFontRegistrar {
     private static var hasRegisteredFonts = false
 
@@ -52,6 +62,73 @@ enum AnalyticsService {
             "theme_color_id": theme.rawValue
         ])
         syncThemeUserProperty(theme)
+    }
+
+    static func logPremiumBoardsLimitHit(currentBoardCount: Int) {
+        Analytics.logEvent("premium_limit_boards_hit", parameters: [
+            "current_board_count": currentBoardCount
+        ])
+    }
+
+    static func logPremiumTasksGroupsLimitHit(
+        source: String,
+        taskCount: Int,
+        groupCount: Int,
+        groupTaskCount: Int
+    ) {
+        Analytics.logEvent("premium_limit_tasks_groups_hit", parameters: [
+            "source": source,
+            "task_count": taskCount,
+            "group_count": groupCount,
+            "group_task_count": groupTaskCount
+        ])
+    }
+
+    static func logPremiumGrid5x5LimitHit(currentGridSize: Int, source: String) {
+        Analytics.logEvent("premium_limit_grid_5x5_hit", parameters: [
+            "current_grid_size": currentGridSize,
+            "source": source
+        ])
+    }
+
+    static func logPremiumFeaturePurchaseSuccess(source: String, plan: String, productID: String) {
+        Analytics.logEvent("premium_feature_purchase_success", parameters: [
+            "source": source,
+            "plan": plan,
+            "product_id": productID
+        ])
+    }
+
+    static func logTemplateShareOpen(source: String, gridSize: Int, isPremium: Bool) {
+        Analytics.logEvent("template_share_open", parameters: [
+            "source": source,
+            "grid_size": gridSize,
+            "is_premium": isPremium ? 1 : 0
+        ])
+    }
+
+    static func logTemplateShareSaveImageClick(source: String, gridSize: Int, isPremium: Bool) {
+        Analytics.logEvent("template_share_save_image_click", parameters: [
+            "source": source,
+            "grid_size": gridSize,
+            "is_premium": isPremium ? 1 : 0
+        ])
+    }
+
+    static func logTemplateImportPageOpen(source: String, gridSize: Int, createsNewBoard: Bool) {
+        Analytics.logEvent("template_import_page_open", parameters: [
+            "source": source,
+            "grid_size": gridSize,
+            "creates_new_board": createsNewBoard ? 1 : 0
+        ])
+    }
+
+    static func logTemplateImportSuccess(source: String, gridSize: Int, createsNewBoard: Bool) {
+        Analytics.logEvent("template_import_success", parameters: [
+            "source": source,
+            "grid_size": gridSize,
+            "creates_new_board": createsNewBoard ? 1 : 0
+        ])
     }
 
     static func syncMyTasksLibrary(_ library: MyTasksLibrary, shouldLogEvent: Bool = true) {
@@ -144,7 +221,28 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         open url: URL,
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
-        GIDSignIn.sharedInstance.handle(url)
+        if GIDSignIn.sharedInstance.handle(url) {
+            return true
+        }
+        guard AppFeatureFlags.isTemplateSharingEnabled else {
+            return false
+        }
+        return BoardTemplateImportCoordinator.shared.handleIncomingURL(url)
+    }
+
+    func application(
+        _ application: UIApplication,
+        continue userActivity: NSUserActivity,
+        restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+    ) -> Bool {
+        guard AppFeatureFlags.isTemplateSharingEnabled else {
+            return false
+        }
+        guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+              let url = userActivity.webpageURL else {
+            return false
+        }
+        return BoardTemplateImportCoordinator.shared.handleIncomingURL(url)
     }
 }
 
@@ -160,12 +258,30 @@ struct BingoADHDApp: App {
 }
 
 @MainActor
-final class SubscriptionManager: ObservableObject {
-    static let monthlyProductID = "com.bingoday.app.premium.monthly"
-    static let yearlyProductID = "com.bingoday.app.premium.yearly"
-    static let lifetimeProductID = "com.bingodays.app.lifetime.unlock"
+enum PremiumPlanKind: String {
+    case monthly
+    case yearly
+    case lifetime
 
-    static let allProductIDs = [
+    var productID: String {
+        switch self {
+        case .monthly:
+            return SubscriptionManager.monthlyProductID
+        case .yearly:
+            return SubscriptionManager.yearlyProductID
+        case .lifetime:
+            return SubscriptionManager.lifetimeProductID
+        }
+    }
+}
+
+@MainActor
+final class SubscriptionManager: ObservableObject {
+    nonisolated static let monthlyProductID = "com.bingoday.app.premium.monthly"
+    nonisolated static let yearlyProductID = "com.bingoday.app.premium.yearly"
+    nonisolated static let lifetimeProductID = "com.bingodays.app.lifetime.unlock"
+
+    nonisolated static let allProductIDs = [
         monthlyProductID,
         yearlyProductID,
         lifetimeProductID
@@ -182,10 +298,18 @@ final class SubscriptionManager: ObservableObject {
     @Published private(set) var storefrontID = "--"
     @Published private(set) var loadedProductIDs: [String] = []
     @Published private(set) var missingProductIDs: [String] = []
+    @Published private(set) var currentPlanKind: PremiumPlanKind?
+    @Published private(set) var currentPlanExpirationDate: Date?
+    @Published private(set) var autoRenewablePlanKind: PremiumPlanKind?
 
     private var updatesTask: Task<Void, Never>?
+    private var cachedDisplayPrices: [String: String] = [:]
+    private static let cachedDisplayPricesKey = "subscription.cached_display_prices"
 
     init() {
+        if let cached = UserDefaults.standard.dictionary(forKey: Self.cachedDisplayPricesKey) as? [String: String] {
+            cachedDisplayPrices = cached
+        }
         updatesTask = observeTransactionUpdates()
         Task {
             await refreshAll()
@@ -205,18 +329,49 @@ final class SubscriptionManager: ObservableObject {
     func refreshEntitlements() async {
         var collected: Set<String> = []
         let now = Date()
+        var resolvedLifetime = false
+        var resolvedAutoRenewablePlan: PremiumPlanKind?
+        var resolvedAutoRenewableExpirationDate: Date?
 
         for await result in Transaction.currentEntitlements {
             guard let transaction = verified(result) else { continue }
             if transaction.revocationDate != nil { continue }
             if let expirationDate = transaction.expirationDate, expirationDate <= now { continue }
             collected.insert(transaction.productID)
+
+            if transaction.productID == Self.lifetimeProductID {
+                resolvedLifetime = true
+                continue
+            }
+
+            guard let expirationDate = transaction.expirationDate,
+                  let plan = planKind(for: transaction.productID) else {
+                continue
+            }
+
+            if resolvedAutoRenewableExpirationDate == nil || expirationDate > resolvedAutoRenewableExpirationDate! {
+                resolvedAutoRenewablePlan = plan
+                resolvedAutoRenewableExpirationDate = expirationDate
+            }
         }
+
+        // Sandbox can occasionally lag on currentEntitlements right after purchase.
+        // Fallback to latest(for:) so activation does not appear to fail.
+        await mergeLatestTransactionsIntoEntitlements(
+            now: now,
+            collected: &collected,
+            resolvedLifetime: &resolvedLifetime,
+            resolvedAutoRenewablePlan: &resolvedAutoRenewablePlan,
+            resolvedAutoRenewableExpirationDate: &resolvedAutoRenewableExpirationDate
+        )
 
         activeProductIDs = collected
         hasActiveAutoRenewable = collected.contains(Self.monthlyProductID) || collected.contains(Self.yearlyProductID)
-        hasLifetimeAccess = collected.contains(Self.lifetimeProductID)
+        hasLifetimeAccess = resolvedLifetime
         hasPremiumAccess = hasActiveAutoRenewable || hasLifetimeAccess
+        autoRenewablePlanKind = resolvedAutoRenewablePlan
+        currentPlanKind = resolvedLifetime ? .lifetime : resolvedAutoRenewablePlan
+        currentPlanExpirationDate = resolvedLifetime ? nil : resolvedAutoRenewableExpirationDate
     }
 
     func refreshStorefront() async {
@@ -241,6 +396,7 @@ final class SubscriptionManager: ObservableObject {
                 mapped[product.id] = product
             }
             productsByID = mapped
+            cacheDisplayPrices(from: mapped)
             loadedProductIDs = mapped.keys.sorted()
             missingProductIDs = Self.allProductIDs.filter { mapped[$0] == nil }
         } catch {
@@ -251,10 +407,31 @@ final class SubscriptionManager: ObservableObject {
     }
 
     func displayPrice(for productID: String) -> String {
-        productsByID[productID]?.displayPrice ?? "--"
+        if let livePrice = productsByID[productID]?.displayPrice {
+            return livePrice
+        }
+        return cachedDisplayPrices[productID] ?? "--"
     }
 
-    func purchase(productID: String) async -> String {
+    var hasLoadedAllPaywallProducts: Bool {
+        Self.allProductIDs.allSatisfy { productsByID[$0] != nil }
+    }
+
+    func warmupProductsForPaywall(maxAttempts: Int = 3) async {
+        for attempt in 0..<maxAttempts {
+            await refreshAll()
+            if hasLoadedAllPaywallProducts { return }
+            if attempt < (maxAttempts - 1) {
+                try? await Task.sleep(nanoseconds: 350_000_000)
+            }
+        }
+    }
+
+    func purchase(
+        productID: String,
+        analyticsSource: String? = nil,
+        analyticsPlan: String? = nil
+    ) async -> String {
         if isPurchasing {
             return L10n.subscriptionPleaseWait
         }
@@ -277,9 +454,17 @@ final class SubscriptionManager: ObservableObject {
                 guard let transaction = verified(verification) else {
                     return L10n.subscriptionVerificationFailed
                 }
+                applyImmediateActivation(from: transaction)
+                if let analyticsSource, let analyticsPlan {
+                    AnalyticsService.logPremiumFeaturePurchaseSuccess(
+                        source: analyticsSource,
+                        plan: analyticsPlan,
+                        productID: transaction.productID
+                    )
+                }
                 await transaction.finish()
-                await refreshEntitlements()
-                return L10n.subscriptionPurchaseSucceeded
+                let activated = await confirmPremiumActivationAfterPurchase()
+                return activated ? L10n.subscriptionPurchaseSucceeded : L10n.subscriptionActivationPending
             case .pending:
                 return L10n.subscriptionPurchasePending
             case .userCancelled:
@@ -302,17 +487,40 @@ final class SubscriptionManager: ObservableObject {
 
         do {
             try await AppStore.sync()
-            await refreshEntitlements()
-            return hasPremiumAccess ? L10n.subscriptionRestoreSucceeded : L10n.subscriptionNotFound
+            let restored = await confirmPremiumActivationAfterPurchase()
+            return restored ? L10n.subscriptionRestoreSucceeded : L10n.subscriptionNotFound
         } catch {
             return L10n.subscriptionRestoreFailed
         }
+    }
+
+    private func confirmPremiumActivationAfterPurchase() async -> Bool {
+        await refreshEntitlements()
+        if hasPremiumAccess { return true }
+
+        do {
+            try await AppStore.sync()
+        } catch {
+            // Keep going with local entitlement retries.
+        }
+
+        await refreshEntitlements()
+        if hasPremiumAccess { return true }
+
+        for delay in [400_000_000, 1_000_000_000] {
+            try? await Task.sleep(nanoseconds: UInt64(delay))
+            await refreshEntitlements()
+            if hasPremiumAccess { return true }
+        }
+
+        return false
     }
 
     private func observeTransactionUpdates() -> Task<Void, Never> {
         Task {
             for await update in Transaction.updates {
                 if case .verified(let transaction) = update {
+                    applyImmediateActivation(from: transaction)
                     await transaction.finish()
                 }
                 await refreshEntitlements()
@@ -327,5 +535,85 @@ final class SubscriptionManager: ObservableObject {
         case .unverified:
             return nil
         }
+    }
+
+    private func planKind(for productID: String) -> PremiumPlanKind? {
+        switch productID {
+        case Self.monthlyProductID:
+            return .monthly
+        case Self.yearlyProductID:
+            return .yearly
+        case Self.lifetimeProductID:
+            return .lifetime
+        default:
+            return nil
+        }
+    }
+
+    private func applyImmediateActivation(from transaction: StoreKit.Transaction) {
+        let now = Date()
+        guard transaction.revocationDate == nil else { return }
+        if let expirationDate = transaction.expirationDate, expirationDate <= now { return }
+
+        activeProductIDs.insert(transaction.productID)
+
+        if transaction.productID == Self.lifetimeProductID {
+            hasLifetimeAccess = true
+            hasPremiumAccess = true
+            currentPlanKind = .lifetime
+            currentPlanExpirationDate = nil
+            return
+        }
+
+        guard let plan = planKind(for: transaction.productID) else { return }
+        hasActiveAutoRenewable = true
+        hasPremiumAccess = true
+        autoRenewablePlanKind = plan
+        if !hasLifetimeAccess {
+            currentPlanKind = plan
+            currentPlanExpirationDate = transaction.expirationDate
+        }
+    }
+
+    private func mergeLatestTransactionsIntoEntitlements(
+        now: Date,
+        collected: inout Set<String>,
+        resolvedLifetime: inout Bool,
+        resolvedAutoRenewablePlan: inout PremiumPlanKind?,
+        resolvedAutoRenewableExpirationDate: inout Date?
+    ) async {
+        for productID in Self.allProductIDs {
+            guard let latestResult = await StoreKit.Transaction.latest(for: productID),
+                  let transaction = verified(latestResult) else {
+                continue
+            }
+
+            if transaction.revocationDate != nil { continue }
+            if let expirationDate = transaction.expirationDate, expirationDate <= now { continue }
+
+            collected.insert(transaction.productID)
+
+            if transaction.productID == Self.lifetimeProductID {
+                resolvedLifetime = true
+                continue
+            }
+
+            guard let expirationDate = transaction.expirationDate,
+                  let plan = planKind(for: transaction.productID) else {
+                continue
+            }
+
+            if resolvedAutoRenewableExpirationDate == nil || expirationDate > resolvedAutoRenewableExpirationDate! {
+                resolvedAutoRenewablePlan = plan
+                resolvedAutoRenewableExpirationDate = expirationDate
+            }
+        }
+    }
+
+    private func cacheDisplayPrices(from mapped: [String: Product]) {
+        for (productID, product) in mapped {
+            cachedDisplayPrices[productID] = product.displayPrice
+        }
+        UserDefaults.standard.set(cachedDisplayPrices, forKey: Self.cachedDisplayPricesKey)
     }
 }

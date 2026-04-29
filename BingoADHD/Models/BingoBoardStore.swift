@@ -3,6 +3,11 @@ import Foundation
 import WidgetKit
 #endif
 
+enum BoardTaskResetMode: String, Codable, CaseIterable {
+    case resetStatusNextDay
+    case clearTasksNextDay
+}
+
 enum BingoBoardStore {
     static let appGroupID = "group.com.bingoday.app"
     private static let saveKey = "bingo_board_v1"
@@ -18,20 +23,49 @@ enum BingoBoardStore {
         var name: String
         var board: SavedBoard
         var countdownEndsAt: Date?
+        var taskResetMode: BoardTaskResetMode
+        var lastTaskResetAppliedAt: Date?
         var updatedAt: Date
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case name
+            case board
+            case countdownEndsAt
+            case taskResetMode
+            case lastTaskResetAppliedAt
+            case updatedAt
+        }
 
         init(
             id: UUID = UUID(),
             name: String,
             board: SavedBoard,
             countdownEndsAt: Date? = nil,
+            taskResetMode: BoardTaskResetMode = .resetStatusNextDay,
+            lastTaskResetAppliedAt: Date? = .now,
             updatedAt: Date = .now
         ) {
             self.id = id
             self.name = name
             self.board = board
             self.countdownEndsAt = countdownEndsAt
+            self.taskResetMode = taskResetMode
+            self.lastTaskResetAppliedAt = lastTaskResetAppliedAt
             self.updatedAt = updatedAt
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+            name = try container.decode(String.self, forKey: .name)
+            board = try container.decode(SavedBoard.self, forKey: .board)
+            countdownEndsAt = try container.decodeIfPresent(Date.self, forKey: .countdownEndsAt)
+            taskResetMode = try container.decodeIfPresent(BoardTaskResetMode.self, forKey: .taskResetMode) ?? .resetStatusNextDay
+            updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .now
+            // Migration-safe anchor: if historical data doesn't have this field,
+            // use updatedAt to avoid immediate same-day reset on first launch.
+            lastTaskResetAppliedAt = try container.decodeIfPresent(Date.self, forKey: .lastTaskResetAppliedAt) ?? updatedAt
         }
     }
 
@@ -224,6 +258,8 @@ enum BingoBoardStore {
                     name: board.name,
                     board: board.board,
                     countdownEndsAt: board.countdownEndsAt,
+                    taskResetMode: board.taskResetMode,
+                    lastTaskResetAppliedAt: board.lastTaskResetAppliedAt,
                     updatedAt: board.updatedAt
                 )
             )

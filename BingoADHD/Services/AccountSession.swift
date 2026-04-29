@@ -99,6 +99,13 @@ final class AccountSession: NSObject, ObservableObject {
 
     private override init() {
         super.init()
+        guard AppFeatureFlags.isAccountEnabled else {
+            forceSignOutForSoftOffMode()
+            phase = .signedOut
+            profile = nil
+            return
+        }
+
         handleFreshInstallAuthenticationResetIfNeeded()
         userDefaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -126,6 +133,7 @@ final class AccountSession: NSObject, ObservableObject {
     }
 
     func handleScenePhaseChange(_ phase: ScenePhase) {
+        guard AppFeatureFlags.isAccountEnabled else { return }
         guard phase != .active else { return }
         scheduleSync(immediate: true)
     }
@@ -135,6 +143,7 @@ final class AccountSession: NSObject, ObservableObject {
     }
 
     func signInWithApple() async {
+        guard AppFeatureFlags.isAccountEnabled else { return }
         guard !isPerformingAuth else { return }
         isPerformingAuth = true
         errorMessage = nil
@@ -163,6 +172,7 @@ final class AccountSession: NSObject, ObservableObject {
     }
 
     func signInWithGoogle() async {
+        guard AppFeatureFlags.isAccountEnabled else { return }
         guard !isPerformingAuth else { return }
         isPerformingAuth = true
         errorMessage = nil
@@ -195,6 +205,17 @@ final class AccountSession: NSObject, ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func forceSignOutForSoftOffMode() {
+        pendingSyncTask?.cancel()
+        UserDefaults.standard.removeObject(forKey: AccountStorageKeys.activeAccountUID)
+        do {
+            try Auth.auth().signOut()
+        } catch {
+            // Ignore sign-out failures in soft-off mode.
+        }
+        GIDSignIn.sharedInstance.signOut()
     }
 
     private func handleUserDefaultsChange() {
@@ -340,7 +361,7 @@ final class AccountSession: NSObject, ObservableObject {
     }
 
     private static func requestGoogleUser(with rootViewController: UIViewController) async throws -> GIDSignInResult {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<GIDSignInResult, Error>) in
             GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { result, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -566,7 +587,7 @@ private final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerD
 
     static func requestCredential(rawNonce: String) async throws -> ASAuthorizationAppleIDCredential {
         let coordinator = AppleSignInCoordinator(rawNonce: rawNonce)
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ASAuthorizationAppleIDCredential, Error>) in
             coordinator.continuation = continuation
             coordinator.start()
             let key = UnsafeRawPointer(Unmanaged.passUnretained(coordinator).toOpaque())

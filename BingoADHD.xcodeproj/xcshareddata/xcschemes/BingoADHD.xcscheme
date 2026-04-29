@@ -55,6 +55,18 @@
             argument = "-FIRDebugEnabled "
             isEnabled = "YES">
          </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-DebugStreakReady"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-SimulateNextDayBoardRuleReset"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-ForceUpdatePrompt"
+            isEnabled = "YES">
+         </CommandLineArgument>
       </CommandLineArguments>
    </LaunchAction>
    <ProfileAction

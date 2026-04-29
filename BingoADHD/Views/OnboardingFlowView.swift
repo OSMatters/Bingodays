@@ -24,6 +24,7 @@ struct AppRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var accountSession = AccountSession.shared
     @StateObject private var subscriptionManager = SubscriptionManager()
+    @StateObject private var boardTemplateImportCoordinator = BoardTemplateImportCoordinator.shared
     @State private var shouldShowOnboarding = OnboardingStateResolver.shouldPresentOnboarding()
 
     var body: some View {
@@ -41,6 +42,11 @@ struct AppRootView: View {
         }
         .environmentObject(accountSession)
         .environmentObject(subscriptionManager)
+        .environmentObject(boardTemplateImportCoordinator)
+        .onOpenURL { url in
+            guard AppFeatureFlags.isTemplateSharingEnabled else { return }
+            _ = boardTemplateImportCoordinator.handleIncomingURL(url)
+        }
         .onAppear {
             shouldShowOnboarding = OnboardingStateResolver.shouldPresentOnboarding()
         }
@@ -69,6 +75,8 @@ struct OnboardingFlowView: View {
     private let buttonColor = Color(hex: "3F270F")
     private let secondaryTextColor = Color(hex: "828282")
     private let onboardingStepColor = Color(hex: "D3A375")
+    private let pageSwipeThreshold: CGFloat = 44
+    private let progressPages: [Page] = [.research, .brand, .grid, .pace]
 
     @State private var page: Page
     @State private var introEyesWiggle = false
@@ -104,7 +112,7 @@ struct OnboardingFlowView: View {
                         alignment: .topLeading
                     )
 
-                if page != .intro {
+                if progressPages.contains(page) {
                     onboardingStepsBar
                         .frame(width: canvasSize.width, height: canvasSize.height)
                         .scaleEffect(scale, anchor: .topLeading)
@@ -116,6 +124,8 @@ struct OnboardingFlowView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(pageSwipeGesture)
         }
         .statusBar(hidden: true)
         .background(backgroundColor)
@@ -545,17 +555,17 @@ struct OnboardingFlowView: View {
     private var onboardingStatusBar: some View {
         HStack(alignment: .center, spacing: 0) {
             Text("9:41")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.appSystem(size: 15, weight: .semibold))
                 .foregroundStyle(.black)
 
             Spacer()
 
             Image(systemName: "cellularbars")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.appSystem(size: 13, weight: .semibold))
                 .foregroundStyle(.black)
 
             Image(systemName: "wifi")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.appSystem(size: 13, weight: .semibold))
                 .foregroundStyle(.black)
                 .padding(.leading, 6)
 
@@ -587,7 +597,7 @@ struct OnboardingFlowView: View {
 
     private var onboardingStepsBar: some View {
         HStack(spacing: 8) {
-            ForEach(Array(Page.allCases.enumerated()), id: \.offset) { index, step in
+            ForEach(Array(progressPages.enumerated()), id: \.offset) { index, step in
                 Button {
                     jumpToPage(step)
                 } label: {
@@ -703,7 +713,7 @@ struct OnboardingFlowView: View {
 
     private func emoji(_ value: String, size: CGFloat) -> some View {
         Text(value)
-            .font(.system(size: size))
+            .font(.appSystem(size: size))
             .lineLimit(1)
             .minimumScaleFactor(0.8)
     }
@@ -741,6 +751,32 @@ struct OnboardingFlowView: View {
         triggerTextEntranceAnimation()
     }
 
+    private func moveToPreviousPage() {
+        guard let currentIndex = Page.allCases.firstIndex(of: page) else { return }
+        let previousIndex = max(currentIndex - 1, 0)
+        guard previousIndex != currentIndex else { return }
+
+        withAnimation(.easeInOut(duration: 0.22)) {
+            page = Page.allCases[previousIndex]
+        }
+        triggerTextEntranceAnimation()
+    }
+
+    private var pageSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 20, coordinateSpace: .local)
+            .onEnded { value in
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) > abs(vertical) else { return }
+
+                if horizontal <= -pageSwipeThreshold {
+                    moveToNextPage()
+                } else if horizontal >= pageSwipeThreshold {
+                    moveToPreviousPage()
+                }
+            }
+    }
+
     private func jumpToPage(_ targetPage: Page) {
         withAnimation(.easeInOut(duration: 0.22)) {
             page = targetPage
@@ -749,7 +785,9 @@ struct OnboardingFlowView: View {
     }
 
     private func stepOpacity(for index: Int) -> Double {
-        let currentIndex = page.rawValue
+        guard let currentIndex = progressPages.firstIndex(of: page) else {
+            return 0.28
+        }
         if index == currentIndex { return 1.0 }
         if index < currentIndex { return 0.82 }
         return 0.28
@@ -919,7 +957,13 @@ enum OnboardingFonts {
             return UIFont(name: hiraginoSansName(for: weight), size: size)
                 ?? UIFont.systemFont(ofSize: size, weight: uiWeight)
         case .english:
-            return UIFont.systemFont(ofSize: size, weight: uiWeight)
+            let baseFont = UIFont(name: "Outfit", size: size)
+            if let descriptor = baseFont?.fontDescriptor.addingAttributes([
+                .traits: [UIFontDescriptor.TraitKey.weight: uiWeight]
+            ]) {
+                return UIFont(descriptor: descriptor, size: size)
+            }
+            return baseFont ?? UIFont.systemFont(ofSize: size, weight: uiWeight)
         }
     }
 

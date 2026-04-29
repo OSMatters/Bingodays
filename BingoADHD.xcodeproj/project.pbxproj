@@ -8,11 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		007D47AD92E038CFF32C8BE2 /* BingodaysWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB77DB4D87E0770BB2F4B921 /* BingodaysWidget.swift */; };
+		08C4A9D66F5B4CA1AA34B019 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000009 /* Assets.xcassets */; };
 		0D97FFB2D91D5330540F77C0 /* BingoBoardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */; };
 		35971755A4E77F2BA6B9A4AE /* NeumorphicStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000010 /* NeumorphicStyles.swift */; };
 		397358A06E1C3E567950B9D9 /* AccountSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 463592A37399400738572375 /* AccountSession.swift */; };
 		3E8E2A4545074D50FD4FA89E /* BingodaysWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 7A6AD22025CB29BE7FEB97A9 /* BingodaysWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		70056F96F034D9AB21CB2B95 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = E54E14B6A345324C3E141AFB /* FirebaseAuth */; };
+		A1B2C3D4E5F60718293A4B5C /* FirebaseRemoteConfig in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60718293A4B5D /* FirebaseRemoteConfig */; };
 		72020CAB0109FCCA58480539 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = C5F91D46E6B33A1CCCE05E7E /* FirebaseAnalytics */; };
 		82597C47732173B65D2B6793 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 0369CE2F651445ED297D64A7 /* GoogleService-Info.plist */; };
 		8E907B19D8A77ED5CA3F12E0 /* ColorHex.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEBABD257330F177F05EF511 /* ColorHex.swift */; };
@@ -132,6 +134,7 @@
 				DEE0056F533BED09AA349A7E /* FirebaseCore in Frameworks */,
 				AAF000000000000000000001 /* FloatingButton in Frameworks */,
 				70056F96F034D9AB21CB2B95 /* FirebaseAuth in Frameworks */,
+				A1B2C3D4E5F60718293A4B5C /* FirebaseRemoteConfig in Frameworks */,
 				FC997B97351B0AB95DD53353 /* FirebaseFirestore in Frameworks */,
 				F661BE23ECAA3E0520614CC4 /* GoogleSignIn in Frameworks */,
 			);
@@ -299,6 +302,7 @@
 				DB82D96A52DC3B33C6260262 /* FirebaseCore */,
 				AAF000000000000000000011 /* FloatingButton */,
 				E54E14B6A345324C3E141AFB /* FirebaseAuth */,
+				A1B2C3D4E5F60718293A4B5D /* FirebaseRemoteConfig */,
 				AD81121484D877697E1F8030 /* FirebaseFirestore */,
 				BD931AC15482E01DEDFAAB77 /* GoogleSignIn */,
 			);
@@ -354,6 +358,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				08C4A9D66F5B4CA1AA34B019 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -427,7 +432,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 18;
 				DEVELOPMENT_TEAM = R2372567GG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
@@ -438,7 +443,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.1;
+					MARKETING_VERSION = 1.5.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PRODUCT_NAME = BingodaysWidgetExtension;
 				SDKROOT = iphoneos;
@@ -523,7 +528,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 18;
 				DEVELOPMENT_TEAM = R2372567GG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BingoADHD/Info.plist;
@@ -531,7 +536,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.1;
+					MARKETING_VERSION = 1.5.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -551,7 +556,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 18;
 				DEVELOPMENT_TEAM = R2372567GG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BingoADHD/Info.plist;
@@ -559,7 +564,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.1;
+					MARKETING_VERSION = 1.5.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -579,7 +584,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 18;
 				DEVELOPMENT_TEAM = R2372567GG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
@@ -590,7 +595,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.1;
+					MARKETING_VERSION = 1.5.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PRODUCT_NAME = BingodaysWidgetExtension;
 				SDKROOT = iphoneos;
@@ -689,6 +694,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 9F5E85A358CC98E478BC47F1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAuth;
+		};
+		A1B2C3D4E5F60718293A4B5D /* FirebaseRemoteConfig */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9F5E85A358CC98E478BC47F1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseRemoteConfig;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

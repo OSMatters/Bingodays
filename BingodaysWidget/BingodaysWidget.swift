@@ -1,5 +1,8 @@
 import SwiftUI
 import WidgetKit
+#if canImport(ActivityKit)
+import ActivityKit
+#endif
 
 private struct BingodaysWidgetEntry: TimelineEntry {
     let date: Date
@@ -51,6 +54,9 @@ struct BingodaysWidgets: WidgetBundle {
     var body: some Widget {
         BingodaysCountdownWidget()
         BingodaysLargeWidget()
+        if #available(iOSApplicationExtension 17.0, *) {
+            BingodaysFinalHourLiveActivityWidget()
+        }
     }
 }
 
@@ -508,6 +514,81 @@ private struct WidgetBingoCellView: View {
         .frame(width: size, height: size)
     }
 }
+
+#if canImport(ActivityKit)
+@available(iOSApplicationExtension 17.0, *)
+struct BingodaysFinalHourLiveActivityWidget: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: BingodaysFinalHourActivityAttributes.self) { context in
+            liveActivityBody(for: context.state)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .activityBackgroundTint(Color.black.opacity(0.92))
+                .activitySystemActionForegroundColor(.white)
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.center) {
+                    liveActivityBody(for: context.state)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                }
+            } compactLeading: {
+                compactReminderIcon
+            } compactTrailing: {
+                Text(context.state.compactText)
+                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+            } minimal: {
+                compactReminderIcon
+            }
+        }
+    }
+
+    private func liveActivityBody(for state: BingodaysFinalHourActivityAttributes.ContentState) -> some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                reminderIcon
+                    .frame(width: 22, height: 22)
+                Text(L10n.finalHourLiveTitle)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white.opacity(0.82))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(state.progressText)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundColor(.white.opacity(0.86))
+                    .lineLimit(1)
+            }
+
+            Text(state.message)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
+    private var reminderIcon: some View {
+        Image("DynamicIslandLogo")
+            .resizable()
+            .renderingMode(.original)
+            .scaledToFit()
+            .frame(width: 24, height: 24)
+            .offset(x: 10)
+    }
+
+    private var compactReminderIcon: some View {
+        Image("DynamicIslandLogo")
+            .resizable()
+            .renderingMode(.original)
+            .scaledToFit()
+            .frame(width: 20, height: 20)
+            .offset(x: 10)
+    }
+}
+#endif
 
 private extension SavedBoard {
     static let sample = SavedBoard(

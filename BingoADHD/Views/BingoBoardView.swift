@@ -25,12 +25,15 @@ struct BingoBoardView: View {
 
     @ObservedObject var viewModel: BingoViewModel
     let currentTime: Date
+    let shouldShowCenterLongPressHint: Bool
+    var onCellCompletionToggled: (() -> Void)? = nil
     @State private var editingTarget: EditingTarget?
     @State private var actionTarget: EditingTarget?
     @State private var dragState: DragState?
     @State private var residentScheduleNotice: String?
     @State private var deletedCellSnapshot: DeletedCellSnapshot?
     @State private var undoDismissWorkItem: DispatchWorkItem?
+    @State private var editSheetSessionID = UUID()
     private var boardSurfaceColor: Color { NeumorphicColors.innerSurface }
     private var boardInnerShadowDark: Color { NeumorphicColors.darkShadow.opacity(0.65) }
     private var boardInnerShadowLight: Color { NeumorphicColors.lightShadow }
@@ -66,6 +69,9 @@ struct BingoBoardView: View {
             let cellSize = (availableWidth - totalSpacing) / CGFloat(viewModel.gridSize)
             let isBoardCompletelyEmpty = viewModel.cells.flatMap(\.self).allSatisfy(\.isEmpty)
             let centerIndex = viewModel.gridSize / 2
+            let centerHintText = shouldShowCenterLongPressHint
+                ? L10n.tr("Long press to edit tile task", zhHans: "长按编辑格子任务", zhHant: "長按編輯格子任務")
+                : L10n.emptyBoardLongPressHint
 
             ZStack {
                 VStack(spacing: cellSpacing) {
@@ -80,6 +86,7 @@ struct BingoBoardView: View {
                                     BingoCellView(
                                         cell: viewModel.cells[row][col],
                                         currentTime: currentTime,
+                                        debugIdentifier: "\(row)-\(col)",
                                         isInBingoLine: viewModel.isInCompletedLine(row: row, col: col),
                                         isLocked: viewModel.isLocked(row: row, col: col),
                                         cellSize: cellSize,
@@ -87,8 +94,11 @@ struct BingoBoardView: View {
                                         isInteractive: dragState == nil || isDragSource,
                                         isDragSource: isDragSource,
                                         isDropTarget: isDropTarget,
-                                        emptyHintText: isBoardCompletelyEmpty && row == centerIndex && col == centerIndex
-                                            ? L10n.emptyBoardLongPressHint
+                                        emptyHintText: (isBoardCompletelyEmpty || shouldShowCenterLongPressHint) &&
+                                            viewModel.cells[row][col].isEmpty &&
+                                            row == centerIndex &&
+                                            col == centerIndex
+                                            ? centerHintText
                                             : nil,
                                         onTap: {
                                             dismissActionMenu()
@@ -96,14 +106,29 @@ struct BingoBoardView: View {
                                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
                                                     viewModel.toggleComplete(row: row, col: col)
                                                 }
+                                                DispatchQueue.main.async {
+                                                    onCellCompletionToggled?()
+                                                }
                                             }
                                         },
                                         onLongPressRelease: {
-                                            guard !viewModel.isLocked(row: row, col: col) else { return }
-                                            if viewModel.cells[row][col].isEmpty {
-                                                editingTarget = target
+                                            guard !viewModel.isLocked(row: row, col: col) else {
+                                                debugGesture("long press blocked by lock at \(row)-\(col)")
+                                                return
+                                            }
+                                            // Fix 2: use hasStoredTask (checks storedTaskText) rather
+                                            // than isEmpty (checks projected text). Resident tasks
+                                            // on non-active days have text="" but storedTaskText!="".
+                                            if viewModel.cells[row][col].hasStoredTask {
+                                                debugGesture("long press open action menu at \(row)-\(col)")
+                                                DispatchQueue.main.async {
+                                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                                        actionTarget = target
+                                                    }
+                                                }
                                             } else {
-                                                actionTarget = target
+                                                debugGesture("long press open editor at \(row)-\(col)")
+                                                presentEditor(for: target)
                                             }
                                         },
                                         onDragStart: {
@@ -155,14 +180,17 @@ struct BingoBoardView: View {
                         .onTapGesture {
                             dismissActionMenu()
                         }
+                        .zIndex(1)
                 }
 
                 if let actionTarget {
                     actionMenu(for: actionTarget, cellSize: cellSize, boardSize: geo.size)
+                        .zIndex(2)
                 }
 
                 if let dragState {
                     draggedCellOverlay(for: dragState, cellSize: cellSize)
+                        .zIndex(3)
                 }
             }
             .padding(boardOuterPadding)
@@ -181,16 +209,17 @@ struct BingoBoardView: View {
                     .zIndex(3)
             }
         }
-        .sheet(item: phoneEditingTargetBinding) { target in
+        .fullScreenCover(item: phoneEditingTargetBinding) { target in
             editTaskSheet(for: target)
-                .presentationDetents([.height(520)])
-                .presentationDragIndicator(.visible)
+                .background(Color.clear)
+                .presentationBackground(.clear)
         }
         .fullScreenCover(item: padEditingTargetBinding) { target in
             NineTenthsSheetContainer(contentMaxWidth: 860) {
                 editTaskSheet(for: target)
             }
             .background(Color.clear)
+            .presentationBackground(.clear)
         }
         .alert(L10n.taskScheduledTitle, isPresented: Binding(
             get: { residentScheduleNotice != nil },
@@ -277,13 +306,17 @@ struct BingoBoardView: View {
     }
 
     private func editTaskSheet(for target: EditingTarget) -> some View {
-        EditTaskSheet(
-            text: viewModel.cells[target.row][target.col].storedTaskText,
-            isForcedTask: viewModel.cells[target.row][target.col].isForced,
-            residentWeekdays: viewModel.cells[target.row][target.col].residentWeekdays,
-            isOneTimeTask: viewModel.cells[target.row][target.col].isOneTimeTask,
+        let editingCell = viewModel.editingCell(row: target.row, col: target.col) ?? viewModel.cells[target.row][target.col]
+        return EditTaskSheet(
+            text: editingCell.storedTaskText,
+            isForcedTask: editingCell.isForced,
+            residentWeekdays: editingCell.residentWeekdays,
+            isOneTimeTask: editingCell.isOneTimeTask,
+            startVisibleMonth: editingCell.startVisibleMonth,
+            startVisibleDay: editingCell.startVisibleDay,
+            isCompletedTask: editingCell.isCompleted,
             estimatedDurationMinutes: viewModel.remainingTaskCountdownMinutes(row: target.row, col: target.col),
-            onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, estimatedDurationMinutes in
+            onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, estimatedDurationMinutes, startVisibleMonth, startVisibleDay in
                 let scheduleNotice = residentVisibilityNotice(
                     text: newText,
                     residentWeekdays: residentWeekdays,
@@ -296,7 +329,9 @@ struct BingoBoardView: View {
                     isForced: isForcedTask,
                     residentWeekdays: residentWeekdays,
                     isOneTimeTask: isOneTimeTask,
-                    estimatedDurationMinutes: estimatedDurationMinutes
+                    estimatedDurationMinutes: estimatedDurationMinutes,
+                    startVisibleMonth: startVisibleMonth,
+                    startVisibleDay: startVisibleDay
                 )
                 editingTarget = nil
                 residentScheduleNotice = scheduleNotice
@@ -307,6 +342,7 @@ struct BingoBoardView: View {
             },
             onCancel: { editingTarget = nil }
         )
+        .id(editSheetSessionID)
     }
 
     private func actionMenu(for target: EditingTarget, cellSize: CGFloat, boardSize: CGSize) -> some View {
@@ -321,10 +357,10 @@ struct BingoBoardView: View {
         )
 
         return VStack(spacing: 10) {
-            Button {
-                dismissActionMenu()
-                editingTarget = target
-            } label: {
+                Button {
+                    dismissActionMenu()
+                    presentEditor(for: target)
+                } label: {
                 Label(L10n.editTask, systemImage: "square.and.pencil")
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(NeumorphicColors.text)
@@ -341,6 +377,7 @@ struct BingoBoardView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
+            .padding(.top, 6)
 
             if showsHideAction {
                 Button {
@@ -371,6 +408,7 @@ struct BingoBoardView: View {
         return BingoCellView(
             cell: sourceCell,
             currentTime: currentTime,
+            debugIdentifier: "drag-overlay-\(dragState.source.row)-\(dragState.source.col)",
             isInBingoLine: viewModel.isInCompletedLine(row: dragState.source.row, col: dragState.source.col),
             isLocked: false,
             cellSize: cellSize,
@@ -429,6 +467,28 @@ struct BingoBoardView: View {
         withAnimation(.easeInOut(duration: 0.18)) {
             actionTarget = nil
         }
+    }
+
+    private func presentEditor(for target: EditingTarget) {
+        editSheetSessionID = UUID()
+        editingTarget = target
+    }
+
+    private var isGestureDebugEnabled: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-DebugTileGestures")
+#else
+        false
+#endif
+    }
+
+    private func debugGesture(_ message: String) {
+#if DEBUG
+        guard isGestureDebugEnabled else { return }
+        print("[TileGestureDebug][Board] \(message)")
+#else
+        _ = message
+#endif
     }
 
     private func actionMenuPosition(
