@@ -693,69 +693,23 @@ private var activeFilterTitle: String {
     }
 
     private var filterTabsSection: some View {
-        HStack(spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    filterTabButton(
-                        title: L10n.allTasks,
-                        isSelected: activeFilter == .all
-                    ) {
-                        activeFilter = .all
-                    }
-
-                    ForEach(library.groups) { group in
-                        filterTabButton(
-                            title: displayGroupName(group),
-                            isSelected: activeFilter == .group(group.id)
-                        ) {
-                            activeFilter = .group(group.id)
-                        }
-                        .simultaneousGesture(
-                            LongPressGesture(minimumDuration: 0.8)
-                                .onEnded { _ in
-                                    focusedField = nil
-                                    deleteConfirmationTarget = .group(group.id)
-                                }
-                        )
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-
-            Button {
-                presentAddGroupModal()
-            } label: {
-                Text("+ \(L10n.addGroup)")
-                    .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.clear.neumorphicConvex(radius: 16))
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private func filterTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                .foregroundColor(isSelected ? .white : NeumorphicColors.text)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(isSelected ? NeumorphicColors.accent : NeumorphicColors.background)
-                )
-                .overlay {
-                    Capsule(style: .continuous)
-                        .stroke(
-                            isSelected ? NeumorphicColors.accent : quickEditFieldStroke,
-                            lineWidth: 1
-                        )
-                }
-        }
-        .buttonStyle(.plain)
+        QuickEditFilterTabsView(
+            groups: library.groups.map { QuickEditGroupTab(id: $0.id, title: displayGroupName($0)) },
+            selectedGroupID: activeGroupID,
+            isPadLayout: isPadLayout,
+            fieldStroke: quickEditFieldStroke,
+            onSelectAll: {
+                activeFilter = .all
+            },
+            onSelectGroup: { groupID in
+                activeFilter = .group(groupID)
+            },
+            onLongPressGroup: { groupID in
+                focusedField = nil
+                deleteConfirmationTarget = .group(groupID)
+            },
+            onAddGroup: presentAddGroupModal
+        )
     }
 
 private var taskListSection: some View {
