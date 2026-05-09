@@ -694,3 +694,131 @@ func quickEditTaskFromEditorDraft(
     task.normalizeStartDate()
     return task
 }
+
+enum QuickEditDeleteResolution {
+    case libraryTaskRemoved(task: MyTaskItem, successMessage: String)
+    case requestGroupDeletion(UUID)
+    case historyItemRemoved(historyItemID: String, successMessage: String)
+    case invalid
+}
+
+func quickEditResolveDeleteTarget(
+    _ target: QuickEditDeleteTarget,
+    in library: inout MyTasksLibrary
+) -> QuickEditDeleteResolution {
+    switch target {
+    case .task(let index):
+        guard library.tasks.indices.contains(index) else { return .invalid }
+        let task = library.tasks[index]
+        library.tasks.remove(at: index)
+        return .libraryTaskRemoved(task: task, successMessage: target.successMessage)
+    case .group(let groupID):
+        return .requestGroupDeletion(groupID)
+    case .groupTask(let groupID, let index):
+        guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }),
+              library.groups[groupIndex].tasks.indices.contains(index) else { return .invalid }
+        let task = library.groups[groupIndex].tasks[index]
+        library.groups[groupIndex].tasks.remove(at: index)
+        return .libraryTaskRemoved(task: task, successMessage: target.successMessage)
+    case .history(let historyItemID):
+        return .historyItemRemoved(historyItemID: historyItemID, successMessage: target.successMessage)
+    }
+}
+
+struct QuickEditGroupDeletionResult {
+    let removedTasks: [MyTaskItem]
+    let updatedFilter: QuickEditFilterTab
+    let deleted: Bool
+}
+
+func quickEditFinalizeGroupDeletion(
+    _ groupID: UUID,
+    in library: inout MyTasksLibrary,
+    activeFilter: QuickEditFilterTab
+) -> QuickEditGroupDeletionResult {
+    guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }) else {
+        return QuickEditGroupDeletionResult(removedTasks: [], updatedFilter: activeFilter, deleted: false)
+    }
+
+    let removedTasks = library.groups[groupIndex].tasks.filter { !$0.trimmedText.isEmpty }
+    library.groups.remove(at: groupIndex)
+    let updatedFilter: QuickEditFilterTab = activeFilter == .group(groupID) ? .all : activeFilter
+    return QuickEditGroupDeletionResult(removedTasks: removedTasks, updatedFilter: updatedFilter, deleted: true)
+}
+
+func quickEditHistoryRecordKey(from historyItemID: String) -> String? {
+    let prefix = "history:"
+    guard historyItemID.hasPrefix(prefix) else { return nil }
+    return String(historyItemID.dropFirst(prefix.count))
+}
+
+func quickEditGroupName(for groupID: UUID, in library: MyTasksLibrary) -> String {
+    guard let group = library.groups.first(where: { $0.id == groupID }) else {
+        return L10n.groupDefaultName
+    }
+    return quickEditDisplayGroupName(group)
+}
+
+func quickEditDeleteMessage(for target: QuickEditDeleteTarget, in library: MyTasksLibrary) -> String {
+    switch target {
+    case .groupTask(let groupID, _):
+        let name = quickEditGroupName(for: groupID, in: library)
+        return L10n.tr(
+            "This task will be removed from \(name).",
+            zhHans: "该任务将从「\(name)」中移除。",
+            zhHant: "該任務將從「\(name)」中移除。"
+        )
+    default:
+        return target.message
+    }
+}
+
+struct QuickEditHistoryBackfillItem {
+    let task: MyTaskItem
+    let date: Date
+}
+
+func quickEditLegacyHistoryItemsFromDiaryEntries(_ entries: [BingoDiaryEntry]) -> [QuickEditHistoryBackfillItem] {
+    var items: [QuickEditHistoryBackfillItem] = []
+
+    for entry in entries {
+        for task in entry.completedTaskCounts.keys {
+            let trimmed = task.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            items.append(QuickEditHistoryBackfillItem(task: MyTaskItem(text: trimmed), date: entry.date))
+        }
+
+        for cell in entry.board.cells.flatMap({ $0 }) {
+            let trimmed = cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            items.append(
+                QuickEditHistoryBackfillItem(
+                    task: MyTaskItem(
+                        text: trimmed,
+                        startMonth: cell.startVisibleMonth,
+                        startDay: cell.startVisibleDay
+                    ),
+                    date: entry.date
+                )
+            )
+        }
+    }
+
+    return items
+}
+
+func quickEditLegacyHistoryItemsFromTimeoutPayload(
+    _ payload: [String: [String: Int]],
+    now: Date
+) -> [QuickEditHistoryBackfillItem] {
+    var items: [QuickEditHistoryBackfillItem] = []
+    for (dateKey, tasks) in payload {
+        let date = quickEditParseDateKey(dateKey) ?? now
+        for task in tasks.keys {
+            let trimmed = task.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            items.append(QuickEditHistoryBackfillItem(task: MyTaskItem(text: trimmed), date: date))
+        }
+    }
+    return items
+}

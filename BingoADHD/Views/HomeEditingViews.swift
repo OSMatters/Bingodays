@@ -230,7 +230,7 @@ struct QuickEditView: View {
                 confirmDelete(target)
             }
         } message: { target in
-            Text(deleteMessage(for: target))
+            Text(quickEditDeleteMessage(for: target, in: library))
         }
         .alert(
             L10n.tr("Delete this group?", zhHans: "删除该分组？", zhHant: "刪除該分組？"),
@@ -249,7 +249,7 @@ struct QuickEditView: View {
                 finalizeGroupDeletion(groupID)
             }
         } message: {
-            let name = pendingGroupDeleteFinalConfirmation.map(groupName(for:)) ?? L10n.groupDefaultName
+            let name = pendingGroupDeleteFinalConfirmation.map { quickEditGroupName(for: $0, in: library) } ?? L10n.groupDefaultName
             Text(
                 L10n.tr(
                     "All tasks in \"\(name)\" will be deleted and cannot be undone.",
@@ -875,45 +875,16 @@ struct QuickEditView: View {
     private func backfillLegacyTaskHistoryIfNeeded() {
         guard taskHistoryRecords.isEmpty else { return }
 
-        var insertedAny = false
         let now = Date()
+        let diaryItems = quickEditLegacyHistoryItemsFromDiaryEntries(Array(BingoDiaryStore.loadAllEntriesDictionary().values))
+        let timeoutItems = quickEditLegacyHistoryItemsFromTimeoutPayload(BingoTimeoutStore.loadAllPayload(), now: now)
+        let backfillItems = diaryItems + timeoutItems
+        guard !backfillItems.isEmpty else { return }
 
-        for entry in BingoDiaryStore.loadAllEntriesDictionary().values {
-            for task in entry.completedTaskCounts.keys {
-                let trimmed = task.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { continue }
-                TaskHistoryStore.upsert(task: MyTaskItem(text: trimmed), at: entry.date)
-                insertedAny = true
-            }
-
-            for cell in entry.board.cells.flatMap({ $0 }) {
-                let trimmed = cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { continue }
-                TaskHistoryStore.upsert(
-                    task: MyTaskItem(
-                        text: trimmed,
-                        startMonth: cell.startVisibleMonth,
-                        startDay: cell.startVisibleDay
-                    ),
-                    at: entry.date
-                )
-                insertedAny = true
-            }
+        for item in backfillItems {
+            TaskHistoryStore.upsert(task: item.task, at: item.date)
         }
-
-        for (dateKey, tasks) in BingoTimeoutStore.loadAllPayload() {
-            let date = quickEditParseDateKey(dateKey) ?? now
-            for task in tasks.keys {
-                let trimmed = task.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { continue }
-                TaskHistoryStore.upsert(task: MyTaskItem(text: trimmed), at: date)
-                insertedAny = true
-            }
-        }
-
-        if insertedAny {
-            taskHistoryRecords = TaskHistoryStore.load()
-        }
+        taskHistoryRecords = TaskHistoryStore.load()
     }
 
     private func startAddingTaskInline() {
@@ -1225,60 +1196,47 @@ struct QuickEditView: View {
         }
     }
 private func confirmDelete(_ target: QuickEditDeleteTarget) {
-    switch target {
-    case .task(let index):
-        guard library.tasks.indices.contains(index) else { return }
-        let task = library.tasks[index]
+    let resolution = quickEditResolveDeleteTarget(target, in: &library)
+    switch resolution {
+    case .libraryTaskRemoved(let task, let successMessage):
         recordTaskHistory(task, sourceTaskID: task.id)
-        library.tasks.remove(at: index)
-        showLocalToast(target.successMessage)
+        showLocalToast(successMessage)
         deleteConfirmationTarget = nil
         focusedField = nil
-    case .group(let groupID):
+    case .requestGroupDeletion(let groupID):
         deleteConfirmationTarget = nil
         focusedField = nil
         pendingGroupDeleteFinalConfirmation = groupID
-    case .groupTask(let groupID, let index):
-        guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }),
-              library.groups[groupIndex].tasks.indices.contains(index) else { return }
-        let task = library.groups[groupIndex].tasks[index]
-        recordTaskHistory(task, sourceTaskID: task.id)
-        library.groups[groupIndex].tasks.remove(at: index)
-        showLocalToast(target.successMessage)
-        deleteConfirmationTarget = nil
-        focusedField = nil
-    case .history(let historyItemID):
-        let prefix = "history:"
-        guard historyItemID.hasPrefix(prefix) else {
+    case .historyItemRemoved(let historyItemID, let successMessage):
+        guard let historyKey = quickEditHistoryRecordKey(from: historyItemID) else {
             deleteConfirmationTarget = nil
             focusedField = nil
             return
         }
-        let historyKey = String(historyItemID.dropFirst(prefix.count))
         TaskHistoryStore.deleteRecord(withKey: historyKey)
         selectedTaskKeys.removeAll(where: { $0 == historyItemID })
         removePreviewTask(for: historyItemID)
         refreshTaskHistory()
-        showLocalToast(target.successMessage)
+        showLocalToast(successMessage)
+        deleteConfirmationTarget = nil
+        focusedField = nil
+    case .invalid:
         deleteConfirmationTarget = nil
         focusedField = nil
     }
 }
 
 private func finalizeGroupDeletion(_ groupID: UUID) {
-    guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }) else {
+    let result = quickEditFinalizeGroupDeletion(groupID, in: &library, activeFilter: activeFilter)
+    guard result.deleted else {
         pendingGroupDeleteFinalConfirmation = nil
         return
     }
 
-    for task in library.groups[groupIndex].tasks where !task.trimmedText.isEmpty {
+    for task in result.removedTasks {
         recordTaskHistory(task, sourceTaskID: task.id)
     }
-
-    library.groups.remove(at: groupIndex)
-    if activeFilter == .group(groupID) {
-        activeFilter = .all
-    }
+    activeFilter = result.updatedFilter
 
     showLocalToast(L10n.groupDeletedSuccess)
     pendingGroupDeleteFinalConfirmation = nil
@@ -1302,27 +1260,6 @@ private func finalizeGroupDeletion(_ groupID: UUID) {
         hideLocalToastWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8, execute: workItem)
     }
-
-private func deleteMessage(for target: QuickEditDeleteTarget) -> String {
-    switch target {
-    case .groupTask(let groupID, _):
-        let name = groupName(for: groupID)
-        return L10n.tr(
-            "This task will be removed from \(name).",
-            zhHans: "该任务将从「\(name)」中移除。",
-            zhHant: "該任務將從「\(name)」中移除。"
-        )
-    default:
-        return target.message
-    }
-}
-
-private func groupName(for groupID: UUID) -> String {
-    guard let group = library.groups.first(where: { $0.id == groupID }) else {
-        return L10n.groupDefaultName
-    }
-    return quickEditDisplayGroupName(group)
-}
 
     private func sectionHeader(title: String, subtitle: String, detail: String, actionTitle: String?, action: (() -> Void)?) -> some View {
         HStack(alignment: .top, spacing: 12) {
