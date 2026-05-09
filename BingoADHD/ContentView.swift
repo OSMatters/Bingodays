@@ -1288,150 +1288,48 @@ private var selectedBoardName: String {
     }
 
     private var gridSizeAdjustmentSheet: some View {
-        let controlSize: CGFloat = isPadLayout ? 56 : 50
-        let iconSize: CGFloat = isPadLayout ? 24 : 22
-
-        return GeometryReader { proxy in
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-
-                HStack(spacing: isPadLayout ? 20 : 16) {
-                    Button {
-                        withAnimation(.spring(response: 0.4)) {
-                            viewModel.resizeGrid(to: viewModel.gridSize - 1)
-                        }
-                    } label: {
-                        Image(systemName: "minus")
-                            .font(.appSystem(size: iconSize, weight: .bold))
-                            .foregroundColor(NeumorphicColors.accent)
-                            .frame(width: controlSize, height: controlSize)
-                            .background(
-                                conciseRaisedSurface(
-                                    cornerRadius: controlSize / 2,
-                                    shadowRadius: isPadLayout ? 10 : 8,
-                                    offset: isPadLayout ? 5 : 4
-                                )
-                            )
-                    }
-                    .disabled(viewModel.gridSize <= 2)
-                    .buttonStyle(.plain)
-                    .opacity(viewModel.gridSize <= 2 ? 0.45 : 1)
-
-                    Text("\(viewModel.gridSize) × \(viewModel.gridSize)")
-                        .font(.appSystem(size: scaled(30, pad: 36), weight: .bold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
-                        .frame(minWidth: isPadLayout ? 140 : 120)
-                        .multilineTextAlignment(.center)
-
-                    Button {
-                        withAnimation(.spring(response: 0.4)) {
-                            resizeGridWithPremiumGate(
-                                targetSize: viewModel.gridSize + 1,
-                                source: "grid_size_sheet"
-                            )
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.appSystem(size: iconSize, weight: .bold))
-                            .foregroundColor(NeumorphicColors.accent)
-                            .frame(width: controlSize, height: controlSize)
-                            .background(
-                                conciseRaisedSurface(
-                                    cornerRadius: controlSize / 2,
-                                    shadowRadius: isPadLayout ? 10 : 8,
-                                    offset: isPadLayout ? 5 : 4
-                                )
-                            )
-                    }
-                    .disabled(viewModel.gridSize >= 5)
-                    .buttonStyle(.plain)
-                    .opacity(viewModel.gridSize >= 5 ? 0.45 : 1)
+        GridSizeAdjustmentSheet(
+            gridSize: viewModel.gridSize,
+            isPadLayout: isPadLayout,
+            onDecrease: {
+                withAnimation(.spring(response: 0.4)) {
+                    viewModel.resizeGrid(to: viewModel.gridSize - 1)
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: proxy.size.height * 0.42)
-
-                Spacer(minLength: 0)
+            },
+            onIncrease: {
+                withAnimation(.spring(response: 0.4)) {
+                    resizeGridWithPremiumGate(
+                        targetSize: viewModel.gridSize + 1,
+                        source: "grid_size_sheet"
+                    )
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .padding(.horizontal, isPadLayout ? 28 : 22)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(NeumorphicColors.background)
+        )
     }
 
     private var editActionsFullscreenOverlay: some View {
-        ZStack {
-            ZStack {
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .blur(radius: 10)
-
-                Color.black.opacity(0.6)
-            }
-            .ignoresSafeArea()
-            .contentShape(Rectangle())
-            .onTapGesture {
+        EditActionsFullscreenOverlay(
+            isPadLayout: isPadLayout,
+            onDismiss: {
                 withAnimation(.easeInOut(duration: 0.18)) {
                     isEditActionsExpanded = false
                 }
+            },
+            onShuffle: {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                    viewModel.shuffleBoard()
+                }
+            },
+            onClearBoard: {
+                isClearBoardConfirmationPresented = true
+            },
+            onGridSize: {
+                isGridSizeSheetPresented = true
+            },
+            onQuickEdit: {
+                isQuickEditPresented = true
             }
-
-            VStack(spacing: isPadLayout ? 48 : 40) {
-                editActionsTextButton(L10n.tr("Shuffle", zhHans: "随机排序")) {
-                    withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-                        viewModel.shuffleBoard()
-                    }
-                }
-
-                editActionsTextButton(L10n.clearBoard) {
-                    isClearBoardConfirmationPresented = true
-                }
-
-                editActionsTextButton(L10n.tr("Grid Size", zhHans: "格子大小")) {
-                    isGridSizeSheetPresented = true
-                }
-
-                editActionsTextButton(L10n.quickEdit) {
-                    isQuickEditPresented = true
-                }
-
-                editActionsTextButton(
-                    L10n.cancel,
-                    fontWeight: .semibold,
-                    color: Color.white.opacity(0.55),
-                    extraTopPadding: isPadLayout ? 14 : 8,
-                    action: nil
-                )
-            }
-            .padding(.horizontal, 32)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    private func editActionsTextButton(
-        _ title: String,
-        fontWeight: Font.Weight = .bold,
-        color: Color = .white,
-        extraTopPadding: CGFloat = 0,
-        action: (() -> Void)?
-    ) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.18)) {
-                isEditActionsExpanded = false
-            }
-            if let action {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-                    action()
-                }
-            }
-        } label: {
-            Text(title)
-                .font(.appSystem(size: scaled(28, pad: 38), weight: fontWeight, design: .rounded))
-                .foregroundColor(color)
-                .frame(maxWidth: .infinity)
-                .padding(.top, extraTopPadding)
-        }
-        .buttonStyle(.plain)
+        )
     }
 
     private var quickEditTrigger: some View {
