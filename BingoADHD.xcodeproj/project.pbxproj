@@ -55,6 +55,7 @@
 		AA30000000000000000029 /* EditableHomeStickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000029 /* EditableHomeStickerView.swift */; };
 		AA3000000000000000002A /* QuickEditPreviewDropDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000002A /* QuickEditPreviewDropDelegate.swift */; };
 		AA3000000000000000002B /* QuickEditPreviewGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000002B /* QuickEditPreviewGridView.swift */; };
+		AA3000000000000000002C /* QuickEditTaskRowViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000002C /* QuickEditTaskRowViews.swift */; };
 		AAF000000000000000000001 /* FloatingButton in Frameworks */ = {isa = PBXBuildFile; productRef = AAF000000000000000000011 /* FloatingButton */; };
 		C3DA38C1D37F02D4B7DDAB7A /* BingoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000003 /* BingoModels.swift */; };
 		C7C0E097420C7B27954960F4 /* BingoBoardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */; };
@@ -154,6 +155,7 @@
 		AA20000000000000000029 /* EditableHomeStickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableHomeStickerView.swift; sourceTree = "<group>"; };
 		AA2000000000000000002A /* QuickEditPreviewDropDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEditPreviewDropDelegate.swift; sourceTree = "<group>"; };
 		AA2000000000000000002B /* QuickEditPreviewGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEditPreviewGridView.swift; sourceTree = "<group>"; };
+		AA2000000000000000002C /* QuickEditTaskRowViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEditTaskRowViews.swift; sourceTree = "<group>"; };
 		CEBABD257330F177F05EF511 /* ColorHex.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ColorHex.swift; sourceTree = "<group>"; };
 		DB77DB4D87E0770BB2F4B921 /* BingodaysWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BingodaysWidget.swift; sourceTree = "<group>"; };
 		DE212D5093D3B8D5B841BB8E /* BingodaysWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BingodaysWidget.entitlements; sourceTree = "<group>"; };
@@ -311,6 +313,7 @@
 				AA20000000000000000029 /* EditableHomeStickerView.swift */,
 				AA2000000000000000002A /* QuickEditPreviewDropDelegate.swift */,
 				AA2000000000000000002B /* QuickEditPreviewGridView.swift */,
+				AA2000000000000000002C /* QuickEditTaskRowViews.swift */,
 				CEBABD257330F177F05EF511 /* ColorHex.swift */,
 				F1A000000000000000000011 /* PAGCompletionView.swift */,
 			);
@@ -508,6 +511,7 @@
 				AA30000000000000000029 /* EditableHomeStickerView.swift in Sources */,
 				AA3000000000000000002A /* QuickEditPreviewDropDelegate.swift in Sources */,
 				AA3000000000000000002B /* QuickEditPreviewGridView.swift in Sources */,
+				AA3000000000000000002C /* QuickEditTaskRowViews.swift in Sources */,
 				0D97FFB2D91D5330540F77C0 /* BingoBoardStore.swift in Sources */,
 				D6129FE6ECD4D6C2E0B7B3E6 /* ColorHex.swift in Sources */,
 				F1A000000000000000000004 /* PAGCompletionView.swift in Sources */,

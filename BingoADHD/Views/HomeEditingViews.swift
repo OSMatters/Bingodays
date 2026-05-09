@@ -898,65 +898,14 @@ private var taskListSection: some View {
     }
 
     private func lockedHistoryPreviewBlock(items: [FilteredTaskItem]) -> some View {
-        Button {
+        QuickEditLockedHistoryPreviewBlock(
+            taskTexts: items.map { $0.task.trimmedText },
+            isPadLayout: isPadLayout,
+            taskBackground: quickEditTaskFlatBackground,
+            fieldStroke: quickEditFieldStroke
+        ) {
             presentPremiumPaywallForLimit(source: "quick_edit_all_tasks_history_locked")
-        } label: {
-            ZStack {
-                VStack(spacing: 10) {
-                    ForEach(items) { item in
-                        HStack(spacing: 10) {
-                            Image(systemName: "circle")
-                                .font(.appSystem(size: scaled(18, pad: 20), weight: .bold))
-                                .foregroundColor(NeumorphicColors.text.opacity(0.28))
-                                .frame(width: 24, height: 24)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.task.trimmedText)
-                                    .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                                    .foregroundColor(NeumorphicColors.text.opacity(0.7))
-                                    .lineLimit(1)
-                            }
-
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 11)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(quickEditTaskFlatBackground)
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(quickEditFieldStroke, lineWidth: 1)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                }
-                .blur(radius: 2.8)
-                .allowsHitTesting(false)
-
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.black.opacity(0.2))
-                    .overlay(
-                        HStack(spacing: 6) {
-                            Image(systemName: "lock.fill")
-                                .font(.appSystem(size: scaled(11, pad: 13), weight: .bold))
-                            Text(L10n.quickEditHistoryPaywallHint)
-                                .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                                .lineLimit(1)
-                        }
-                        .foregroundColor(.white.opacity(0.96))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Color.black.opacity(0.36))
-                        )
-                    )
-            }
         }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -1030,105 +979,31 @@ private var taskListSection: some View {
         let key = item.id
         let isSelected = selectedTaskKeys.contains(key)
 
-        return HStack(spacing: 10) {
-            Button {
+        return QuickEditReadOnlyTaskRow(
+            text: item.task.trimmedText,
+            isSelected: isSelected,
+            isPadLayout: isPadLayout,
+            taskBackground: quickEditTaskFlatBackground,
+            fieldStroke: quickEditFieldStroke,
+            onToggle: {
                 toggleSelection(for: key)
-            } label: {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.appSystem(size: scaled(18, pad: 20), weight: .bold))
-                    .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.38))
-                    .frame(width: 24, height: 24)
-            }
-            .buttonStyle(.plain)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.task.trimmedText)
-                    .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 0)
-
-            Button {
+            },
+            onDelete: {
                 deleteConfirmationTarget = .history(item.id)
                 focusedField = nil
-            } label: {
-                Image(systemName: "trash")
-                    .font(.appSystem(size: scaled(13, pad: 15), weight: .medium))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.52))
-                    .frame(width: 24, height: 24)
             }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 11)
-        .frame(maxWidth: .infinity, minHeight: 50)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(quickEditTaskFlatBackground)
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(quickEditFieldStroke, lineWidth: 1)
-                .allowsHitTesting(false)
-        }
     }
 
     private func lockedHistoryTaskRow(for item: FilteredTaskItem) -> some View {
-        Button {
+        QuickEditLockedTaskRow(
+            text: item.task.trimmedText,
+            isPadLayout: isPadLayout,
+            taskBackground: quickEditTaskFlatBackground,
+            fieldStroke: quickEditFieldStroke
+        ) {
             presentPremiumPaywallForLimit(source: "quick_edit_all_tasks_history_locked")
-        } label: {
-            ZStack {
-                HStack(spacing: 10) {
-                    Image(systemName: "circle")
-                        .font(.appSystem(size: scaled(18, pad: 20), weight: .bold))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.28))
-                        .frame(width: 24, height: 24)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.task.trimmedText)
-                            .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                            .foregroundColor(NeumorphicColors.text.opacity(0.7))
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 11)
-                .frame(maxWidth: .infinity, minHeight: 50)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(quickEditTaskFlatBackground)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(quickEditFieldStroke, lineWidth: 1)
-                        .allowsHitTesting(false)
-                }
-                .blur(radius: 2.8)
-
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.black.opacity(0.18))
-
-                HStack(spacing: 6) {
-                    Image(systemName: "lock.fill")
-                        .font(.appSystem(size: scaled(11, pad: 13), weight: .bold))
-                    Text(L10n.quickEditHistoryPaywallHint)
-                        .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                        .lineLimit(1)
-                }
-                .foregroundColor(.white.opacity(0.96))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color.black.opacity(0.32))
-                )
-            }
         }
-        .buttonStyle(.plain)
     }
 
 private var newTaskInlineRow: some View {
@@ -1178,25 +1053,13 @@ private var newTaskInlineRow: some View {
 }
 
     private var addTaskButton: some View {
-        Button {
+        QuickEditAddTaskButton(isPadLayout: isPadLayout) {
             if isAddingTaskInline {
                 commitAddingTaskInline()
             } else {
                 startAddingTaskInline()
             }
-        } label: {
-            Text(L10n.addTask)
-                .font(.appSystem(size: scaled(15, pad: 17), weight: .semibold, design: .rounded))
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(NeumorphicColors.accent)
-                        .shadow(color: NeumorphicColors.accent.opacity(0.24), radius: 10, x: 0, y: 6)
-                )
         }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
