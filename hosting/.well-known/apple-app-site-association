@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "R2372567GG.com.bingoday.app",
+        "paths": [
+          "/t",
+          "/t/*"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+.DS_Store
+build/
+
+# Xcode user and derived files
+*.xcuserstate
+xcuserdata/
+DerivedData/
+*.dSYM/
+
+# Local Codex/Xcode build and index artifacts
+.codex-artifacts*/
+.firebase/
+.git-disabled-backup-path
