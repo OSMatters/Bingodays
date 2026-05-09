@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(WidgetKit)
+import WidgetKit
+#endif
 
 struct SidebarMenuRow: View {
     let icon: String
@@ -300,6 +303,344 @@ struct SidebarStreakGoalsView: View {
 
         let progress = CGFloat(streakDays - startGoal) / CGFloat(max(endGoal - startGoal, 1))
         return min(max(progress, 0), 1)
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+struct SidebarThemePickerTriggerRow: View {
+    let isPadLayout: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Text(L10n.themeColor)
+                .font(.appSystem(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
+                .foregroundColor(NeumorphicColors.text.opacity(0.78))
+
+            Spacer()
+
+            Button {
+                onTap()
+            } label: {
+                Image("PickerButton")
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+        }
+        .sidebarListRow()
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+struct SidebarThemePickerRow: View {
+    @Binding var themeRawValue: String
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: 12), count: 5), spacing: 12) {
+            ForEach(AppTheme.allCases) { theme in
+                Button {
+                    guard themeRawValue != theme.rawValue else { return }
+                    themeRawValue = theme.rawValue
+                    UserDefaults(suiteName: BingoBoardStore.appGroupID)?.set(theme.rawValue, forKey: AppSettings.themeKey)
+                    AnalyticsService.logThemeColorSelected(theme)
+                    #if canImport(WidgetKit)
+                    WidgetCenter.shared.reloadAllTimelines()
+                    #endif
+                } label: {
+                    Circle()
+                        .fill(theme.color)
+                        .frame(width: 28, height: 28)
+                        .overlay {
+                            Circle()
+                                .stroke(themeRawValue == theme.rawValue ? NeumorphicColors.text : .clear, lineWidth: 2)
+                        }
+                        .padding(4)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .listRowInsets(EdgeInsets(top: 4, leading: 76, bottom: 12, trailing: 22))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+}
+
+#if DEBUG
+struct SidebarPricingDebugInfoRow: View {
+    let loadedProductIDs: [String]
+    let missingProductIDs: [String]
+    let storefrontCountryCode: String
+    let storefrontID: String
+    let isPadLayout: Bool
+
+    var body: some View {
+        let loaded = loadedProductIDs.isEmpty ? "none" : loadedProductIDs.joined(separator: ", ")
+        let missing = missingProductIDs.isEmpty ? "none" : missingProductIDs.joined(separator: ", ")
+
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Debug")
+                .font(.appSystem(size: scaled(12, pad: 13), weight: .semibold, design: .rounded))
+                .foregroundColor(NeumorphicColors.text.opacity(0.6))
+            Text("Locale Region: \(AppLanguage.currentRegionCode)")
+                .font(debugFont)
+                .foregroundColor(debugTextColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text("Storefront: \(storefrontCountryCode) | \(storefrontID)")
+                .font(debugFont)
+                .foregroundColor(debugTextColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text("Language: \(languageCode)")
+                .font(debugFont)
+                .foregroundColor(debugTextColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text("Loaded Products: \(loaded)")
+                .font(debugFont)
+                .foregroundColor(debugTextColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.45)
+            Text("Missing Products: \(missing)")
+                .font(debugFont)
+                .foregroundColor(debugTextColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.45)
+        }
+        .listRowInsets(EdgeInsets(top: 2, leading: 22, bottom: 10, trailing: 22))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+    private var debugFont: Font {
+        .appSystem(size: scaled(12, pad: 13), weight: .medium, design: .rounded)
+    }
+
+    private var debugTextColor: Color {
+        NeumorphicColors.text.opacity(0.66)
+    }
+
+    private var languageCode: String {
+        switch AppLanguage.current {
+        case .english:
+            return "en"
+        case .simplifiedChinese:
+            return "zh-Hans"
+        case .traditionalChinese:
+            return "zh-Hant"
+        case .japanese:
+            return "ja"
+        }
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+#endif
+
+struct SidebarProEntryRow: View {
+    let isPremiumMember: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        let cardWidth: CGFloat = 254
+        let cardHeight: CGFloat = 75
+        let cornerRadius: CGFloat = 16
+        let isEnglish = AppLanguage.current == .english
+        let titleText = isPremiumMember ? L10n.proEntryMemberTitle : L10n.proEntryTitle
+        let subtitleText = isPremiumMember ? L10n.proEntryMemberSubtitle : L10n.proEntrySubtitle
+        let proTitleWidth: CGFloat = {
+            if isPremiumMember {
+                return isEnglish ? 172 : 132
+            }
+            return isEnglish ? 70 : 88
+        }()
+        let subtitleWidth: CGFloat = {
+            if isPremiumMember {
+                return isEnglish ? 214 : 188
+            }
+            return 168
+        }()
+        let proTitleCenterX: CGFloat = 27 + (proTitleWidth / 2)
+        let proStarCenterX: CGFloat = {
+            if isPremiumMember {
+                return proTitleCenterX + (isEnglish ? 71 : 52)
+            }
+            return isEnglish ? 101.5 : 116.5
+        }()
+        let titleFrameWidth: CGFloat = isPremiumMember ? 220 : proTitleWidth
+        let subtitleFrameWidth: CGFloat = isPremiumMember ? 224 : subtitleWidth
+        let titlePositionX: CGFloat = isPremiumMember ? cardWidth / 2 : proTitleCenterX
+        let subtitlePositionX: CGFloat = isPremiumMember ? cardWidth / 2 : 111
+        let textAlignment: SwiftUI.Alignment = isPremiumMember ? .center : .leading
+        let subtitleColor: Color = isPremiumMember ? .white : .white.opacity(0.82)
+        let backgroundGradient = LinearGradient(
+            colors: [Color(hex: "D3A375"), Color(hex: "DFAE7F")],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+
+        return Button {
+            onTap()
+        } label: {
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(backgroundGradient)
+
+                Image("ProEntryCrown")
+                    .resizable()
+                    .interpolation(.high)
+                    .renderingMode(.original)
+                    .frame(width: 140.42, height: 140.42)
+                    .rotationEffect(.degrees(-24.92))
+                    .blendMode(.screen)
+                    .opacity(0.6)
+                    .position(x: 103.258, y: 37.5)
+
+                Image(systemName: "sparkle")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.white)
+                    .position(x: proStarCenterX, y: 21.5)
+
+                Text(titleText)
+                    .font(OnboardingFonts.supporting(size: 20, weight: 600))
+                    .foregroundColor(.white)
+                    .frame(width: titleFrameWidth, height: 25, alignment: textAlignment)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .allowsTightening(true)
+                    .position(x: titlePositionX, y: 28.5)
+
+                Text(subtitleText)
+                    .font(OnboardingFonts.supporting(size: 14, weight: 500))
+                    .foregroundColor(subtitleColor)
+                    .frame(width: subtitleFrameWidth, height: 18, alignment: textAlignment)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .allowsTightening(true)
+                    .position(x: subtitlePositionX, y: 51)
+
+                if !isPremiumMember {
+                    ZStack {
+                        Circle()
+                            .fill(Color.white.opacity(0.2))
+
+                        Path { path in
+                            path.move(to: CGPoint(x: 7.39049, y: 5.25716))
+                            path.addLine(to: CGPoint(x: 10.1334, y: 8.00002))
+                            path.addLine(to: CGPoint(x: 7.39049, y: 10.7429))
+                        }
+                        .stroke(
+                            Color.white,
+                            style: StrokeStyle(lineWidth: 1.06667, lineCap: .round, lineJoin: .round)
+                        )
+                    }
+                    .frame(width: 16, height: 16)
+                    .position(x: 227.5, y: 38)
+                }
+            }
+            .frame(width: cardWidth, height: cardHeight, alignment: .topLeading)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .frame(maxWidth: .infinity, alignment: .center)
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 10, leading: 22, bottom: 12, trailing: 22))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+}
+
+struct SidebarAccountSection: View {
+    let profile: AccountProfile
+    let errorMessage: String?
+    let themeColor: Color
+    let isPadLayout: Bool
+    let onSignOut: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Account")
+                .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                .foregroundColor(NeumorphicColors.text)
+
+            Text(displayName)
+                .font(.appSystem(size: scaled(16, pad: 18), weight: .bold, design: .rounded))
+                .foregroundColor(NeumorphicColors.text)
+
+            if let email = profile.email, !email.isEmpty {
+                Text(email)
+                    .font(.appSystem(size: scaled(12.5, pad: 14.5), weight: .medium, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.62))
+            }
+
+            Text(profile.providerIDs.map(providerDisplayName).joined(separator: " · "))
+                .font(.appSystem(size: scaled(12.5, pad: 14.5), weight: .medium, design: .rounded))
+                .foregroundColor(NeumorphicColors.text.opacity(0.52))
+
+            Button {
+                onSignOut()
+            } label: {
+                Text("Sign Out")
+                    .font(.appSystem(size: scaled(13.5, pad: 15.5), weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(themeColor.opacity(0.92))
+                    )
+            }
+            .buttonStyle(.plain)
+
+            if let errorMessage, !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(.appSystem(size: scaled(11.5, pad: 13), weight: .medium, design: .rounded))
+                    .foregroundColor(Color.red.opacity(0.82))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(NeumorphicColors.background)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(themeColor.opacity(0.24), lineWidth: 1)
+                )
+        )
+        .listRowInsets(EdgeInsets(top: 8, leading: 22, bottom: 14, trailing: 22))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+    private var displayName: String {
+        profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? profile.displayName!
+            : (profile.email ?? profile.uid)
+    }
+
+    private func providerDisplayName(_ providerID: String) -> String {
+        switch providerID {
+        case "apple.com":
+            return "Apple"
+        case "google.com":
+            return "Google"
+        case "password":
+            return "Email"
+        default:
+            return providerID
+        }
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {

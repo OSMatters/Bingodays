@@ -2389,7 +2389,12 @@ private func ensureBoardSwitcherLoaded() {
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
 
-                    sidebarProEntryRow
+                    SidebarProEntryRow(isPremiumMember: subscriptionManager.hasPremiumAccess) {
+                        isSidebarPresented = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            presentPremiumPaywall(source: "sidebar_pro_entry")
+                        }
+                    }
 
                     if isSettingsExpanded {
                         SidebarToggleRowView(title: L10n.haptics, isOn: $isHapticsEnabled, isPadLayout: isPadLayout)
@@ -2407,18 +2412,38 @@ private func ensureBoardSwitcherLoaded() {
                             SidebarWidgetGuideTextRow(isPadLayout: isPadLayout)
                         }
 
-                        themePickerTriggerRow
+                        SidebarThemePickerTriggerRow(isPadLayout: isPadLayout) {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                                isThemePickerExpanded.toggle()
+                            }
+                        }
 
                         if isThemePickerExpanded {
-                            themePickerRow
+                            SidebarThemePickerRow(themeRawValue: $themeRawValue)
                         }
 
 #if DEBUG
-                        pricingDebugInfoRow
+                        SidebarPricingDebugInfoRow(
+                            loadedProductIDs: subscriptionManager.loadedProductIDs,
+                            missingProductIDs: subscriptionManager.missingProductIDs,
+                            storefrontCountryCode: subscriptionManager.storefrontCountryCode,
+                            storefrontID: subscriptionManager.storefrontID,
+                            isPadLayout: isPadLayout
+                        )
 #endif
 
                         if AppFeatureFlags.isAccountEnabled, let profile = accountSession.profile {
-                            sidebarAccountSection(profile: profile)
+                            SidebarAccountSection(
+                                profile: profile,
+                                errorMessage: accountSession.errorMessage,
+                                themeColor: activeThemeColor,
+                                isPadLayout: isPadLayout
+                            ) {
+                                accountSession.signOut()
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                                    isSidebarPresented = false
+                                }
+                            }
                         }
                     }
                 }
@@ -2465,278 +2490,6 @@ private func ensureBoardSwitcherLoaded() {
                 }
         )
         .ignoresSafeArea(edges: .vertical)
-    }
-
-    private var themePickerTriggerRow: some View {
-        HStack(spacing: 14) {
-            Text(L10n.themeColor)
-                .font(.appSystem(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.78))
-
-            Spacer()
-
-            Button {
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                    isThemePickerExpanded.toggle()
-                }
-            } label: {
-                Image("PickerButton")
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 24, height: 24)
-            }
-            .buttonStyle(.plain)
-        }
-        .listRowInsets(EdgeInsets(top: 12, leading: 22, bottom: 12, trailing: 22))
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-    }
-
-    private var themePickerRow: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: 12), count: 5), spacing: 12) {
-            ForEach(AppTheme.allCases) { theme in
-                Button {
-                    guard themeRawValue != theme.rawValue else { return }
-                    themeRawValue = theme.rawValue
-                    UserDefaults(suiteName: BingoBoardStore.appGroupID)?.set(theme.rawValue, forKey: AppSettings.themeKey)
-                    AnalyticsService.logThemeColorSelected(theme)
-                    #if canImport(WidgetKit)
-                    WidgetCenter.shared.reloadAllTimelines()
-                    #endif
-                } label: {
-                    Circle()
-                        .fill(theme.color)
-                        .frame(width: 28, height: 28)
-                        .overlay {
-                            Circle()
-                                .stroke(themeRawValue == theme.rawValue ? NeumorphicColors.text : .clear, lineWidth: 2)
-                        }
-                        .padding(4)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .listRowInsets(EdgeInsets(top: 4, leading: 76, bottom: 12, trailing: 22))
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-    }
-
-#if DEBUG
-    private var pricingDebugInfoRow: some View {
-        let regionCode = AppLanguage.currentRegionCode
-        let languageCode: String
-        switch AppLanguage.current {
-        case .english:
-            languageCode = "en"
-        case .simplifiedChinese:
-            languageCode = "zh-Hans"
-        case .traditionalChinese:
-            languageCode = "zh-Hant"
-        case .japanese:
-            languageCode = "ja"
-        }
-
-        let loaded = subscriptionManager.loadedProductIDs.isEmpty ? "none" : subscriptionManager.loadedProductIDs.joined(separator: ", ")
-        let missing = subscriptionManager.missingProductIDs.isEmpty ? "none" : subscriptionManager.missingProductIDs.joined(separator: ", ")
-
-        return VStack(alignment: .leading, spacing: 4) {
-            Text("Debug")
-                .font(.appSystem(size: scaled(12, pad: 13), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.6))
-            Text("Locale Region: \(regionCode)")
-                .font(.appSystem(size: scaled(12, pad: 13), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.66))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            Text("Storefront: \(subscriptionManager.storefrontCountryCode) | \(subscriptionManager.storefrontID)")
-                .font(.appSystem(size: scaled(12, pad: 13), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.66))
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            Text("Language: \(languageCode)")
-                .font(.appSystem(size: scaled(12, pad: 13), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.66))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            Text("Loaded Products: \(loaded)")
-                .font(.appSystem(size: scaled(12, pad: 13), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.66))
-                .lineLimit(1)
-                .minimumScaleFactor(0.45)
-            Text("Missing Products: \(missing)")
-                .font(.appSystem(size: scaled(12, pad: 13), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.66))
-                .lineLimit(1)
-                .minimumScaleFactor(0.45)
-        }
-        .listRowInsets(EdgeInsets(top: 2, leading: 22, bottom: 10, trailing: 22))
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-    }
-#endif
-
-    private var sidebarProEntryRow: some View {
-        let cardWidth: CGFloat = 254
-        let cardHeight: CGFloat = 75
-        let cornerRadius: CGFloat = 16
-        let isPremiumMember = subscriptionManager.hasPremiumAccess
-        let isEnglish = AppLanguage.current == .english
-        let titleText = isPremiumMember ? L10n.proEntryMemberTitle : L10n.proEntryTitle
-        let subtitleText = isPremiumMember ? L10n.proEntryMemberSubtitle : L10n.proEntrySubtitle
-        let proTitleWidth: CGFloat = {
-            if isPremiumMember {
-                return isEnglish ? 172 : 132
-            }
-            return isEnglish ? 70 : 88
-        }()
-        let subtitleWidth: CGFloat = {
-            if isPremiumMember {
-                return isEnglish ? 214 : 188
-            }
-            return 168
-        }()
-        let proTitleCenterX: CGFloat = 27 + (proTitleWidth / 2)
-        let proStarCenterX: CGFloat = {
-            if isPremiumMember {
-                return proTitleCenterX + (isEnglish ? 71 : 52)
-            }
-            return isEnglish ? 101.5 : 116.5
-        }()
-        let titleFrameWidth: CGFloat = isPremiumMember ? 220 : proTitleWidth
-        let subtitleFrameWidth: CGFloat = isPremiumMember ? 224 : subtitleWidth
-        let titlePositionX: CGFloat = isPremiumMember ? cardWidth / 2 : proTitleCenterX
-        let subtitlePositionX: CGFloat = isPremiumMember ? cardWidth / 2 : 111
-        let textAlignment: SwiftUI.Alignment = isPremiumMember ? .center : .leading
-        let subtitleColor: Color = isPremiumMember ? .white : .white.opacity(0.82)
-        let backgroundGradient = LinearGradient(
-            colors: [Color(hex: "D3A375"), Color(hex: "DFAE7F")],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-
-        return Button {
-            isSidebarPresented = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                presentPremiumPaywall(source: "sidebar_pro_entry")
-            }
-        } label: {
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(backgroundGradient)
-
-                Image("ProEntryCrown")
-                    .resizable()
-                    .interpolation(.high)
-                    .renderingMode(.original)
-                    .frame(width: 140.42, height: 140.42)
-                    .rotationEffect(.degrees(-24.92))
-                    .blendMode(.screen)
-                    .opacity(0.6)
-                    .position(x: 103.258, y: 37.5)
-
-                Path { path in
-                    path.move(to: CGPoint(x: 4.19505, y: 0.39209))
-                    path.addCurve(
-                        to: CGPoint(x: 5.17148, y: 0.392089),
-                        control1: CGPoint(x: 4.3106, y: -0.130696),
-                        control2: CGPoint(x: 5.05593, y: -0.130697)
-                    )
-                    path.addLine(to: CGPoint(x: 5.58452, y: 2.26079))
-                    path.addCurve(
-                        to: CGPoint(x: 7.10574, y: 3.78201),
-                        control1: CGPoint(x: 5.75247, y: 3.02063),
-                        control2: CGPoint(x: 6.34591, y: 3.61406)
-                    )
-                    path.addLine(to: CGPoint(x: 8.97444, y: 4.19505))
-                    path.addCurve(
-                        to: CGPoint(x: 8.97444, y: 5.17148),
-                        control1: CGPoint(x: 9.49723, y: 4.3106),
-                        control2: CGPoint(x: 9.49723, y: 5.05593)
-                    )
-                    path.addLine(to: CGPoint(x: 7.10575, y: 5.58452))
-                    path.addCurve(
-                        to: CGPoint(x: 5.58452, y: 7.10574),
-                        control1: CGPoint(x: 6.34591, y: 5.75247),
-                        control2: CGPoint(x: 5.75247, y: 6.34591)
-                    )
-                    path.addLine(to: CGPoint(x: 5.17148, y: 8.97444))
-                    path.addCurve(
-                        to: CGPoint(x: 4.19505, y: 8.97444),
-                        control1: CGPoint(x: 5.05593, y: 9.49723),
-                        control2: CGPoint(x: 4.3106, y: 9.49723)
-                    )
-                    path.addLine(to: CGPoint(x: 3.78201, y: 7.10575))
-                    path.addCurve(
-                        to: CGPoint(x: 2.26079, y: 5.58452),
-                        control1: CGPoint(x: 3.61406, y: 6.34591),
-                        control2: CGPoint(x: 3.02063, y: 5.75247)
-                    )
-                    path.addLine(to: CGPoint(x: 0.39209, y: 5.17148))
-                    path.addCurve(
-                        to: CGPoint(x: 0.392089, y: 4.19505),
-                        control1: CGPoint(x: -0.130696, y: 5.05593),
-                        control2: CGPoint(x: -0.130697, y: 4.3106)
-                    )
-                    path.addLine(to: CGPoint(x: 2.26079, y: 3.78201))
-                    path.addCurve(
-                        to: CGPoint(x: 3.78201, y: 2.26079),
-                        control1: CGPoint(x: 3.02063, y: 3.61406),
-                        control2: CGPoint(x: 3.61406, y: 3.02063)
-                    )
-                    path.addLine(to: CGPoint(x: 4.19505, y: 0.39209))
-                    path.closeSubpath()
-                }
-                .fill(Color.white)
-                .frame(width: 13, height: 13)
-                .position(x: proStarCenterX, y: 21.5)
-
-                Text(titleText)
-                    .font(OnboardingFonts.supporting(size: 20, weight: 600))
-                    .foregroundColor(.white)
-                    .frame(width: titleFrameWidth, height: 25, alignment: textAlignment)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                    .allowsTightening(true)
-                    .position(x: titlePositionX, y: 28.5)
-
-                Text(subtitleText)
-                    .font(OnboardingFonts.supporting(size: 14, weight: 500))
-                    .foregroundColor(subtitleColor)
-                    .frame(width: subtitleFrameWidth, height: 18, alignment: textAlignment)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .allowsTightening(true)
-                    .position(x: subtitlePositionX, y: 51)
-
-                if !isPremiumMember {
-                    ZStack {
-                        Circle()
-                            .fill(Color.white.opacity(0.2))
-
-                        Path { path in
-                            path.move(to: CGPoint(x: 7.39049, y: 5.25716))
-                            path.addLine(to: CGPoint(x: 10.1334, y: 8.00002))
-                            path.addLine(to: CGPoint(x: 7.39049, y: 10.7429))
-                        }
-                        .stroke(
-                            Color.white,
-                            style: StrokeStyle(lineWidth: 1.06667, lineCap: .round, lineJoin: .round)
-                        )
-                    }
-                    .frame(width: 16, height: 16)
-                    .position(x: 227.5, y: 38)
-                }
-            }
-            .frame(width: cardWidth, height: cardHeight, alignment: .topLeading)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .frame(maxWidth: .infinity, alignment: .center)
-            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 10, leading: 22, bottom: 12, trailing: 22))
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
     }
 
     private var gridControls: some View {
@@ -2839,80 +2592,6 @@ private func ensureBoardSwitcherLoaded() {
                 }
                 .buttonStyle(.plain)
             }
-        }
-    }
-
-    private func sidebarAccountSection(profile: AccountProfile) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Account")
-                .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-
-            Text(profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                 ? profile.displayName!
-                 : (profile.email ?? profile.uid))
-                .font(.appSystem(size: scaled(16, pad: 18), weight: .bold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-
-            if let email = profile.email, !email.isEmpty {
-                Text(email)
-                    .font(.appSystem(size: scaled(12.5, pad: 14.5), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.62))
-            }
-
-            Text(profile.providerIDs.map(providerDisplayName).joined(separator: " · "))
-                .font(.appSystem(size: scaled(12.5, pad: 14.5), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.52))
-
-            Button {
-                accountSession.signOut()
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                    isSidebarPresented = false
-                }
-            } label: {
-                Text("Sign Out")
-                    .font(.appSystem(size: scaled(13.5, pad: 15.5), weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(activeThemeColor.opacity(0.92))
-                    )
-            }
-            .buttonStyle(.plain)
-
-            if let errorMessage = accountSession.errorMessage, !errorMessage.isEmpty {
-                Text(errorMessage)
-                    .font(.appSystem(size: scaled(11.5, pad: 13), weight: .medium, design: .rounded))
-                    .foregroundColor(Color.red.opacity(0.82))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(NeumorphicColors.background)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(activeThemeColor.opacity(0.24), lineWidth: 1)
-                )
-        )
-        .listRowInsets(EdgeInsets(top: 8, leading: 22, bottom: 14, trailing: 22))
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-    }
-
-    private func providerDisplayName(_ providerID: String) -> String {
-        switch providerID {
-        case "apple.com":
-            return "Apple"
-        case "google.com":
-            return "Google"
-        case "password":
-            return "Email"
-        default:
-            return providerID
         }
     }
 
