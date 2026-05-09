@@ -169,6 +169,46 @@ struct QuickEditTaskEditorModal: View {
     }
 }
 
+struct QuickEditToastOverlayView: View {
+    let isVisible: Bool
+    let message: String?
+    let isPadLayout: Bool
+
+    var body: some View {
+        if isVisible, let message {
+            VStack {
+                Text(message)
+                    .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
+                    .foregroundColor(.white.opacity(0.96))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(toastBackground)
+                    .shadow(color: NeumorphicColors.darkShadow.opacity(0.12), radius: 8, x: 0, y: 4)
+                    .shadow(color: NeumorphicColors.accent.opacity(0.34), radius: 10, x: 0, y: 6)
+                Spacer()
+            }
+            .padding(.top, 18)
+            .padding(.horizontal, 20)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .allowsHitTesting(false)
+        }
+    }
+
+    private var toastBackground: some View {
+        Capsule(style: .continuous)
+            .fill(NeumorphicColors.accent.opacity(0.92))
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(.white.opacity(0.28), lineWidth: 1)
+            )
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.18) : base
+    }
+}
+
 private struct QuickEditModalShell<Content: View>: View {
     let maxWidth: CGFloat
     let onDismiss: () -> Void

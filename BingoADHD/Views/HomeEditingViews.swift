@@ -264,7 +264,11 @@ struct QuickEditView: View {
         ZStack {
             quickEditBackground
             quickEditMainScroll
-            quickEditToastOverlay
+            QuickEditToastOverlayView(
+                isVisible: isLocalToastVisible,
+                message: localToastMessage,
+                isPadLayout: isPadLayout
+            )
             quickEditModalOverlays
         }
         .navigationTitle("")
@@ -299,37 +303,6 @@ struct QuickEditView: View {
             .padding(.bottom, 110)
         }
         .scrollDismissesKeyboard(.interactively)
-    }
-
-    @ViewBuilder
-    private var quickEditToastOverlay: some View {
-        if isLocalToastVisible, let localToastMessage {
-            VStack {
-                Text(localToastMessage)
-                    .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                    .foregroundColor(.white.opacity(0.96))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
-                    .background(quickEditToastBackground)
-                    .shadow(color: NeumorphicColors.darkShadow.opacity(0.12), radius: 8, x: 0, y: 4)
-                    .shadow(color: NeumorphicColors.accent.opacity(0.34), radius: 10, x: 0, y: 6)
-                Spacer()
-            }
-            .padding(.top, 18)
-            .padding(.horizontal, 20)
-            .transition(.move(edge: .top).combined(with: .opacity))
-            .allowsHitTesting(false)
-        }
-    }
-
-    private var quickEditToastBackground: some View {
-        Capsule(style: .continuous)
-            .fill(NeumorphicColors.accent.opacity(0.92))
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(.white.opacity(0.28), lineWidth: 1)
-            )
     }
 
     @ViewBuilder
@@ -1247,82 +1220,4 @@ private func finalizeGroupDeletion(_ groupID: UUID) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8, execute: workItem)
     }
 
-    private func sectionHeader(title: String, subtitle: String, detail: String, actionTitle: String?, action: (() -> Void)?) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: subtitle.isEmpty ? 0 : 4) {
-                Text(detail.isEmpty ? title : "\(title) (\(detail))")
-                    .font(.appSystem(size: scaled(15, pad: 19), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-
-                if !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.appSystem(size: scaled(12, pad: 16), weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.56))
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            if let actionTitle, let action {
-                Button(action: action) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "plus")
-                            .font(.appSystem(size: scaled(11, pad: 14), weight: .bold))
-                        Text(actionTitle)
-                            .font(.appSystem(size: scaled(13, pad: 18), weight: .semibold, design: .rounded))
-                    }
-                    .foregroundColor(NeumorphicColors.text)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Color.clear.neumorphicConvex(radius: 16))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private func flatSectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0, content: content)
-            .padding(isPadLayout ? 22 : 18)
-            .background(
-                RoundedRectangle(cornerRadius: isPadLayout ? 30 : 26, style: .continuous)
-                    .fill(quickEditSectionFlatBackground)
-            )
-    }
-
-    private func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0, content: content)
-            .padding(isPadLayout ? 22 : 18)
-            .background(Color.clear.neumorphicConcave(radius: isPadLayout ? 30 : 26))
-    }
-
-    private func emptyStateCard(title: String, message: String, actionTitle: String, action: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title)
-                .font(.appSystem(size: scaled(16, pad: 22), weight: .bold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-
-            Text(message)
-                .font(.appSystem(size: scaled(13, pad: 17), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.6))
-                .fixedSize(horizontal: false, vertical: true)
-
-            Button(action: action) {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus")
-                        .font(.appSystem(size: scaled(12, pad: 14), weight: .bold))
-                    Text(actionTitle)
-                        .font(.appSystem(size: scaled(14, pad: 18), weight: .semibold, design: .rounded))
-                }
-                .foregroundColor(NeumorphicColors.accent)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(Color.clear.neumorphicConvex(radius: 18))
-            }
-            .buttonStyle(.plain)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(isPadLayout ? 22 : 18)
-        .background(Color.clear.neumorphicConvex(radius: 24))
-    }
 }
