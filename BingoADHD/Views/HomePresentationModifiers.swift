@@ -110,3 +110,96 @@ struct HomeBoardAlertsModifier: ViewModifier {
             }
     }
 }
+
+struct HomeSheetsModifier: ViewModifier {
+    @Binding var isContactUsPresented: Bool
+    @Binding var isContactUsCopyToastVisible: Bool
+    @Binding var isTemplateImportPreviewPresented: Bool
+    @Binding var isBoardCountdownPresented: Bool
+    @Binding var isBoardRulesPresented: Bool
+    @Binding var boardRulesTargetBoardID: UUID?
+    @Binding var isGridSizeSheetPresented: Bool
+
+    let boardTemplateImportPreviewDraft: BoardTemplatePayload?
+    let shouldImportTemplateAsNewBoard: Bool
+    let namedBoards: [BingoBoardStore.NamedBoard]
+    let hasPremiumAccess: Bool
+    let boardCountdownEndsAt: Date?
+    let isPadLayout: Bool
+    let onCopyEmail: () -> Void
+    let onApplyImportedTemplate: (BoardTemplatePayload) -> Void
+    let onDismissTemplatePreview: () -> Void
+    let onTemplateImportSheetHeight: (Int) -> CGFloat
+    let onSaveBoardCountdown: (Int?) -> Void
+    let onCancelBoardCountdown: () -> Void
+    let onPresentPremiumPaywall: (String) -> Void
+    let onApplyBoardRulesSettings: (UUID, Int?, BoardTaskResetMode, Int?) -> Void
+    @ViewBuilder let gridSizeSheet: () -> AnyView
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $isContactUsPresented) {
+                ContactUsSheet(
+                    isPresented: $isContactUsPresented,
+                    isPadLayout: isPadLayout,
+                    isCopyToastVisible: isContactUsCopyToastVisible,
+                    onCopyEmail: onCopyEmail
+                )
+            }
+            .sheet(isPresented: $isTemplateImportPreviewPresented) {
+                if let template = boardTemplateImportPreviewDraft {
+                    BoardTemplateImportPreviewView(
+                        template: template,
+                        createsNewBoard: shouldImportTemplateAsNewBoard,
+                        onImport: {
+                            onApplyImportedTemplate(template)
+                        },
+                        onClose: onDismissTemplatePreview
+                    )
+                    .presentationDetents([.height(onTemplateImportSheetHeight(template.gridSize))])
+                    .presentationDragIndicator(.visible)
+                }
+            }
+            .sheet(isPresented: $isBoardCountdownPresented) {
+                BoardCountdownSheet(
+                    countdownEndsAt: boardCountdownEndsAt,
+                    onSave: { totalMinutes in
+                        onSaveBoardCountdown(totalMinutes)
+                    },
+                    onCancel: onCancelBoardCountdown
+                )
+                .presentationDetents([.height(410)])
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $isBoardRulesPresented) {
+                if let boardRulesTargetBoardID,
+                   let board = namedBoards.first(where: { $0.id == boardRulesTargetBoardID }) {
+                    BoardRulesSheet(
+                        countdownEndsAt: board.countdownEndsAt,
+                        initialResetMode: board.taskResetMode,
+                        initialCustomResetMinutes: board.customResetMinutes,
+                        onSave: { totalMinutes, resetMode, customResetMinutes in
+                            if customResetMinutes != nil, !hasPremiumAccess {
+                                isBoardRulesPresented = false
+                                onPresentPremiumPaywall("board_rules_custom_reset_time")
+                                return
+                            }
+                            onApplyBoardRulesSettings(board.id, totalMinutes, resetMode, customResetMinutes)
+                            isBoardRulesPresented = false
+                        },
+                        onCancel: {
+                            isBoardRulesPresented = false
+                        }
+                    )
+                    .presentationDetents([.height(560)])
+                    .presentationDragIndicator(.visible)
+                }
+            }
+            .sheet(isPresented: $isGridSizeSheetPresented) {
+                gridSizeSheet()
+                    .presentationDetents([.height(280)])
+                    .presentationDragIndicator(.visible)
+                    .presentationBackground(NeumorphicColors.background)
+            }
+    }
+}

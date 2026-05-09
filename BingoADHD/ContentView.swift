@@ -458,83 +458,50 @@ private var selectedBoardName: String {
                     onQuickEditSuccess: showCommonTasksToast
                 )
             )
-            .sheet(isPresented: $isContactUsPresented) {
-                ContactUsSheet(
-                    isPresented: $isContactUsPresented,
+            .modifier(
+                HomeSheetsModifier(
+                    isContactUsPresented: $isContactUsPresented,
+                    isContactUsCopyToastVisible: $isContactUsCopyToastVisible,
+                    isTemplateImportPreviewPresented: isTemplateImportPreviewBinding,
+                    isBoardCountdownPresented: $isBoardCountdownPresented,
+                    isBoardRulesPresented: $isBoardRulesPresented,
+                    boardRulesTargetBoardID: $boardRulesTargetBoardID,
+                    isGridSizeSheetPresented: $isGridSizeSheetPresented,
+                    boardTemplateImportPreviewDraft: boardTemplateImportPreviewDraft,
+                    shouldImportTemplateAsNewBoard: shouldImportTemplateAsNewBoard,
+                    namedBoards: namedBoards,
+                    hasPremiumAccess: subscriptionManager.hasPremiumAccess,
+                    boardCountdownEndsAt: viewModel.boardCountdownEndsAt,
                     isPadLayout: isPadLayout,
-                    isCopyToastVisible: isContactUsCopyToastVisible,
-                    onCopyEmail: showContactUsCopyToast
+                    onCopyEmail: showContactUsCopyToast,
+                    onApplyImportedTemplate: applyImportedTemplate,
+                    onDismissTemplatePreview: templateImportFlowStore.dismissPreview,
+                    onTemplateImportSheetHeight: templateImportSheetHeight,
+                    onSaveBoardCountdown: { totalMinutes in
+                        viewModel.setBoardCountdown(totalMinutes: totalMinutes)
+                        isBoardCountdownPresented = false
+                    },
+                    onCancelBoardCountdown: {
+                        isBoardCountdownPresented = false
+                    },
+                    onPresentPremiumPaywall: presentPremiumPaywall,
+                    onApplyBoardRulesSettings: { boardID, countdownMinutes, resetMode, customResetMinutes in
+                        applyBoardRulesSettings(
+                            for: boardID,
+                            countdownMinutes: countdownMinutes,
+                            resetMode: resetMode,
+                            customResetMinutes: customResetMinutes
+                        )
+                    },
+                    gridSizeSheet: {
+                        AnyView(gridSizeAdjustmentSheet)
+                    }
                 )
-            }
+            )
             .fullScreenCover(isPresented: $isTemplateShareComposerPresented) {
                 if let template = boardTemplateShareDraft {
                     BoardTemplateShareComposerView(template: template)
                 }
-            }
-            .sheet(isPresented: isTemplateImportPreviewBinding) {
-                if let template = boardTemplateImportPreviewDraft {
-                    BoardTemplateImportPreviewView(
-                        template: template,
-                        createsNewBoard: shouldImportTemplateAsNewBoard,
-                        onImport: {
-                            applyImportedTemplate(template)
-                        },
-                        onClose: {
-                            templateImportFlowStore.dismissPreview()
-                        }
-                    )
-                    .presentationDetents([.height(templateImportSheetHeight(for: template.gridSize))])
-                    .presentationDragIndicator(.visible)
-                }
-            }
-            .sheet(isPresented: $isBoardCountdownPresented) {
-                BoardCountdownSheet(
-                    countdownEndsAt: viewModel.boardCountdownEndsAt,
-                    onSave: { totalMinutes in
-                        viewModel.setBoardCountdown(totalMinutes: totalMinutes)
-                        isBoardCountdownPresented = false
-                    },
-                    onCancel: {
-                        isBoardCountdownPresented = false
-                    }
-                )
-                .presentationDetents([.height(410)])
-                .presentationDragIndicator(.visible)
-            }
-            .sheet(isPresented: $isBoardRulesPresented) {
-                if let boardRulesTargetBoardID,
-                   let board = namedBoards.first(where: { $0.id == boardRulesTargetBoardID }) {
-                    BoardRulesSheet(
-                        countdownEndsAt: board.countdownEndsAt,
-                        initialResetMode: board.taskResetMode,
-                        initialCustomResetMinutes: board.customResetMinutes,
-                        onSave: { totalMinutes, resetMode, customResetMinutes in
-                            if customResetMinutes != nil, !subscriptionManager.hasPremiumAccess {
-                                isBoardRulesPresented = false
-                                presentPremiumPaywall(source: "board_rules_custom_reset_time")
-                                return
-                            }
-                            applyBoardRulesSettings(
-                                for: board.id,
-                                countdownMinutes: totalMinutes,
-                                resetMode: resetMode,
-                                customResetMinutes: customResetMinutes
-                            )
-                            isBoardRulesPresented = false
-                        },
-                        onCancel: {
-                            isBoardRulesPresented = false
-                        }
-                    )
-                    .presentationDetents([.height(560)])
-                    .presentationDragIndicator(.visible)
-                }
-            }
-            .sheet(isPresented: $isGridSizeSheetPresented) {
-                gridSizeAdjustmentSheet
-                    .presentationDetents([.height(280)])
-                    .presentationDragIndicator(.visible)
-                    .presentationBackground(NeumorphicColors.background)
             }
     }
 
