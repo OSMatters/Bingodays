@@ -23,10 +23,10 @@ struct QuickEditView: View {
     @State private var isExitDiscardAlertPresented = false
     @State private var targetGridSize = 4
     @State private var didApplyToBoard = false
-    @State private var pendingApplyPlan: ApplyPlan?
+    @State private var pendingApplyPlan: QuickEditApplyPlan?
     @State private var isPremiumPaywallPresented = false
     @State private var premiumPaywallSource = "quick_edit"
-    @State private var activeFilter: FilterTab = .all
+    @State private var activeFilter: QuickEditFilterTab = .all
     @State private var isAddingTaskInline = false
     @State private var newTaskDraft = ""
     @State private var newTaskStartMonthDraft = ""
@@ -34,8 +34,8 @@ struct QuickEditView: View {
     @State private var isAddingGroupModalPresented = false
     @State private var newGroupNameDraft = ""
     @State private var pendingGroupDeleteFinalConfirmation: UUID?
-    @State private var taskEditorDraft: TaskEditorDraft?
-    @State private var previewEditingTarget: PreviewEditingTarget?
+    @State private var taskEditorDraft: QuickEditTaskEditorDraft?
+    @State private var previewEditingTarget: QuickEditPreviewEditingTarget?
     @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
 
     private enum DeleteTarget: Equatable {
@@ -75,100 +75,7 @@ struct QuickEditView: View {
         }
     }
 
-    private struct TaskCandidate: Identifiable {
-        let id: String
-        let task: MyTaskItem
-    }
-
-    private struct TaskEditorDraft: Identifiable, Equatable {
-        enum Mode: Equatable {
-            case createStandalone
-            case createGroup(UUID)
-            case edit(TaskLocation)
-        }
-
-        let id = UUID()
-        let mode: Mode
-        var text: String
-        var startMonthText: String
-        var startDayText: String
-
-        var normalizedName: String {
-            String(text.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        var canSave: Bool {
-            !normalizedName.isEmpty
-        }
-    }
-
-    private enum FilterTab: Equatable {
-        case all
-        case group(UUID)
-    }
-
-    private enum TaskLocation: Hashable {
-        case standalone(Int)
-        case group(UUID, Int)
-    }
-
-    private enum FilteredTaskSource: Equatable {
-        case library(TaskLocation)
-        case history
-    }
-
-    private struct FilteredTaskItem: Identifiable {
-        let id: String
-        let source: FilteredTaskSource
-        let task: MyTaskItem
-        let operationDate: Date
-        let isLocked: Bool
-    }
-
-    struct PreviewSlot: Identifiable, Equatable {
-        let id: UUID
-        var cellState: BingoCell?
-        var sourceTaskKey: String?
-
-        init(id: UUID = UUID(), cellState: BingoCell? = nil, sourceTaskKey: String? = nil) {
-            self.id = id
-            self.cellState = cellState
-            self.sourceTaskKey = sourceTaskKey
-        }
-
-        var task: MyTaskItem? {
-            guard let cellState else { return nil }
-            let text = cellState.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return nil }
-            return MyTaskItem(
-                text: text,
-                startMonth: cellState.startVisibleMonth,
-                startDay: cellState.startVisibleDay
-            )
-        }
-    }
-
-    private struct QuickEditSnapshot: Equatable {
-        struct PreviewItem: Equatable {
-            let cellState: BingoCell?
-            let sourceTaskKey: String?
-        }
-
-        let targetGridSize: Int
-        let selectedTaskKeys: [String]
-        let previewItems: [PreviewItem]
-        let library: MyTasksLibrary
-    }
-
-    private struct ApplyPlan: Equatable {
-        let tasks: [MyTaskItem]
-        let targetGridSize: Int
-    }
-
-    private struct PreviewEditingTarget: Identifiable, Equatable {
-        let slotID: UUID
-        var id: UUID { slotID }
-    }
+    typealias PreviewSlot = QuickEditPreviewSlot
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -256,8 +163,8 @@ struct QuickEditView: View {
         return Array(historyOnlyRecordsSorted.prefix(AppSettings.freeHistoryTasksVisibleCount))
     }
 
-    private var allTaskCandidates: [TaskCandidate] {
-        var candidates: [TaskCandidate] = []
+    private var allTaskCandidates: [QuickEditTaskCandidate] {
+        var candidates: [QuickEditTaskCandidate] = []
         var seenIDs = Set<String>()
 
         for index in library.tasks.indices {
@@ -265,7 +172,7 @@ struct QuickEditView: View {
             guard !task.trimmedText.isEmpty else { continue }
             let key = taskKey(for: task)
             guard !seenIDs.contains(key) else { continue }
-            candidates.append(TaskCandidate(id: key, task: task))
+            candidates.append(QuickEditTaskCandidate(id: key, task: task))
             seenIDs.insert(key)
         }
 
@@ -275,7 +182,7 @@ struct QuickEditView: View {
                 guard !task.trimmedText.isEmpty else { continue }
                 let key = taskKey(for: task)
                 guard !seenIDs.contains(key) else { continue }
-                candidates.append(TaskCandidate(id: key, task: task))
+                candidates.append(QuickEditTaskCandidate(id: key, task: task))
                 seenIDs.insert(key)
             }
         }
@@ -284,7 +191,7 @@ struct QuickEditView: View {
             let key = historyTaskKey(for: record)
             guard !seenIDs.contains(key) else { continue }
             candidates.append(
-                TaskCandidate(
+                QuickEditTaskCandidate(
                     id: key,
                     task: MyTaskItem(
                         text: record.trimmedText,
@@ -299,14 +206,14 @@ struct QuickEditView: View {
         return candidates
     }
 
-    private var filteredTaskItems: [FilteredTaskItem] {
+    private var filteredTaskItems: [QuickEditFilteredTaskItem] {
         switch activeFilter {
         case .all:
-            var items: [FilteredTaskItem] = library.tasks.indices.compactMap { index in
+            var items: [QuickEditFilteredTaskItem] = library.tasks.indices.compactMap { index in
                 let task = library.tasks[index]
                 guard !task.trimmedText.isEmpty else { return nil }
                 let operationDate = historyBySourceTaskID[task.id]?.lastEditedAt ?? .distantPast
-                return FilteredTaskItem(
+                return QuickEditFilteredTaskItem(
                     id: taskKey(for: task),
                     source: .library(.standalone(index)),
                     task: task,
@@ -320,7 +227,7 @@ struct QuickEditView: View {
                     let task = group.tasks[index]
                     guard !task.trimmedText.isEmpty else { return nil }
                     let operationDate = historyBySourceTaskID[task.id]?.lastEditedAt ?? .distantPast
-                    return FilteredTaskItem(
+                    return QuickEditFilteredTaskItem(
                         id: taskKey(for: task),
                         source: .library(.group(group.id, index)),
                         task: task,
@@ -332,7 +239,7 @@ struct QuickEditView: View {
 
             let historyItems = historyOnlyRecordsSorted.enumerated().map { index, record in
                 let isLocked = !isPremiumUser && index >= AppSettings.freeHistoryTasksVisibleCount
-                return FilteredTaskItem(
+                return QuickEditFilteredTaskItem(
                     id: historyTaskKey(for: record),
                     source: .history,
                     task: MyTaskItem(
@@ -358,7 +265,7 @@ struct QuickEditView: View {
                 let task = group.tasks[index]
                 guard !task.trimmedText.isEmpty else { return nil }
                 let operationDate = historyBySourceTaskID[task.id]?.lastEditedAt ?? .distantPast
-                return FilteredTaskItem(
+                return QuickEditFilteredTaskItem(
                     id: taskKey(for: task),
                     source: .library(.group(groupID, index)),
                     task: task,
@@ -683,7 +590,7 @@ struct QuickEditView: View {
                 targetGridSize = min(5, nextSize)
             },
             onEditSlot: { slotID in
-                previewEditingTarget = PreviewEditingTarget(slotID: slotID)
+                previewEditingTarget = QuickEditPreviewEditingTarget(slotID: slotID)
             },
             onDeleteSlot: { slotID in
                 deletePreviewTask(slotID: slotID)
@@ -793,7 +700,7 @@ struct QuickEditView: View {
         .background(NeumorphicColors.background.opacity(0.96))
     }
 
-    private func lockedHistoryPreviewBlock(items: [FilteredTaskItem]) -> some View {
+    private func lockedHistoryPreviewBlock(items: [QuickEditFilteredTaskItem]) -> some View {
         QuickEditLockedHistoryPreviewBlock(
             taskTexts: items.map { $0.task.trimmedText },
             isPadLayout: isPadLayout,
@@ -805,7 +712,7 @@ struct QuickEditView: View {
     }
 
     @ViewBuilder
-    private func taskRow(for item: FilteredTaskItem) -> some View {
+    private func taskRow(for item: QuickEditFilteredTaskItem) -> some View {
         if item.isLocked {
             lockedHistoryTaskRow(for: item)
         } else {
@@ -818,7 +725,7 @@ struct QuickEditView: View {
         }
     }
 
-    private func editableLibraryTaskRow(for item: FilteredTaskItem, location: TaskLocation) -> some View {
+    private func editableLibraryTaskRow(for item: QuickEditFilteredTaskItem, location: QuickEditTaskLocation) -> some View {
         let key = item.id
         let isSelected = selectedTaskKeys.contains(key)
 
@@ -871,7 +778,7 @@ struct QuickEditView: View {
         }
     }
 
-    private func readOnlyHistoryTaskRow(for item: FilteredTaskItem) -> some View {
+    private func readOnlyHistoryTaskRow(for item: QuickEditFilteredTaskItem) -> some View {
         let key = item.id
         let isSelected = selectedTaskKeys.contains(key)
 
@@ -891,7 +798,7 @@ struct QuickEditView: View {
         )
     }
 
-    private func lockedHistoryTaskRow(for item: FilteredTaskItem) -> some View {
+    private func lockedHistoryTaskRow(for item: QuickEditFilteredTaskItem) -> some View {
         QuickEditLockedTaskRow(
             text: item.task.trimmedText,
             isPadLayout: isPadLayout,
@@ -1024,7 +931,7 @@ private var newTaskInlineRow: some View {
         )
     }
 
-    private func taskBinding(for location: TaskLocation) -> Binding<String> {
+    private func taskBinding(for location: QuickEditTaskLocation) -> Binding<String> {
         switch location {
         case .standalone(let index):
             return taskBinding(for: index)
@@ -1033,7 +940,7 @@ private var newTaskInlineRow: some View {
         }
     }
 
-    private func focusedField(for location: TaskLocation) -> FocusedMyTaskField {
+    private func focusedField(for location: QuickEditTaskLocation) -> FocusedMyTaskField {
         switch location {
         case .standalone(let index):
             return .task(index)
@@ -1042,7 +949,7 @@ private var newTaskInlineRow: some View {
         }
     }
 
-    private func placeholder(for location: TaskLocation) -> String {
+    private func placeholder(for location: QuickEditTaskLocation) -> String {
         switch location {
         case .standalone(let index):
             return L10n.taskNumber(index + 1)
@@ -1051,7 +958,7 @@ private var newTaskInlineRow: some View {
         }
     }
 
-    private func deleteTarget(for location: TaskLocation) -> DeleteTarget {
+    private func deleteTarget(for location: QuickEditTaskLocation) -> DeleteTarget {
         switch location {
         case .standalone(let index):
             return .task(index)
@@ -1060,7 +967,7 @@ private var newTaskInlineRow: some View {
         }
     }
 
-    private func task(for location: TaskLocation) -> MyTaskItem? {
+    private func task(for location: QuickEditTaskLocation) -> MyTaskItem? {
         switch location {
         case .standalone(let index):
             guard library.tasks.indices.contains(index) else { return nil }
@@ -1072,7 +979,7 @@ private var newTaskInlineRow: some View {
         }
     }
 
-    private func setTask(_ task: MyTaskItem, for location: TaskLocation) {
+    private func setTask(_ task: MyTaskItem, for location: QuickEditTaskLocation) {
         switch location {
         case .standalone(let index):
             guard library.tasks.indices.contains(index) else { return }
@@ -1084,7 +991,7 @@ private var newTaskInlineRow: some View {
         }
     }
 
-    private func taskStartDateLabel(for location: TaskLocation) -> String {
+    private func taskStartDateLabel(for location: QuickEditTaskLocation) -> String {
         guard let task = task(for: location),
               let month = task.startMonth,
               let day = task.startDay else {
@@ -1227,9 +1134,9 @@ private var newTaskInlineRow: some View {
         return max(remainingMinutes, 1)
     }
 
-    private func openTaskEditor(for location: TaskLocation) {
+    private func openTaskEditor(for location: QuickEditTaskLocation) {
         guard let currentTask = task(for: location) else { return }
-        taskEditorDraft = TaskEditorDraft(
+        taskEditorDraft = QuickEditTaskEditorDraft(
             mode: .edit(location),
             text: currentTask.text,
             startMonthText: currentTask.startMonth.map(String.init) ?? "",
@@ -1359,7 +1266,7 @@ private var newTaskInlineRow: some View {
         recordTaskHistory(existingTask, sourceTaskID: existingTask.id)
     }
 
-    private func taskLocation(forTaskKey key: String) -> TaskLocation? {
+    private func taskLocation(forTaskKey key: String) -> QuickEditTaskLocation? {
         if let index = library.tasks.firstIndex(where: { taskKey(for: $0) == key }) {
             return .standalone(index)
         }
@@ -1659,7 +1566,7 @@ private var newTaskInlineRow: some View {
             return
         }
         finalizeLibrary(showSuccessToast: false, emitChangeToast: false)
-        let plan = ApplyPlan(tasks: previewSlots.compactMap(\.task), targetGridSize: targetGridSize)
+        let plan = QuickEditApplyPlan(tasks: previewSlots.compactMap(\.task), targetGridSize: targetGridSize)
 
         guard !plan.tasks.isEmpty else {
             didApplyToBoard = true
@@ -1676,7 +1583,7 @@ private var newTaskInlineRow: some View {
         applySelectionToBoard(plan)
     }
 
-    private func applySelectionToBoard(_ plan: ApplyPlan) {
+    private func applySelectionToBoard(_ plan: QuickEditApplyPlan) {
         let orderedCells = previewSlots.map(\.cellState)
         viewModel.applyBoardOrderedCells(orderedCells, targetGridSize: plan.targetGridSize)
         didApplyToBoard = true
@@ -1684,7 +1591,7 @@ private var newTaskInlineRow: some View {
         dismiss()
     }
 
-    private func initialSelectedKeys(from taskTexts: [String], candidates: [TaskCandidate]) -> [String] {
+    private func initialSelectedKeys(from taskTexts: [String], candidates: [QuickEditTaskCandidate]) -> [String] {
         var pendingByText = Dictionary(grouping: candidates, by: { $0.task.trimmedText })
         var resolved: [String] = []
 
