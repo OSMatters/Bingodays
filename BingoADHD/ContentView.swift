@@ -27,15 +27,6 @@ struct ContentView: View {
         case finished = 2
     }
 
-    private enum FirstStepGuideOverlay: String, Identifiable {
-        case intro
-        case milestoneOne
-        case milestoneTwo
-        case milestoneThree
-
-        var id: String { rawValue }
-    }
-
     private enum TimeoutDelayPickerContext {
         case task
         case board
@@ -393,7 +384,16 @@ private var selectedBoardName: String {
                 }
 
                 if let firstStepGuideOverlay {
-                    firstStepGuideOverlayView(firstStepGuideOverlay)
+                    FirstStepGuideOverlayView(
+                        overlay: firstStepGuideOverlay,
+                        isPadLayout: isPadLayout,
+                        starterSeedTasks: starterSeedTasks,
+                        introTitle: starterIntroTitle,
+                        introDescription: starterIntroDescription,
+                        milestoneMessage: starterMilestoneMessage,
+                        onStart: startFirstStepGuide,
+                        onDismiss: dismissFirstStepGuideOverlay
+                    )
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                         .zIndex(40)
                 }
@@ -976,273 +976,6 @@ private var selectedBoardName: String {
             firstStepGuideStateRawValue = FirstStepGuideState.finished.rawValue
         }
         firstStepGuideOverlay = nil
-    }
-
-    @ViewBuilder
-    private func firstStepGuideOverlayView(_ overlay: FirstStepGuideOverlay) -> some View {
-        ZStack {
-            ZStack {
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .blur(radius: 10)
-
-                Color.black.opacity(0.6)
-            }
-            .ignoresSafeArea()
-
-            VStack(spacing: 22) {
-                switch overlay {
-                case .intro:
-                    firstStepIntroContent
-                case .milestoneOne:
-                    firstStepMilestoneContent(
-                        imageName: "StarterGuideFirst",
-                        message: starterMilestoneMessage(for: .milestoneOne)
-                    )
-                case .milestoneTwo:
-                    firstStepMilestoneContent(
-                        imageName: "StarterGuideSecond",
-                        message: starterMilestoneMessage(for: .milestoneTwo)
-                    )
-                case .milestoneThree:
-                    firstStepMilestoneThreeContent
-                }
-            }
-            .padding(.horizontal, isPadLayout ? 38 : 28)
-            .frame(maxWidth: 560)
-        }
-    }
-
-    private var firstStepIntroContent: some View {
-        VStack(spacing: 20) {
-            Text(starterIntroTitle)
-                .font(.appSystem(size: scaled(23, pad: 31), weight: .heavy, design: .rounded))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.center)
-
-            Image("StarterGuideArrow")
-                .resizable()
-                .scaledToFit()
-                .frame(width: isPadLayout ? 72 : 56)
-                .padding(.top, -4)
-                .padding(.bottom, -2)
-
-            starterIntroBoardPreview
-
-            Text(starterIntroDescription)
-                .font(.appSystem(size: scaled(19, pad: 23), weight: .semibold, design: .rounded))
-                .foregroundColor(.white.opacity(0.92))
-                .multilineTextAlignment(.center)
-                .lineSpacing(2)
-
-            HStack {
-                Spacer()
-                Button {
-                    startFirstStepGuide()
-                } label: {
-                    Text("OK")
-                        .font(.appSystem(size: scaled(14, pad: 18), weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                        .frame(width: isPadLayout ? 300 : 220)
-                        .frame(height: isPadLayout ? 58 : 52)
-                        .background(
-                            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                                .fill(Color.clear)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 26, style: .continuous)
-                                        .stroke(Color.white.opacity(0.75), lineWidth: 1.5)
-                                )
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .frame(width: isPadLayout ? 300 : 220, height: isPadLayout ? 58 : 52)
-                .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-                Spacer()
-            }
-            .padding(.top, 12)
-        }
-    }
-
-    private var starterIntroBoardPreview: some View {
-        let cardCorner: CGFloat = isPadLayout ? 34 : 28
-        let cellCorner: CGFloat = isPadLayout ? 16 : 14
-        let spacing: CGFloat = isPadLayout ? 14 : 10
-
-        return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: cardCorner, style: .continuous)
-                .fill(NeumorphicColors.background)
-                .overlay(
-                    RoundedRectangle(cornerRadius: cardCorner, style: .continuous)
-                        .stroke(Color.white.opacity(0.36), lineWidth: 1)
-                )
-                .shadow(color: Color.white.opacity(0.3), radius: 10, x: -4, y: -4)
-                .shadow(color: Color.black.opacity(0.22), radius: 14, x: 5, y: 8)
-
-            VStack(spacing: spacing) {
-                ForEach(0..<3, id: \.self) { row in
-                    HStack(spacing: spacing) {
-                        ForEach(0..<3, id: \.self) { col in
-                            let taskText = row == 0 ? starterSeedTasks[col] : ""
-                            RoundedRectangle(cornerRadius: cellCorner, style: .continuous)
-                                .fill(NeumorphicColors.background)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: cellCorner, style: .continuous)
-                                        .stroke(Color(hex: "E2DAD0"), lineWidth: 1)
-                                )
-                                .overlay {
-                                    if !taskText.isEmpty {
-                                        Text(taskText)
-                                            .font(.appSystem(size: scaled(16, pad: 18), weight: .bold, design: .rounded))
-                                            .foregroundColor(NeumorphicColors.text)
-                                            .multilineTextAlignment(.center)
-                                            .lineLimit(2)
-                                            .minimumScaleFactor(0.85)
-                                            .padding(.horizontal, 4)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity)
-                                .aspectRatio(1, contentMode: .fit)
-                        }
-                    }
-                }
-            }
-            .padding(isPadLayout ? 20 : 16)
-
-            Image("StarterGuideClick")
-                .resizable()
-                .scaledToFit()
-                .frame(width: isPadLayout ? 77 : 65)
-                .offset(x: isPadLayout ? 44 : 38, y: isPadLayout ? 92 : 80)
-        }
-        .frame(maxWidth: 480)
-        .aspectRatio(1, contentMode: .fit)
-    }
-
-    private func firstStepMilestoneContent(imageName: String, message: String) -> some View {
-        VStack(spacing: 20) {
-            Image(imageName)
-                .resizable()
-                .scaledToFit()
-                .frame(width: isPadLayout ? 240 : 188)
-
-            Text(message)
-                .font(.appSystem(size: scaled(21, pad: 29), weight: .heavy, design: .rounded))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.center)
-                .lineSpacing(2)
-                .padding(.horizontal, 6)
-
-            Button {
-                dismissFirstStepGuideOverlay()
-            } label: {
-                Text("OK")
-                    .font(.appSystem(size: scaled(14, pad: 18), weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(width: isPadLayout ? 300 : 220)
-                    .frame(height: isPadLayout ? 60 : 52)
-                    .background(
-                        RoundedRectangle(cornerRadius: 26, style: .continuous)
-                            .fill(Color.clear)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                                    .stroke(Color.white.opacity(0.75), lineWidth: 1.5)
-                            )
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .frame(width: isPadLayout ? 300 : 220, height: isPadLayout ? 60 : 52)
-            .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-            .padding(.top, 12)
-        }
-        .frame(maxWidth: 520)
-    }
-
-    private var firstStepMilestoneThreeContent: some View {
-        VStack(spacing: 20) {
-            Image("StarterGuideThird")
-                .resizable()
-                .scaledToFit()
-                .frame(width: isPadLayout ? 210 : 150)
-
-            HStack(spacing: 10) {
-                ForEach(starterSeedTasks, id: \.self) { task in
-                    VStack(spacing: 12) {
-                        Text(task)
-                            .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.7)
-                            .frame(maxWidth: .infinity)
-
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.appSystem(size: scaled(22, pad: 24), weight: .bold))
-                            .foregroundColor(.white.opacity(0.96))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: isPadLayout ? 128 : 106)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color(hex: "D3A375"))
-                    )
-                }
-            }
-            .padding(10)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color(hex: "3F270F").opacity(0.5))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color(hex: "CFA46F").opacity(0.7), lineWidth: 1)
-                    )
-            )
-            .overlay(alignment: .topTrailing) {
-                Image(systemName: "sparkles")
-                    .font(.appSystem(size: scaled(18, pad: 20), weight: .bold))
-                    .foregroundColor(Color(hex: "F5C164"))
-                    .offset(x: 10, y: -10)
-            }
-            .overlay(alignment: .bottomLeading) {
-                Image(systemName: "sparkles")
-                    .font(.appSystem(size: scaled(16, pad: 18), weight: .bold))
-                    .foregroundColor(Color(hex: "F5C164"))
-                    .offset(x: -10, y: 10)
-            }
-
-            Text(starterMilestoneMessage(for: .milestoneThree))
-                .font(.appSystem(size: scaled(21, pad: 29), weight: .heavy, design: .rounded))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.center)
-                .lineSpacing(2)
-
-            Button {
-                dismissFirstStepGuideOverlay()
-            } label: {
-                Text("OK")
-                    .font(.appSystem(size: scaled(14, pad: 18), weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(width: isPadLayout ? 300 : 220)
-                    .frame(height: isPadLayout ? 60 : 52)
-                    .background(
-                        RoundedRectangle(cornerRadius: 26, style: .continuous)
-                            .fill(Color.clear)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                                    .stroke(Color.white.opacity(0.75), lineWidth: 1.5)
-                            )
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .frame(width: isPadLayout ? 300 : 220, height: isPadLayout ? 60 : 52)
-            .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-            .padding(.top, 10)
-        }
-        .frame(maxWidth: 520)
     }
 
     private func updatePromptItems(for info: AppUpdateInfo) -> [String] {
