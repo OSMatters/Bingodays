@@ -385,24 +385,24 @@ struct QuickEditView: View {
         L10n.quickEditSelectedCount(selected: selectedPreviewCount, total: totalGridSlots)
     }
 
-private var activeFilterTitle: String {
-    switch activeFilter {
-    case .all:
-        return L10n.allTasks
-    case .group(let groupID):
-        guard let group = library.groups.first(where: { $0.id == groupID }) else {
+    private var activeFilterTitle: String {
+        switch activeFilter {
+        case .all:
             return L10n.allTasks
+        case .group(let groupID):
+            guard let group = library.groups.first(where: { $0.id == groupID }) else {
+                return L10n.allTasks
+            }
+            return displayGroupName(group)
         }
-        return displayGroupName(group)
     }
-}
 
     private var activeGroupID: UUID? {
-    if case .group(let groupID) = activeFilter {
-        return groupID
+        if case .group(let groupID) = activeFilter {
+            return groupID
+        }
+        return nil
     }
-    return nil
-}
 
     private var activeGroupTasks: [MyTaskItem] {
         guard case .group(let groupID) = activeFilter,
@@ -712,120 +712,74 @@ private var activeFilterTitle: String {
         )
     }
 
-private var taskListSection: some View {
-    flatSectionCard {
-        let visibleItems = filteredTaskItems.filter { !$0.isLocked }
-        let lockedHistoryPreviewItems = Array(
-            filteredTaskItems
-                .filter { $0.isLocked && $0.source == .history }
-                .prefix(5)
-        )
-        let isAllTasksFilter = activeFilter == .all
+    private var taskListSection: some View {
+        flatSectionCard {
+            let visibleItems = filteredTaskItems.filter { !$0.isLocked }
+            let lockedHistoryPreviewItems = Array(
+                filteredTaskItems
+                    .filter { $0.isLocked && $0.source == .history }
+                    .prefix(5)
+            )
+            let isAllTasksFilter = activeFilter == .all
 
-        VStack(alignment: .leading, spacing: isAllTasksFilter ? 8 : 12) {
-            if !isAllTasksFilter {
-                HStack(spacing: 10) {
-                    Text(activeFilterTitle)
-                        .font(.appSystem(size: scaled(15, pad: 19), weight: .semibold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
-
-                    Spacer(minLength: 0)
-
-                    if let activeGroupID {
-                        Button {
-                            applyActiveGroupToPreview()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "square.grid.2x2")
-                                    .font(.appSystem(size: scaled(11, pad: 13), weight: .semibold))
-                                Text(L10n.quickEditApplyGroup)
-                                    .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                            }
-                            .foregroundColor(NeumorphicColors.accent)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(quickEditTaskFlatBackground)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .stroke(NeumorphicColors.accent.opacity(0.28), lineWidth: 1)
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(activeGroupTaskKeys.isEmpty)
-                        .opacity(activeGroupTaskKeys.isEmpty ? 0.45 : 1)
-
-                        Button {
+            VStack(alignment: .leading, spacing: isAllTasksFilter ? 8 : 12) {
+                if !isAllTasksFilter {
+                    QuickEditTaskListHeaderView(
+                        title: activeFilterTitle,
+                        activeGroupID: activeGroupID,
+                        canApplyGroup: !activeGroupTaskKeys.isEmpty,
+                        isPadLayout: isPadLayout,
+                        taskBackground: quickEditTaskFlatBackground,
+                        onApplyGroup: applyActiveGroupToPreview,
+                        onDeleteGroup: { groupID in
                             focusedField = nil
-                            deleteConfirmationTarget = .group(activeGroupID)
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "trash")
-                                    .font(.appSystem(size: scaled(11, pad: 13), weight: .semibold))
-                                Text(L10n.tr("Delete Group", zhHans: "删除分组", zhHant: "刪除分組"))
-                                    .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                            }
-                            .foregroundColor(NeumorphicColors.bingoAccent)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(quickEditTaskFlatBackground)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .stroke(NeumorphicColors.bingoAccent.opacity(0.28), lineWidth: 1)
-                                    )
-                            )
+                            deleteConfirmationTarget = .group(groupID)
                         }
-                        .buttonStyle(.plain)
+                    )
+                }
+
+                if isAllTasksFilter {
+                    Text(
+                        L10n.tr(
+                            "You can view and edit all your task history here.",
+                            zhHans: "在这里可以查看并编辑你所有的历史任务",
+                            zhHant: "在這裡可以查看並編輯你所有的歷史任務"
+                        )
+                    )
+                    .font(.appSystem(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.55))
+                    .padding(.top, 2)
+                    .padding(.bottom, 4)
+                }
+
+                if visibleItems.isEmpty && !isAddingTaskInline && lockedHistoryPreviewItems.isEmpty {
+                    Text(L10n.quickEditNoTasksInFilter)
+                        .font(.appSystem(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text.opacity(0.56))
+                        .padding(.vertical, 8)
+                }
+
+                VStack(spacing: 10) {
+                    ForEach(visibleItems) { item in
+                        taskRow(for: item)
+                    }
+
+                    if !lockedHistoryPreviewItems.isEmpty {
+                        lockedHistoryPreviewBlock(items: lockedHistoryPreviewItems)
+                    }
+
+                    if isAddingTaskInline {
+                        newTaskInlineRow
                     }
                 }
-            }
 
-            if isAllTasksFilter {
-                Text(
-                    L10n.tr(
-                        "You can view and edit all your task history here.",
-                        zhHans: "在这里可以查看并编辑你所有的历史任务",
-                        zhHant: "在這裡可以查看並編輯你所有的歷史任務"
-                    )
-                )
-                .font(.appSystem(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.55))
-                .padding(.top, 2)
-                .padding(.bottom, 4)
-            }
-
-            if visibleItems.isEmpty && !isAddingTaskInline && lockedHistoryPreviewItems.isEmpty {
-                Text(L10n.quickEditNoTasksInFilter)
-                    .font(.appSystem(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.56))
-                    .padding(.vertical, 8)
-            }
-
-            VStack(spacing: 10) {
-                ForEach(visibleItems) { item in
-                    taskRow(for: item)
+                if activeGroupID != nil {
+                    addTaskButton
+                        .padding(.top, 8)
                 }
-
-                if !lockedHistoryPreviewItems.isEmpty {
-                    lockedHistoryPreviewBlock(items: lockedHistoryPreviewItems)
-                }
-
-                if isAddingTaskInline {
-                    newTaskInlineRow
-                }
-            }
-
-            if activeGroupID != nil {
-                addTaskButton
-                    .padding(.top, 8)
             }
         }
     }
-}
 
     private var quickEditBottomAddTaskBar: some View {
         VStack(spacing: 0) {
