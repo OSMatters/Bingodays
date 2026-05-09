@@ -263,7 +263,7 @@ struct QuickEditView: View {
             guard let group = library.groups.first(where: { $0.id == groupID }) else {
                 return L10n.allTasks
             }
-            return displayGroupName(group)
+            return quickEditDisplayGroupName(group)
         }
     }
 
@@ -564,7 +564,7 @@ struct QuickEditView: View {
 
     private var filterTabsSection: some View {
         QuickEditFilterTabsView(
-            groups: library.groups.map { QuickEditGroupTab(id: $0.id, title: displayGroupName($0)) },
+            groups: library.groups.map { QuickEditGroupTab(id: $0.id, title: quickEditDisplayGroupName($0)) },
             selectedGroupID: activeGroupID,
             isPadLayout: isPadLayout,
             fieldStroke: quickEditFieldStroke,
@@ -850,140 +850,6 @@ struct QuickEditView: View {
         return "\(month)/\(day)"
     }
 
-    private func normalizedMonthDay(monthText: String, dayText: String) -> (Int?, Int?) {
-        let trimmedMonth = monthText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedDay = dayText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedMonth.isEmpty || !trimmedDay.isEmpty else {
-            return (nil, nil)
-        }
-
-        guard let month = Int(trimmedMonth), let day = Int(trimmedDay) else {
-            return (nil, nil)
-        }
-
-        guard (1...12).contains(month), (1...31).contains(day) else {
-            return (nil, nil)
-        }
-
-        var components = DateComponents()
-        components.year = 2000
-        components.month = month
-        components.day = day
-        guard Calendar.current.date(from: components) != nil else {
-            return (nil, nil)
-        }
-
-        return (month, day)
-    }
-
-    private func makePreviewCell(from task: MyTaskItem, preserving existingCell: BingoCell? = nil) -> BingoCell {
-        var taskCopy = task
-        taskCopy.text = String(task.text.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
-        taskCopy.normalizeVisibilityWindow()
-
-        guard let existingCell else {
-            return BingoCell(
-                text: taskCopy.trimmedText,
-                residentTaskText: nil,
-                residentWeekdays: [],
-                oneTimeVisibleDate: nil,
-                startVisibleAt: taskCopy.startAt,
-                endVisibleAt: taskCopy.endAt,
-                startVisibleMonth: taskCopy.startMonth,
-                startVisibleDay: taskCopy.startDay,
-                isTaskHidden: false,
-                isCompleted: false,
-                isForced: false,
-                countdownEndsAt: nil,
-                estimatedDurationMinutes: nil,
-                completionStreakCount: 0,
-                lastCompletedAt: nil
-            )
-        }
-
-        var cell = existingCell
-        cell.text = taskCopy.trimmedText
-        if cell.residentTaskText != nil {
-            cell.residentTaskText = taskCopy.trimmedText
-        }
-        cell.startVisibleAt = taskCopy.startAt
-        cell.endVisibleAt = taskCopy.endAt
-        cell.startVisibleMonth = taskCopy.startMonth
-        cell.startVisibleDay = taskCopy.startDay
-        cell.isTaskHidden = false
-        // Force flag is only set by explicit EditTaskSheet toggle.
-        cell.isForced = false
-        return cell
-    }
-
-    private func makePreviewCellFromEdit(
-        existingCell: BingoCell?,
-        text: String,
-        isForcedTask: Bool,
-        residentWeekdays: Set<Int>,
-        isOneTimeTask: Bool,
-        estimatedDurationMinutes: Int?,
-        startVisibleAt: Date?,
-        endVisibleAt: Date?
-    ) -> BingoCell? {
-        let limitedText = String(text.prefix(AppSettings.maxTaskLength))
-        let trimmedText = limitedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty else { return nil }
-
-        let normalizedWeekdays = Set(residentWeekdays.filter { (1...7).contains($0) })
-        let normalizedOneTimeTask = isOneTimeTask
-        let normalizedStartVisibleAt = startVisibleAt
-        let normalizedEndVisibleAt = {
-            guard let endVisibleAt else { return nil as Date? }
-            if let normalizedStartVisibleAt, endVisibleAt <= normalizedStartVisibleAt {
-                return nil
-            }
-            return endVisibleAt
-        }()
-        let usesStoredSchedule = !normalizedWeekdays.isEmpty || normalizedOneTimeTask || normalizedStartVisibleAt != nil || normalizedEndVisibleAt != nil
-
-        var cell = existingCell ?? BingoCell()
-        let previousStoredTaskText = cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isReplacingTaskIdentity = previousStoredTaskText != trimmedText
-
-        cell.residentWeekdays = normalizedWeekdays
-        cell.oneTimeVisibleDate = normalizedOneTimeTask ? .now : nil
-        cell.startVisibleAt = normalizedStartVisibleAt
-        cell.endVisibleAt = normalizedEndVisibleAt
-        cell.startVisibleMonth = nil
-        cell.startVisibleDay = nil
-        cell.residentTaskText = usesStoredSchedule ? limitedText : nil
-        let projectedText = cell.projectedForDisplay(on: .now).text
-        cell.text = usesStoredSchedule ? projectedText : limitedText
-        cell.isTaskHidden = false
-        cell.isForced = isForcedTask
-        cell.countdownEndsAt = nil
-        cell.estimatedDurationMinutes = estimatedDurationMinutes.map { min(max($0, 1), BingoViewModel.maxCountdownMinutes) }
-
-        if let estimatedDurationMinutes {
-            let totalMinutes = min(max(estimatedDurationMinutes, 1), BingoViewModel.maxCountdownMinutes)
-            if let normalizedStartVisibleAt, normalizedStartVisibleAt > .now {
-                cell.countdownEndsAt = nil
-            } else {
-                cell.countdownEndsAt = Date().addingTimeInterval(Double(totalMinutes * 60))
-            }
-        }
-
-        if isReplacingTaskIdentity {
-            cell.completionStreakCount = 0
-            cell.lastCompletedAt = nil
-        }
-
-        return cell
-    }
-
-    private func remainingMinutes(from countdownEndsAt: Date?) -> Int? {
-        guard let countdownEndsAt else { return nil }
-        let remainingSeconds = max(countdownEndsAt.timeIntervalSince(.now), 0)
-        let remainingMinutes = Int(ceil(remainingSeconds / 60))
-        return max(remainingMinutes, 1)
-    }
-
     private func openTaskEditor(for location: QuickEditTaskLocation) {
         guard let currentTask = task(for: location) else { return }
         taskEditorDraft = QuickEditTaskEditorDraft(
@@ -1010,7 +876,7 @@ struct QuickEditView: View {
                 startVisibleAt: currentCell.startVisibleAt,
                 endVisibleAt: currentCell.endVisibleAt,
                 isCompletedTask: currentCell.isCompleted,
-                estimatedDurationMinutes: remainingMinutes(from: currentCell.countdownEndsAt),
+                estimatedDurationMinutes: quickEditRemainingMinutes(from: currentCell.countdownEndsAt),
                 onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, estimatedDurationMinutes, startVisibleAt, endVisibleAt in
                     guard let latestIndex = previewSlots.firstIndex(where: { $0.id == slotID }) else {
                         previewEditingTarget = nil
@@ -1018,7 +884,7 @@ struct QuickEditView: View {
                     }
 
                     let existingCell = previewSlots[latestIndex].cellState
-                    previewSlots[latestIndex].cellState = makePreviewCellFromEdit(
+                    previewSlots[latestIndex].cellState = quickEditMakePreviewCellFromEdit(
                         existingCell: existingCell,
                         text: newText,
                         isForcedTask: isForcedTask,
@@ -1078,7 +944,7 @@ struct QuickEditView: View {
         let normalizedName = draft.normalizedName
         guard draft.canSave else { return }
 
-        let (startMonth, startDay) = normalizedMonthDay(
+        let (startMonth, startDay) = quickEditNormalizedMonthDay(
             monthText: draft.startMonthText,
             dayText: draft.startDayText
         )
@@ -1127,11 +993,6 @@ struct QuickEditView: View {
             }
         }
         return nil
-    }
-
-    private func displayGroupName(_ group: MyTaskGroup) -> String {
-        let trimmed = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? L10n.groupDefaultName : trimmed
     }
 
     private func syncActiveFilterWithCurrentLibrary() {
@@ -1255,7 +1116,7 @@ struct QuickEditView: View {
     private func commitAddingTaskInline() {
         let text = String(newTaskDraft.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        let (startMonth, startDay) = normalizedMonthDay(monthText: newTaskStartMonthDraft, dayText: newTaskStartDayDraft)
+        let (startMonth, startDay) = quickEditNormalizedMonthDay(monthText: newTaskStartMonthDraft, dayText: newTaskStartDayDraft)
         let task = MyTaskItem(text: text, startMonth: startMonth, startDay: startDay)
 
         switch activeFilter {
@@ -1488,7 +1349,7 @@ struct QuickEditView: View {
         guard let task = candidateTaskMap[key], task.isStartDateReached() else { return false }
 
         if let existingIndex = previewSlots.firstIndex(where: { $0.sourceTaskKey == key }) {
-            previewSlots[existingIndex].cellState = makePreviewCell(from: task, preserving: previewSlots[existingIndex].cellState)
+            previewSlots[existingIndex].cellState = quickEditMakePreviewCell(from: task, preserving: previewSlots[existingIndex].cellState)
             return true
         }
 
@@ -1496,7 +1357,7 @@ struct QuickEditView: View {
             return false
         }
 
-        previewSlots[emptyIndex].cellState = makePreviewCell(from: task)
+        previewSlots[emptyIndex].cellState = quickEditMakePreviewCell(from: task)
         previewSlots[emptyIndex].sourceTaskKey = key
         return true
     }
@@ -1510,7 +1371,7 @@ struct QuickEditView: View {
     private func rebuildPreviewFromSelectedKeys() {
         let activeTasks = selectedTaskKeys.compactMap { key -> PreviewSlot? in
             guard let task = candidateTaskMap[key], task.isStartDateReached() else { return nil }
-            return PreviewSlot(cellState: makePreviewCell(from: task), sourceTaskKey: key)
+            return PreviewSlot(cellState: quickEditMakePreviewCell(from: task), sourceTaskKey: key)
         }
 
         previewSlots = Array(activeTasks.prefix(totalGridSlots))
@@ -1538,7 +1399,7 @@ struct QuickEditView: View {
                 continue
             }
 
-            previewSlots[index].cellState = makePreviewCell(from: task, preserving: previewSlots[index].cellState)
+            previewSlots[index].cellState = quickEditMakePreviewCell(from: task, preserving: previewSlots[index].cellState)
         }
         adjustPreviewSlotCount()
     }
@@ -1560,7 +1421,7 @@ struct QuickEditView: View {
             onSaveSuccess(L10n.tasksSavedSuccess)
         } else if emitChangeToast,
                   savedLibrary != lastTrackedLibrary,
-                  let message = saveSuccessMessage(previous: previousLibrary, current: savedLibrary) {
+                  let message = quickEditSaveSuccessMessage(previous: previousLibrary, current: savedLibrary) {
             onSaveSuccess(message)
         }
         AnalyticsService.syncMyTasksLibrary(savedLibrary)
@@ -1647,32 +1508,6 @@ private func finalizeGroupDeletion(_ groupID: UUID) {
     focusedField = nil
 }
 
-    private func saveSuccessMessage(previous: MyTasksLibrary, current: MyTasksLibrary) -> String? {
-        let taskDelta = current.tasks.count - previous.tasks.count
-        let groupDelta = current.groups.count - previous.groups.count
-
-        if taskDelta > 0 && groupDelta > 0 {
-            return L10n.tasksAndGroupsAddedSuccess
-        }
-        if taskDelta > 0 {
-            return L10n.taskAddedSuccess
-        }
-        if groupDelta > 0 {
-            return L10n.groupAddedSuccess
-        }
-        if taskDelta < 0 && groupDelta < 0 {
-            return L10n.tasksAndGroupsDeletedSuccess
-        }
-        if taskDelta < 0 {
-            return L10n.taskDeletedSuccess
-        }
-        if groupDelta < 0 {
-            return L10n.groupDeletedSuccess
-        }
-
-        return nil
-    }
-
     private func showLocalToast(_ message: String) {
         hideLocalToastWorkItem?.cancel()
         localToastMessage = message
@@ -1708,7 +1543,7 @@ private func groupName(for groupID: UUID) -> String {
     guard let group = library.groups.first(where: { $0.id == groupID }) else {
         return L10n.groupDefaultName
     }
-    return displayGroupName(group)
+    return quickEditDisplayGroupName(group)
 }
 
     private func sectionHeader(title: String, subtitle: String, detail: String, actionTitle: String?, action: (() -> Void)?) -> some View {

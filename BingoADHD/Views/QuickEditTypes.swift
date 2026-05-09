@@ -160,3 +160,168 @@ extension QuickEditTaskLocation {
         }
     }
 }
+
+func quickEditNormalizedMonthDay(monthText: String, dayText: String) -> (Int?, Int?) {
+    let trimmedMonth = monthText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedDay = dayText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedMonth.isEmpty || !trimmedDay.isEmpty else {
+        return (nil, nil)
+    }
+
+    guard let month = Int(trimmedMonth), let day = Int(trimmedDay) else {
+        return (nil, nil)
+    }
+
+    guard (1...12).contains(month), (1...31).contains(day) else {
+        return (nil, nil)
+    }
+
+    var components = DateComponents()
+    components.year = 2000
+    components.month = month
+    components.day = day
+    guard Calendar.current.date(from: components) != nil else {
+        return (nil, nil)
+    }
+
+    return (month, day)
+}
+
+func quickEditMakePreviewCell(from task: MyTaskItem, preserving existingCell: BingoCell? = nil) -> BingoCell {
+    var taskCopy = task
+    taskCopy.text = String(task.text.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
+    taskCopy.normalizeVisibilityWindow()
+
+    guard let existingCell else {
+        return BingoCell(
+            text: taskCopy.trimmedText,
+            residentTaskText: nil,
+            residentWeekdays: [],
+            oneTimeVisibleDate: nil,
+            startVisibleAt: taskCopy.startAt,
+            endVisibleAt: taskCopy.endAt,
+            startVisibleMonth: taskCopy.startMonth,
+            startVisibleDay: taskCopy.startDay,
+            isTaskHidden: false,
+            isCompleted: false,
+            isForced: false,
+            countdownEndsAt: nil,
+            estimatedDurationMinutes: nil,
+            completionStreakCount: 0,
+            lastCompletedAt: nil
+        )
+    }
+
+    var cell = existingCell
+    cell.text = taskCopy.trimmedText
+    if cell.residentTaskText != nil {
+        cell.residentTaskText = taskCopy.trimmedText
+    }
+    cell.startVisibleAt = taskCopy.startAt
+    cell.endVisibleAt = taskCopy.endAt
+    cell.startVisibleMonth = taskCopy.startMonth
+    cell.startVisibleDay = taskCopy.startDay
+    cell.isTaskHidden = false
+    // Force flag is only set by explicit EditTaskSheet toggle.
+    cell.isForced = false
+    return cell
+}
+
+func quickEditMakePreviewCellFromEdit(
+    existingCell: BingoCell?,
+    text: String,
+    isForcedTask: Bool,
+    residentWeekdays: Set<Int>,
+    isOneTimeTask: Bool,
+    estimatedDurationMinutes: Int?,
+    startVisibleAt: Date?,
+    endVisibleAt: Date?
+) -> BingoCell? {
+    let limitedText = String(text.prefix(AppSettings.maxTaskLength))
+    let trimmedText = limitedText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedText.isEmpty else { return nil }
+
+    let normalizedWeekdays = Set(residentWeekdays.filter { (1...7).contains($0) })
+    let normalizedOneTimeTask = isOneTimeTask
+    let normalizedStartVisibleAt = startVisibleAt
+    let normalizedEndVisibleAt = {
+        guard let endVisibleAt else { return nil as Date? }
+        if let normalizedStartVisibleAt, endVisibleAt <= normalizedStartVisibleAt {
+            return nil
+        }
+        return endVisibleAt
+    }()
+    let usesStoredSchedule = !normalizedWeekdays.isEmpty || normalizedOneTimeTask || normalizedStartVisibleAt != nil || normalizedEndVisibleAt != nil
+
+    var cell = existingCell ?? BingoCell()
+    let previousStoredTaskText = cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let isReplacingTaskIdentity = previousStoredTaskText != trimmedText
+
+    cell.residentWeekdays = normalizedWeekdays
+    cell.oneTimeVisibleDate = normalizedOneTimeTask ? .now : nil
+    cell.startVisibleAt = normalizedStartVisibleAt
+    cell.endVisibleAt = normalizedEndVisibleAt
+    cell.startVisibleMonth = nil
+    cell.startVisibleDay = nil
+    cell.residentTaskText = usesStoredSchedule ? limitedText : nil
+    let projectedText = cell.projectedForDisplay(on: .now).text
+    cell.text = usesStoredSchedule ? projectedText : limitedText
+    cell.isTaskHidden = false
+    cell.isForced = isForcedTask
+    cell.countdownEndsAt = nil
+    cell.estimatedDurationMinutes = estimatedDurationMinutes.map { min(max($0, 1), BingoViewModel.maxCountdownMinutes) }
+
+    if let estimatedDurationMinutes {
+        let totalMinutes = min(max(estimatedDurationMinutes, 1), BingoViewModel.maxCountdownMinutes)
+        if let normalizedStartVisibleAt, normalizedStartVisibleAt > .now {
+            cell.countdownEndsAt = nil
+        } else {
+            cell.countdownEndsAt = Date().addingTimeInterval(Double(totalMinutes * 60))
+        }
+    }
+
+    if isReplacingTaskIdentity {
+        cell.completionStreakCount = 0
+        cell.lastCompletedAt = nil
+    }
+
+    return cell
+}
+
+func quickEditRemainingMinutes(from countdownEndsAt: Date?) -> Int? {
+    guard let countdownEndsAt else { return nil }
+    let remainingSeconds = max(countdownEndsAt.timeIntervalSince(.now), 0)
+    let remainingMinutes = Int(ceil(remainingSeconds / 60))
+    return max(remainingMinutes, 1)
+}
+
+func quickEditDisplayGroupName(_ group: MyTaskGroup) -> String {
+    let trimmed = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? L10n.groupDefaultName : trimmed
+}
+
+func quickEditSaveSuccessMessage(previous: MyTasksLibrary, current: MyTasksLibrary) -> String? {
+    let taskDelta = current.tasks.count - previous.tasks.count
+    let groupDelta = current.groups.count - previous.groups.count
+
+    if taskDelta > 0 && groupDelta > 0 {
+        return L10n.tasksAndGroupsAddedSuccess
+    }
+    if taskDelta > 0 {
+        return L10n.taskAddedSuccess
+    }
+    if groupDelta > 0 {
+        return L10n.groupAddedSuccess
+    }
+    if taskDelta < 0 && groupDelta < 0 {
+        return L10n.tasksAndGroupsDeletedSuccess
+    }
+    if taskDelta < 0 {
+        return L10n.taskDeletedSuccess
+    }
+    if groupDelta < 0 {
+        return L10n.groupDeletedSuccess
+    }
+
+    return nil
+}
