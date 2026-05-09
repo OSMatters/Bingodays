@@ -138,30 +138,15 @@ struct QuickEditView: View {
     }
 
     private var activeFilterTitle: String {
-        switch activeFilter {
-        case .all:
-            return L10n.allTasks
-        case .group(let groupID):
-            guard let group = library.groups.first(where: { $0.id == groupID }) else {
-                return L10n.allTasks
-            }
-            return quickEditDisplayGroupName(group)
-        }
+        quickEditActiveFilterTitle(activeFilter, library: library)
     }
 
     private var activeGroupID: UUID? {
-        if case .group(let groupID) = activeFilter {
-            return groupID
-        }
-        return nil
+        quickEditActiveGroupID(activeFilter)
     }
 
     private var activeGroupTasks: [MyTaskItem] {
-        guard case .group(let groupID) = activeFilter,
-              let group = library.groups.first(where: { $0.id == groupID }) else {
-            return []
-        }
-        return group.tasks.filter { !$0.trimmedText.isEmpty }
+        quickEditActiveGroupTasks(activeFilter: activeFilter, library: library)
     }
 
     private var activeGroupTaskKeys: [String] {
@@ -176,20 +161,10 @@ struct QuickEditView: View {
             finalizeLibrary()
         }
         .onAppear {
-            targetGridSize = viewModel.gridSize
-            activeFilter = .all
-            previewSlots = buildInitialPreviewSlots()
-            selectedTaskKeys = []
-            seedTaskHistoryIfNeeded()
-            initialSnapshot = makeCurrentSnapshot()
-            syncActiveFilterWithCurrentLibrary()
+            handleQuickEditAppear()
         }
         .onChange(of: library) { _, _ in
-            TaskHistoryStore.ensureLibrarySeeded(library)
-            refreshTaskHistory()
-            syncSelectedTaskKeysWithCurrentLibrary()
-            syncPreviewSlotsWithCurrentLibrary()
-            syncActiveFilterWithCurrentLibrary()
+            handleLibraryDidChange()
         }
         .onChange(of: targetGridSize) { _, _ in
             adjustPreviewSlotCount()
@@ -838,15 +813,26 @@ struct QuickEditView: View {
         quickEditTaskLocation(forTaskKey: key, in: library)
     }
 
+    private func handleQuickEditAppear() {
+        targetGridSize = viewModel.gridSize
+        activeFilter = .all
+        previewSlots = buildInitialPreviewSlots()
+        selectedTaskKeys = []
+        seedTaskHistoryIfNeeded()
+        initialSnapshot = makeCurrentSnapshot()
+        syncActiveFilterWithCurrentLibrary()
+    }
+
+    private func handleLibraryDidChange() {
+        TaskHistoryStore.ensureLibrarySeeded(library)
+        refreshTaskHistory()
+        syncSelectedTaskKeysWithCurrentLibrary()
+        syncPreviewSlotsWithCurrentLibrary()
+        syncActiveFilterWithCurrentLibrary()
+    }
+
     private func syncActiveFilterWithCurrentLibrary() {
-        switch activeFilter {
-        case .all:
-            return
-        case .group(let groupID):
-            if !library.groups.contains(where: { $0.id == groupID }) {
-                activeFilter = .all
-            }
-        }
+        activeFilter = quickEditSyncedActiveFilter(activeFilter, library: library)
     }
 
     private func refreshTaskHistory() {

@@ -496,6 +496,42 @@ func quickEditFilteredTaskItems(
     }
 }
 
+func quickEditActiveFilterTitle(_ activeFilter: QuickEditFilterTab, library: MyTasksLibrary) -> String {
+    switch activeFilter {
+    case .all:
+        return L10n.allTasks
+    case .group(let groupID):
+        guard let group = library.groups.first(where: { $0.id == groupID }) else {
+            return L10n.allTasks
+        }
+        return quickEditDisplayGroupName(group)
+    }
+}
+
+func quickEditActiveGroupID(_ activeFilter: QuickEditFilterTab) -> UUID? {
+    if case .group(let groupID) = activeFilter {
+        return groupID
+    }
+    return nil
+}
+
+func quickEditActiveGroupTasks(activeFilter: QuickEditFilterTab, library: MyTasksLibrary) -> [MyTaskItem] {
+    guard case .group(let groupID) = activeFilter,
+          let group = library.groups.first(where: { $0.id == groupID }) else {
+        return []
+    }
+    return group.tasks.filter { !$0.trimmedText.isEmpty }
+}
+
+func quickEditSyncedActiveFilter(_ activeFilter: QuickEditFilterTab, library: MyTasksLibrary) -> QuickEditFilterTab {
+    switch activeFilter {
+    case .all:
+        return .all
+    case .group(let groupID):
+        return library.groups.contains(where: { $0.id == groupID }) ? activeFilter : .all
+    }
+}
+
 func quickEditTask(for location: QuickEditTaskLocation, in library: MyTasksLibrary) -> MyTaskItem? {
     switch location {
     case .standalone(let index):
