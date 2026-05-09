@@ -705,53 +705,25 @@ struct QuickEditView: View {
         let key = item.id
         let isSelected = selectedTaskKeys.contains(key)
 
-        return HStack(spacing: 10) {
-            Button {
+        return QuickEditEditableTaskRow(
+            text: taskBinding(for: location),
+            placeholder: placeholder(for: location),
+            isSelected: isSelected,
+            focusBinding: $focusedField,
+            focusField: focusedField(for: location),
+            isPadLayout: isPadLayout,
+            placeholderColor: quickEditPlaceholderColor,
+            taskBackground: quickEditTaskFlatBackground,
+            fieldStroke: quickEditFieldStroke,
+            onToggle: {
                 toggleSelection(for: key)
-            } label: {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.appSystem(size: scaled(18, pad: 20), weight: .bold))
-                    .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.38))
-                    .frame(width: 24, height: 24)
             }
-            .buttonStyle(.plain)
-
-            TextField(
-                text: taskBinding(for: location),
-                prompt: Text(placeholder(for: location))
-                    .foregroundColor(quickEditPlaceholderColor)
-            ) {
-                EmptyView()
-            }
-            .textInputAutocapitalization(.sentences)
-            .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-            .foregroundColor(NeumorphicColors.text)
-            .lineLimit(1)
-            .focused($focusedField, equals: focusedField(for: location))
-
-            Button {
+            ,
+            onDelete: {
                 focusedField = nil
                 deleteConfirmationTarget = deleteTarget(for: location)
-            } label: {
-                Image(systemName: "trash")
-                    .font(.appSystem(size: scaled(13, pad: 15), weight: .medium))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.52))
-                    .frame(width: 24, height: 24)
             }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 11)
-        .frame(maxWidth: .infinity, minHeight: 50)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(quickEditTaskFlatBackground)
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(quickEditFieldStroke, lineWidth: 1)
-                .allowsHitTesting(false)
-        }
     }
 
     private func readOnlyHistoryTaskRow(for item: QuickEditFilteredTaskItem) -> some View {
@@ -785,51 +757,17 @@ struct QuickEditView: View {
         }
     }
 
-private var newTaskInlineRow: some View {
-    HStack(spacing: 10) {
-        TextField(
-            "",
-            text: $newTaskDraft,
-            prompt: Text(L10n.quickEditTaskNamePlaceholder)
-                .foregroundColor(quickEditPlaceholderColor)
+    private var newTaskInlineRow: some View {
+        QuickEditInlineNewTaskRow(
+            draftText: $newTaskDraft,
+            focusBinding: $focusedField,
+            isPadLayout: isPadLayout,
+            placeholderColor: quickEditPlaceholderColor,
+            taskBackground: quickEditTaskFlatBackground,
+            onSubmit: commitAddingTaskInline,
+            onCancel: cancelAddingTaskInline
         )
-        .textInputAutocapitalization(.sentences)
-        .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-        .foregroundColor(NeumorphicColors.text)
-        .focused($focusedField, equals: .newTask)
-        .onSubmit {
-            commitAddingTaskInline()
-        }
-
-        Button(L10n.save) {
-            commitAddingTaskInline()
-        }
-        .font(.appSystem(size: scaled(12, pad: 14), weight: .bold, design: .rounded))
-        .foregroundColor(NeumorphicColors.accent)
-        .buttonStyle(.plain)
-        .disabled(newTaskDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        .opacity(newTaskDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
-
-        Button(L10n.cancel) {
-            cancelAddingTaskInline()
-        }
-        .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-        .foregroundColor(NeumorphicColors.text.opacity(0.62))
-        .buttonStyle(.plain)
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 11)
-    .frame(maxWidth: .infinity, minHeight: 50)
-    .background(
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(quickEditTaskFlatBackground)
-    )
-    .overlay {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(NeumorphicColors.accent.opacity(0.45), lineWidth: 1)
-            .allowsHitTesting(false)
-    }
-}
 
     private var addTaskButton: some View {
         QuickEditAddTaskButton(isPadLayout: isPadLayout) {
