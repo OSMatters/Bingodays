@@ -1054,17 +1054,15 @@ private var selectedBoardName: String {
     @ViewBuilder
     private func taskTimeoutOverlay(for event: BingoViewModel.ExpiredTaskEvent) -> some View {
         ZStack {
-            timeoutDialogBackdrop
+            TimeoutDialogBackdrop()
 
             VStack(spacing: 20) {
                 let overtimeSeconds = max(Int(countdownNow.timeIntervalSince(event.expiredAt)), 0)
                 let taskText = event.taskText.isEmpty ? L10n.task : event.taskText
 
-                timeoutDialogCard(
+                TimeoutDialogCard(
                     headline: L10n.taskTimedOutHeadline(task: taskText, seconds: overtimeSeconds),
-                    onClose: {
-                        viewModel.expiredTaskEvent = nil
-                    },
+                    isPadLayout: isPadLayout,
                     onPrimaryAction: {
                         if let message = viewModel.resolveExpiredTask(.markAsCompleted, now: countdownNow) {
                             showCommonTasksToast(message)
@@ -1093,16 +1091,14 @@ private var selectedBoardName: String {
     @ViewBuilder
     private func boardTimeoutOverlay(for event: BingoViewModel.ExpiredBoardCountdownEvent) -> some View {
         ZStack {
-            timeoutDialogBackdrop
+            TimeoutDialogBackdrop()
 
             VStack(spacing: 20) {
                 let overtimeSeconds = max(Int(countdownNow.timeIntervalSince(event.expiredAt)), 0)
 
-                timeoutDialogCard(
+                TimeoutDialogCard(
                     headline: L10n.boardTimedOutHeadline(seconds: overtimeSeconds),
-                    onClose: {
-                        viewModel.expiredBoardCountdownEvent = nil
-                    },
+                    isPadLayout: isPadLayout,
                     onPrimaryAction: {
                         if let message = viewModel.resolveExpiredBoardCountdown(.markAsCompleted, now: countdownNow) {
                             showCommonTasksToast(message)
@@ -1131,259 +1127,47 @@ private var selectedBoardName: String {
     @ViewBuilder
     private func scheduledTaskReplacementOverlay(for event: BingoViewModel.ScheduledTaskReplacementEvent) -> some View {
         ZStack {
-            timeoutDialogBackdrop
+            TimeoutDialogBackdrop()
 
             VStack(spacing: 20) {
-                scheduledTaskReplacementDialogCard(for: event)
+                ScheduledTaskReplacementDialogCard(
+                    currentTaskText: event.currentTaskText,
+                    presetTaskText: event.presetTaskText,
+                    isPadLayout: isPadLayout,
+                    onClose: {
+                        viewModel.dismissScheduledTaskReplacementPrompt()
+                    },
+                    onReplace: {
+                        if let message = viewModel.resolveScheduledTaskReplacement(.replaceWithPreset, now: countdownNow) {
+                            showCommonTasksToast(message)
+                        }
+                    },
+                    onKeepCurrent: {
+                        if let message = viewModel.resolveScheduledTaskReplacement(.keepCurrentTask, now: countdownNow) {
+                            showCommonTasksToast(message)
+                        }
+                    }
+                )
             }
             .padding(.horizontal, 24)
         }
     }
 
-    private var timeoutDialogBackdrop: some View {
-        ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .blur(radius: 14)
-            Color.black.opacity(0.62)
-        }
-        .ignoresSafeArea()
-    }
-
-    private func timeoutDialogCard(
-        headline: String,
-        onClose _: @escaping () -> Void,
-        onPrimaryAction: @escaping () -> Void,
-        onSecondaryAction: @escaping () -> Void
-    ) -> some View {
-        VStack(spacing: 0) {
-            Image("ClockTimeout")
-                .resizable()
-                .scaledToFit()
-                .frame(width: scaled(150, pad: 172), height: scaled(170, pad: 190))
-                .padding(.top, -8)
-
-            Text(headline)
-                .font(.appSystem(size: scaled(20, pad: 24), weight: .bold, design: .rounded))
-                .foregroundColor(Color(red: 0.20, green: 0.14, blue: 0.09))
-                .multilineTextAlignment(.center)
-                .lineSpacing(4)
-                .minimumScaleFactor(0.75)
-                .padding(.top, 8)
-                .padding(.horizontal, 14)
-
-            Button(action: onPrimaryAction) {
-                Text(L10n.markAsCompleted)
-                    .font(.appSystem(size: scaled(18, pad: 21), weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: scaled(56, pad: 62))
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(NeumorphicColors.accent)
-                    )
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 36)
-
-            Button(action: onSecondaryAction) {
-                Text(L10n.tr("Task postpone", zhHans: "任务延期", zhHant: "任務延期"))
-                    .font(.appSystem(size: scaled(18, pad: 21), weight: .semibold, design: .rounded))
-                    .foregroundColor(Color(red: 0.20, green: 0.14, blue: 0.09))
-                    .padding(.vertical, 26)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 22)
-        .padding(.top, 16)
-        .padding(.bottom, 8)
-        .frame(maxWidth: isPadLayout ? 460 : 420)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(red: 0.96, green: 0.95, blue: 0.94))
-        )
-    }
-
-    private func scheduledTaskReplacementDialogCard(
-        for event: BingoViewModel.ScheduledTaskReplacementEvent
-    ) -> some View {
-        let headline = L10n.tr(
-            "A preset task is ready. Replace the current task in this tile?",
-            zhHans: "预设任务已到时间，是否替换当前格子任务？",
-            zhHant: "預設任務已到時間，是否替換目前格子任務？"
-        )
-
-        let detail = L10n.tr(
-            "Current: \(event.currentTaskText)\nPreset: \(event.presetTaskText)",
-            zhHans: "当前：\(event.currentTaskText)\n预设：\(event.presetTaskText)",
-            zhHant: "目前：\(event.currentTaskText)\n預設：\(event.presetTaskText)"
-        )
-
-        return VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                Button {
-                    viewModel.dismissScheduledTaskReplacementPrompt()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.appSystem(size: scaled(18, pad: 20), weight: .semibold))
-                        .foregroundColor(Color.black.opacity(0.82))
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.plain)
-            }
-
-            Image("ClockTimeout")
-                .resizable()
-                .scaledToFit()
-                .frame(width: scaled(132, pad: 148), height: scaled(142, pad: 160))
-                .padding(.top, -6)
-
-            Text(headline)
-                .font(.appSystem(size: scaled(20, pad: 24), weight: .bold, design: .rounded))
-                .foregroundColor(Color(red: 0.20, green: 0.14, blue: 0.09))
-                .multilineTextAlignment(.center)
-                .lineSpacing(4)
-                .minimumScaleFactor(0.75)
-                .padding(.top, 8)
-                .padding(.horizontal, 14)
-
-            Text(detail)
-                .font(.appSystem(size: scaled(15, pad: 17), weight: .medium, design: .rounded))
-                .foregroundColor(Color.black.opacity(0.62))
-                .multilineTextAlignment(.center)
-                .lineSpacing(4)
-                .padding(.top, 10)
-                .padding(.horizontal, 14)
-
-            Button {
-                if let message = viewModel.resolveScheduledTaskReplacement(.replaceWithPreset, now: countdownNow) {
-                    showCommonTasksToast(message)
-                }
-            } label: {
-                Text(L10n.tr("Replace task", zhHans: "替换任务", zhHant: "替換任務"))
-                    .font(.appSystem(size: scaled(18, pad: 21), weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: scaled(56, pad: 62))
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(NeumorphicColors.accent)
-                    )
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 32)
-
-            Button {
-                if let message = viewModel.resolveScheduledTaskReplacement(.keepCurrentTask, now: countdownNow) {
-                    showCommonTasksToast(message)
-                }
-            } label: {
-                Text(L10n.tr("Keep current", zhHans: "保留当前", zhHant: "保留目前"))
-                    .font(.appSystem(size: scaled(18, pad: 21), weight: .semibold, design: .rounded))
-                    .foregroundColor(Color(red: 0.20, green: 0.14, blue: 0.09))
-                    .padding(.vertical, 24)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 22)
-        .padding(.top, 16)
-        .padding(.bottom, 8)
-        .frame(maxWidth: isPadLayout ? 460 : 420)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(red: 0.96, green: 0.95, blue: 0.94))
-        )
-    }
-
     @ViewBuilder
     private var timeoutDelayPickerOverlay: some View {
         if timeoutDelayPickerContext != nil {
-            ZStack(alignment: .bottom) {
-                timeoutDialogBackdrop
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            timeoutDelayPickerContext = nil
-                        }
+            TimeoutDelayPickerOverlay(
+                hours: $timeoutDelayPickerHours,
+                minutes: $timeoutDelayPickerMinutes,
+                isPadLayout: isPadLayout,
+                onDismiss: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        timeoutDelayPickerContext = nil
                     }
-
-                VStack(spacing: 0) {
-                    HStack {
-                        Spacer()
-                        Button {
-                            applyTimeoutDelayPickerSelection()
-                        } label: {
-                            Text(L10n.tr("Apply", zhHans: "应用", zhHant: "套用"))
-                                .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 14)
-                                .frame(height: 34)
-                                .background(
-                                    Capsule(style: .continuous)
-                                        .fill(NeumorphicColors.accent)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
-                    .padding(.bottom, 10)
-
-                    HStack(spacing: 10) {
-                        timeoutPickerColumn(
-                            title: L10n.hours,
-                            selection: $timeoutDelayPickerHours,
-                            values: Array(0...24),
-                            formatter: { L10n.hourValue($0) }
-                        )
-
-                        timeoutPickerColumn(
-                            title: L10n.minutes,
-                            selection: $timeoutDelayPickerMinutes,
-                            values: Array(1...60),
-                            formatter: { L10n.minuteValue($0) }
-                        )
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 14)
-                }
-                .background(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(Color(red: 0.96, green: 0.95, blue: 0.94))
-                )
-                .padding(.horizontal, 10)
-                .padding(.bottom, 0)
-            }
+                },
+                onApply: applyTimeoutDelayPickerSelection
+            )
         }
-    }
-
-    private func timeoutPickerColumn(
-        title: String,
-        selection: Binding<Int>,
-        values: [Int],
-        formatter: @escaping (Int) -> String
-    ) -> some View {
-        VStack(spacing: 2) {
-            Text(title)
-                .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                .foregroundColor(Color.black.opacity(0.66))
-
-            Picker(title, selection: selection) {
-                ForEach(values, id: \.self) { value in
-                    Text(formatter(value))
-                        .foregroundColor(.black)
-                        .tag(value)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.wheel)
-            .frame(height: 90)
-            .clipped()
-            .tint(Color(red: 0.20, green: 0.14, blue: 0.09))
-        }
-        .frame(maxWidth: .infinity)
     }
 
     private func openTimeoutDelayPicker(for context: TimeoutDelayPickerContext, presetMinutes: Int) {
