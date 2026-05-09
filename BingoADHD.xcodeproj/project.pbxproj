@@ -50,6 +50,7 @@
 		AA30000000000000000024 /* HomeToastViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000024 /* HomeToastViews.swift */; };
 		AA30000000000000000025 /* TimeoutOverlayViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000025 /* TimeoutOverlayViews.swift */; };
 		AA30000000000000000026 /* HomeEditActionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000026 /* HomeEditActionViews.swift */; };
+		AA30000000000000000027 /* HomeBoardControlsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000027 /* HomeBoardControlsViews.swift */; };
 		AAF000000000000000000001 /* FloatingButton in Frameworks */ = {isa = PBXBuildFile; productRef = AAF000000000000000000011 /* FloatingButton */; };
 		C3DA38C1D37F02D4B7DDAB7A /* BingoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000003 /* BingoModels.swift */; };
 		C7C0E097420C7B27954960F4 /* BingoBoardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */; };
@@ -144,6 +145,7 @@
 		AA20000000000000000024 /* HomeToastViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeToastViews.swift; sourceTree = "<group>"; };
 		AA20000000000000000025 /* TimeoutOverlayViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeoutOverlayViews.swift; sourceTree = "<group>"; };
 		AA20000000000000000026 /* HomeEditActionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeEditActionViews.swift; sourceTree = "<group>"; };
+		AA20000000000000000027 /* HomeBoardControlsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeBoardControlsViews.swift; sourceTree = "<group>"; };
 		CEBABD257330F177F05EF511 /* ColorHex.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ColorHex.swift; sourceTree = "<group>"; };
 		DB77DB4D87E0770BB2F4B921 /* BingodaysWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BingodaysWidget.swift; sourceTree = "<group>"; };
 		DE212D5093D3B8D5B841BB8E /* BingodaysWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BingodaysWidget.entitlements; sourceTree = "<group>"; };
@@ -296,6 +298,7 @@
 				AA20000000000000000024 /* HomeToastViews.swift */,
 				AA20000000000000000025 /* TimeoutOverlayViews.swift */,
 				AA20000000000000000026 /* HomeEditActionViews.swift */,
+				AA20000000000000000027 /* HomeBoardControlsViews.swift */,
 				CEBABD257330F177F05EF511 /* ColorHex.swift */,
 				F1A000000000000000000011 /* PAGCompletionView.swift */,
 			);
@@ -488,6 +491,7 @@
 				AA30000000000000000024 /* HomeToastViews.swift in Sources */,
 				AA30000000000000000025 /* TimeoutOverlayViews.swift in Sources */,
 				AA30000000000000000026 /* HomeEditActionViews.swift in Sources */,
+				AA30000000000000000027 /* HomeBoardControlsViews.swift in Sources */,
 				0D97FFB2D91D5330540F77C0 /* BingoBoardStore.swift in Sources */,
 				D6129FE6ECD4D6C2E0B7B3E6 /* ColorHex.swift in Sources */,
 				F1A000000000000000000004 /* PAGCompletionView.swift in Sources */,

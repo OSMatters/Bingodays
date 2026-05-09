@@ -1453,68 +1453,15 @@ private var selectedBoardName: String {
     }
 
 private func boardSwitcherControls(contentWidth: CGFloat) -> some View {
-    HStack(spacing: 10) {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(namedBoards) { board in
-                    let isSelected = board.id == selectedBoardID
-
-                    Button {
-                        selectBoard(board.id)
-                    } label: {
-                        Text(board.name)
-                            .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .foregroundColor(isSelected ? .white : NeumorphicColors.text)
-                            .padding(.horizontal, 14)
-                            .frame(height: isPadLayout ? 38 : 36)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(isSelected ? NeumorphicColors.accent : NeumorphicColors.background)
-                            )
-                            .overlay(
-                                Capsule(style: .continuous)
-                                    .stroke(
-                                        isSelected ? NeumorphicColors.accent : NeumorphicColors.accent.opacity(0.22),
-                                        lineWidth: 1
-                                    )
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .simultaneousGesture(
-                        LongPressGesture(minimumDuration: 0.5)
-                            .onEnded { _ in
-                                beginBoardActions(for: board.id)
-                            }
-                    )
-                }
-            }
-            .padding(.vertical, 2)
-            .padding(.horizontal, 1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-
-        Button {
-            beginCreateBoard()
-        } label: {
-            Text(L10n.tr("+ add board", zhHans: "+ 添加棋盘", zhHant: "+ 新增棋盤"))
-                .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-                .lineLimit(1)
-                .padding(.horizontal, 16)
-                .frame(height: isPadLayout ? 38 : 36)
-                .background(
-                    RoundedRectangle(cornerRadius: isPadLayout ? 19 : 18, style: .continuous)
-                        .fill(conciseSurfaceColor)
-                        .shadow(color: Color.white.opacity(0.7), radius: isPadLayout ? 8 : 6, x: -4, y: -4)
-                        .shadow(color: NeumorphicColors.darkShadow.opacity(0.22), radius: isPadLayout ? 8 : 6, x: 4, y: 4)
-                )
-        }
-        .buttonStyle(.plain)
-        .fixedSize(horizontal: true, vertical: false)
-    }
-    .frame(width: contentWidth, alignment: .leading)
+    BoardSwitcherControlsView(
+        boards: namedBoards,
+        selectedBoardID: selectedBoardID,
+        contentWidth: contentWidth,
+        isPadLayout: isPadLayout,
+        onSelectBoard: selectBoard,
+        onBoardLongPress: beginBoardActions,
+        onCreateBoard: beginCreateBoard
+    )
 }
 
 private func beginBoardActions(for boardID: UUID) {
@@ -1852,76 +1799,31 @@ private func boardActionsOverlay(
     contentWidth: CGFloat,
     bottomInset: CGFloat
 ) -> some View {
-    let canDelete = canDeleteBoardFromActions(board.id)
-
-    return ZStack(alignment: .bottom) {
-        Color.black.opacity(0.42)
-            .ignoresSafeArea()
-            .onTapGesture {
-                dismissBoardActions()
+    BoardActionsOverlayView(
+        canDelete: canDeleteBoardFromActions(board.id),
+        contentWidth: contentWidth,
+        bottomInset: bottomInset,
+        isPadLayout: isPadLayout,
+        onDismiss: dismissBoardActions,
+        onBoardRules: {
+            dismissBoardActions()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                beginBoardRules(for: board.id)
             }
-
-        VStack(spacing: 12) {
-            Button {
-                dismissBoardActions()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                    beginBoardRules(for: board.id)
-                }
-            } label: {
-                Text(L10n.tr("Board Rules", zhHans: "面板规则", zhHant: "面板規則"))
-                    .font(.appSystem(size: scaled(16, pad: 18), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(NeumorphicColors.background)
-                    )
+        },
+        onEdit: {
+            dismissBoardActions()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                beginRenameBoard(board.id)
             }
-            .buttonStyle(.plain)
-
-            Button {
-                dismissBoardActions()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                    beginRenameBoard(board.id)
-                }
-            } label: {
-                Text(L10n.tr("Edit", zhHans: "编辑", zhHant: "編輯"))
-                    .font(.appSystem(size: scaled(16, pad: 18), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(NeumorphicColors.background)
-                    )
-            }
-            .buttonStyle(.plain)
-
-            if canDelete {
-                Button {
-                    dismissBoardActions()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                        requestDeleteBoard(board.id)
-                    }
-                } label: {
-                    Text(L10n.deleteConfirmationTitle)
-                        .font(.appSystem(size: scaled(16, pad: 18), weight: .semibold, design: .rounded))
-                        .foregroundColor(Color.red.opacity(0.84))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(NeumorphicColors.background)
-                        )
-                }
-                .buttonStyle(.plain)
+        },
+        onDelete: {
+            dismissBoardActions()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                requestDeleteBoard(board.id)
             }
         }
-        .frame(width: min(contentWidth, isPadLayout ? 460 : 353))
-        .padding(.bottom, max(bottomInset, 14) + 12)
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+    )
 }
 
 private func ensureBoardSwitcherLoaded() {
