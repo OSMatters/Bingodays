@@ -441,14 +441,23 @@ private var selectedBoardName: String {
 
     private func withPresentationLayers<Content: View>(content: Content) -> some View {
         content
-            .fullScreenCover(isPresented: $isQuickEditPresented) {
-                QuickEditView(viewModel: viewModel) { message in
-                    showCommonTasksToast(message)
-                }
-            }
-            .fullScreenCover(isPresented: $isBlackBoxModePresented) {
-                BlackBoxModeEntryView()
-            }
+            .modifier(
+                HomePrimaryCoversModifier(
+                    isQuickEditPresented: $isQuickEditPresented,
+                    isBlackBoxModePresented: $isBlackBoxModePresented,
+                    isPointsFlowPresented: $isPointsFlowPresented,
+                    selectedStickerID: $selectedStickerID,
+                    isDiaryPresented: $isDiaryPresented,
+                    isPremiumPaywallPresented: $isPremiumPaywallPresented,
+                    viewModel: viewModel,
+                    pointsFeatureStore: pointsFeatureStore,
+                    isPadLayout: isPadLayout,
+                    availablePoints: availablePoints,
+                    totalPoints: viewModel.totalPoints,
+                    premiumPaywallSource: premiumPaywallSource,
+                    onQuickEditSuccess: showCommonTasksToast
+                )
+            )
             .sheet(isPresented: $isContactUsPresented) {
                 ContactUsSheet(
                     isPresented: $isContactUsPresented,
@@ -477,18 +486,6 @@ private var selectedBoardName: String {
                     .presentationDetents([.height(templateImportSheetHeight(for: template.gridSize))])
                     .presentationDragIndicator(.visible)
                 }
-            }
-            .fullScreenCover(isPresented: $isPointsFlowPresented) {
-                PointsFlowPresenter(
-                    isPadLayout: isPadLayout,
-                    points: availablePoints,
-                    totalPoints: viewModel.totalPoints,
-                    pointsFeatureStore: pointsFeatureStore,
-                    onAddStickerToHomeSuccess: {
-                        isPointsFlowPresented = false
-                        selectedStickerID = nil
-                    }
-                )
             }
             .sheet(isPresented: $isBoardCountdownPresented) {
                 BoardCountdownSheet(
@@ -539,61 +536,32 @@ private var selectedBoardName: String {
                     .presentationDragIndicator(.visible)
                     .presentationBackground(NeumorphicColors.background)
             }
-            .fullScreenCover(isPresented: $isDiaryPresented) {
-                BingoDiaryScreen()
-            }
-            .fullScreenCover(isPresented: $isPremiumPaywallPresented) {
-                PremiumPaywallView(entrySource: premiumPaywallSource)
-            }
     }
 
     private func withBoardAlerts<Content: View>(content: Content) -> some View {
         content
-            .alert(L10n.boardCreateTitle, isPresented: $isCreateBoardAlertPresented) {
-                TextField(L10n.boardNamePlaceholder, text: $createBoardNameDraft)
-                Button(L10n.cancel, role: .cancel) {
-                    createBoardNameDraft = ""
-                }
-                Button(L10n.boardCreateAction) {
-                    createBoard()
-                }
-            }
-            .alert(L10n.boardRenameTitle, isPresented: $isRenameBoardAlertPresented) {
-                TextField(L10n.boardNamePlaceholder, text: $renameBoardNameDraft)
-                Button(L10n.cancel, role: .cancel) {
-                    renameBoardNameDraft = ""
-                    boardPendingRenameID = nil
-                }
-                Button(L10n.boardRenameAction) {
-                    renameBoard()
-                }
-            }
-            .alert(
-                L10n.tr("Delete board?", zhHans: "删除棋盘？", zhHant: "刪除棋盤？"),
-                isPresented: $isBoardDeleteAlertPresented
-            ) {
-                Button(L10n.cancel, role: .cancel) {
-                    pendingBoardDeleteID = nil
-                }
-                Button(L10n.deleteConfirmationTitle, role: .destructive) {
-                    guard let pendingBoardDeleteID else { return }
-                    deleteBoard(pendingBoardDeleteID)
-                }
-            } message: {
-                Text(pendingBoardDeleteMessage)
-            }
-            .alert(
-                L10n.clearBoardConfirmationTitle,
-                isPresented: $isClearBoardConfirmationPresented
-            ) {
-                Button(L10n.cancel, role: .cancel) {}
-                Button(L10n.clearBoard, role: .destructive) {
-                    viewModel.resetBoard()
-                    showCommonTasksToast(L10n.boardClearedSuccess)
-                }
-            } message: {
-                Text(L10n.clearBoardConfirmationMessage)
-            }
+            .modifier(
+                HomeBoardAlertsModifier(
+                    isCreateBoardAlertPresented: $isCreateBoardAlertPresented,
+                    createBoardNameDraft: $createBoardNameDraft,
+                    isRenameBoardAlertPresented: $isRenameBoardAlertPresented,
+                    renameBoardNameDraft: $renameBoardNameDraft,
+                    boardPendingRenameID: $boardPendingRenameID,
+                    isBoardDeleteAlertPresented: $isBoardDeleteAlertPresented,
+                    pendingBoardDeleteID: $pendingBoardDeleteID,
+                    isClearBoardConfirmationPresented: $isClearBoardConfirmationPresented,
+                    pendingBoardDeleteMessage: pendingBoardDeleteMessage,
+                    onCreateBoard: createBoard,
+                    onRenameBoard: renameBoard,
+                    onDeleteBoard: deleteBoard,
+                    onClearBoard: clearBoardFromAlert
+                )
+            )
+    }
+
+    private func clearBoardFromAlert() {
+        viewModel.resetBoard()
+        showCommonTasksToast(L10n.boardClearedSuccess)
     }
 
     private func withStateObservers<Content: View>(content: Content) -> some View {
