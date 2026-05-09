@@ -495,3 +495,40 @@ func quickEditFilteredTaskItems(
         }
     }
 }
+
+func quickEditTask(for location: QuickEditTaskLocation, in library: MyTasksLibrary) -> MyTaskItem? {
+    switch location {
+    case .standalone(let index):
+        guard library.tasks.indices.contains(index) else { return nil }
+        return library.tasks[index]
+    case .group(let groupID, let index):
+        guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }),
+              library.groups[groupIndex].tasks.indices.contains(index) else { return nil }
+        return library.groups[groupIndex].tasks[index]
+    }
+}
+
+func quickEditSetTask(_ task: MyTaskItem, for location: QuickEditTaskLocation, in library: inout MyTasksLibrary) {
+    switch location {
+    case .standalone(let index):
+        guard library.tasks.indices.contains(index) else { return }
+        library.tasks[index] = task
+    case .group(let groupID, let index):
+        guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }),
+              library.groups[groupIndex].tasks.indices.contains(index) else { return }
+        library.groups[groupIndex].tasks[index] = task
+    }
+}
+
+func quickEditTaskLocation(forTaskKey key: String, in library: MyTasksLibrary) -> QuickEditTaskLocation? {
+    if let index = library.tasks.firstIndex(where: { quickEditTaskKey($0) == key }) {
+        return .standalone(index)
+    }
+
+    for group in library.groups {
+        if let taskIndex = group.tasks.firstIndex(where: { quickEditTaskKey($0) == key }) {
+            return .group(group.id, taskIndex)
+        }
+    }
+    return nil
+}

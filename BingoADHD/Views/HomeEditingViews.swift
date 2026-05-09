@@ -700,27 +700,11 @@ struct QuickEditView: View {
     }
 
     private func task(for location: QuickEditTaskLocation) -> MyTaskItem? {
-        switch location {
-        case .standalone(let index):
-            guard library.tasks.indices.contains(index) else { return nil }
-            return library.tasks[index]
-        case .group(let groupID, let index):
-            guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }),
-                  library.groups[groupIndex].tasks.indices.contains(index) else { return nil }
-            return library.groups[groupIndex].tasks[index]
-        }
+        quickEditTask(for: location, in: library)
     }
 
     private func setTask(_ task: MyTaskItem, for location: QuickEditTaskLocation) {
-        switch location {
-        case .standalone(let index):
-            guard library.tasks.indices.contains(index) else { return }
-            library.tasks[index] = task
-        case .group(let groupID, let index):
-            guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }),
-                  library.groups[groupIndex].tasks.indices.contains(index) else { return }
-            library.groups[groupIndex].tasks[index] = task
-        }
+        quickEditSetTask(task, for: location, in: &library)
     }
 
     private func taskStartDateLabel(for location: QuickEditTaskLocation) -> String {
@@ -865,16 +849,7 @@ struct QuickEditView: View {
     }
 
     private func taskLocation(forTaskKey key: String) -> QuickEditTaskLocation? {
-        if let index = library.tasks.firstIndex(where: { taskKey(for: $0) == key }) {
-            return .standalone(index)
-        }
-
-        for group in library.groups {
-            if let taskIndex = group.tasks.firstIndex(where: { taskKey(for: $0) == key }) {
-                return .group(group.id, taskIndex)
-            }
-        }
-        return nil
+        quickEditTaskLocation(forTaskKey: key, in: library)
     }
 
     private func syncActiveFilterWithCurrentLibrary() {
