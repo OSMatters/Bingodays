@@ -976,3 +976,58 @@ func quickEditCommitAddGroup(
     library.groups.append(group)
     return .appended(group)
 }
+
+func quickEditStandaloneTaskText(index: Int, library: MyTasksLibrary) -> String {
+    guard library.tasks.indices.contains(index) else { return "" }
+    return library.tasks[index].text
+}
+
+@discardableResult
+func quickEditUpdateStandaloneTaskText(
+    index: Int,
+    newValue: String,
+    library: inout MyTasksLibrary
+) -> MyTaskItem? {
+    guard library.tasks.indices.contains(index) else { return nil }
+    library.tasks[index].text = String(newValue.prefix(AppSettings.maxTaskLength))
+    return library.tasks[index]
+}
+
+func quickEditGroupTaskText(groupID: UUID, index: Int, library: MyTasksLibrary) -> String {
+    guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }),
+          library.groups[groupIndex].tasks.indices.contains(index) else { return "" }
+    return library.groups[groupIndex].tasks[index].text
+}
+
+@discardableResult
+func quickEditUpdateGroupTaskText(
+    groupID: UUID,
+    index: Int,
+    newValue: String,
+    library: inout MyTasksLibrary
+) -> MyTaskItem? {
+    guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }),
+          library.groups[groupIndex].tasks.indices.contains(index) else { return nil }
+    library.groups[groupIndex].tasks[index].text = String(newValue.prefix(AppSettings.maxTaskLength))
+    return library.groups[groupIndex].tasks[index]
+}
+
+enum QuickEditSelectionDecision {
+    case remove(existingIndex: Int)
+    case add
+}
+
+func quickEditSelectionDecision(currentKeys: [String], key: String) -> QuickEditSelectionDecision {
+    if let index = currentKeys.firstIndex(of: key) {
+        return .remove(existingIndex: index)
+    }
+    return .add
+}
+
+func quickEditPreviewFullMessage() -> String {
+    L10n.tr(
+        "Preview board is full.",
+        zhHans: "预览棋盘已满。",
+        zhHant: "預覽棋盤已滿。"
+    )
+}

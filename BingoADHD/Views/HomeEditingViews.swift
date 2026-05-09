@@ -928,13 +928,15 @@ struct QuickEditView: View {
     private func taskBinding(for index: Int) -> Binding<String> {
         Binding(
             get: {
-                guard library.tasks.indices.contains(index) else { return "" }
-                return library.tasks[index].text
+                quickEditStandaloneTaskText(index: index, library: library)
             },
             set: { newValue in
-                guard library.tasks.indices.contains(index) else { return }
-                library.tasks[index].text = String(newValue.prefix(AppSettings.maxTaskLength))
-                recordTaskHistory(library.tasks[index], sourceTaskID: library.tasks[index].id)
+                guard let updatedTask = quickEditUpdateStandaloneTaskText(
+                    index: index,
+                    newValue: newValue,
+                    library: &library
+                ) else { return }
+                recordTaskHistory(updatedTask, sourceTaskID: updatedTask.id)
             }
         )
     }
@@ -942,35 +944,28 @@ struct QuickEditView: View {
     private func groupTaskBinding(groupID: UUID, index: Int) -> Binding<String> {
         Binding(
             get: {
-                guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }),
-                      library.groups[groupIndex].tasks.indices.contains(index) else { return "" }
-                return library.groups[groupIndex].tasks[index].text
+                quickEditGroupTaskText(groupID: groupID, index: index, library: library)
             },
             set: { newValue in
-                guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }),
-                      library.groups[groupIndex].tasks.indices.contains(index) else { return }
-                library.groups[groupIndex].tasks[index].text = String(newValue.prefix(AppSettings.maxTaskLength))
-                recordTaskHistory(
-                    library.groups[groupIndex].tasks[index],
-                    sourceTaskID: library.groups[groupIndex].tasks[index].id
-                )
+                guard let updatedTask = quickEditUpdateGroupTaskText(
+                    groupID: groupID,
+                    index: index,
+                    newValue: newValue,
+                    library: &library
+                ) else { return }
+                recordTaskHistory(updatedTask, sourceTaskID: updatedTask.id)
             }
         )
     }
 
     private func toggleSelection(for key: String) {
-        if let index = selectedTaskKeys.firstIndex(of: key) {
+        switch quickEditSelectionDecision(currentKeys: selectedTaskKeys, key: key) {
+        case .remove(let index):
             selectedTaskKeys.remove(at: index)
             removePreviewTask(for: key)
-        } else {
+        case .add:
             guard addPreviewTask(for: key) else {
-                showLocalToast(
-                    L10n.tr(
-                        "Preview board is full.",
-                        zhHans: "预览棋盘已满。",
-                        zhHant: "預覽棋盤已滿。"
-                    )
-                )
+                showLocalToast(quickEditPreviewFullMessage())
                 return
             }
             selectedTaskKeys.append(key)
