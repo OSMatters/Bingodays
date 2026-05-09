@@ -532,6 +532,30 @@ func quickEditSyncedActiveFilter(_ activeFilter: QuickEditFilterTab, library: My
     }
 }
 
+func quickEditCanAddStandaloneTask(isPremiumUser: Bool, library: MyTasksLibrary) -> Bool {
+    isPremiumUser || library.tasks.count < AppSettings.maxCommonTasks
+}
+
+func quickEditCanAddGroup(isPremiumUser: Bool, library: MyTasksLibrary) -> Bool {
+    isPremiumUser || library.groups.count < AppSettings.maxTaskGroups
+}
+
+func quickEditCanAddTask(to group: MyTaskGroup, isPremiumUser: Bool) -> Bool {
+    isPremiumUser || group.tasks.count < AppSettings.maxTasksPerGroup
+}
+
+func quickEditMaxGridSizeForCurrentPlan(isPremiumUser: Bool) -> Int {
+    isPremiumUser ? 5 : 4
+}
+
+func quickEditSelectedPreviewCount(_ slots: [QuickEditPreviewSlot]) -> Int {
+    slots.compactMap(\.task).count
+}
+
+func quickEditSelectedCountSummary(selected: Int, total: Int) -> String {
+    L10n.quickEditSelectedCount(selected: selected, total: total)
+}
+
 func quickEditTask(for location: QuickEditTaskLocation, in library: MyTasksLibrary) -> MyTaskItem? {
     switch location {
     case .standalone(let index):

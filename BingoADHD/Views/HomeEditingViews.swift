@@ -67,19 +67,19 @@ struct QuickEditView: View {
     }
 
     private var canAddStandaloneTask: Bool {
-        isPremiumUser || library.tasks.count < AppSettings.maxCommonTasks
+        quickEditCanAddStandaloneTask(isPremiumUser: isPremiumUser, library: library)
     }
 
     private var canAddGroup: Bool {
-        isPremiumUser || library.groups.count < AppSettings.maxTaskGroups
+        quickEditCanAddGroup(isPremiumUser: isPremiumUser, library: library)
     }
 
     private func canAddTask(to group: MyTaskGroup) -> Bool {
-        isPremiumUser || group.tasks.count < AppSettings.maxTasksPerGroup
+        quickEditCanAddTask(to: group, isPremiumUser: isPremiumUser)
     }
 
     private var maxGridSizeForCurrentPlan: Int {
-        isPremiumUser ? 5 : 4
+        quickEditMaxGridSizeForCurrentPlan(isPremiumUser: isPremiumUser)
     }
 
     private func taskKey(for task: MyTaskItem) -> String {
@@ -130,11 +130,11 @@ struct QuickEditView: View {
     }
 
     private var selectedPreviewCount: Int {
-        previewSlots.compactMap(\.task).count
+        quickEditSelectedPreviewCount(previewSlots)
     }
 
     private var selectedCountSummary: String {
-        L10n.quickEditSelectedCount(selected: selectedPreviewCount, total: totalGridSlots)
+        quickEditSelectedCountSummary(selected: selectedPreviewCount, total: totalGridSlots)
     }
 
     private var activeFilterTitle: String {
