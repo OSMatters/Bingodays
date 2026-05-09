@@ -11,7 +11,7 @@ struct QuickEditView: View {
     @State private var taskHistoryRecords = TaskHistoryStore.load()
     @State private var lastTrackedLibrary = CommonTasksStore.loadLibrary()
     @FocusState private var focusedField: FocusedMyTaskField?
-    @State private var deleteConfirmationTarget: DeleteTarget?
+    @State private var deleteConfirmationTarget: QuickEditDeleteTarget?
     @State private var localToastMessage: String?
     @State private var isLocalToastVisible = false
     @State private var hideLocalToastWorkItem: DispatchWorkItem?
@@ -37,43 +37,6 @@ struct QuickEditView: View {
     @State private var taskEditorDraft: QuickEditTaskEditorDraft?
     @State private var previewEditingTarget: QuickEditPreviewEditingTarget?
     @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
-
-    private enum DeleteTarget: Equatable {
-        case task(Int)
-        case group(UUID)
-        case groupTask(UUID, Int)
-        case history(String)
-
-        var title: String {
-            L10n.deleteConfirmationTitle
-        }
-
-        var message: String {
-            switch self {
-            case .task:
-                return L10n.deleteTaskConfirmationMessage
-            case .groupTask:
-                return L10n.deleteTaskConfirmationMessage
-            case .history:
-                return L10n.deleteTaskConfirmationMessage
-            case .group:
-                return L10n.deleteGroupConfirmationMessage
-            }
-        }
-
-        var successMessage: String {
-            switch self {
-            case .task:
-                return L10n.taskDeletedSuccess
-            case .groupTask:
-                return L10n.taskDeletedSuccess
-            case .history:
-                return L10n.taskDeletedSuccess
-            case .group:
-                return L10n.groupDeletedSuccess
-            }
-        }
-    }
 
     typealias PreviewSlot = QuickEditPreviewSlot
 
@@ -707,10 +670,10 @@ struct QuickEditView: View {
 
         return QuickEditEditableTaskRow(
             text: taskBinding(for: location),
-            placeholder: placeholder(for: location),
+            placeholder: location.placeholder,
             isSelected: isSelected,
             focusBinding: $focusedField,
-            focusField: focusedField(for: location),
+            focusField: location.focusedField,
             isPadLayout: isPadLayout,
             placeholderColor: quickEditPlaceholderColor,
             taskBackground: quickEditTaskFlatBackground,
@@ -721,7 +684,7 @@ struct QuickEditView: View {
             ,
             onDelete: {
                 focusedField = nil
-                deleteConfirmationTarget = deleteTarget(for: location)
+                deleteConfirmationTarget = location.deleteTarget
             }
         )
     }
@@ -851,33 +814,6 @@ struct QuickEditView: View {
             return taskBinding(for: index)
         case .group(let groupID, let index):
             return groupTaskBinding(groupID: groupID, index: index)
-        }
-    }
-
-    private func focusedField(for location: QuickEditTaskLocation) -> FocusedMyTaskField {
-        switch location {
-        case .standalone(let index):
-            return .task(index)
-        case .group(let groupID, let index):
-            return .groupTask(groupID, index)
-        }
-    }
-
-    private func placeholder(for location: QuickEditTaskLocation) -> String {
-        switch location {
-        case .standalone(let index):
-            return L10n.taskNumber(index + 1)
-        case .group:
-            return L10n.task
-        }
-    }
-
-    private func deleteTarget(for location: QuickEditTaskLocation) -> DeleteTarget {
-        switch location {
-        case .standalone(let index):
-            return .task(index)
-        case .group(let groupID, let index):
-            return .groupTask(groupID, index)
         }
     }
 
@@ -1649,7 +1585,7 @@ struct QuickEditView: View {
             await subscriptionManager.warmupProductsForPaywall()
         }
     }
-private func confirmDelete(_ target: DeleteTarget) {
+private func confirmDelete(_ target: QuickEditDeleteTarget) {
     switch target {
     case .task(let index):
         guard library.tasks.indices.contains(index) else { return }
@@ -1754,7 +1690,7 @@ private func finalizeGroupDeletion(_ groupID: UUID) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8, execute: workItem)
     }
 
-private func deleteMessage(for target: DeleteTarget) -> String {
+private func deleteMessage(for target: QuickEditDeleteTarget) -> String {
     switch target {
     case .groupTask(let groupID, _):
         let name = groupName(for: groupID)
