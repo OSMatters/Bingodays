@@ -665,147 +665,43 @@ private var activeFilterTitle: String {
         }
     }
 
-private var quickEditControlsCard: some View {
-    let gridSpacing: CGFloat = isPadLayout ? 16 : 12
-    let controlSize: CGFloat = isPadLayout ? 38 : 32
-    let iconSize: CGFloat = isPadLayout ? 18 : 16
-
-    return flatSectionCard {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 12) {
-                HStack(spacing: isPadLayout ? 14 : 11) {
-                    Button {
-                        targetGridSize = max(2, targetGridSize - 1)
-                    } label: {
-                        Image(systemName: "minus")
-                            .font(.appSystem(size: iconSize, weight: .bold))
-                            .foregroundColor(NeumorphicColors.accent)
-                            .frame(width: controlSize, height: controlSize)
-                            .background(Color.clear.neumorphicConvex(radius: controlSize / 2))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(targetGridSize <= 2)
-                    .opacity(targetGridSize <= 2 ? 0.45 : 1)
-
-                    Text("\(targetGridSize)")
-                        .font(.appSystem(size: scaled(18, pad: 22), weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
-
-                    Image(systemName: "xmark")
-                        .font(.appSystem(size: scaled(10, pad: 12), weight: .bold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.6))
-
-                    Text("\(targetGridSize)")
-                        .font(.appSystem(size: scaled(18, pad: 22), weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
-
-                    Button {
-                        let nextSize = targetGridSize + 1
-                        guard nextSize <= maxGridSizeForCurrentPlan else {
-                            AnalyticsService.logPremiumGrid5x5LimitHit(
-                                currentGridSize: targetGridSize,
-                                source: "quick_edit"
-                            )
-                            openPremiumPaywall(source: "quick_edit_grid_5x5")
-                            return
-                        }
-                        targetGridSize = min(5, nextSize)
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.appSystem(size: iconSize, weight: .bold))
-                            .foregroundColor(NeumorphicColors.accent)
-                            .frame(width: controlSize, height: controlSize)
-                            .background(Color.clear.neumorphicConvex(radius: controlSize / 2))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(targetGridSize >= 5)
-                    .opacity(targetGridSize >= 5 ? 0.45 : 1)
-                }
-
-                Spacer(minLength: 0)
-
-                Text(selectedCountSummary)
-                    .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.92))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(quickEditSelectedBadgeBackground)
+    private var quickEditControlsCard: some View {
+        QuickEditPreviewGridView(
+            targetGridSize: $targetGridSize,
+            previewSlots: $previewSlots,
+            previewDragSourceID: $previewDragSourceID,
+            previewDropTargetID: $previewDropTargetID,
+            selectedCountSummary: selectedCountSummary,
+            isPadLayout: isPadLayout,
+            sectionBackground: quickEditSectionFlatBackground,
+            selectedBadgeBackground: quickEditSelectedBadgeBackground,
+            previewEmptySlotFill: previewEmptySlotFill,
+            previewFilledSlotFill: previewFilledSlotFill,
+            previewEmptySlotStroke: previewEmptySlotStroke,
+            previewFilledSlotStroke: previewFilledSlotStroke,
+            onDecreaseGrid: {
+                targetGridSize = max(2, targetGridSize - 1)
+            },
+            onIncreaseGrid: {
+                let nextSize = targetGridSize + 1
+                guard nextSize <= maxGridSizeForCurrentPlan else {
+                    AnalyticsService.logPremiumGrid5x5LimitHit(
+                        currentGridSize: targetGridSize,
+                        source: "quick_edit"
                     )
-            }
-
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: gridSpacing), count: targetGridSize),
-                spacing: gridSpacing
-            ) {
-                ForEach(previewSlots) { slot in
-                    previewSlotCard(slot)
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(1, contentMode: .fit)
-                    .onDrag {
-                        guard slot.task != nil else { return NSItemProvider() }
-                        previewDragSourceID = slot.id
-                        previewDropTargetID = nil
-                        return NSItemProvider(object: NSString(string: slot.id.uuidString))
-                    }
-                    .onDrop(
-                        of: ["public.text", "public.plain-text"],
-                        delegate: QuickEditPreviewDropDelegate(
-                            targetSlotID: slot.id,
-                            previewSlots: $previewSlots,
-                            dragSourceID: $previewDragSourceID,
-                            dropTargetID: $previewDropTargetID
-                        )
-                    )
-                    .contextMenu {
-                        if slot.task != nil {
-                            Button {
-                                previewEditingTarget = PreviewEditingTarget(slotID: slot.id)
-                            } label: {
-                                Label(L10n.editTask, systemImage: "square.and.pencil")
-                            }
-
-                            Button(role: .destructive) {
-                                deletePreviewTask(slotID: slot.id)
-                            } label: {
-                                Label(L10n.deleteTask, systemImage: "trash")
-                            }
-                        }
-                    }
+                    openPremiumPaywall(source: "quick_edit_grid_5x5")
+                    return
                 }
-            }
-            .onDrop(of: ["public.text", "public.plain-text"], isTargeted: nil) { _ in
-                clearPreviewDragState()
-                return false
-            }
-        }
-    }
-}
-
-    @ViewBuilder
-    private func previewSlotCard(_ slot: PreviewSlot) -> some View {
-        let cornerRadius: CGFloat = isPadLayout ? 18 : 16
-        let hasTask = slot.task != nil
-
-        ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(hasTask ? previewFilledSlotFill : previewEmptySlotFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(hasTask ? previewFilledSlotStroke : previewEmptySlotStroke, lineWidth: 1)
-                )
-
-            if let task = slot.task?.trimmedText, !task.isEmpty {
-                Text(task)
-                    .font(.appSystem(size: scaled(14, pad: 18), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-                    .lineLimit(3)
-                    .multilineTextAlignment(.center)
-                    .minimumScaleFactor(0.72)
-                    .padding(10)
-            }
-        }
+                targetGridSize = min(5, nextSize)
+            },
+            onEditSlot: { slotID in
+                previewEditingTarget = PreviewEditingTarget(slotID: slotID)
+            },
+            onDeleteSlot: { slotID in
+                deletePreviewTask(slotID: slotID)
+            },
+            onClearPreviewDrag: clearPreviewDragState
+        )
     }
 
     private var filterTabsSection: some View {
