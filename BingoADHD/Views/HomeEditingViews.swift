@@ -620,71 +620,47 @@ struct QuickEditView: View {
     }
 
     private var taskListSection: some View {
-        flatSectionCard {
-            let visibleItems = filteredTaskItems.filter { !$0.isLocked }
-            let lockedHistoryPreviewItems = Array(
-                filteredTaskItems
-                    .filter { $0.isLocked && $0.source == .history }
-                    .prefix(5)
+        let visibleItems = filteredTaskItems.filter { !$0.isLocked }
+        let lockedHistoryPreviewItems = Array(
+            filteredTaskItems
+                .filter { $0.isLocked && $0.source == .history }
+                .prefix(5)
+        )
+        let isAllTasksFilter = activeFilter == .all
+
+        return QuickEditTaskListContainerView(
+            isAllTasksFilter: isAllTasksFilter,
+            hasVisibleItems: !visibleItems.isEmpty,
+            hasLockedHistoryPreview: !lockedHistoryPreviewItems.isEmpty,
+            isAddingTaskInline: isAddingTaskInline,
+            showsAddTaskButton: activeGroupID != nil,
+            isPadLayout: isPadLayout,
+            sectionBackground: quickEditSectionFlatBackground
+        ) {
+            QuickEditTaskListHeaderView(
+                title: activeFilterTitle,
+                activeGroupID: activeGroupID,
+                canApplyGroup: !activeGroupTaskKeys.isEmpty,
+                isPadLayout: isPadLayout,
+                taskBackground: quickEditTaskFlatBackground,
+                onApplyGroup: applyActiveGroupToPreview,
+                onDeleteGroup: { groupID in
+                    focusedField = nil
+                    deleteConfirmationTarget = .group(groupID)
+                }
             )
-            let isAllTasksFilter = activeFilter == .all
-
-            VStack(alignment: .leading, spacing: isAllTasksFilter ? 8 : 12) {
-                if !isAllTasksFilter {
-                    QuickEditTaskListHeaderView(
-                        title: activeFilterTitle,
-                        activeGroupID: activeGroupID,
-                        canApplyGroup: !activeGroupTaskKeys.isEmpty,
-                        isPadLayout: isPadLayout,
-                        taskBackground: quickEditTaskFlatBackground,
-                        onApplyGroup: applyActiveGroupToPreview,
-                        onDeleteGroup: { groupID in
-                            focusedField = nil
-                            deleteConfirmationTarget = .group(groupID)
-                        }
-                    )
-                }
-
-                if isAllTasksFilter {
-                    Text(
-                        L10n.tr(
-                            "You can view and edit all your task history here.",
-                            zhHans: "在这里可以查看并编辑你所有的历史任务",
-                            zhHant: "在這裡可以查看並編輯你所有的歷史任務"
-                        )
-                    )
-                    .font(.appSystem(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.55))
-                    .padding(.top, 2)
-                    .padding(.bottom, 4)
-                }
-
-                if visibleItems.isEmpty && !isAddingTaskInline && lockedHistoryPreviewItems.isEmpty {
-                    Text(L10n.quickEditNoTasksInFilter)
-                        .font(.appSystem(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.56))
-                        .padding(.vertical, 8)
-                }
-
-                VStack(spacing: 10) {
-                    ForEach(visibleItems) { item in
-                        taskRow(for: item)
-                    }
-
-                    if !lockedHistoryPreviewItems.isEmpty {
-                        lockedHistoryPreviewBlock(items: lockedHistoryPreviewItems)
-                    }
-
-                    if isAddingTaskInline {
-                        newTaskInlineRow
-                    }
-                }
-
-                if activeGroupID != nil {
-                    addTaskButton
-                        .padding(.top, 8)
-                }
+        } rows: {
+            ForEach(visibleItems) { item in
+                taskRow(for: item)
             }
+
+            if !lockedHistoryPreviewItems.isEmpty {
+                lockedHistoryPreviewBlock(items: lockedHistoryPreviewItems)
+            }
+        } inlineRow: {
+            newTaskInlineRow
+        } addTaskButton: {
+            addTaskButton
         }
     }
 
