@@ -38,18 +38,6 @@ struct QuickEditView: View {
     @State private var previewEditingTarget: PreviewEditingTarget?
     @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
 
-    private enum FocusedMyTaskField: Hashable {
-        case task(Int)
-        case groupTask(UUID, Int)
-        case newTask
-        case newTaskStartMonth
-        case newTaskStartDay
-        case newGroupName
-        case taskEditorName
-        case taskEditorMonth
-        case taskEditorDay
-    }
-
     private enum DeleteTarget: Equatable {
         case task(Int)
         case group(UUID)
@@ -1064,216 +1052,35 @@ private var newTaskInlineRow: some View {
 
     @ViewBuilder
     private var addGroupModal: some View {
-        ZStack {
-            Color.black.opacity(0.16)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    dismissAddGroupModal()
-                }
-
-            VStack(spacing: 14) {
-                Text(L10n.quickEditAddGroupTitle)
-                    .font(.appSystem(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-
-                TextField(
-                    "",
-                    text: $newGroupNameDraft,
-                    prompt: Text(L10n.quickEditGroupNamePlaceholder)
-                        .foregroundColor(quickEditPlaceholderColor)
-                )
-                .textInputAutocapitalization(.sentences)
-                .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(quickEditTaskFlatBackground)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(quickEditFieldStroke, lineWidth: 1)
-                }
-                .focused($focusedField, equals: .newGroupName)
-                .onSubmit {
-                    commitAddGroup()
-                }
-
-                HStack(spacing: 12) {
-                    Button(L10n.cancel) {
-                        dismissAddGroupModal()
-                    }
-                    .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(Color.clear.neumorphicConvex(radius: 18))
-                    .buttonStyle(.plain)
-
-                    Button(L10n.addGroup) {
-                        commitAddGroup()
-                    }
-                    .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(NeumorphicColors.accent)
-                            .shadow(color: NeumorphicColors.accent.opacity(0.25), radius: 10, x: 0, y: 4)
-                    )
-                    .buttonStyle(.plain)
-                    .disabled(newGroupNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .opacity(newGroupNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
-                }
-            }
-            .padding(20)
-            .frame(maxWidth: 320)
-            .background(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(NeumorphicColors.background)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .stroke(NeumorphicColors.lightShadow.opacity(0.42), lineWidth: 1)
-                    )
-                    .shadow(color: NeumorphicColors.darkShadow.opacity(0.18), radius: 16, x: 0, y: 8)
-                    .shadow(color: Color.white.opacity(0.72), radius: 10, x: -4, y: -4)
-            )
-            .padding(.horizontal, 28)
-        }
+        QuickEditAddGroupModal(
+            groupName: $newGroupNameDraft,
+            focusedField: $focusedField,
+            isPadLayout: isPadLayout,
+            placeholderColor: quickEditPlaceholderColor,
+            taskBackground: quickEditTaskFlatBackground,
+            fieldStroke: quickEditFieldStroke,
+            onDismiss: dismissAddGroupModal,
+            onCommit: commitAddGroup
+        )
     }
 
     @ViewBuilder
     private var taskEditorModal: some View {
-        if let taskEditorDraft {
-            ZStack {
-                Color.black.opacity(0.16)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        dismissTaskEditor()
-                    }
-
-                VStack(spacing: 14) {
-                    Text(L10n.quickEditTaskEditorTitle)
-                        .font(.appSystem(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
-
-                    TextField(
-                        "",
-                        text: taskEditorNameBinding,
-                        prompt: Text(L10n.quickEditTaskNamePlaceholder)
-                            .foregroundColor(quickEditPlaceholderColor)
-                    )
-                    .textInputAutocapitalization(.sentences)
-                    .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(quickEditTaskFlatBackground)
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(quickEditFieldStroke, lineWidth: 1)
-                    }
-                    .focused($focusedField, equals: .taskEditorName)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(L10n.quickEditTaskStartDate)
-                            .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                            .foregroundColor(NeumorphicColors.text.opacity(0.68))
-
-                        HStack(spacing: 8) {
-                            TextField(L10n.quickEditTaskStartMonth, text: taskEditorMonthBinding)
-                                .keyboardType(.numberPad)
-                                .multilineTextAlignment(.center)
-                                .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                                .frame(height: 40)
-                                .frame(maxWidth: .infinity)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(quickEditTaskFlatBackground)
-                                )
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(quickEditFieldStroke, lineWidth: 1)
-                                }
-                                .focused($focusedField, equals: .taskEditorMonth)
-
-                            Text("/")
-                                .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text.opacity(0.6))
-
-                            TextField(L10n.quickEditTaskStartDay, text: taskEditorDayBinding)
-                                .keyboardType(.numberPad)
-                                .multilineTextAlignment(.center)
-                                .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                                .frame(height: 40)
-                                .frame(maxWidth: .infinity)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(quickEditTaskFlatBackground)
-                                )
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(quickEditFieldStroke, lineWidth: 1)
-                                }
-                                .focused($focusedField, equals: .taskEditorDay)
-                        }
-
-                        Button(L10n.quickEditTaskNoStartDate) {
-                            clearTaskEditorStartDate()
-                        }
-                        .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.66))
-                        .buttonStyle(.plain)
-                    }
-
-                    HStack(spacing: 12) {
-                        Button(L10n.cancel) {
-                            dismissTaskEditor()
-                        }
-                        .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.78))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(Color.clear.neumorphicConvex(radius: 18))
-                        .buttonStyle(.plain)
-
-                        Button(L10n.save) {
-                            saveTaskEditorDraft()
-                        }
-                        .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(NeumorphicColors.accent)
-                                .shadow(color: NeumorphicColors.accent.opacity(0.25), radius: 10, x: 0, y: 4)
-                        )
-                        .buttonStyle(.plain)
-                        .disabled(!taskEditorDraft.canSave)
-                        .opacity(taskEditorDraft.canSave ? 1 : 0.45)
-                    }
-                }
-                .padding(20)
-                .frame(maxWidth: 340)
-                .background(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .fill(NeumorphicColors.background)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                                .stroke(NeumorphicColors.lightShadow.opacity(0.42), lineWidth: 1)
-                        )
-                        .shadow(color: NeumorphicColors.darkShadow.opacity(0.18), radius: 16, x: 0, y: 8)
-                        .shadow(color: Color.white.opacity(0.72), radius: 10, x: -4, y: -4)
-                )
-                .padding(.horizontal, 28)
-            }
-        }
+        QuickEditTaskEditorModal(
+            isPresented: taskEditorDraft != nil,
+            isSaveEnabled: taskEditorDraft?.canSave == true,
+            taskName: taskEditorNameBinding,
+            startMonth: taskEditorMonthBinding,
+            startDay: taskEditorDayBinding,
+            focusedField: $focusedField,
+            isPadLayout: isPadLayout,
+            placeholderColor: quickEditPlaceholderColor,
+            taskBackground: quickEditTaskFlatBackground,
+            fieldStroke: quickEditFieldStroke,
+            onDismiss: dismissTaskEditor,
+            onClearStartDate: clearTaskEditorStartDate,
+            onSave: saveTaskEditorDraft
+        )
     }
 
     private var taskEditorNameBinding: Binding<String> {
