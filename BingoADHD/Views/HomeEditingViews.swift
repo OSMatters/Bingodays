@@ -718,12 +718,7 @@ struct QuickEditView: View {
 
     private func openTaskEditor(for location: QuickEditTaskLocation) {
         guard let currentTask = task(for: location) else { return }
-        taskEditorDraft = QuickEditTaskEditorDraft(
-            mode: .edit(location),
-            text: currentTask.text,
-            startMonthText: currentTask.startMonth.map(String.init) ?? "",
-            startDayText: currentTask.startDay.map(String.init) ?? ""
-        )
+        taskEditorDraft = quickEditEditorDraft(for: location, task: currentTask)
 
         DispatchQueue.main.async {
             focusedField = .taskEditorName
@@ -807,26 +802,17 @@ struct QuickEditView: View {
 
     private func saveTaskEditorDraft() {
         guard let draft = taskEditorDraft else { return }
-        let normalizedName = draft.normalizedName
         guard draft.canSave else { return }
-
-        let (startMonth, startDay) = quickEditNormalizedMonthDay(
-            monthText: draft.startMonthText,
-            dayText: draft.startDayText
-        )
 
         switch draft.mode {
         case .edit(let location):
-            guard var existingTask = task(for: location) else {
+            guard let existingTask = task(for: location),
+                  let updatedTask = quickEditTaskFromEditorDraft(draft, existingTask: existingTask) else {
                 dismissTaskEditor()
                 return
             }
-            existingTask.text = normalizedName
-            existingTask.startMonth = startMonth
-            existingTask.startDay = startDay
-            existingTask.normalizeStartDate()
-            setTask(existingTask, for: location)
-            recordTaskHistory(existingTask, sourceTaskID: existingTask.id)
+            setTask(updatedTask, for: location)
+            recordTaskHistory(updatedTask, sourceTaskID: updatedTask.id)
         case .createStandalone:
             break
         case .createGroup:
@@ -1098,22 +1084,14 @@ struct QuickEditView: View {
     }
 
     private var hasUnsavedChanges: Bool {
-        guard let initialSnapshot else { return false }
-        return makeCurrentSnapshot() != initialSnapshot
+        quickEditHasUnsavedChanges(initialSnapshot: initialSnapshot, currentSnapshot: makeCurrentSnapshot())
     }
 
     private func makeCurrentSnapshot() -> QuickEditSnapshot {
-        let previewItems = previewSlots.map { slot in
-            QuickEditSnapshot.PreviewItem(
-                cellState: slot.cellState,
-                sourceTaskKey: slot.sourceTaskKey
-            )
-        }
-
-        return QuickEditSnapshot(
+        quickEditCurrentSnapshot(
             targetGridSize: targetGridSize,
             selectedTaskKeys: selectedTaskKeys,
-            previewItems: previewItems,
+            previewSlots: previewSlots,
             library: library
         )
     }
@@ -1167,70 +1145,41 @@ struct QuickEditView: View {
     }
 
     private func adjustPreviewSlotCount() {
-        if previewSlots.isEmpty {
-            previewSlots = buildInitialPreviewSlots()
-            return
-        }
-
-        if previewSlots.count > totalGridSlots {
-            previewSlots = Array(previewSlots.prefix(totalGridSlots))
-        } else if previewSlots.count < totalGridSlots {
-            previewSlots.append(contentsOf: quickEditEmptyPreviewSlots(count: totalGridSlots - previewSlots.count))
-        }
+        previewSlots = quickEditAdjustPreviewSlots(
+            current: previewSlots,
+            totalGridSlots: totalGridSlots,
+            initialSlots: buildInitialPreviewSlots()
+        )
     }
 
     private func addPreviewTask(for key: String) -> Bool {
-        guard let task = candidateTaskMap[key], task.isStartDateReached() else { return false }
-
-        if let existingIndex = previewSlots.firstIndex(where: { $0.sourceTaskKey == key }) {
-            previewSlots[existingIndex].cellState = quickEditMakePreviewCell(from: task, preserving: previewSlots[existingIndex].cellState)
-            return true
-        }
-
-        guard let emptyIndex = previewSlots.firstIndex(where: { $0.task == nil }) else {
-            return false
-        }
-
-        previewSlots[emptyIndex].cellState = quickEditMakePreviewCell(from: task)
-        previewSlots[emptyIndex].sourceTaskKey = key
-        return true
+        let result = quickEditAddPreviewTask(
+            key: key,
+            candidateTaskMap: candidateTaskMap,
+            currentSlots: previewSlots
+        )
+        previewSlots = result.updatedSlots
+        return result.wasAdded
     }
 
     private func removePreviewTask(for key: String) {
-        guard let index = previewSlots.firstIndex(where: { $0.sourceTaskKey == key }) else { return }
-        previewSlots[index].cellState = nil
-        previewSlots[index].sourceTaskKey = nil
+        previewSlots = quickEditRemovePreviewTask(key: key, currentSlots: previewSlots)
     }
 
     private func rebuildPreviewFromSelectedKeys() {
-        let activeTasks = selectedTaskKeys.compactMap { key -> PreviewSlot? in
-            guard let task = candidateTaskMap[key], task.isStartDateReached() else { return nil }
-            return PreviewSlot(cellState: quickEditMakePreviewCell(from: task), sourceTaskKey: key)
-        }
-
-        previewSlots = Array(activeTasks.prefix(totalGridSlots))
-        if previewSlots.count < totalGridSlots {
-            previewSlots.append(contentsOf: quickEditEmptyPreviewSlots(count: totalGridSlots - previewSlots.count))
-        }
+        previewSlots = quickEditRebuildPreviewSlots(
+            selectedTaskKeys: selectedTaskKeys,
+            candidateTaskMap: candidateTaskMap,
+            totalGridSlots: totalGridSlots
+        )
     }
 
     private func syncPreviewSlotsWithCurrentLibrary() {
-        guard !previewSlots.isEmpty else { return }
-
-        for index in previewSlots.indices {
-            guard let sourceTaskKey = previewSlots[index].sourceTaskKey else { continue }
-
-            guard let task = candidateTaskMap[sourceTaskKey],
-                  !task.trimmedText.isEmpty,
-                  task.isStartDateReached() else {
-                previewSlots[index].cellState = nil
-                previewSlots[index].sourceTaskKey = nil
-                continue
-            }
-
-            previewSlots[index].cellState = quickEditMakePreviewCell(from: task, preserving: previewSlots[index].cellState)
-        }
-        adjustPreviewSlotCount()
+        previewSlots = quickEditSyncPreviewSlotsWithLibrary(
+            currentSlots: previewSlots,
+            candidateTaskMap: candidateTaskMap,
+            totalGridSlots: totalGridSlots
+        )
     }
 
     private func clearPreviewDragState() {

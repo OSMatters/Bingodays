@@ -532,3 +532,165 @@ func quickEditTaskLocation(forTaskKey key: String, in library: MyTasksLibrary) -
     }
     return nil
 }
+
+func quickEditAdjustPreviewSlots(
+    current: [QuickEditPreviewSlot],
+    totalGridSlots: Int,
+    initialSlots: [QuickEditPreviewSlot]
+) -> [QuickEditPreviewSlot] {
+    if current.isEmpty {
+        return initialSlots
+    }
+
+    if current.count > totalGridSlots {
+        return Array(current.prefix(totalGridSlots))
+    }
+    if current.count < totalGridSlots {
+        return current + quickEditEmptyPreviewSlots(count: totalGridSlots - current.count)
+    }
+    return current
+}
+
+func quickEditAddPreviewTask(
+    key: String,
+    candidateTaskMap: [String: MyTaskItem],
+    currentSlots: [QuickEditPreviewSlot]
+) -> (updatedSlots: [QuickEditPreviewSlot], wasAdded: Bool) {
+    guard let task = candidateTaskMap[key], task.isStartDateReached() else {
+        return (currentSlots, false)
+    }
+
+    var slots = currentSlots
+    if let existingIndex = slots.firstIndex(where: { $0.sourceTaskKey == key }) {
+        slots[existingIndex].cellState = quickEditMakePreviewCell(from: task, preserving: slots[existingIndex].cellState)
+        return (slots, true)
+    }
+
+    guard let emptyIndex = slots.firstIndex(where: { $0.task == nil }) else {
+        return (slots, false)
+    }
+
+    slots[emptyIndex].cellState = quickEditMakePreviewCell(from: task)
+    slots[emptyIndex].sourceTaskKey = key
+    return (slots, true)
+}
+
+func quickEditRemovePreviewTask(
+    key: String,
+    currentSlots: [QuickEditPreviewSlot]
+) -> [QuickEditPreviewSlot] {
+    var slots = currentSlots
+    guard let index = slots.firstIndex(where: { $0.sourceTaskKey == key }) else { return slots }
+    slots[index].cellState = nil
+    slots[index].sourceTaskKey = nil
+    return slots
+}
+
+func quickEditRebuildPreviewSlots(
+    selectedTaskKeys: [String],
+    candidateTaskMap: [String: MyTaskItem],
+    totalGridSlots: Int
+) -> [QuickEditPreviewSlot] {
+    let activeSlots = selectedTaskKeys.compactMap { key -> QuickEditPreviewSlot? in
+        guard let task = candidateTaskMap[key], task.isStartDateReached() else { return nil }
+        return QuickEditPreviewSlot(cellState: quickEditMakePreviewCell(from: task), sourceTaskKey: key)
+    }
+
+    var result = Array(activeSlots.prefix(totalGridSlots))
+    if result.count < totalGridSlots {
+        result.append(contentsOf: quickEditEmptyPreviewSlots(count: totalGridSlots - result.count))
+    }
+    return result
+}
+
+func quickEditSyncPreviewSlotsWithLibrary(
+    currentSlots: [QuickEditPreviewSlot],
+    candidateTaskMap: [String: MyTaskItem],
+    totalGridSlots: Int
+) -> [QuickEditPreviewSlot] {
+    guard !currentSlots.isEmpty else { return currentSlots }
+
+    var slots = currentSlots
+    for index in slots.indices {
+        guard let sourceTaskKey = slots[index].sourceTaskKey else { continue }
+        guard let task = candidateTaskMap[sourceTaskKey],
+              !task.trimmedText.isEmpty,
+              task.isStartDateReached() else {
+            slots[index].cellState = nil
+            slots[index].sourceTaskKey = nil
+            continue
+        }
+        slots[index].cellState = quickEditMakePreviewCell(from: task, preserving: slots[index].cellState)
+    }
+
+    if slots.count > totalGridSlots {
+        return Array(slots.prefix(totalGridSlots))
+    }
+    if slots.count < totalGridSlots {
+        return slots + quickEditEmptyPreviewSlots(count: totalGridSlots - slots.count)
+    }
+    return slots
+}
+
+func quickEditCurrentSnapshot(
+    targetGridSize: Int,
+    selectedTaskKeys: [String],
+    previewSlots: [QuickEditPreviewSlot],
+    library: MyTasksLibrary
+) -> QuickEditSnapshot {
+    QuickEditSnapshot(
+        targetGridSize: targetGridSize,
+        selectedTaskKeys: selectedTaskKeys,
+        previewItems: previewSlots.map { slot in
+            QuickEditSnapshot.PreviewItem(cellState: slot.cellState, sourceTaskKey: slot.sourceTaskKey)
+        },
+        library: library
+    )
+}
+
+func quickEditHasUnsavedChanges(initialSnapshot: QuickEditSnapshot?, currentSnapshot: QuickEditSnapshot) -> Bool {
+    guard let initialSnapshot else { return false }
+    return initialSnapshot != currentSnapshot
+}
+
+func quickEditBuildApplyPlan(
+    selectedTaskKeys: [String],
+    candidateTaskMap: [String: MyTaskItem],
+    targetGridSize: Int
+) -> QuickEditApplyPlan {
+    let selectedTasks = selectedTaskKeys.compactMap { key -> MyTaskItem? in
+        guard let task = candidateTaskMap[key], task.isStartDateReached() else { return nil }
+        return task
+    }
+    let maxSelectable = targetGridSize * targetGridSize
+    return QuickEditApplyPlan(tasks: Array(selectedTasks.prefix(maxSelectable)), targetGridSize: targetGridSize)
+}
+
+func quickEditEditorDraft(for location: QuickEditTaskLocation, task: MyTaskItem) -> QuickEditTaskEditorDraft {
+    QuickEditTaskEditorDraft(
+        mode: .edit(location),
+        text: task.text,
+        startMonthText: task.startMonth.map(String.init) ?? "",
+        startDayText: task.startDay.map(String.init) ?? ""
+    )
+}
+
+func quickEditTaskFromEditorDraft(
+    _ draft: QuickEditTaskEditorDraft,
+    existingTask: MyTaskItem?
+) -> MyTaskItem? {
+    guard draft.canSave else { return nil }
+    guard case .edit = draft.mode else { return nil }
+    guard var task = existingTask else { return nil }
+
+    let (startMonth, startDay) = quickEditNormalizedMonthDay(
+        monthText: draft.startMonthText,
+        dayText: draft.startDayText
+    )
+
+    task.text = draft.normalizedName
+    task.startMonth = startMonth
+    task.startDay = startDay
+    task.normalizeStartDate()
+    return task
+}
