@@ -83,42 +83,23 @@ struct QuickEditView: View {
     }
 
     private func taskKey(for task: MyTaskItem) -> String {
-        task.id.uuidString
+        quickEditTaskKey(task)
     }
 
     private func historyTaskKey(for record: TaskHistoryRecord) -> String {
-        "history:\(record.key)"
+        quickEditHistoryTaskKey(record)
     }
 
     private var libraryTaskIDs: Set<UUID> {
-        Set(library.tasks.map(\.id) + library.groups.flatMap { $0.tasks.map(\.id) })
+        quickEditLibraryTaskIDs(library: library)
     }
 
     private var historyBySourceTaskID: [UUID: TaskHistoryRecord] {
-        var result: [UUID: TaskHistoryRecord] = [:]
-        for record in taskHistoryRecords {
-            guard let sourceTaskID = record.sourceTaskID else { continue }
-            if let existing = result[sourceTaskID], existing.lastEditedAt >= record.lastEditedAt {
-                continue
-            }
-            result[sourceTaskID] = record
-        }
-        return result
+        quickEditHistoryBySourceTaskID(records: taskHistoryRecords)
     }
 
     private var historyOnlyRecordsSorted: [TaskHistoryRecord] {
-        taskHistoryRecords
-            .filter { record in
-                guard !record.trimmedText.isEmpty else { return false }
-                guard let sourceTaskID = record.sourceTaskID else { return true }
-                return !libraryTaskIDs.contains(sourceTaskID)
-            }
-            .sorted { lhs, rhs in
-                if lhs.lastEditedAt != rhs.lastEditedAt {
-                    return lhs.lastEditedAt > rhs.lastEditedAt
-                }
-                return lhs.key < rhs.key
-            }
+        quickEditHistoryOnlyRecordsSorted(records: taskHistoryRecords, libraryTaskIDs: libraryTaskIDs)
     }
 
     private var unlockedHistoryRecords: [TaskHistoryRecord] {
@@ -127,116 +108,17 @@ struct QuickEditView: View {
     }
 
     private var allTaskCandidates: [QuickEditTaskCandidate] {
-        var candidates: [QuickEditTaskCandidate] = []
-        var seenIDs = Set<String>()
-
-        for index in library.tasks.indices {
-            let task = library.tasks[index]
-            guard !task.trimmedText.isEmpty else { continue }
-            let key = taskKey(for: task)
-            guard !seenIDs.contains(key) else { continue }
-            candidates.append(QuickEditTaskCandidate(id: key, task: task))
-            seenIDs.insert(key)
-        }
-
-        for group in library.groups {
-            for index in group.tasks.indices {
-                let task = group.tasks[index]
-                guard !task.trimmedText.isEmpty else { continue }
-                let key = taskKey(for: task)
-                guard !seenIDs.contains(key) else { continue }
-                candidates.append(QuickEditTaskCandidate(id: key, task: task))
-                seenIDs.insert(key)
-            }
-        }
-
-        for record in unlockedHistoryRecords {
-            let key = historyTaskKey(for: record)
-            guard !seenIDs.contains(key) else { continue }
-            candidates.append(
-                QuickEditTaskCandidate(
-                    id: key,
-                    task: MyTaskItem(
-                        text: record.trimmedText,
-                        startMonth: record.startMonth,
-                        startDay: record.startDay
-                    )
-                )
-            )
-            seenIDs.insert(key)
-        }
-
-        return candidates
+        quickEditAllTaskCandidates(library: library, unlockedHistoryRecords: unlockedHistoryRecords)
     }
 
     private var filteredTaskItems: [QuickEditFilteredTaskItem] {
-        switch activeFilter {
-        case .all:
-            var items: [QuickEditFilteredTaskItem] = library.tasks.indices.compactMap { index in
-                let task = library.tasks[index]
-                guard !task.trimmedText.isEmpty else { return nil }
-                let operationDate = historyBySourceTaskID[task.id]?.lastEditedAt ?? .distantPast
-                return QuickEditFilteredTaskItem(
-                    id: taskKey(for: task),
-                    source: .library(.standalone(index)),
-                    task: task,
-                    operationDate: operationDate,
-                    isLocked: false
-                )
-            }
-
-            for group in library.groups {
-                items.append(contentsOf: group.tasks.indices.compactMap { index in
-                    let task = group.tasks[index]
-                    guard !task.trimmedText.isEmpty else { return nil }
-                    let operationDate = historyBySourceTaskID[task.id]?.lastEditedAt ?? .distantPast
-                    return QuickEditFilteredTaskItem(
-                        id: taskKey(for: task),
-                        source: .library(.group(group.id, index)),
-                        task: task,
-                        operationDate: operationDate,
-                        isLocked: false
-                    )
-                })
-            }
-
-            let historyItems = historyOnlyRecordsSorted.enumerated().map { index, record in
-                let isLocked = !isPremiumUser && index >= AppSettings.freeHistoryTasksVisibleCount
-                return QuickEditFilteredTaskItem(
-                    id: historyTaskKey(for: record),
-                    source: .history,
-                    task: MyTaskItem(
-                        text: record.trimmedText,
-                        startMonth: record.startMonth,
-                        startDay: record.startDay
-                    ),
-                    operationDate: record.lastEditedAt,
-                    isLocked: isLocked
-                )
-            }
-            items.append(contentsOf: historyItems)
-
-            return items.sorted { lhs, rhs in
-                if lhs.operationDate != rhs.operationDate {
-                    return lhs.operationDate > rhs.operationDate
-                }
-                return lhs.id < rhs.id
-            }
-        case .group(let groupID):
-            guard let group = library.groups.first(where: { $0.id == groupID }) else { return [] }
-            return group.tasks.indices.compactMap { index in
-                let task = group.tasks[index]
-                guard !task.trimmedText.isEmpty else { return nil }
-                let operationDate = historyBySourceTaskID[task.id]?.lastEditedAt ?? .distantPast
-                return QuickEditFilteredTaskItem(
-                    id: taskKey(for: task),
-                    source: .library(.group(groupID, index)),
-                    task: task,
-                    operationDate: operationDate,
-                    isLocked: false
-                )
-            }
-        }
+        quickEditFilteredTaskItems(
+            activeFilter: activeFilter,
+            library: library,
+            historyBySourceTaskID: historyBySourceTaskID,
+            historyOnlyRecordsSorted: historyOnlyRecordsSorted,
+            isPremiumUser: isPremiumUser
+        )
     }
 
     private var candidateTaskMap: [String: MyTaskItem] {

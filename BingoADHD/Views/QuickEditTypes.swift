@@ -339,3 +339,159 @@ func quickEditEmptyPreviewSlots(count: Int) -> [QuickEditPreviewSlot] {
     guard count > 0 else { return [] }
     return (0..<count).map { _ in QuickEditPreviewSlot() }
 }
+
+func quickEditTaskKey(_ task: MyTaskItem) -> String {
+    task.id.uuidString
+}
+
+func quickEditHistoryTaskKey(_ record: TaskHistoryRecord) -> String {
+    "history:\(record.key)"
+}
+
+func quickEditLibraryTaskIDs(library: MyTasksLibrary) -> Set<UUID> {
+    Set(library.tasks.map(\.id) + library.groups.flatMap { $0.tasks.map(\.id) })
+}
+
+func quickEditHistoryBySourceTaskID(records: [TaskHistoryRecord]) -> [UUID: TaskHistoryRecord] {
+    var result: [UUID: TaskHistoryRecord] = [:]
+    for record in records {
+        guard let sourceTaskID = record.sourceTaskID else { continue }
+        if let existing = result[sourceTaskID], existing.lastEditedAt >= record.lastEditedAt {
+            continue
+        }
+        result[sourceTaskID] = record
+    }
+    return result
+}
+
+func quickEditHistoryOnlyRecordsSorted(records: [TaskHistoryRecord], libraryTaskIDs: Set<UUID>) -> [TaskHistoryRecord] {
+    records
+        .filter { record in
+            guard !record.trimmedText.isEmpty else { return false }
+            guard let sourceTaskID = record.sourceTaskID else { return true }
+            return !libraryTaskIDs.contains(sourceTaskID)
+        }
+        .sorted { lhs, rhs in
+            if lhs.lastEditedAt != rhs.lastEditedAt {
+                return lhs.lastEditedAt > rhs.lastEditedAt
+            }
+            return lhs.key < rhs.key
+        }
+}
+
+func quickEditAllTaskCandidates(library: MyTasksLibrary, unlockedHistoryRecords: [TaskHistoryRecord]) -> [QuickEditTaskCandidate] {
+    var candidates: [QuickEditTaskCandidate] = []
+    var seenIDs = Set<String>()
+
+    for task in library.tasks {
+        guard !task.trimmedText.isEmpty else { continue }
+        let key = quickEditTaskKey(task)
+        guard !seenIDs.contains(key) else { continue }
+        candidates.append(QuickEditTaskCandidate(id: key, task: task))
+        seenIDs.insert(key)
+    }
+
+    for group in library.groups {
+        for task in group.tasks {
+            guard !task.trimmedText.isEmpty else { continue }
+            let key = quickEditTaskKey(task)
+            guard !seenIDs.contains(key) else { continue }
+            candidates.append(QuickEditTaskCandidate(id: key, task: task))
+            seenIDs.insert(key)
+        }
+    }
+
+    for record in unlockedHistoryRecords {
+        let key = quickEditHistoryTaskKey(record)
+        guard !seenIDs.contains(key) else { continue }
+        candidates.append(
+            QuickEditTaskCandidate(
+                id: key,
+                task: MyTaskItem(
+                    text: record.trimmedText,
+                    startMonth: record.startMonth,
+                    startDay: record.startDay
+                )
+            )
+        )
+        seenIDs.insert(key)
+    }
+
+    return candidates
+}
+
+func quickEditFilteredTaskItems(
+    activeFilter: QuickEditFilterTab,
+    library: MyTasksLibrary,
+    historyBySourceTaskID: [UUID: TaskHistoryRecord],
+    historyOnlyRecordsSorted: [TaskHistoryRecord],
+    isPremiumUser: Bool
+) -> [QuickEditFilteredTaskItem] {
+    switch activeFilter {
+    case .all:
+        var items: [QuickEditFilteredTaskItem] = library.tasks.indices.compactMap { index in
+            let task = library.tasks[index]
+            guard !task.trimmedText.isEmpty else { return nil }
+            let operationDate = historyBySourceTaskID[task.id]?.lastEditedAt ?? .distantPast
+            return QuickEditFilteredTaskItem(
+                id: quickEditTaskKey(task),
+                source: .library(.standalone(index)),
+                task: task,
+                operationDate: operationDate,
+                isLocked: false
+            )
+        }
+
+        for group in library.groups {
+            items.append(contentsOf: group.tasks.indices.compactMap { index in
+                let task = group.tasks[index]
+                guard !task.trimmedText.isEmpty else { return nil }
+                let operationDate = historyBySourceTaskID[task.id]?.lastEditedAt ?? .distantPast
+                return QuickEditFilteredTaskItem(
+                    id: quickEditTaskKey(task),
+                    source: .library(.group(group.id, index)),
+                    task: task,
+                    operationDate: operationDate,
+                    isLocked: false
+                )
+            })
+        }
+
+        let historyItems = historyOnlyRecordsSorted.enumerated().map { index, record in
+            let isLocked = !isPremiumUser && index >= AppSettings.freeHistoryTasksVisibleCount
+            return QuickEditFilteredTaskItem(
+                id: quickEditHistoryTaskKey(record),
+                source: .history,
+                task: MyTaskItem(
+                    text: record.trimmedText,
+                    startMonth: record.startMonth,
+                    startDay: record.startDay
+                ),
+                operationDate: record.lastEditedAt,
+                isLocked: isLocked
+            )
+        }
+        items.append(contentsOf: historyItems)
+
+        return items.sorted { lhs, rhs in
+            if lhs.operationDate != rhs.operationDate {
+                return lhs.operationDate > rhs.operationDate
+            }
+            return lhs.id < rhs.id
+        }
+    case .group(let groupID):
+        guard let group = library.groups.first(where: { $0.id == groupID }) else { return [] }
+        return group.tasks.indices.compactMap { index in
+            let task = group.tasks[index]
+            guard !task.trimmedText.isEmpty else { return nil }
+            let operationDate = historyBySourceTaskID[task.id]?.lastEditedAt ?? .distantPast
+            return QuickEditFilteredTaskItem(
+                id: quickEditTaskKey(task),
+                source: .library(.group(groupID, index)),
+                task: task,
+                operationDate: operationDate,
+                isLocked: false
+            )
+        }
+    }
+}
