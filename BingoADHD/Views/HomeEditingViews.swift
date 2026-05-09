@@ -1059,7 +1059,7 @@ struct QuickEditView: View {
         }
 
         for (dateKey, tasks) in BingoTimeoutStore.loadAllPayload() {
-            let date = parseDateKey(dateKey) ?? now
+            let date = quickEditParseDateKey(dateKey) ?? now
             for task in tasks.keys {
                 let trimmed = task.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
@@ -1071,15 +1071,6 @@ struct QuickEditView: View {
         if insertedAny {
             taskHistoryRecords = TaskHistoryStore.load()
         }
-    }
-
-    private func parseDateKey(_ key: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone.current
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.date(from: key)
     }
 
     private func startAddingTaskInline() {
@@ -1302,20 +1293,6 @@ struct QuickEditView: View {
         dismiss()
     }
 
-    private func initialSelectedKeys(from taskTexts: [String], candidates: [QuickEditTaskCandidate]) -> [String] {
-        var pendingByText = Dictionary(grouping: candidates, by: { $0.task.trimmedText })
-        var resolved: [String] = []
-
-        for text in taskTexts {
-            guard var list = pendingByText[text], let candidate = list.first else { continue }
-            resolved.append(candidate.id)
-            list.removeFirst()
-            pendingByText[text] = list
-        }
-
-        return resolved
-    }
-
     private func syncSelectedTaskKeysWithCurrentLibrary() {
         let validKeys = Set(allTaskCandidates.map(\.id))
         selectedTaskKeys = selectedTaskKeys.filter { validKeys.contains($0) }
@@ -1329,7 +1306,7 @@ struct QuickEditView: View {
         if slots.count >= totalGridSlots {
             return Array(slots.prefix(totalGridSlots))
         }
-        return slots + emptyPreviewSlots(count: totalGridSlots - slots.count)
+        return slots + quickEditEmptyPreviewSlots(count: totalGridSlots - slots.count)
     }
 
     private func adjustPreviewSlotCount() {
@@ -1341,7 +1318,7 @@ struct QuickEditView: View {
         if previewSlots.count > totalGridSlots {
             previewSlots = Array(previewSlots.prefix(totalGridSlots))
         } else if previewSlots.count < totalGridSlots {
-            previewSlots.append(contentsOf: emptyPreviewSlots(count: totalGridSlots - previewSlots.count))
+            previewSlots.append(contentsOf: quickEditEmptyPreviewSlots(count: totalGridSlots - previewSlots.count))
         }
     }
 
@@ -1376,13 +1353,8 @@ struct QuickEditView: View {
 
         previewSlots = Array(activeTasks.prefix(totalGridSlots))
         if previewSlots.count < totalGridSlots {
-            previewSlots.append(contentsOf: emptyPreviewSlots(count: totalGridSlots - previewSlots.count))
+            previewSlots.append(contentsOf: quickEditEmptyPreviewSlots(count: totalGridSlots - previewSlots.count))
         }
-    }
-
-    private func emptyPreviewSlots(count: Int) -> [PreviewSlot] {
-        guard count > 0 else { return [] }
-        return (0..<count).map { _ in PreviewSlot() }
     }
 
     private func syncPreviewSlotsWithCurrentLibrary() {

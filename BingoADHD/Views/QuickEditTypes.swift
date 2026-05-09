@@ -325,3 +325,17 @@ func quickEditSaveSuccessMessage(previous: MyTasksLibrary, current: MyTasksLibra
 
     return nil
 }
+
+func quickEditParseDateKey(_ key: String) -> Date? {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.date(from: key)
+}
+
+func quickEditEmptyPreviewSlots(count: Int) -> [QuickEditPreviewSlot] {
+    guard count > 0 else { return [] }
+    return (0..<count).map { _ in QuickEditPreviewSlot() }
+}
