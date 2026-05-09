@@ -74,20 +74,8 @@ struct QuickEditView: View {
         quickEditCanAddGroup(isPremiumUser: isPremiumUser, library: library)
     }
 
-    private func canAddTask(to group: MyTaskGroup) -> Bool {
-        quickEditCanAddTask(to: group, isPremiumUser: isPremiumUser)
-    }
-
     private var maxGridSizeForCurrentPlan: Int {
         quickEditMaxGridSizeForCurrentPlan(isPremiumUser: isPremiumUser)
-    }
-
-    private func taskKey(for task: MyTaskItem) -> String {
-        quickEditTaskKey(task)
-    }
-
-    private func historyTaskKey(for record: TaskHistoryRecord) -> String {
-        quickEditHistoryTaskKey(record)
     }
 
     private var libraryTaskIDs: Set<UUID> {
@@ -150,7 +138,7 @@ struct QuickEditView: View {
     }
 
     private var activeGroupTaskKeys: [String] {
-        activeGroupTasks.map(taskKey(for:))
+        activeGroupTasks.map(quickEditTaskKey)
     }
     var body: some View {
         NavigationStack {
@@ -773,13 +761,10 @@ struct QuickEditView: View {
 
     private func syncLibraryTask(forTaskKey key: String, with newTask: MyTaskItem) {
         guard let location = taskLocation(forTaskKey: key),
-              var existingTask = task(for: location) else { return }
-        existingTask.text = newTask.trimmedText
-        existingTask.startMonth = newTask.startMonth
-        existingTask.startDay = newTask.startDay
-        existingTask.normalizeStartDate()
-        setTask(existingTask, for: location)
-        recordTaskHistory(existingTask, sourceTaskID: existingTask.id)
+              let existingTask = task(for: location) else { return }
+        let syncedTask = quickEditSyncedTask(existingTask: existingTask, newTask: newTask)
+        setTask(syncedTask, for: location)
+        recordTaskHistory(syncedTask, sourceTaskID: syncedTask.id)
     }
 
     private func taskLocation(forTaskKey key: String) -> QuickEditTaskLocation? {
@@ -847,17 +832,16 @@ struct QuickEditView: View {
     }
 
     private func startAddingTaskInline() {
-        if case .group(let groupID) = activeFilter,
-           let group = library.groups.first(where: { $0.id == groupID }) {
-            guard canAddTask(to: group) else {
-                presentPremiumPaywallForLimit(source: "group_task_limit_inline")
-                return
-            }
-        } else {
-            guard canAddStandaloneTask else {
-                presentPremiumPaywallForLimit(source: "standalone_task_limit_inline")
-                return
-            }
+        switch quickEditStartInlineAddDecision(
+            activeFilter: activeFilter,
+            library: library,
+            isPremiumUser: isPremiumUser
+        ) {
+        case .paywall(let source):
+            presentPremiumPaywallForLimit(source: source)
+            return
+        case .allowed:
+            break
         }
 
         isAddingTaskInline = true
@@ -878,37 +862,32 @@ struct QuickEditView: View {
     }
 
     private func commitAddingTaskInline() {
-        let text = String(newTaskDraft.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        let (startMonth, startDay) = quickEditNormalizedMonthDay(monthText: newTaskStartMonthDraft, dayText: newTaskStartDayDraft)
-        let task = MyTaskItem(text: text, startMonth: startMonth, startDay: startDay)
+        let result = quickEditCommitInlineTask(
+            draftText: newTaskDraft,
+            monthText: newTaskStartMonthDraft,
+            dayText: newTaskStartDayDraft,
+            activeFilter: activeFilter,
+            isPremiumUser: isPremiumUser,
+            library: &library
+        )
 
-        switch activeFilter {
-        case .all:
-            guard canAddStandaloneTask else {
-                presentPremiumPaywallForLimit(source: "standalone_task_limit_commit")
-                return
-            }
-            library.tasks.append(task)
+        switch result {
+        case .noOp:
+            return
+        case .paywall(let source):
+            presentPremiumPaywallForLimit(source: source)
+            return
+        case .resetFilterToAll:
+            activeFilter = .all
+            return
+        case .appended(let task):
             recordTaskHistory(task, sourceTaskID: task.id)
-        case .group(let groupID):
-            guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }) else {
-                activeFilter = .all
-                return
-            }
-            guard canAddTask(to: library.groups[groupIndex]) else {
-                presentPremiumPaywallForLimit(source: "group_task_limit_commit")
-                return
-            }
-            library.groups[groupIndex].tasks.append(task)
-            recordTaskHistory(task, sourceTaskID: task.id)
+            isAddingTaskInline = false
+            newTaskDraft = ""
+            newTaskStartMonthDraft = ""
+            newTaskStartDayDraft = ""
+            focusedField = nil
         }
-
-        isAddingTaskInline = false
-        newTaskDraft = ""
-        newTaskStartMonthDraft = ""
-        newTaskStartDayDraft = ""
-        focusedField = nil
     }
 
     private func presentAddGroupModal() {
@@ -930,18 +909,20 @@ struct QuickEditView: View {
     }
 
     private func commitAddGroup() {
-        guard canAddGroup else {
-            presentPremiumPaywallForLimit(source: "group_limit_commit")
+        let result = quickEditCommitAddGroup(
+            nameDraft: newGroupNameDraft,
+            isPremiumUser: isPremiumUser,
+            library: &library
+        )
+        switch result {
+        case .noOp:
             return
+        case .paywall(let source):
+            presentPremiumPaywallForLimit(source: source)
+        case .appended(let group):
+            activeFilter = .group(group.id)
+            dismissAddGroupModal()
         }
-
-        let trimmedName = String(newGroupNameDraft.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return }
-
-        let group = MyTaskGroup(name: trimmedName, tasks: [])
-        library.groups.append(group)
-        activeFilter = .group(group.id)
-        dismissAddGroupModal()
     }
 
     private func taskBinding(for index: Int) -> Binding<String> {

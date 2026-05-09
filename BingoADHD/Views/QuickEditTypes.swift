@@ -882,3 +882,97 @@ func quickEditLegacyHistoryItemsFromTimeoutPayload(
     }
     return items
 }
+
+enum QuickEditInlineStartResult {
+    case allowed
+    case paywall(String)
+}
+
+func quickEditStartInlineAddDecision(
+    activeFilter: QuickEditFilterTab,
+    library: MyTasksLibrary,
+    isPremiumUser: Bool
+) -> QuickEditInlineStartResult {
+    if case .group(let groupID) = activeFilter,
+       let group = library.groups.first(where: { $0.id == groupID }) {
+        return quickEditCanAddTask(to: group, isPremiumUser: isPremiumUser)
+            ? .allowed
+            : .paywall("group_task_limit_inline")
+    }
+
+    return quickEditCanAddStandaloneTask(isPremiumUser: isPremiumUser, library: library)
+        ? .allowed
+        : .paywall("standalone_task_limit_inline")
+}
+
+enum QuickEditInlineCommitResult {
+    case noOp
+    case paywall(String)
+    case resetFilterToAll
+    case appended(MyTaskItem)
+}
+
+func quickEditCommitInlineTask(
+    draftText: String,
+    monthText: String,
+    dayText: String,
+    activeFilter: QuickEditFilterTab,
+    isPremiumUser: Bool,
+    library: inout MyTasksLibrary
+) -> QuickEditInlineCommitResult {
+    let text = String(draftText.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty else { return .noOp }
+
+    let (startMonth, startDay) = quickEditNormalizedMonthDay(monthText: monthText, dayText: dayText)
+    let task = MyTaskItem(text: text, startMonth: startMonth, startDay: startDay)
+
+    switch activeFilter {
+    case .all:
+        guard quickEditCanAddStandaloneTask(isPremiumUser: isPremiumUser, library: library) else {
+            return .paywall("standalone_task_limit_commit")
+        }
+        library.tasks.append(task)
+        return .appended(task)
+    case .group(let groupID):
+        guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }) else {
+            return .resetFilterToAll
+        }
+        guard quickEditCanAddTask(to: library.groups[groupIndex], isPremiumUser: isPremiumUser) else {
+            return .paywall("group_task_limit_commit")
+        }
+        library.groups[groupIndex].tasks.append(task)
+        return .appended(task)
+    }
+}
+
+func quickEditSyncedTask(existingTask: MyTaskItem, newTask: MyTaskItem) -> MyTaskItem {
+    var task = existingTask
+    task.text = newTask.trimmedText
+    task.startMonth = newTask.startMonth
+    task.startDay = newTask.startDay
+    task.normalizeStartDate()
+    return task
+}
+
+enum QuickEditAddGroupCommitResult {
+    case noOp
+    case paywall(String)
+    case appended(MyTaskGroup)
+}
+
+func quickEditCommitAddGroup(
+    nameDraft: String,
+    isPremiumUser: Bool,
+    library: inout MyTasksLibrary
+) -> QuickEditAddGroupCommitResult {
+    guard quickEditCanAddGroup(isPremiumUser: isPremiumUser, library: library) else {
+        return .paywall("group_limit_commit")
+    }
+
+    let trimmedName = String(nameDraft.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedName.isEmpty else { return .noOp }
+
+    let group = MyTaskGroup(name: trimmedName, tasks: [])
+    library.groups.append(group)
+    return .appended(group)
+}
