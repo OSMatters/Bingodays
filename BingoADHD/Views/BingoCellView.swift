@@ -32,13 +32,12 @@ struct BingoCellView: View {
     @State private var cancelledLongPressByMovement = false
     @State private var longPressRecognitionWorkItem: DispatchWorkItem?
 
+    private let boardSurfaceColor = Color(hex: "F4F4F4")
     private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
-    private var boardSurfaceColor: Color { NeumorphicColors.innerSurface }
     private var bingoLineColor: Color { activeTheme.color }
-    private var selectedColor: Color { activeTheme.bingoSurfaceShadowColor }
-    private var primaryTextColor: Color { NeumorphicColors.text }
-    private var cellShadowDark: Color { NeumorphicColors.darkShadow.opacity(0.70) }
-    private var cellShadowLight: Color { NeumorphicColors.lightShadow.opacity(0.70) }
+    private var selectedColor: Color { reducedSaturationColor(from: activeTheme.color, by: 0.30) }
+    private let primaryTextColor = Color(hex: "291E0A")
+    private let cellCornerRadius: CGFloat = 12
     private var isPadLayout: Bool { horizontalSizeClass == .regular }
     private var isTaskHiddenFaceVisible: Bool { cell.isCompleted && cell.isTaskHidden && !cell.isEmpty }
 
@@ -52,11 +51,10 @@ struct BingoCellView: View {
                 .opacity(isTaskHiddenFaceVisible ? 1 : 0)
         }
         .rotation3DEffect(.degrees(isTaskHiddenFaceVisible ? 180 : 0), axis: (x: 0, y: 1, z: 0))
-        .overlay(alignment: .topTrailing) {
+        .overlay(alignment: .top) {
             if comboBadgeVisible {
                 comboBadge
-                    .padding(8)
-                    .offset(x: 2, y: -2)
+                    .padding(.top, 4)
             }
         }
         .frame(width: cellSize, height: cellSize)
@@ -67,7 +65,7 @@ struct BingoCellView: View {
         .animation(.interactiveSpring(response: 0.22, dampingFraction: 0.8), value: interactionScale)
         .animation(.easeInOut(duration: 0.18), value: isDragSource)
         .animation(.easeInOut(duration: 0.18), value: isDropTarget)
-        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .contentShape(RoundedRectangle(cornerRadius: cellCornerRadius))
 
         if isInteractive {
             baseView
@@ -96,6 +94,9 @@ struct BingoCellView: View {
                     touchStartDate = Date()
                     cancelledLongPressByMovement = false
                     debugGesture("touch began")
+                    if isHapticsEnabled {
+                        AppHaptics.prepareForInteraction()
+                    }
                     scheduleLongPressRecognition()
                 }
 
@@ -244,8 +245,6 @@ struct BingoCellView: View {
             if !isDragSource {
                 if isLocked {
                     lockOverlay
-                } else if isInBingoLine {
-                    bingoLineContent
                 } else if !cell.isEmpty {
                     ZStack(alignment: .bottom) {
                         Text(cell.text)
@@ -345,8 +344,11 @@ struct BingoCellView: View {
     }
 
     private var cellTextColor: Color {
-        if cell.isCompleted {
+        if isInBingoLine {
             return .white
+        }
+        if cell.isCompleted {
+            return primaryTextColor
         }
         if isScheduledInactive {
             return primaryTextColor.opacity(0.38)
@@ -412,44 +414,41 @@ struct BingoCellView: View {
     }
 
     private var backgroundSurface: some View {
-        let baseShape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        let baseShape = RoundedRectangle(cornerRadius: cellCornerRadius, style: .continuous)
 
         return Group {
             if isDragSource || isDropTarget {
-                Color.clear.neumorphicConcave(radius: 12)
+                baseShape
+                    .fill(boardSurfaceColor)
+                    .opacity(0.78)
             } else if isInBingoLine {
                 baseShape
                     .fill(bingoLineColor)
-                    .shadow(color: cellShadowDark, radius: 12, x: 6, y: 6)
-                    .shadow(color: cellShadowLight, radius: 12, x: -6, y: -6)
             } else if cell.isCompleted {
                 baseShape
                     .fill(selectedColor)
             } else if isTouching && !isLocked {
                 baseShape
                     .fill(boardSurfaceColor)
-                    .shadow(color: cellShadowDark.opacity(0.95), radius: 8, x: 4, y: 4)
-                    .shadow(color: cellShadowLight.opacity(0.95), radius: 8, x: -4, y: -4)
+                    .opacity(0.92)
             } else {
                 baseShape
                     .fill(boardSurfaceColor)
-                    .shadow(color: cellShadowDark, radius: 12, x: 6, y: 6)
-                    .shadow(color: cellShadowLight, radius: 12, x: -6, y: -6)
             }
         }
         .overlay {
             if isLocked && !isInBingoLine {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: cellCornerRadius)
                     .fill(boardSurfaceColor.opacity(0.62))
             }
 
             if isScheduledInactive && !isInBingoLine {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: cellCornerRadius)
                     .fill(Color.white.opacity(0.2))
             }
 
             if isDropTarget {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: cellCornerRadius)
                     .stroke(
                         bingoLineColor.opacity(0.55),
                         style: StrokeStyle(lineWidth: 2, dash: [6, 6])
@@ -458,7 +457,7 @@ struct BingoCellView: View {
             }
 
             if isDragSource {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: cellCornerRadius)
                     .stroke(
                         primaryTextColor.opacity(0.2),
                         style: StrokeStyle(lineWidth: 2, dash: [5, 5])
@@ -469,12 +468,8 @@ struct BingoCellView: View {
     }
 
     private var hiddenBackgroundSurface: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(selectedColor)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color.white.opacity(0.28), lineWidth: 1)
-            )
+        RoundedRectangle(cornerRadius: cellCornerRadius, style: .continuous)
+            .fill(isInBingoLine ? bingoLineColor : selectedColor)
     }
 
     private func completionIcon(isLarge: Bool) -> some View {
@@ -488,7 +483,11 @@ struct BingoCellView: View {
 
             Image(systemName: "checkmark")
                 .font(.appSystem(size: size * 0.5, weight: .bold))
-                .foregroundColor(activeTheme.bingoSurfaceColor)
+                .foregroundColor(
+                    isInBingoLine
+                        ? activeTheme.color
+                        : reducedSaturationColor(from: activeTheme.color, by: 0.30)
+                )
         }
         .frame(width: size, height: size)
     }
@@ -499,8 +498,6 @@ struct BingoCellView: View {
         return ZStack {
             Circle()
                 .fill(boardSurfaceColor)
-                .shadow(color: NeumorphicColors.darkShadow.opacity(0.25), radius: 4, x: 2, y: 2)
-                .shadow(color: NeumorphicColors.lightShadow.opacity(0.85), radius: 4, x: -2, y: -2)
 
             Image(systemName: "lock.fill")
                 .font(.appSystem(size: size * 0.42, weight: .bold))
@@ -524,6 +521,25 @@ struct BingoCellView: View {
 #else
         _ = message
 #endif
+    }
+
+    private func reducedSaturationColor(from color: Color, by amount: CGFloat) -> Color {
+        let ui = UIColor(color)
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        guard ui.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha) else {
+            return color
+        }
+
+        return Color(
+            hue: Double(hue),
+            saturation: Double(max(0, saturation - amount)),
+            brightness: Double(brightness),
+            opacity: Double(alpha)
+        )
     }
 
     private func scheduleLongPressRecognition() {

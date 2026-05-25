@@ -14,6 +14,7 @@ struct TimeoutDialogBackdrop: View {
 
 struct TimeoutDialogCard: View {
     let headline: String
+    let boardNameLabel: String?
     let isPadLayout: Bool
     let onPrimaryAction: () -> Void
     let onSecondaryAction: () -> Void
@@ -34,6 +35,17 @@ struct TimeoutDialogCard: View {
                 .minimumScaleFactor(0.75)
                 .padding(.top, 8)
                 .padding(.horizontal, 14)
+
+            if let boardNameLabel, !boardNameLabel.isEmpty {
+                Text(boardNameLabel)
+                    .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+                    .foregroundColor(Color.black.opacity(0.58))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.78)
+                    .padding(.top, 10)
+                    .padding(.horizontal, 18)
+            }
 
             Button(action: onPrimaryAction) {
                 Text(L10n.markAsCompleted)

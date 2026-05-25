@@ -185,29 +185,35 @@ struct BoardResetCoordinator {
 
         for index in namedBoards.indices {
             let board = namedBoards[index]
+            let usesCustomResetTime = boardUsesCustomResetTime(board)
+            let customResetDue = usesCustomResetTime
+                ? shouldApplyCustomReset(for: board, now: now, calendar: calendar)
+                : false
             let alreadyAppliedToday: Bool = {
                 guard let lastApplied = board.lastTaskResetAppliedAt else { return false }
                 return calendar.isDate(lastApplied, inSameDayAs: now)
             }()
             let shouldApplyBySchedule: Bool = {
-                if boardUsesCustomResetTime(board) {
-                    return shouldApplyCustomReset(for: board, now: now, calendar: calendar)
+                if usesCustomResetTime {
+                    return customResetDue
                 }
                 switch board.taskResetMode {
                 case .resetStatusNextDay, .clearTasksNextDay:
                     return !alreadyAppliedToday
                 case .customResetStatusTime:
-                    return shouldApplyCustomReset(for: board, now: now, calendar: calendar)
+                    return customResetDue
                 case .keepTaskStatus:
                     return false
                 }
             }()
             let shouldForceApplyForStaleCompletion =
-                (board.taskResetMode == .resetStatusNextDay || board.taskResetMode == .customResetStatusTime) &&
+                !usesCustomResetTime &&
+                board.taskResetMode == .resetStatusNextDay &&
                 Self.boardHasStaleCompletedTasks(board, referenceDate: now, calendar: calendar)
             debugLog(
                 "apply.inspect source=\(source) board=\(index) mode=\(board.taskResetMode.rawValue) " +
                 "customMinutes=\(board.customResetMinutes?.description ?? "nil") " +
+                "usesCustomResetTime=\(usesCustomResetTime) customResetDue=\(customResetDue) " +
                 "alreadyAppliedToday=\(alreadyAppliedToday) shouldApplyBySchedule=\(shouldApplyBySchedule) " +
                 "staleForce=\(shouldForceApplyForStaleCompletion) " +
                 "completedCount=\(Self.completedTaskCount(in: board)) lastApplied=\(board.lastTaskResetAppliedAt?.description ?? "nil")"
@@ -397,6 +403,8 @@ struct BoardResetCoordinator {
                     fullBoard[row][col].isCompleted = false
                     fullBoard[row][col].isTaskHidden = false
                     fullBoard[row][col].countdownEndsAt = nil
+                    fullBoard[row][col].countdownPausedRemainingSeconds = nil
+                    fullBoard[row][col].estimatedDurationMinutes = nil
                 }
             }
             normalizeForceFlagsForBoardReset(&fullBoard, referenceDate: referenceDate)
@@ -442,6 +450,8 @@ struct BoardResetCoordinator {
             updated.isTaskHidden = false
             updated.isForced = false
             updated.countdownEndsAt = nil
+            updated.countdownPausedRemainingSeconds = nil
+            updated.estimatedDurationMinutes = nil
             updated.completionStreakCount = 0
             updated.lastCompletedAt = nil
             updated.isCompleted = false

@@ -9,99 +9,94 @@ struct UpdatePromptOverlayView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.16)
+            Color.black.opacity(0.78)
                 .ignoresSafeArea()
                 .onTapGesture(perform: onSkip)
 
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                changeList
-                actions
-                    .padding(.top, 22)
+            VStack(spacing: 0) {
+                hero
+
+                VStack(spacing: scaled(14, pad: 18)) {
+                    Text(L10n.updateWhatsNewTitle)
+                        .font(.appSystem(size: scaled(19, pad: 23), weight: .semibold, design: .rounded))
+                        .foregroundColor(updateTextColor)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, scaled(32, pad: 40))
+
+                    changeList
+
+                    Button(action: onUpdate) {
+                        Text(L10n.updatePrimaryAction)
+                            .font(.appSystem(size: scaled(16, pad: 18), weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: scaled(58, pad: 66))
+                            .background(
+                                Capsule()
+                                    .fill(updateButtonColor)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, scaled(18, pad: 24))
+                }
+                .padding(.horizontal, scaled(34, pad: 44))
+                .padding(.bottom, scaled(34, pad: 44))
+                .background(updateBodyColor)
             }
-            .padding(22)
-            .frame(maxWidth: isPadLayout ? 560 : 350)
-            .background(cardBackground)
-            .padding(.horizontal, 24)
+            .frame(maxWidth: isPadLayout ? 500 : 360)
+            .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
+            .padding(.horizontal, 20)
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(L10n.updateWhatsNewTitle)
-                .font(.appSystem(size: scaled(20, pad: 26), weight: .heavy, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+    private var hero: some View {
+        ZStack(alignment: .topTrailing) {
+            Image("UpdatePromptImage")
+                .resizable()
+                .scaledToFill()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
 
-            Text(L10n.updateVersionTitle(latestVersion))
-                .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.58))
+            Button(action: onSkip) {
+                Image(systemName: "xmark")
+                    .font(.appSystem(size: scaled(21, pad: 25), weight: .medium))
+                    .foregroundColor(updateTextColor)
+                    .frame(width: scaled(40, pad: 46), height: scaled(40, pad: 46))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, scaled(12, pad: 14))
+            .padding(.trailing, scaled(12, pad: 14))
         }
+        .frame(height: scaled(133, pad: 184))
     }
 
     private var changeList: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: scaled(12, pad: 15)) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                HStack(alignment: .top, spacing: 10) {
-                    Text("\(index + 1)")
-                        .font(.appSystem(size: scaled(11, pad: 13), weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                        .frame(width: scaled(20, pad: 24), height: scaled(20, pad: 24))
-                        .background(
-                            Circle()
-                                .fill(NeumorphicColors.accent)
-                                .shadow(color: NeumorphicColors.accent.opacity(0.28), radius: 6, x: 0, y: 3)
-                        )
+                HStack(alignment: .top, spacing: 9) {
+                    Text("\(index + 1).")
+                        .font(.appSystem(size: scaled(15, pad: 18), weight: .semibold, design: .rounded))
+                        .foregroundColor(updateTextColor)
+                        .frame(width: scaled(20, pad: 24), alignment: .trailing)
                         .padding(.top, 1)
 
                     Text(item)
-                        .font(.appSystem(size: scaled(13, pad: 16), weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.88))
+                        .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
+                        .foregroundColor(updateTextColor)
                         .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
-    }
-
-    private var actions: some View {
-        HStack(spacing: 12) {
-            Button(action: onSkip) {
-                Text(L10n.updateSecondaryAction)
-                    .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(Color.clear.neumorphicConvex(radius: 18))
-            }
-            .buttonStyle(.plain)
-
-            Button(action: onUpdate) {
-                Text(L10n.updatePrimaryAction)
-                    .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(NeumorphicColors.bingoAccent)
-                            .shadow(color: NeumorphicColors.bingoAccent.opacity(0.24), radius: 10, x: 0, y: 4)
-                    )
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 30, style: .continuous)
-            .fill(NeumorphicColors.background)
-            .overlay(
-                RoundedRectangle(cornerRadius: 30, style: .continuous)
-                    .stroke(NeumorphicColors.lightShadow.opacity(0.42), lineWidth: 1)
-            )
-            .shadow(color: NeumorphicColors.darkShadow.opacity(0.18), radius: 16, x: 0, y: 8)
-            .shadow(color: Color.white.opacity(0.72), radius: 10, x: -4, y: -4)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
         isPadLayout ? (pad ?? base * 1.26) : base
     }
+
+    private var updateBodyColor: Color { Color(hex: "F9F5F2") }
+    private var updateTextColor: Color { Color(hex: "2F261B") }
+    private var updateButtonColor: Color { Color(hex: "D7A879") }
 }

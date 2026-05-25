@@ -15,6 +15,10 @@ enum AppTheme: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    static var selectableCases: [AppTheme] {
+        allCases.filter { ![.indigo, .ocean, .peach].contains($0) }
+    }
+
     var color: Color {
         switch self {
         case .concise:
@@ -246,5 +250,67 @@ extension View {
     
     func neumorphicConcave(radius: CGFloat = 16) -> some View {
         self.modifier(NeumorphicConcaveModifier(radius: radius))
+    }
+
+    @ViewBuilder
+    func appLiquidGlass<S: Shape>(in shape: S, interactive: Bool = true) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(.regular.interactive(interactive), in: shape)
+        } else {
+            self.background {
+                shape
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        shape
+                            .fill(Color.white.opacity(0.24))
+                    )
+                    .overlay(
+                        shape
+                            .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                    )
+                    .overlay(
+                        shape
+                            .stroke(Color.white.opacity(0.24), lineWidth: 3)
+                            .blur(radius: 2.4)
+                            .offset(y: -1)
+                    )
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+            }
+        }
+    }
+}
+
+struct LiquidGlassIconBadge: View {
+    var systemName: String? = nil
+    var imageName: String? = nil
+    var size: CGFloat
+    var iconSize: CGFloat
+    var foregroundColor: Color = NeumorphicColors.text
+    var baseFill: Color? = nil
+
+    var body: some View {
+        ZStack {
+            if let imageName {
+                Image(imageName)
+                    .resizable()
+                    .interpolation(.high)
+                    .renderingMode(.original)
+                    .scaledToFit()
+                    .frame(width: iconSize, height: iconSize)
+            } else if let systemName {
+                Image(systemName: systemName)
+                    .font(.system(size: iconSize, weight: .semibold, design: .rounded))
+                    .foregroundColor(foregroundColor)
+            }
+        }
+        .frame(width: size, height: size)
+        .background {
+            if let baseFill {
+                Circle()
+                    .fill(baseFill)
+            }
+        }
+        .appLiquidGlass(in: Circle(), interactive: true)
+        .contentShape(Circle())
     }
 }

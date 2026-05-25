@@ -7,6 +7,7 @@ struct HomePrimaryCoversModifier: ViewModifier {
     @Binding var selectedStickerID: UUID?
     @Binding var isDiaryPresented: Bool
     @Binding var isPremiumPaywallPresented: Bool
+    @Binding var isLimitedTimeDiscountPresented: Bool
 
     @ObservedObject var viewModel: BingoViewModel
     @ObservedObject var pointsFeatureStore: PointsFeatureStore
@@ -16,11 +17,16 @@ struct HomePrimaryCoversModifier: ViewModifier {
     let totalPoints: Int
     let premiumPaywallSource: String
     let onQuickEditSuccess: (String) -> Void
+    let onQuickEditBoardApplied: () -> Void
 
     func body(content: Content) -> some View {
         content
             .fullScreenCover(isPresented: $isQuickEditPresented) {
-                QuickEditView(viewModel: viewModel, onSaveSuccess: onQuickEditSuccess)
+                QuickEditView(
+                    viewModel: viewModel,
+                    onSaveSuccess: onQuickEditSuccess,
+                    onBoardApplied: onQuickEditBoardApplied
+                )
             }
             .fullScreenCover(isPresented: $isBlackBoxModePresented) {
                 BlackBoxModeEntryView()
@@ -32,8 +38,8 @@ struct HomePrimaryCoversModifier: ViewModifier {
                     totalPoints: totalPoints,
                     pointsFeatureStore: pointsFeatureStore,
                     onAddStickerToHomeSuccess: {
-                        isPointsFlowPresented = false
                         selectedStickerID = nil
+                        isPointsFlowPresented = false
                     }
                 )
             }
@@ -42,6 +48,9 @@ struct HomePrimaryCoversModifier: ViewModifier {
             }
             .fullScreenCover(isPresented: $isPremiumPaywallPresented) {
                 PremiumPaywallView(entrySource: premiumPaywallSource)
+            }
+            .fullScreenCover(isPresented: $isLimitedTimeDiscountPresented) {
+                LimitedTimeDiscountView(entrySource: "home_limited_offer")
             }
     }
 }
@@ -66,6 +75,7 @@ struct HomeBoardAlertsModifier: ViewModifier {
         content
             .alert(L10n.boardCreateTitle, isPresented: $isCreateBoardAlertPresented) {
                 TextField(L10n.boardNamePlaceholder, text: $createBoardNameDraft)
+                    .submitLabel(.done)
                 Button(L10n.cancel, role: .cancel) {
                     createBoardNameDraft = ""
                 }
@@ -75,6 +85,7 @@ struct HomeBoardAlertsModifier: ViewModifier {
             }
             .alert(L10n.boardRenameTitle, isPresented: $isRenameBoardAlertPresented) {
                 TextField(L10n.boardNamePlaceholder, text: $renameBoardNameDraft)
+                    .submitLabel(.done)
                 Button(L10n.cancel, role: .cancel) {
                     renameBoardNameDraft = ""
                     boardPendingRenameID = nil
@@ -111,6 +122,7 @@ struct HomeBoardAlertsModifier: ViewModifier {
     }
 }
 
+// Sheet and cover declarations live together here; ContentView still owns the state transitions.
 struct HomeSheetsModifier: ViewModifier {
     @Binding var isContactUsPresented: Bool
     @Binding var isContactUsCopyToastVisible: Bool
@@ -119,14 +131,17 @@ struct HomeSheetsModifier: ViewModifier {
     @Binding var isBoardRulesPresented: Bool
     @Binding var boardRulesTargetBoardID: UUID?
     @Binding var isGridSizeSheetPresented: Bool
+    @Binding var isTemplateShareComposerPresented: Bool
 
     let boardTemplateImportPreviewDraft: BoardTemplatePayload?
+    let boardTemplateShareDraft: BoardTemplatePayload?
     let shouldImportTemplateAsNewBoard: Bool
     let namedBoards: [BingoBoardStore.NamedBoard]
     let hasPremiumAccess: Bool
     let boardCountdownEndsAt: Date?
     let isPadLayout: Bool
     let onCopyEmail: () -> Void
+    let onOpenFeedbackEmail: () -> Void
     let onApplyImportedTemplate: (BoardTemplatePayload) -> Void
     let onDismissTemplatePreview: () -> Void
     let onTemplateImportSheetHeight: (Int) -> CGFloat
@@ -143,7 +158,8 @@ struct HomeSheetsModifier: ViewModifier {
                     isPresented: $isContactUsPresented,
                     isPadLayout: isPadLayout,
                     isCopyToastVisible: isContactUsCopyToastVisible,
-                    onCopyEmail: onCopyEmail
+                    onCopyEmail: onCopyEmail,
+                    onOpenFeedbackEmail: onOpenFeedbackEmail
                 )
             }
             .sheet(isPresented: $isTemplateImportPreviewPresented) {
@@ -200,6 +216,11 @@ struct HomeSheetsModifier: ViewModifier {
                     .presentationDetents([.height(280)])
                     .presentationDragIndicator(.visible)
                     .presentationBackground(NeumorphicColors.background)
+            }
+            .fullScreenCover(isPresented: $isTemplateShareComposerPresented) {
+                if let template = boardTemplateShareDraft {
+                    BoardTemplateShareComposerView(template: template)
+                }
             }
     }
 }

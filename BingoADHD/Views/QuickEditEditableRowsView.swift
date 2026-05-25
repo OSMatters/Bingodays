@@ -31,6 +31,7 @@ struct QuickEditEditableTaskRow: View {
                 EmptyView()
             }
             .textInputAutocapitalization(.sentences)
+            .submitLabel(.done)
             .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
             .foregroundColor(NeumorphicColors.text)
             .lineLimit(1)
@@ -81,6 +82,7 @@ struct QuickEditInlineNewTaskRow: View {
                     .foregroundColor(placeholderColor)
             )
             .textInputAutocapitalization(.sentences)
+            .submitLabel(.done)
             .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
             .foregroundColor(NeumorphicColors.text)
             .focused(focusBinding, equals: .newTask)

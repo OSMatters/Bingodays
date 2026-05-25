@@ -1,0 +1,13 @@
+{
+  "images" : [
+    {
+      "filename" : "ic_More Feature.png",
+      "idiom" : "universal",
+      "scale" : "2x"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

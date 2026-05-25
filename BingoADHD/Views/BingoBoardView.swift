@@ -27,6 +27,7 @@ struct BingoBoardView: View {
     let currentTime: Date
     let shouldShowCenterLongPressHint: Bool
     var onCellCompletionToggled: (() -> Void)? = nil
+    var onCellReorderActiveChanged: ((Bool) -> Void)? = nil
     @State private var editingTarget: EditingTarget?
     @State private var actionTarget: EditingTarget?
     @State private var dragState: DragState?
@@ -35,11 +36,7 @@ struct BingoBoardView: View {
     @State private var undoDismissWorkItem: DispatchWorkItem?
     @State private var pendingDeleteTarget: EditingTarget?
     @State private var editSheetSessionID = UUID()
-    private var boardSurfaceColor: Color { NeumorphicColors.innerSurface }
-    private var boardInnerShadowDark: Color { NeumorphicColors.darkShadow.opacity(0.65) }
-    private var boardInnerShadowLight: Color { NeumorphicColors.lightShadow }
-    private let boardInnerShadowRadius: CGFloat = 12
-    private let boardInnerShadowOffset: CGFloat = 12
+    private let boardSurfaceColor = Color(hex: "EBEBEB")
 
     private let boardOuterPadding: CGFloat = 0
     private var boardInnerPadding: CGFloat {
@@ -57,7 +54,7 @@ struct BingoBoardView: View {
         }
     }
     private var boardCornerRadius: CGFloat {
-        12
+        24
     }
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -131,9 +128,7 @@ struct BingoBoardView: View {
                                             if viewModel.cells[row][col].hasStoredTask {
                                                 debugGesture("long press open action menu at \(row)-\(col)")
                                                 DispatchQueue.main.async {
-                                                    withAnimation(.easeInOut(duration: 0.18)) {
-                                                        actionTarget = target
-                                                    }
+                                                    setActionTargetWithoutSystemAnimation(target)
                                                 }
                                             } else {
                                                 debugGesture("long press open editor at \(row)-\(col)")
@@ -147,6 +142,7 @@ struct BingoBoardView: View {
                                             withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.82)) {
                                                 dragState = DragState(source: target)
                                             }
+                                            onCellReorderActiveChanged?(true)
                                         },
                                         onDragMove: { translation in
                                             guard dragState?.source == target else { return }
@@ -174,6 +170,7 @@ struct BingoBoardView: View {
                                                 }
                                                 dragState = nil
                                             }
+                                            onCellReorderActiveChanged?(false)
                                         }
                                     )
                                 }
@@ -182,20 +179,6 @@ struct BingoBoardView: View {
                     }
                 }
                 .padding(boardInnerPadding)
-
-                if actionTarget != nil {
-                    Color.black.opacity(0.001)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            dismissActionMenu()
-                        }
-                        .zIndex(1)
-                }
-
-                if let actionTarget {
-                    actionMenu(for: actionTarget, cellSize: cellSize, boardSize: geo.size)
-                        .zIndex(2)
-                }
 
                 if let dragState {
                     draggedCellOverlay(for: dragState, cellSize: cellSize)
@@ -209,6 +192,12 @@ struct BingoBoardView: View {
             .clipShape(RoundedRectangle(cornerRadius: boardCornerRadius, style: .continuous))
         }
         .aspectRatio(1, contentMode: .fit)
+        .onDisappear {
+            if dragState != nil {
+                dragState = nil
+                onCellReorderActiveChanged?(false)
+            }
+        }
         .overlay(alignment: .top) {
             if deletedCellSnapshot != nil {
                 undoToast
@@ -225,6 +214,11 @@ struct BingoBoardView: View {
         }
         .fullScreenCover(item: padEditingTargetBinding) { target in
             editTaskSheet(for: target)
+                .background(Color.clear)
+                .presentationBackground(.clear)
+        }
+        .fullScreenCover(item: $actionTarget) { target in
+            taskActionsOverlay(for: target)
                 .background(Color.clear)
                 .presentationBackground(.clear)
         }
@@ -267,26 +261,8 @@ struct BingoBoardView: View {
 
     private var boardContainerSurface: some View {
         let shape = RoundedRectangle(cornerRadius: boardCornerRadius, style: .continuous)
-        let style = boardSurfaceColor
-            .shadow(
-                .inner(
-                    color: boardInnerShadowDark,
-                    radius: boardInnerShadowRadius,
-                    x: boardInnerShadowOffset,
-                    y: boardInnerShadowOffset
-                )
-            )
-            .shadow(
-                .inner(
-                    color: boardInnerShadowLight,
-                    radius: boardInnerShadowRadius,
-                    x: -boardInnerShadowOffset,
-                    y: -boardInnerShadowOffset
-                )
-            )
-
         return shape
-            .fill(style)
+            .fill(boardSurfaceColor)
     }
 
     private var undoToast: some View {
@@ -344,6 +320,7 @@ struct BingoBoardView: View {
             endVisibleAt: editingCell.endVisibleAt,
             isCompletedTask: editingCell.isCompleted,
             estimatedDurationMinutes: viewModel.remainingTaskCountdownMinutes(row: target.row, col: target.col),
+            autoFocusTaskField: true,
             onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, estimatedDurationMinutes, startVisibleAt, endVisibleAt in
                 let scheduleNotice = residentVisibilityNotice(
                     text: newText,
@@ -372,60 +349,25 @@ struct BingoBoardView: View {
         .id(editSheetSessionID)
     }
 
-    private func actionMenu(for target: EditingTarget, cellSize: CGFloat, boardSize: CGSize) -> some View {
+    private func taskActionsOverlay(for target: EditingTarget) -> some View {
         let cell = viewModel.cells[target.row][target.col]
-        let showsHideAction = cell.isCompleted
-        let menuSize = CGSize(width: 152, height: showsHideAction ? 146 : 104)
-        let position = actionMenuPosition(
-            for: target,
-            cellSize: cellSize,
-            boardSize: boardSize,
-            menuSize: menuSize
-        )
-
-        return VStack(spacing: 10) {
-                Button {
-                    dismissActionMenu()
-                    presentEditor(for: target)
-                } label: {
-                Label(L10n.editTask, systemImage: "square.and.pencil")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(NeumorphicColors.text)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                requestDelete(at: target)
-            } label: {
-                Label(L10n.deleteTask, systemImage: "trash")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(NeumorphicColors.bingoAccent)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 6)
-
-            if showsHideAction {
-                Button {
-                    dismissActionMenu()
-                    withAnimation(.easeInOut(duration: 0.45)) {
-                        viewModel.toggleTaskHidden(row: target.row, col: target.col)
-                    }
-                } label: {
-                    Label(cell.isTaskHidden ? L10n.showTask : L10n.hideTask, systemImage: cell.isTaskHidden ? "eye" : "eye.slash")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(NeumorphicColors.accent)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        return TaskActionsOverlayView(
+            showsHideAction: cell.isCompleted,
+            hideActionTitle: cell.isTaskHidden ? L10n.showTask : L10n.hideTask,
+            isPadLayout: isPadLayout,
+            onDismiss: dismissActionMenu,
+            onEdit: {
+                presentEditor(for: target)
+            },
+            onDelete: {
+                pendingDeleteTarget = target
+            },
+            onToggleHidden: {
+                withAnimation(.easeInOut(duration: 0.45)) {
+                    viewModel.toggleTaskHidden(row: target.row, col: target.col)
                 }
-                .buttonStyle(.plain)
             }
-        }
-        .padding(14)
-        .frame(width: menuSize.width, height: menuSize.height)
-        .background(Color.clear.neumorphicConvex(radius: 16))
-        .position(position)
-        .transition(.scale(scale: 0.96).combined(with: .opacity))
+        )
     }
 
     private func draggedCellOverlay(for dragState: DragState, cellSize: CGFloat) -> some View {
@@ -460,7 +402,6 @@ struct BingoBoardView: View {
             y: startCenter.y + dragState.translation.height
         )
         .allowsHitTesting(false)
-        .shadow(color: NeumorphicColors.darkShadow.opacity(0.2), radius: 14, x: 0, y: 8)
     }
 
     private func handleDelete(at target: EditingTarget) {
@@ -469,6 +410,7 @@ struct BingoBoardView: View {
     }
 
     private func requestDelete(at target: EditingTarget) {
+        dismissActionMenu()
         pendingDeleteTarget = target
     }
 
@@ -495,8 +437,14 @@ struct BingoBoardView: View {
     }
 
     private func dismissActionMenu() {
-        withAnimation(.easeInOut(duration: 0.18)) {
-            actionTarget = nil
+        setActionTargetWithoutSystemAnimation(nil)
+    }
+
+    private func setActionTargetWithoutSystemAnimation(_ target: EditingTarget?) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            actionTarget = target
         }
     }
 
@@ -520,30 +468,6 @@ struct BingoBoardView: View {
 #else
         _ = message
 #endif
-    }
-
-    private func actionMenuPosition(
-        for target: EditingTarget,
-        cellSize: CGFloat,
-        boardSize: CGSize,
-        menuSize: CGSize
-    ) -> CGPoint {
-        let cellCenter = cellCenter(for: target, cellSize: cellSize)
-        let topAnchor = cellCenter.y - (cellSize / 2) - 12 - (menuSize.height / 2)
-        let bottomAnchor = cellCenter.y + (cellSize / 2) + 12 + (menuSize.height / 2)
-
-        let minX = menuSize.width / 2 + boardOuterPadding
-        let maxX = boardSize.width - menuSize.width / 2 - boardOuterPadding
-        let clampedX = min(max(cellCenter.x, minX), maxX)
-
-        let minY = menuSize.height / 2 + boardOuterPadding
-        let maxY = boardSize.height - menuSize.height / 2 - boardOuterPadding
-        let preferredY = topAnchor >= minY ? topAnchor : bottomAnchor
-
-        return CGPoint(
-            x: clampedX,
-            y: min(max(preferredY, minY), maxY)
-        )
     }
 
     private func cellCenter(for target: EditingTarget, cellSize: CGFloat) -> CGPoint {
@@ -618,6 +542,99 @@ struct BingoBoardView: View {
         case 6: return L10n.fridayShort
         case 7: return L10n.saturdayShort
         default: return L10n.sundayShort
+        }
+    }
+}
+
+private struct TaskActionsOverlayView: View {
+    let showsHideAction: Bool
+    let hideActionTitle: String
+    let isPadLayout: Bool
+    let onDismiss: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    let onToggleHidden: () -> Void
+    @State private var isVisible = false
+    @State private var isClosing = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(isVisible ? 0.42 : 0)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        close()
+                    }
+
+                VStack(spacing: 12) {
+                    actionButton(
+                        title: L10n.editTask,
+                        color: NeumorphicColors.text,
+                        action: {
+                            close(then: onEdit)
+                        }
+                    )
+
+                    actionButton(
+                        title: L10n.deleteTask,
+                        color: Color.red.opacity(0.84),
+                        action: {
+                            close(then: onDelete)
+                        }
+                    )
+
+                    if showsHideAction {
+                        actionButton(
+                            title: hideActionTitle,
+                            color: NeumorphicColors.text,
+                            action: {
+                                close(then: onToggleHidden)
+                            }
+                        )
+                    }
+                }
+                .frame(width: min(max(proxy.size.width - 40, 0), isPadLayout ? 460 : 353))
+                .padding(.bottom, max(proxy.safeAreaInsets.bottom, 14) + 12)
+                .opacity(isVisible ? 1 : 0)
+                .offset(y: isVisible ? 0 : 18)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.16)) {
+                isVisible = true
+            }
+        }
+    }
+
+    private func actionButton(title: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.appSystem(size: scaled(16, pad: 18), weight: .semibold, design: .rounded))
+                .foregroundColor(color)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(NeumorphicColors.background)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.26) : base
+    }
+
+    private func close(then action: (() -> Void)? = nil) {
+        guard !isClosing else { return }
+        isClosing = true
+        withAnimation(.easeIn(duration: 0.14)) {
+            isVisible = false
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+            onDismiss()
+            action?()
         }
     }
 }

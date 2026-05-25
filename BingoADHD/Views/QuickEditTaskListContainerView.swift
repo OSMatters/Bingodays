@@ -52,7 +52,8 @@ struct QuickEditTaskListContainerView<Header: View, Rows: View, InlineRow: View,
             L10n.tr(
                 "You can view and edit all your task history here.",
                 zhHans: "在这里可以查看并编辑你所有的历史任务",
-                zhHant: "在這裡可以查看並編輯你所有的歷史任務"
+                zhHant: "在這裡可以查看並編輯你所有的歷史任務",
+                ja: "ここですべてのタスク履歴を確認・編集できます。"
             )
         )
         .font(.appSystem(size: scaled(12, pad: 14), weight: .medium, design: .rounded))

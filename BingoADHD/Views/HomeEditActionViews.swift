@@ -20,7 +20,7 @@ struct GridSizeAdjustmentSheet: View {
                             .font(.appSystem(size: iconSize, weight: .bold))
                             .foregroundColor(NeumorphicColors.accent)
                             .frame(width: controlSize, height: controlSize)
-                            .background(raisedSurface(cornerRadius: controlSize / 2, shadowRadius: isPadLayout ? 10 : 8, offset: isPadLayout ? 5 : 4))
+                            .background(functionSurface(cornerRadius: controlSize / 2, shadowRadius: isPadLayout ? 10 : 8, offset: isPadLayout ? 5 : 4))
                     }
                     .disabled(gridSize <= 2)
                     .buttonStyle(.plain)
@@ -37,7 +37,7 @@ struct GridSizeAdjustmentSheet: View {
                             .font(.appSystem(size: iconSize, weight: .bold))
                             .foregroundColor(NeumorphicColors.accent)
                             .frame(width: controlSize, height: controlSize)
-                            .background(raisedSurface(cornerRadius: controlSize / 2, shadowRadius: isPadLayout ? 10 : 8, offset: isPadLayout ? 5 : 4))
+                            .background(functionSurface(cornerRadius: controlSize / 2, shadowRadius: isPadLayout ? 10 : 8, offset: isPadLayout ? 5 : 4))
                     }
                     .disabled(gridSize >= 5)
                     .buttonStyle(.plain)
@@ -55,11 +55,12 @@ struct GridSizeAdjustmentSheet: View {
         .background(NeumorphicColors.background)
     }
 
-    private func raisedSurface(cornerRadius: CGFloat, shadowRadius: CGFloat, offset: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(NeumorphicColors.background)
-            .shadow(color: Color.white.opacity(0.72), radius: shadowRadius, x: -offset, y: -offset)
-            .shadow(color: NeumorphicColors.darkShadow.opacity(0.72), radius: shadowRadius, x: offset, y: offset)
+    private func functionSurface(cornerRadius: CGFloat, shadowRadius: CGFloat, offset: CGFloat) -> some View {
+        let theme = AppTheme.current
+        return RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(theme.color.opacity(theme == .concise ? 0.12 : 0.14))
+            .shadow(color: Color.white.opacity(theme == .concise ? 0.72 : 0.62), radius: shadowRadius, x: -offset, y: -offset)
+            .shadow(color: theme.bingoSurfaceShadowColor.opacity(0.2), radius: shadowRadius, x: offset, y: offset)
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {

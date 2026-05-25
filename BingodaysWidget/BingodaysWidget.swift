@@ -1,41 +1,65 @@
 import SwiftUI
 import WidgetKit
+import AppIntents
+
+private struct WidgetBoardPanel: Identifiable {
+    let id: UUID
+    let name: String
+    let board: SavedBoard
+    let countdownEndsAt: Date?
+}
 
 private struct BingodaysWidgetEntry: TimelineEntry {
     let date: Date
-    let board: SavedBoard
+    let panels: [WidgetBoardPanel]
+    let selectedPanelID: UUID?
     let usageDays: Int
-    let boardCountdownEndsAt: Date?
+
+    private var resolvedSelectedIndex: Int {
+        guard !panels.isEmpty else { return 0 }
+        guard let selectedPanelID,
+              let index = panels.firstIndex(where: { $0.id == selectedPanelID }) else {
+            return 0
+        }
+        return index
+    }
+
+    var selectedPanelIndex: Int { resolvedSelectedIndex }
+
+    var board: SavedBoard {
+        guard !panels.isEmpty else { return .sample }
+        return panels[resolvedSelectedIndex].board
+    }
+
+    var boardCountdownEndsAt: Date? {
+        guard !panels.isEmpty else { return nil }
+        return panels[resolvedSelectedIndex].countdownEndsAt
+    }
 }
 
 private struct BingodaysWidgetProvider: TimelineProvider {
     func placeholder(in context: Context) -> BingodaysWidgetEntry {
         BingodaysWidgetEntry(
             date: .now,
-            board: .sample,
-            usageDays: 7,
-            boardCountdownEndsAt: Calendar.current.date(byAdding: .hour, value: 3, to: .now)
+            panels: [
+                WidgetBoardPanel(
+                    id: UUID(),
+                    name: L10n.boardDefaultName(1),
+                    board: .sample,
+                    countdownEndsAt: Calendar.current.date(byAdding: .hour, value: 3, to: .now)
+                )
+            ],
+            selectedPanelID: nil,
+            usageDays: 7
         )
     }
 
     func getSnapshot(in context: Context, completion: @escaping (BingodaysWidgetEntry) -> Void) {
-        completion(
-            BingodaysWidgetEntry(
-                date: .now,
-                board: BingoBoardStore.loadBoard() ?? .sample,
-                usageDays: BingoDiaryStore.consecutiveBingoDays(),
-                boardCountdownEndsAt: BingoBoardStore.loadBoardCountdownEndsAt()
-            )
-        )
+        completion(makeEntry(at: .now))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<BingodaysWidgetEntry>) -> Void) {
-        let entry = BingodaysWidgetEntry(
-            date: .now,
-            board: BingoBoardStore.loadBoard() ?? .sample,
-            usageDays: BingoDiaryStore.consecutiveBingoDays(),
-            boardCountdownEndsAt: BingoBoardStore.loadBoardCountdownEndsAt()
-        )
+        let entry = makeEntry(at: .now)
         let nextRefresh: Date
         if let countdownEndsAt = entry.boardCountdownEndsAt, countdownEndsAt > .now {
             nextRefresh = .now.addingTimeInterval(1)
@@ -43,6 +67,49 @@ private struct BingodaysWidgetProvider: TimelineProvider {
             nextRefresh = Calendar.current.date(byAdding: .minute, value: 30, to: .now) ?? .now.addingTimeInterval(1800)
         }
         completion(Timeline(entries: [entry], policy: .after(nextRefresh)))
+    }
+
+    private func makeEntry(at date: Date) -> BingodaysWidgetEntry {
+        let snapshot = BingoBoardStore.loadNamedBoardsSnapshot()
+        let panels = snapshot.boards.map { board in
+            WidgetBoardPanel(
+                id: board.id,
+                name: board.name,
+                board: board.board,
+                countdownEndsAt: board.countdownEndsAt
+            )
+        }
+
+        let resolvedPanels: [WidgetBoardPanel]
+        let selectedPanelID: UUID?
+        if panels.isEmpty {
+            resolvedPanels = [
+                WidgetBoardPanel(
+                    id: UUID(uuidString: "00000000-0000-0000-0000-000000000001") ?? UUID(),
+                    name: L10n.boardDefaultName(1),
+                    board: BingoBoardStore.loadBoard() ?? .sample,
+                    countdownEndsAt: BingoBoardStore.loadBoardCountdownEndsAt()
+                )
+            ]
+            selectedPanelID = resolvedPanels.first?.id
+        } else {
+            resolvedPanels = panels
+            let preferredSelectedID = WidgetPanelSelectionStore.loadSelectedPanelID() ?? snapshot.selectedBoardID
+            if let preferredSelectedID,
+               resolvedPanels.contains(where: { $0.id == preferredSelectedID }) {
+                selectedPanelID = preferredSelectedID
+            } else {
+                selectedPanelID = resolvedPanels.first?.id
+                WidgetPanelSelectionStore.saveSelectedPanelID(selectedPanelID)
+            }
+        }
+
+        return BingodaysWidgetEntry(
+            date: date,
+            panels: resolvedPanels,
+            selectedPanelID: selectedPanelID,
+            usageDays: BingoDiaryStore.consecutiveBingoDays()
+        )
     }
 }
 
@@ -163,6 +230,16 @@ private struct BingodaysLargeWidgetView: View {
     @Environment(\.widgetFamily) private var family
 
     private var board: SavedBoard { entry.board }
+    private var hasMultiplePanels: Bool { entry.panels.count > 1 }
+    private var panelIndex: Int { min(max(entry.selectedPanelIndex, 0), max(entry.panels.count - 1, 0)) }
+    private var activePanelID: UUID? {
+        guard entry.panels.indices.contains(panelIndex) else { return nil }
+        return entry.panels[panelIndex].id
+    }
+    private var activePanelName: String {
+        guard entry.panels.indices.contains(panelIndex) else { return L10n.boardDefaultName(1) }
+        return entry.panels[panelIndex].name
+    }
     private var totalTasks: Int { board.cells.flatMap(\.self).filter { !$0.isEmpty }.count }
     private var completedTasks: Int { board.cells.flatMap(\.self).filter(\.isCompleted).count }
     private var mediumItems: [MediumDisplayItem] {
@@ -196,10 +273,33 @@ private struct BingodaysLargeWidgetView: View {
             if family == .systemMedium {
                 mediumView
             } else {
-                VStack(spacing: 0) {
-                    boardView
+                VStack(spacing: hasMultiplePanels ? 8 : 0) {
+                    if hasMultiplePanels {
+                        HStack(spacing: 10) {
+                            boardSwitchButton(systemImage: "chevron.left", step: -1)
+
+                            Text(activePanelName)
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .frame(maxWidth: .infinity)
+                                .invalidatableContent()
+
+                            boardSwitchButton(systemImage: "chevron.right", step: 1)
+                        }
+                    }
+
+                    boardView(for: board)
+
+                    if hasMultiplePanels {
+                        pageIndicator
+                            .invalidatableContent()
+                    }
                 }
-                .padding(18)
+                .padding(.horizontal, 18)
+                .padding(.top, hasMultiplePanels ? 12 : 18)
+                .padding(.bottom, hasMultiplePanels ? 12 : 18)
             }
         }
         .containerBackground(for: .widget) {
@@ -266,10 +366,13 @@ private struct BingodaysLargeWidgetView: View {
                 ForEach(0..<4, id: \.self) { index in
                     let item = mediumItems[index]
 
-                    WidgetBingoCellView(
+                    widgetCellButton(
                         cell: item.cell,
-                        isInBingoLine: item.isActive ? isInCompletedLine(row: item.row, col: item.col) : false,
-                        isLocked: item.isActive ? isLocked(row: item.row, col: item.col) : false,
+                        row: item.row,
+                        col: item.col,
+                        isActive: item.isActive,
+                        isInBingoLine: item.isActive ? isInCompletedLine(row: item.row, col: item.col, in: board) : false,
+                        isLocked: item.isActive ? isLocked(row: item.row, col: item.col, in: board) : false,
                         cellSize: cellSize,
                         isFirstCell: false
                     )
@@ -280,7 +383,7 @@ private struct BingodaysLargeWidgetView: View {
         }
     }
 
-    private var boardView: some View {
+    private func boardView(for board: SavedBoard) -> some View {
         GeometryReader { geo in
             let spacing: CGFloat = 6
             let boardSide = min(geo.size.width, geo.size.height)
@@ -291,12 +394,15 @@ private struct BingodaysLargeWidgetView: View {
                 ForEach(0..<board.gridSize, id: \.self) { row in
                     HStack(spacing: spacing) {
                         ForEach(0..<board.gridSize, id: \.self) { col in
-                            let cell = cellAt(row: row, col: col)
+                            let cell = cellAt(row: row, col: col, in: board)
 
-                            WidgetBingoCellView(
+                            widgetCellButton(
                                 cell: cell,
-                                isInBingoLine: isInCompletedLine(row: row, col: col),
-                                isLocked: isLocked(row: row, col: col),
+                                row: row,
+                                col: col,
+                                isActive: true,
+                                isInBingoLine: isInCompletedLine(row: row, col: col, in: board),
+                                isLocked: isLocked(row: row, col: col, in: board),
                                 cellSize: cellSize,
                                 isFirstCell: row == 0 && col == 0
                             )
@@ -308,16 +414,76 @@ private struct BingodaysLargeWidgetView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .invalidatableContent()
     }
 
-    private func cellAt(row: Int, col: Int) -> BingoCell {
+    private func widgetCellButton(
+        cell: BingoCell,
+        row: Int,
+        col: Int,
+        isActive: Bool,
+        isInBingoLine: Bool,
+        isLocked: Bool,
+        cellSize: CGFloat,
+        isFirstCell: Bool
+    ) -> some View {
+        let cellView = WidgetBingoCellView(
+            cell: cell,
+            isInBingoLine: isInBingoLine,
+            isLocked: isLocked,
+            cellSize: cellSize,
+            isFirstCell: isFirstCell
+        )
+
+        guard isActive, let activePanelID else {
+            return AnyView(cellView)
+        }
+
+        return AnyView(
+            Button(intent: ToggleWidgetTaskIntent(boardID: activePanelID.uuidString, row: row, col: col)) {
+                cellView
+            }
+            .buttonStyle(.plain)
+        )
+    }
+
+    private func boardSwitchButton(systemImage: String, step: Int) -> some View {
+        Button(intent: SwitchBoardIntent(step: step)) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                .frame(width: 32, height: 32)
+                .background(
+                    Circle()
+                        .fill(NeumorphicColors.background.opacity(0.96))
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.62), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var pageIndicator: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<entry.panels.count, id: \.self) { index in
+                Circle()
+                    .fill(index == panelIndex ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.24))
+                    .frame(width: index == panelIndex ? 7 : 6, height: index == panelIndex ? 7 : 6)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func cellAt(row: Int, col: Int, in board: SavedBoard) -> BingoCell {
         guard row < board.cells.count, col < board.cells[row].count else {
             return BingoCell()
         }
         return board.cells[row][col]
     }
 
-    private func isInCompletedLine(row: Int, col: Int) -> Bool {
+    private func isInCompletedLine(row: Int, col: Int, in board: SavedBoard) -> Bool {
         let size = board.gridSize
 
         for line in board.completedLines {
@@ -336,14 +502,20 @@ private struct BingodaysLargeWidgetView: View {
         return false
     }
 
-    private func isLocked(row: Int, col: Int) -> Bool {
-        let activeForced = board.cells.flatMap(\.self).filter { $0.isForced && !$0.isCompleted && !$0.isEmpty }
+    private func isLocked(row: Int, col: Int, in board: SavedBoard) -> Bool {
+        let activeForced = board.cells.flatMap(\.self).filter {
+            $0.isForced && !$0.isCompleted && !$0.isEmpty && !$0.isVisibilityWindowInactive(on: entry.date)
+        }
         guard !activeForced.isEmpty else {
             return false
         }
 
-        let cell = cellAt(row: row, col: col)
-        return !(cell.isForced && !cell.isCompleted && !cell.isEmpty)
+        let cell = cellAt(row: row, col: col, in: board)
+        return !(cell.isForced && !cell.isCompleted && !cell.isEmpty && !cell.isVisibilityWindowInactive(on: entry.date))
+    }
+
+    private func isToggleable(cell: BingoCell, isLocked: Bool) -> Bool {
+        !cell.isEmpty && !isLocked && !cell.isVisibilityWindowInactive(on: entry.date)
     }
 
     private func stableMediumOrder(for item: MediumDisplayItem) -> Int {
@@ -378,27 +550,40 @@ private struct WidgetBingoCellView: View {
     let isFirstCell: Bool
 
     private var activeTheme: AppTheme { AppTheme.current }
-    private var bingoSurfaceColor: Color { activeTheme.bingoSurfaceColor }
-    private var bingoSurfaceShadowColor: Color { activeTheme.bingoSurfaceShadowColor }
+    private var bingoLineColor: Color { activeTheme.color }
+    private var boardSurfaceColor: Color { Color(hex: "F4F4F4") }
+    private var primaryTextColor: Color { Color(hex: "291E0A") }
+    private var selectedColor: Color { reducedSaturationColor(from: activeTheme.color, by: 0.30) }
+    private var cellCornerRadius: CGFloat { min(max(cellSize * 0.25, 12), 22) }
+    private var footerSlotHeight: CGFloat { min(max(cellSize * 0.2, 14), 24) }
+    private var footerBottomInset: CGFloat { min(max(cellSize * 0.08, 4), 8) }
 
     var body: some View {
         ZStack {
             backgroundSurface
 
-            if isInBingoLine {
-                bingoLineContent
-            } else if !cell.isEmpty {
-                VStack(spacing: 2) {
+            if !cell.isEmpty {
+                ZStack(alignment: .bottom) {
                     Text(cell.text)
-                        .font(.system(size: dynamicFontSize, weight: .medium))
+                        .font(.system(size: dynamicFontSize, weight: .medium, design: .rounded))
                         .foregroundColor(cellTextColor)
                         .multilineTextAlignment(.center)
                         .lineLimit(3)
                         .minimumScaleFactor(0.5)
-                        .padding(8)
+                        .padding(.horizontal, max(cellSize * 0.1, 6))
+                        .padding(.top, max(cellSize * 0.12, 7))
+                        .padding(
+                            .bottom,
+                            cell.isCompleted && !isLocked
+                                ? footerSlotHeight + footerBottomInset + 2
+                                : max(cellSize * 0.1, 7)
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
                     if cell.isCompleted && !isLocked {
-                        completionIcon(isLarge: false)
+                        completionIcon
+                            .frame(height: footerSlotHeight)
+                            .padding(.bottom, footerBottomInset)
                     }
                 }
             }
@@ -411,101 +596,138 @@ private struct WidgetBingoCellView: View {
     }
 
     private var dynamicFontSize: CGFloat {
-        let baseSize = min(cellSize * 0.22, 16.0)
-        let textLength = cell.text.count
-        if textLength > 6 {
-            return max(baseSize * 0.8, 9)
+        let maxBaseSize: CGFloat = 16
+        let minimumSize: CGFloat = 9
+        let gridScale: CGFloat
+        if cellSize < 52 {
+            gridScale = 0.78
+        } else if cellSize < 70 {
+            gridScale = 0.86
+        } else {
+            gridScale = 1.0
         }
-        return baseSize
+
+        let baseSize = min(cellSize * 0.22, maxBaseSize) * gridScale
+        let textLength = cell.text.trimmingCharacters(in: .whitespacesAndNewlines).count
+
+        let scale: CGFloat
+        switch textLength {
+        case 0...4:
+            scale = 1.0
+        case 5...8:
+            scale = 0.93
+        case 9...12:
+            scale = 0.86
+        case 13...16:
+            scale = 0.79
+        case 17...20:
+            scale = 0.73
+        default:
+            scale = 0.67
+        }
+
+        return max(baseSize * scale, minimumSize)
     }
 
     private var cellTextColor: Color {
-        isLocked ? NeumorphicColors.text.opacity(0.35) : NeumorphicColors.text
-    }
-
-    private var bingoLineContent: some View {
-        VStack(spacing: 4) {
-            Text(cell.text)
-                .font(.system(size: dynamicFontSize, weight: .medium))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-                .minimumScaleFactor(0.5)
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
-
-            if !isLocked {
-                completionIcon(isLarge: false, usesGoldSurface: true)
-            }
+        if isInBingoLine {
+            return .white
         }
+        if cell.isCompleted {
+            return primaryTextColor
+        }
+        return isLocked ? primaryTextColor.opacity(0.35) : primaryTextColor
     }
 
     private var backgroundSurface: some View {
-        Group {
-            if isInBingoLine {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(bingoSurfaceColor)
-                    .shadow(color: bingoSurfaceShadowColor.opacity(0.28), radius: 7, x: 4, y: 4)
-                    .shadow(color: Color.white.opacity(0.42), radius: 7, x: -4, y: -4)
-            } else if cell.isCompleted {
-                Color.clear
-                    .neumorphicConcave(radius: 12)
-            } else {
-                Color.clear
-                    .neumorphicConvex(radius: 12, isPressed: false)
+        let baseShape = RoundedRectangle(cornerRadius: cellCornerRadius, style: .continuous)
+
+        return baseShape
+            .fill(cellFillColor)
+            .overlay {
+                baseShape
+                    .stroke(
+                        isInBingoLine ? Color.white.opacity(0.24) : Color.white.opacity(0.58),
+                        lineWidth: isInBingoLine ? 1.1 : 0.9
+                    )
+
+                if isLocked && !isInBingoLine {
+                    baseShape
+                        .fill(boardSurfaceColor.opacity(0.62))
+                }
+
+                if cell.isCompleted && !isInBingoLine {
+                    baseShape
+                        .stroke(selectedColor.opacity(0.36), lineWidth: 1.2)
+                }
             }
-        }
-        .overlay {
-            if isLocked && !isInBingoLine {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(NeumorphicColors.background.opacity(0.62))
-            }
-        }
+            .shadow(
+                color: isInBingoLine ? bingoLineColor.opacity(0.28) : Color.black.opacity(0.08),
+                radius: isInBingoLine ? 5 : 3,
+                x: 0,
+                y: isInBingoLine ? 2 : 1
+            )
     }
 
-    private func completionIcon(isLarge: Bool, usesGoldSurface: Bool = false) -> some View {
-        let size = isLarge
-            ? min(max(cellSize * 0.42, 34), 52)
-            : min(max(cellSize * 0.16, 16), 22)
+    private var cellFillColor: Color {
+        if isInBingoLine {
+            return bingoLineColor
+        }
+        if cell.isCompleted {
+            return selectedColor
+        }
+        return boardSurfaceColor
+    }
+
+    private var completionIcon: some View {
+        let size = min(max(cellSize * 0.16, 14), 22)
 
         return ZStack {
             Circle()
-                .fill(isLarge || usesGoldSurface ? bingoSurfaceColor : NeumorphicColors.background)
-                .shadow(
-                    color: ((isLarge || usesGoldSurface) ? bingoSurfaceShadowColor : NeumorphicColors.darkShadow).opacity(0.3),
-                    radius: isLarge ? 6 : 4,
-                    x: isLarge ? 4 : 3,
-                    y: isLarge ? 4 : 3
-                )
-                .shadow(
-                    color: ((isLarge || usesGoldSurface) ? Color.white : NeumorphicColors.lightShadow).opacity(0.85),
-                    radius: isLarge ? 6 : 4,
-                    x: isLarge ? -4 : -3,
-                    y: isLarge ? -4 : -3
-                )
+                .fill(Color.white.opacity(0.96))
 
             Image(systemName: "checkmark")
-                .font(.system(size: size * 0.42, weight: .bold))
-                .foregroundColor((isLarge || usesGoldSurface) ? .white : NeumorphicColors.accent)
+                .font(.system(size: size * 0.5, weight: .bold))
+                .foregroundColor(isInBingoLine ? bingoLineColor : selectedColor)
         }
         .frame(width: size, height: size)
-        .padding(.top, isLarge ? 0 : 6)
     }
 
     private var lockOverlay: some View {
-        let size = min(max(cellSize * 0.22, 20), 28)
+        let size = min(max(cellSize * 0.22, 18), 26)
 
         return ZStack {
             Circle()
-                .fill(NeumorphicColors.background)
-                .shadow(color: NeumorphicColors.darkShadow.opacity(0.25), radius: 4, x: 2, y: 2)
-                .shadow(color: NeumorphicColors.lightShadow.opacity(0.85), radius: 4, x: -2, y: -2)
+                .fill(boardSurfaceColor.opacity(0.95))
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.55), lineWidth: 1)
+                )
 
             Image(systemName: "lock.fill")
-                .font(.system(size: size * 0.42, weight: .bold))
-                .foregroundColor(NeumorphicColors.text.opacity(0.55))
+                .font(.system(size: size * 0.44, weight: .bold))
+                .foregroundColor(primaryTextColor.opacity(0.5))
         }
         .frame(width: size, height: size)
+    }
+
+    private func reducedSaturationColor(from color: Color, by amount: CGFloat) -> Color {
+        let ui = UIColor(color)
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        guard ui.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha) else {
+            return color
+        }
+
+        return Color(
+            hue: Double(hue),
+            saturation: Double(max(0, saturation - amount)),
+            brightness: Double(brightness),
+            opacity: Double(alpha)
+        )
     }
 }
 

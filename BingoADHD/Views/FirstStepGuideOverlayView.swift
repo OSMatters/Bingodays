@@ -12,10 +12,7 @@ enum FirstStepGuideOverlay: String, Identifiable {
 struct FirstStepGuideOverlayView: View {
     let overlay: FirstStepGuideOverlay
     let isPadLayout: Bool
-    let starterSeedTasks: [String]
-    let introTitle: String
-    let introDescription: String
-    let milestoneMessage: (FirstStepGuideOverlay) -> String
+    let presentation: FirstStepGuideStore.OverlayPresentation
     let onStart: () -> Void
     let onDismiss: () -> Void
 
@@ -31,31 +28,32 @@ struct FirstStepGuideOverlayView: View {
             .ignoresSafeArea()
 
             VStack(spacing: 22) {
-                switch overlay {
-                case .intro:
-                    introContent
-                case .milestoneOne:
-                    milestoneContent(
-                        imageName: "StarterGuideFirst",
-                        message: milestoneMessage(.milestoneOne)
-                    )
-                case .milestoneTwo:
-                    milestoneContent(
-                        imageName: "StarterGuideSecond",
-                        message: milestoneMessage(.milestoneTwo)
-                    )
-                case .milestoneThree:
-                    milestoneThreeContent
-                }
+                overlayContent
             }
             .padding(.horizontal, isPadLayout ? 38 : 28)
             .frame(maxWidth: 560)
         }
     }
 
+    @ViewBuilder
+    private var overlayContent: some View {
+        switch overlay {
+        case .intro:
+            introContent
+        case .milestoneOne, .milestoneTwo:
+            if let milestone = presentation.milestone(for: overlay) {
+                milestoneContent(milestone)
+            }
+        case .milestoneThree:
+            if let milestone = presentation.milestone(for: overlay) {
+                milestoneThreeContent(milestone)
+            }
+        }
+    }
+
     private var introContent: some View {
         VStack(spacing: 20) {
-            Text(introTitle)
+            Text(presentation.introTitle)
                 .font(.appSystem(size: scaled(23, pad: 31), weight: .heavy, design: .rounded))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
@@ -69,7 +67,7 @@ struct FirstStepGuideOverlayView: View {
 
             introBoardPreview
 
-            Text(introDescription)
+            Text(presentation.introDescription)
                 .font(.appSystem(size: scaled(19, pad: 23), weight: .semibold, design: .rounded))
                 .foregroundColor(.white.opacity(0.92))
                 .multilineTextAlignment(.center)
@@ -100,10 +98,9 @@ struct FirstStepGuideOverlayView: View {
                 .shadow(color: Color.black.opacity(0.22), radius: 14, x: 5, y: 8)
 
             VStack(spacing: spacing) {
-                ForEach(0..<3, id: \.self) { row in
+                ForEach(presentation.previewRows.indices, id: \.self) { row in
                     HStack(spacing: spacing) {
-                        ForEach(0..<3, id: \.self) { col in
-                            let taskText = row == 0 ? starterSeedTasks[col] : ""
+                        ForEach(presentation.previewRows[row]) { cell in
                             RoundedRectangle(cornerRadius: cellCorner, style: .continuous)
                                 .fill(NeumorphicColors.background)
                                 .overlay(
@@ -111,8 +108,8 @@ struct FirstStepGuideOverlayView: View {
                                         .stroke(Color(hex: "E2DAD0"), lineWidth: 1)
                                 )
                                 .overlay {
-                                    if !taskText.isEmpty {
-                                        Text(taskText)
+                                    if !cell.text.isEmpty {
+                                        Text(cell.text)
                                             .font(.appSystem(size: scaled(16, pad: 18), weight: .bold, design: .rounded))
                                             .foregroundColor(NeumorphicColors.text)
                                             .multilineTextAlignment(.center)
@@ -139,14 +136,14 @@ struct FirstStepGuideOverlayView: View {
         .aspectRatio(1, contentMode: .fit)
     }
 
-    private func milestoneContent(imageName: String, message: String) -> some View {
+    private func milestoneContent(_ milestone: FirstStepGuideStore.OverlayPresentation.Milestone) -> some View {
         VStack(spacing: 20) {
-            Image(imageName)
+            Image(milestone.imageName)
                 .resizable()
                 .scaledToFit()
                 .frame(width: isPadLayout ? 240 : 188)
 
-            Text(message)
+            Text(milestone.message)
                 .font(.appSystem(size: scaled(21, pad: 29), weight: .heavy, design: .rounded))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
@@ -159,15 +156,15 @@ struct FirstStepGuideOverlayView: View {
         .frame(maxWidth: 520)
     }
 
-    private var milestoneThreeContent: some View {
+    private func milestoneThreeContent(_ milestone: FirstStepGuideStore.OverlayPresentation.Milestone) -> some View {
         VStack(spacing: 20) {
-            Image("StarterGuideThird")
+            Image(milestone.imageName)
                 .resizable()
                 .scaledToFit()
                 .frame(width: isPadLayout ? 210 : 150)
 
             HStack(spacing: 10) {
-                ForEach(starterSeedTasks, id: \.self) { task in
+                ForEach(presentation.seedTasks, id: \.self) { task in
                     VStack(spacing: 12) {
                         Text(task)
                             .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
@@ -213,7 +210,7 @@ struct FirstStepGuideOverlayView: View {
                     .offset(x: -10, y: 10)
             }
 
-            Text(milestoneMessage(.milestoneThree))
+            Text(milestone.message)
                 .font(.appSystem(size: scaled(21, pad: 29), weight: .heavy, design: .rounded))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)

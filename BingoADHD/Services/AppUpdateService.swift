@@ -261,7 +261,8 @@ enum AppUpdateService {
           "notes": {
             "en": [],
             "zh-Hans": [],
-            "zh-Hant": []
+            "zh-Hant": [],
+            "ja": []
           }
         }
         """
@@ -345,7 +346,7 @@ private struct RemoteUpdateConfig: Decodable {
         case .traditionalChinese:
             keys = ["zh-Hant", "zh_TW", "zh-HK", "zh-TW", "zh-HK"]
         case .japanese:
-            keys = ["en", "en-US"]
+            keys = ["ja", "ja-JP", "en", "en-US"]
         case .english:
             keys = ["en", "en-US"]
         }

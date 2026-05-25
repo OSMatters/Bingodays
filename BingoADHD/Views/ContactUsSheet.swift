@@ -6,6 +6,7 @@ struct ContactUsSheet: View {
     let isPadLayout: Bool
     let isCopyToastVisible: Bool
     let onCopyEmail: () -> Void
+    let onOpenFeedbackEmail: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -17,18 +18,22 @@ struct ContactUsSheet: View {
 
                 emailCard
 
+                feedbackButton
+
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 20)
             .background(NeumorphicColors.background.ignoresSafeArea())
-            .navigationTitle(L10n.contactUsTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.done) {
+                    Button {
                         isPresented = false
+                    } label: {
+                        Image(systemName: "xmark")
                     }
+                    .accessibilityLabel(L10n.done)
                     .font(.appSystem(size: 15, weight: .semibold, design: .rounded))
                     .foregroundColor(NeumorphicColors.accent)
                 }
@@ -50,7 +55,7 @@ struct ContactUsSheet: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isCopyToastVisible)
-        .presentationDetents([.height(isPadLayout ? 340 : 300)])
+        .presentationDetents([.height(isPadLayout ? 410 : 360)])
         .presentationDragIndicator(.visible)
         .presentationBackground(NeumorphicColors.background)
     }
@@ -85,7 +90,7 @@ struct ContactUsSheet: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(L10n.tr("Copy email", zhHans: "复制邮箱", zhHant: "複製信箱"))
+                .accessibilityLabel(L10n.contactUsCopyEmailAction)
             }
         }
         .padding(16)
@@ -96,5 +101,30 @@ struct ContactUsSheet: View {
                 .shadow(color: NeumorphicColors.lightShadow.opacity(0.8), radius: 8, x: -4, y: -4)
                 .shadow(color: NeumorphicColors.darkShadow.opacity(0.42), radius: 8, x: 4, y: 4)
         )
+    }
+
+    private var feedbackButton: some View {
+        Button(action: onOpenFeedbackEmail) {
+            HStack(spacing: 10) {
+                Image(systemName: "envelope.open")
+                    .font(.appSystem(size: 17, weight: .semibold, design: .rounded))
+
+                Text(L10n.contactUsFeedbackAction)
+                    .font(.appSystem(size: 17, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(NeumorphicColors.accent)
+                    .shadow(color: NeumorphicColors.darkShadow.opacity(0.24), radius: 8, x: 4, y: 4)
+            )
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.contactUsFeedbackAction)
     }
 }

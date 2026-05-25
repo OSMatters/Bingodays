@@ -30,7 +30,7 @@ final class BoardManagementStore: ObservableObject {
         }
         hasLoadedBoardSwitcherState = true
 
-        var snapshot = BingoBoardStore.loadNamedBoardsSnapshot()
+        var snapshot = persistedSnapshotPreferringCurrentBoard()
         if snapshot.boards.isEmpty {
             let initialBoard = BingoBoardStore.NamedBoard(
                 name: L10n.boardDefaultName(1),
@@ -44,6 +44,38 @@ final class BoardManagementStore: ObservableObject {
             )
             BingoBoardStore.saveNamedBoardsSnapshot(snapshot)
         }
+
+        namedBoards = snapshot.boards
+        selectedBoardID = snapshot.selectedBoardID ?? snapshot.boards.first?.id
+        return selectedBoard
+    }
+
+    func reloadPersistedSnapshotIfNewer() -> BingoBoardStore.NamedBoard? {
+        guard hasLoadedBoardSwitcherState else { return nil }
+
+        let snapshot = persistedSnapshotPreferringCurrentBoard()
+        guard !snapshot.boards.isEmpty else { return nil }
+
+        let currentBoardsByID = Dictionary(uniqueKeysWithValues: namedBoards.map { ($0.id, $0) })
+        let hasNewerBoard = snapshot.boards.contains { persistedBoard in
+            guard let currentBoard = currentBoardsByID[persistedBoard.id] else { return true }
+            return persistedBoard.updatedAt > currentBoard.updatedAt
+        }
+        let selectedID = snapshot.selectedBoardID ?? snapshot.boards.first?.id
+        let hasSelectionChange = selectedID != selectedBoardID
+
+        guard hasNewerBoard || hasSelectionChange else { return nil }
+
+        namedBoards = snapshot.boards
+        selectedBoardID = selectedID
+        return selectedBoard
+    }
+
+    func reloadPersistedSnapshot() -> BingoBoardStore.NamedBoard? {
+        guard hasLoadedBoardSwitcherState else { return nil }
+
+        let snapshot = persistedSnapshotPreferringCurrentBoard()
+        guard !snapshot.boards.isEmpty else { return nil }
 
         namedBoards = snapshot.boards
         selectedBoardID = snapshot.selectedBoardID ?? snapshot.boards.first?.id
@@ -260,5 +292,57 @@ final class BoardManagementStore: ObservableObject {
     private var selectedBoard: BingoBoardStore.NamedBoard? {
         guard let selectedBoardID else { return namedBoards.first }
         return namedBoards.first(where: { $0.id == selectedBoardID }) ?? namedBoards.first
+    }
+
+    private func persistedSnapshotPreferringCurrentBoard() -> BingoBoardStore.NamedBoardsSnapshot {
+        var snapshot = BingoBoardStore.loadNamedBoardsSnapshot()
+        snapshot = snapshotByApplyingPendingWidgetTaskEvent(snapshot)
+        guard !snapshot.boards.isEmpty,
+              let currentBoard = BingoBoardStore.loadBoard(),
+              let currentBoardSavedAt = BingoBoardStore.loadBoardLastSavedAt() else {
+            return snapshot
+        }
+
+        let selectedID = snapshot.selectedBoardID ?? snapshot.boards.first?.id
+        guard let selectedID,
+              let selectedIndex = snapshot.boards.firstIndex(where: { $0.id == selectedID }),
+              currentBoardSavedAt > snapshot.boards[selectedIndex].updatedAt else {
+            return snapshot
+        }
+
+        snapshot.boards[selectedIndex].board = currentBoard
+        snapshot.boards[selectedIndex].countdownEndsAt = BingoBoardStore.loadBoardCountdownEndsAt()
+        snapshot.boards[selectedIndex].updatedAt = currentBoardSavedAt
+        snapshot.selectedBoardID = selectedID
+        BingoBoardStore.saveNamedBoardsSnapshot(snapshot)
+        return snapshot
+    }
+
+    private func snapshotByApplyingPendingWidgetTaskEvent(
+        _ snapshot: BingoBoardStore.NamedBoardsSnapshot
+    ) -> BingoBoardStore.NamedBoardsSnapshot {
+        guard let event = WidgetTaskSyncStore.load() else {
+            return snapshot
+        }
+        defer {
+            WidgetTaskSyncStore.clear()
+        }
+
+        var updatedSnapshot = snapshot
+        if let boardIndex = updatedSnapshot.boards.firstIndex(where: { $0.id == event.boardID }) {
+            guard event.savedAt >= updatedSnapshot.boards[boardIndex].updatedAt else {
+                return snapshot
+            }
+            updatedSnapshot.boards[boardIndex] = event.board
+        } else {
+            updatedSnapshot.boards.append(event.board)
+        }
+
+        updatedSnapshot.selectedBoardID = event.boardID
+        BingoBoardStore.saveNamedBoardsSnapshot(updatedSnapshot)
+        BingoBoardStore.saveBoard(event.board.board, savedAt: event.savedAt)
+        BingoBoardStore.saveBoardCountdownEndsAt(event.board.countdownEndsAt)
+        WidgetPanelSelectionStore.saveSelectedPanelID(event.boardID)
+        return updatedSnapshot
     }
 }

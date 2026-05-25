@@ -3,6 +3,7 @@ import SwiftUI
 struct QuickEditView: View {
     @ObservedObject var viewModel: BingoViewModel
     let onSaveSuccess: (String) -> Void
+    let onBoardApplied: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -43,17 +44,30 @@ struct QuickEditView: View {
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
     }
-
-    private var quickEditSectionFlatBackground: Color { NeumorphicColors.innerSurface }
-    private var quickEditTaskFlatBackground: Color { NeumorphicColors.background.opacity(0.96) }
-    private var quickEditSelectedBadgeBackground: Color { NeumorphicColors.accent.opacity(0.14) }
-    private var quickEditFieldStroke: Color { NeumorphicColors.text.opacity(0.06) }
-    private var quickEditPlaceholderColor: Color { NeumorphicColors.text.opacity(0.34) }
+    
     private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
+    private let quickEditBackgroundColor = Color(hex: "F4F4F4")
+    private let quickEditBackgroundTint = Color.clear
+    private let quickEditSectionFlatBackground = Color.clear
+    private var quickEditTaskFlatBackground: Color { Color(hex: "F4F4F4") }
+    private var quickEditSelectedBadgeBackground: Color { activeTheme.color.opacity(activeTheme == .concise ? 0.14 : 0.17) }
+    private var quickEditFieldStroke: Color { activeTheme.bingoSurfaceShadowColor.opacity(0.16) }
+    private var quickEditPlaceholderColor: Color { NeumorphicColors.text.opacity(0.34) }
     private var previewEmptySlotFill: Color { activeTheme.bingoSurfaceColor.opacity(0.16) }
     private var previewFilledSlotFill: Color { activeTheme.bingoSurfaceColor.opacity(0.44) }
     private var previewEmptySlotStroke: Color { activeTheme.bingoSurfaceShadowColor.opacity(0.44) }
     private var previewFilledSlotStroke: Color { activeTheme.bingoSurfaceShadowColor.opacity(0.66) }
+    private let quickEditPageHorizontalPadding: CGFloat = 20
+
+    init(
+        viewModel: BingoViewModel,
+        onSaveSuccess: @escaping (String) -> Void,
+        onBoardApplied: @escaping () -> Void = {}
+    ) {
+        self.viewModel = viewModel
+        self.onSaveSuccess = onSaveSuccess
+        self.onBoardApplied = onBoardApplied
+    }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
         isPadLayout ? (pad ?? base * 1.18) : base
@@ -242,7 +256,7 @@ struct QuickEditView: View {
             Text(L10n.quickEditReplaceConfirmationMessage)
         }
         .safeAreaInset(edge: .bottom) {
-            if isPremiumUser {
+            if isPremiumUser && activeFilter == .all && !isAddingGroupModalPresented {
                 quickEditBottomAddTaskBar
             }
         }
@@ -261,14 +275,17 @@ struct QuickEditView: View {
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(NeumorphicColors.background, for: .navigationBar)
+        .toolbarBackground(quickEditBackgroundColor, for: .navigationBar)
         .toolbar {
             quickEditToolbarContent
         }
     }
 
     private var quickEditBackground: some View {
-        NeumorphicColors.background
+        ZStack {
+            quickEditBackgroundColor
+            quickEditBackgroundTint
+        }
             .ignoresSafeArea()
             .contentShape(Rectangle())
             .onTapGesture {
@@ -277,27 +294,30 @@ struct QuickEditView: View {
     }
 
     private var quickEditMainScroll: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                quickEditControlsCard
-                filterTabsSection
-                    .padding(.top, -10)
-                taskListSection
+        GeometryReader { geo in
+            let isPadPortrait = isPadLayout && geo.size.height > geo.size.width
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    quickEditControlsCard
+                    filterTabsSection
+                        .padding(.top, -10)
+                    taskListSection
+                }
+                .frame(maxWidth: isPadLayout ? 760 : .infinity, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, quickEditPageHorizontalPadding)
+                .padding(.top, 24 + (isPadPortrait ? 80 : 0))
+                .padding(.bottom, isPadPortrait ? 0 : 110)
             }
-            .frame(maxWidth: isPadLayout ? 760 : .infinity, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 24)
-            .padding(.top, 24)
-            .padding(.bottom, 110)
+            .scrollDismissesKeyboard(.interactively)
         }
-        .scrollDismissesKeyboard(.interactively)
     }
 
     @ViewBuilder
     private var quickEditModalOverlays: some View {
         if isAddingGroupModalPresented {
             addGroupModal
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
 
         if taskEditorDraft != nil {
@@ -330,15 +350,6 @@ struct QuickEditView: View {
             .foregroundColor(NeumorphicColors.text)
         }
 
-        ToolbarItemGroup(placement: .keyboard) {
-            Spacer()
-
-            Button(L10n.done) {
-                focusedField = nil
-            }
-            .font(.appSystem(size: 13, weight: .semibold, design: .rounded))
-            .foregroundColor(NeumorphicColors.accent)
-        }
     }
 
     private var quickEditControlsCard: some View {
@@ -450,11 +461,11 @@ struct QuickEditView: View {
             addTaskButton
                 .frame(maxWidth: isPadLayout ? 760 : .infinity)
                 .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, quickEditPageHorizontalPadding)
                 .padding(.top, 6)
                 .padding(.bottom, 10)
         }
-        .background(NeumorphicColors.background.opacity(0.96))
+        .background(quickEditBackgroundColor)
     }
 
     private func lockedHistoryPreviewBlock(items: [QuickEditFilteredTaskItem]) -> some View {
@@ -1029,6 +1040,7 @@ struct QuickEditView: View {
     private func applySelectionToBoard(_ plan: QuickEditApplyPlan) {
         let orderedCells = previewSlots.map(\.cellState)
         viewModel.applyBoardOrderedCells(orderedCells, targetGridSize: plan.targetGridSize)
+        onBoardApplied()
         didApplyToBoard = true
         onSaveSuccess(L10n.quickEditAppliedSuccess(min(plan.tasks.count, plan.targetGridSize * plan.targetGridSize)))
         dismiss()
@@ -1113,12 +1125,21 @@ struct QuickEditView: View {
     }
 
     private func presentPremiumPaywallForLimit(source: String) {
-        AnalyticsService.logPremiumTasksGroupsLimitHit(
-            source: source,
-            taskCount: library.tasks.count,
-            groupCount: library.groups.count,
-            groupTaskCount: library.groups.reduce(0) { $0 + $1.tasks.count }
-        )
+        let normalizedSource = source.lowercased()
+        if normalizedSource.contains("history") {
+            AnalyticsService.logPremiumHistoryLimitHit(
+                visibleHistoryCount: min(historyOnlyRecordsSorted.count, AppSettings.freeHistoryTasksVisibleCount),
+                totalHistoryCount: historyOnlyRecordsSorted.count,
+                source: source
+            )
+        } else {
+            AnalyticsService.logPremiumTasksGroupsLimitHit(
+                source: source,
+                taskCount: library.tasks.count,
+                groupCount: library.groups.count,
+                groupTaskCount: library.groups.reduce(0) { $0 + $1.tasks.count }
+            )
+        }
         openPremiumPaywall(source: source)
     }
 

@@ -10,6 +10,7 @@ struct EditTaskSheet: View {
     @State var startVisibleAt: Date?
     @State var endVisibleAt: Date?
     let isCompletedTask: Bool
+    let autoFocusTaskField: Bool
     let onSave: (String, Bool, Set<Int>, Bool, Int?, Date?, Date?) -> Void
     let onDelete: () -> Void
     let onCancel: () -> Void
@@ -23,6 +24,8 @@ struct EditTaskSheet: View {
     @State private var blockedSaveToastMessage: String?
     @State private var hideBlockedSaveToastWorkItem: DispatchWorkItem?
     @State private var activeDatePickerField: ActiveDatePickerField = .start
+    @State private var didRequestInitialTaskFocus = false
+    @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -51,6 +54,7 @@ struct EditTaskSheet: View {
         endVisibleAt: Date?,
         isCompletedTask: Bool,
         estimatedDurationMinutes: Int?,
+        autoFocusTaskField: Bool = false,
         onSave: @escaping (String, Bool, Set<Int>, Bool, Int?, Date?, Date?) -> Void,
         onDelete: @escaping () -> Void,
         onCancel: @escaping () -> Void
@@ -62,6 +66,7 @@ struct EditTaskSheet: View {
         _startVisibleAt = State(initialValue: startVisibleAt)
         _endVisibleAt = State(initialValue: endVisibleAt)
         self.isCompletedTask = isCompletedTask
+        self.autoFocusTaskField = autoFocusTaskField
         self.onSave = onSave
         self.onDelete = onDelete
         self.onCancel = onCancel
@@ -90,7 +95,8 @@ struct EditTaskSheet: View {
     private let fieldBorderColor = Color.clear
     private let primaryTextColor = Color.white
     private let secondaryTextColor = Color(hex: "828282")
-    private let accentColor = Color(hex: "D3A375")
+    private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
+    private var accentColor: Color { activeTheme.color }
     private let baseVerticalOffset: CGFloat = 60
     private let collapsedExtraOffset: CGFloat = 30
     private let expandedCustomLiftOffset: CGFloat = -20
@@ -150,24 +156,16 @@ struct EditTaskSheet: View {
                         .padding(.top, 8)
                         .padding(.bottom, max(26, geo.safeAreaInsets.bottom + (isPadLayout ? 40 : 26)))
                     }
+                    .frame(maxHeight: .infinity)
                     .scrollDismissesKeyboard(.interactively)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(.top, isPadLayout ? geo.safeAreaInsets.top : 0)
                 .offset(y: sheetVerticalOffset)
                 .animation(.easeInOut(duration: 0.22), value: repeatMode)
             }
         }
         .ignoresSafeArea()
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button(L10n.done) {
-                    focusedField = nil
-                }
-                .font(.appSystem(size: 13, weight: .semibold, design: .rounded))
-                .foregroundColor(accentColor)
-            }
-        }
         .sheet(isPresented: $isDatePickerPresented) {
             datePickerSheet
         }
@@ -181,6 +179,9 @@ struct EditTaskSheet: View {
         }
         .preferredColorScheme(.dark)
         .presentationBackground(.clear)
+        .onAppear {
+            focusTaskFieldIfNeeded()
+        }
         .overlay(alignment: .bottom) {
             if let blockedSaveToastMessage {
                 Text(blockedSaveToastMessage)
@@ -252,6 +253,7 @@ struct EditTaskSheet: View {
                         .font(bodyLRegularFont)
                         .kerning(bodyLLetterSpacing)
                         .foregroundColor(primaryTextColor)
+                        .submitLabel(.done)
                         .padding(.leading, 12)
                         .padding(.trailing, 12)
                         .padding(.trailing, isPadLayout ? 66 : 58)
@@ -353,7 +355,8 @@ struct EditTaskSheet: View {
                 L10n.tr(
                     "Tasks show at the start time and end at the end time.",
                     zhHans: "任务会在开始时间显示，在结束时间结束。",
-                    zhHant: "任務會在開始時間顯示，在結束時間結束。"
+                    zhHant: "任務會在開始時間顯示，在結束時間結束。",
+                    ja: "タスクは開始時刻に表示され、終了時刻に終了します。"
                 )
             )
             .font(bodySFont.weight(.medium))
@@ -486,11 +489,13 @@ struct EditTaskSheet: View {
                 L10n.tr(
                     "Custom input",
                     zhHans: "自定义输入",
-                    zhHant: "自訂輸入"
+                    zhHant: "自訂輸入",
+                    ja: "カスタム入力"
                 ),
                 text: $timerCustomMinutesText
             )
             .keyboardType(.numberPad)
+            .submitLabel(.done)
             .focused($focusedField, equals: .timerCustom)
             .font(bodyLRegularFont)
             .kerning(bodyLLetterSpacing)
@@ -597,6 +602,14 @@ struct EditTaskSheet: View {
             return
         }
         onCancel()
+    }
+
+    private func focusTaskFieldIfNeeded() {
+        guard autoFocusTaskField, !didRequestInitialTaskFocus else { return }
+        didRequestInitialTaskFocus = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            focusedField = .task
+        }
     }
 
     private func showBlockedSaveToast(_ message: String) {
@@ -733,7 +746,8 @@ struct EditTaskSheet: View {
         return L10n.tr(
             "Select start time",
             zhHans: "选择开始时间",
-            zhHant: "選擇開始時間"
+            zhHant: "選擇開始時間",
+            ja: "開始時刻を選択"
         )
     }
 
@@ -744,7 +758,8 @@ struct EditTaskSheet: View {
         return L10n.tr(
             "Add end time",
             zhHans: "添加结束时间",
-            zhHant: "添加結束時間"
+            zhHant: "添加結束時間",
+            ja: "終了時刻を追加"
         )
     }
 
@@ -853,8 +868,8 @@ struct EditTaskSheet: View {
                     Spacer()
                     Button(
                         activeDatePickerField == .start
-                        ? L10n.tr("No start time", zhHans: "不设置开始时间", zhHant: "不設定開始時間")
-                        : L10n.tr("No end time", zhHans: "不设置结束时间", zhHant: "不設定結束時間")
+                        ? L10n.tr("No start time", zhHans: "不设置开始时间", zhHant: "不設定開始時間", ja: "開始時刻を設定しない")
+                        : L10n.tr("No end time", zhHans: "不设置结束时间", zhHant: "不設定結束時間", ja: "終了時刻を設定しない")
                     ) {
                         switch activeDatePickerField {
                         case .start:

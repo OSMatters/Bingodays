@@ -49,7 +49,7 @@ struct QuickEditFilterTabsView: View {
                     .foregroundColor(NeumorphicColors.text)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color.clear.neumorphicConvex(radius: 16))
+                    .background(tabSurface(isSelected: false))
             }
             .buttonStyle(.plain)
         }
@@ -63,13 +63,12 @@ struct QuickEditFilterTabsView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(
-                    Capsule(style: .continuous)
-                        .fill(isSelected ? NeumorphicColors.accent : NeumorphicColors.background)
+                    tabSurface(isSelected: isSelected)
                 )
                 .overlay {
                     Capsule(style: .continuous)
                         .stroke(
-                            isSelected ? NeumorphicColors.accent : fieldStroke,
+                            isSelected ? AppTheme.current.color : fieldStroke,
                             lineWidth: 1
                         )
                 }
@@ -79,5 +78,12 @@ struct QuickEditFilterTabsView: View {
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
         isPadLayout ? (pad ?? base * 1.18) : base
+    }
+
+    private func tabSurface(isSelected: Bool) -> some View {
+        let theme = AppTheme.current
+        return Capsule(style: .continuous)
+            .fill(isSelected ? theme.color : theme.color.opacity(theme == .concise ? 0.08 : 0.1))
+            .shadow(color: isSelected ? theme.bingoSurfaceShadowColor.opacity(0.18) : .clear, radius: 6, x: 0, y: 3)
     }
 }

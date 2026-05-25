@@ -10,6 +10,8 @@ struct EditableHomeStickerView: View {
 
     @State private var dragStartPlacement: HomeStickerPlacement?
     @State private var magnifyStartScale: Double?
+    @State private var previewScale: Double?
+    @State private var isMagnifying = false
 
     private var baseStickerWidth: CGFloat {
         placement.kind.homeDisplayWidth
@@ -28,7 +30,7 @@ struct EditableHomeStickerView: View {
     }
 
     private var normalizedScale: Double {
-        normalized(placement.scale, min: 0.5, max: 1.6, fallback: 1.0)
+        normalized(previewScale ?? placement.scale, min: 0.5, max: 1.6, fallback: 1.0)
     }
 
     private var horizontalInsetRatio: Double {
@@ -81,7 +83,7 @@ struct EditableHomeStickerView: View {
         .gesture(
             DragGesture()
                 .onChanged { value in
-                    guard isEditing else { return }
+                    guard isEditing, !isMagnifying else { return }
 
                     let baseline = dragStartPlacement ?? placement
                     if dragStartPlacement == nil {
@@ -116,7 +118,10 @@ struct EditableHomeStickerView: View {
         .simultaneousGesture(
             MagnifyGesture()
                 .onChanged { value in
-                    guard isEditing else { return }
+                    if !isEditing {
+                        onSelect()
+                    }
+                    isMagnifying = true
 
                     let baseline = magnifyStartScale ?? placement.scale
                     if magnifyStartScale == nil {
@@ -124,18 +129,23 @@ struct EditableHomeStickerView: View {
                     }
 
                     let newScale = clamp(baseline * value.magnification, min: 0.5, max: 1.6)
-                    onUpdate(
-                        HomeStickerPlacement(
-                            id: placement.id,
-                            kind: placement.kind,
-                            xRatio: placement.xRatio,
-                            yRatio: placement.yRatio,
-                            scale: newScale
-                        )
-                    )
+                    previewScale = newScale
                 }
                 .onEnded { _ in
+                    if let previewScale {
+                        onUpdate(
+                            HomeStickerPlacement(
+                                id: placement.id,
+                                kind: placement.kind,
+                                xRatio: placement.xRatio,
+                                yRatio: placement.yRatio,
+                                scale: previewScale
+                            )
+                        )
+                    }
+                    previewScale = nil
                     magnifyStartScale = nil
+                    isMagnifying = false
                 }
         )
     }

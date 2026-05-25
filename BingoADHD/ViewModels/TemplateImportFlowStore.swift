@@ -6,6 +6,17 @@ final class TemplateImportFlowStore: ObservableObject {
     @Published var isPreviewPresented = false
     @Published var pageOpenSource = "unknown"
 
+    static func previewSheetHeight(for gridSize: Int) -> CGFloat {
+        switch gridSize {
+        case ...3:
+            return 540
+        case 4:
+            return 620
+        default:
+            return 700
+        }
+    }
+
     func resolveTemplate(from rawText: String) -> BoardTemplatePayload? {
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

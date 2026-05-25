@@ -43,10 +43,12 @@ struct BoardTemplateShareComposerView: View {
                         Button {
                             dismiss()
                         } label: {
-                            Image(systemName: "chevron.left")
-                                .font(.appSystem(size: 18, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 32, height: 32)
+                            LiquidGlassIconBadge(
+                                systemName: "chevron.left",
+                                size: 40,
+                                iconSize: 18,
+                                foregroundColor: .white
+                            )
                         }
                         .buttonStyle(.plain)
 
@@ -253,28 +255,36 @@ private struct TemplateShareFigmaCardView: View {
         cardWidth * (828.0 / 562.0)
     }
 
+    private var titleBlockHeight: CGFloat {
+        68 * scale
+    }
+
     var body: some View {
         let gridFrameWidth = cardWidth - (50 * scale)
 
-        VStack(alignment: .leading, spacing: 14 * scale) {
+        VStack(alignment: .leading, spacing: 8 * scale) {
             if isTitleEditable && isEditingTitle {
                 TextField(L10n.templateShareNamePlaceholder, text: $editableTitle)
                     .textInputAutocapitalization(.words)
                     .disableAutocorrection(true)
-                    .font(.appSystem(size: 24 * scale, weight: .medium, design: .rounded))
+                    .submitLabel(.done)
+                    .font(.appSystem(size: 22 * scale, weight: .medium, design: .rounded))
                     .foregroundColor(Color(hex: "3F270F"))
                     .focused($isTitleFieldFocused)
                     .padding(.leading, 20 * scale)
+                    .frame(height: titleBlockHeight, alignment: .topLeading)
                     .onSubmit {
                         isEditingTitle = false
                     }
             } else {
                 Text(titleText)
-                    .font(.appSystem(size: 24 * scale, weight: .medium, design: .rounded))
+                    .font(.appSystem(size: 22 * scale, weight: .medium, design: .rounded))
                     .foregroundColor(Color(hex: "3F270F"))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 20 * scale)
+                    .frame(width: 256 * scale, height: titleBlockHeight, alignment: .topLeading)
                     .onTapGesture(count: 2) {
                         guard isTitleEditable else { return }
                         isEditingTitle = true
@@ -289,11 +299,11 @@ private struct TemplateShareFigmaCardView: View {
                 tileBackground: Color(hex: "E7D5C4"),
                 textColor: Color(hex: "3F270F"),
                 isPreview: true,
-                previewTextSize: 18 * scale
+                previewTextSize: 15 * scale
             )
             .frame(width: gridFrameWidth)
             .aspectRatio(1, contentMode: .fit)
-            .offset(x: 10 * scale, y: 15 * scale)
+            .offset(x: 10 * scale, y: 2 * scale)
 
             HStack(alignment: .top, spacing: 12 * scale) {
                 Group {
@@ -433,6 +443,7 @@ struct BoardTemplateShareCardView: View {
                     TextField(L10n.templateShareNamePlaceholder, text: $editableTitle)
                         .textInputAutocapitalization(.words)
                         .disableAutocorrection(true)
+                        .submitLabel(.done)
                         .font(.appSystem(size: isPreview ? 24 : 70, weight: .black, design: .rounded))
                         .foregroundColor(Color(hex: "3B2411"))
                         .focused($isTitleFieldFocused)
@@ -551,17 +562,37 @@ struct BoardTemplateGridPreview: View {
                             .shadow(color: Color(hex: "D9C5B4").opacity(0.42), radius: isPreview ? 6 : 14, x: 3, y: 3)
 
                         Text(tile.trimmedText.isEmpty ? " " : tile.trimmedText)
-                            .font(.appSystem(size: isPreview ? previewTextSize : 28, weight: .semibold, design: .rounded))
+                            .font(.appSystem(size: textSize(for: tile, cellSize: cellSize), weight: .semibold, design: .rounded))
                             .foregroundColor(textColor)
                             .multilineTextAlignment(.center)
-                            .lineLimit(isPreview ? 3 : 4)
-                            .padding(isPreview ? 8 : 18)
+                            .lineLimit(isPreview ? 4 : 5)
+                            .minimumScaleFactor(0.45)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(isPreview ? 7 : 16)
                     }
                     .frame(width: cellSize, height: cellSize, alignment: .center)
                 }
             }
         }
         .aspectRatio(1, contentMode: .fit)
+    }
+
+    private func textSize(for tile: BoardTemplateTile, cellSize: CGFloat) -> CGFloat {
+        let textLength = tile.trimmedText.count
+        let baseSize = isPreview ? min(previewTextSize, cellSize * 0.2) : min(28, cellSize * 0.22)
+
+        switch textLength {
+        case 0...4:
+            return baseSize
+        case 5...8:
+            return baseSize * 0.9
+        case 9...12:
+            return baseSize * 0.78
+        case 13...16:
+            return baseSize * 0.68
+        default:
+            return baseSize * 0.58
+        }
     }
 }
 

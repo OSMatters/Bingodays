@@ -192,7 +192,7 @@ struct QuickEditAddTaskButton: View {
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(NeumorphicColors.accent)
-                        .shadow(color: NeumorphicColors.accent.opacity(0.24), radius: 10, x: 0, y: 6)
+                        .shadow(color: AppTheme.current.bingoSurfaceShadowColor.opacity(0.24), radius: 10, x: 0, y: 6)
                 )
         }
         .buttonStyle(.plain)

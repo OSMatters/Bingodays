@@ -7,6 +7,7 @@ struct SidebarMenuRow: View {
     let icon: String
     let title: String
     let isPadLayout: Bool
+    let themeColor: Color
     var trailingIcon: String = "chevron.right"
     var trailingRotation: Double = 0
 
@@ -14,9 +15,8 @@ struct SidebarMenuRow: View {
         HStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.appSystem(size: scaled(18, pad: 20), weight: .bold))
-                .foregroundColor(NeumorphicColors.accent)
-                .frame(width: isPadLayout ? 44 : 40, height: isPadLayout ? 44 : 40)
-                .neumorphicConvex(radius: isPadLayout ? 22 : 20)
+                .foregroundColor(themeColor)
+                .frame(width: isPadLayout ? 24 : 22, height: isPadLayout ? 24 : 22)
 
             Text(title)
                 .font(.appSystem(size: scaled(15, pad: 18), weight: .bold, design: .rounded))
@@ -40,6 +40,7 @@ struct SidebarToggleRowView: View {
     let title: String
     @Binding var isOn: Bool
     let isPadLayout: Bool
+    let themeColor: Color
 
     var body: some View {
         HStack(spacing: 14) {
@@ -51,7 +52,7 @@ struct SidebarToggleRowView: View {
 
             Toggle("", isOn: $isOn)
                 .labelsHidden()
-                .toggleStyle(SidebarGlassToggleStyle())
+                .toggleStyle(SidebarGlassToggleStyle(accentColor: themeColor))
         }
         .sidebarListRow()
     }
@@ -65,6 +66,7 @@ struct SidebarDisclosureRow: View {
     let title: String
     let isExpanded: Bool
     let isPadLayout: Bool
+    let themeColor: Color
     let onTap: () -> Void
 
     var body: some View {
@@ -80,7 +82,7 @@ struct SidebarDisclosureRow: View {
 
                 Image(systemName: "chevron.down")
                     .font(.appSystem(size: 13, weight: .bold))
-                    .foregroundColor(NeumorphicColors.accent)
+                    .foregroundColor(themeColor)
                     .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
         }
@@ -203,10 +205,10 @@ struct SidebarStreakGoalsView: View {
         .padding(18)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(NeumorphicColors.background)
+                .fill(Color.clear)
                 .overlay(
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(themeColor.opacity(0.5), lineWidth: 1)
+                        .stroke(NeumorphicColors.text.opacity(0.28), lineWidth: 1)
                 )
         )
         .listRowInsets(EdgeInsets(top: 6, leading: 22, bottom: 14, trailing: 22))
@@ -219,21 +221,12 @@ struct SidebarStreakGoalsView: View {
 
         return ZStack(alignment: .leading) {
             Capsule()
-                .fill(NeumorphicColors.darkShadow.opacity(0.22))
+                .fill(NeumorphicColors.text.opacity(0.16))
                 .frame(height: 8)
 
             GeometryReader { geo in
                 Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                themeColor.opacity(0.45),
-                                themeColor
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
+                    .fill(themeColor)
                     .frame(height: 8)
                     .frame(width: geo.size.width * fillProgress)
             }
@@ -243,52 +236,30 @@ struct SidebarStreakGoalsView: View {
     private func streakGoalNode(goal: Int, previousGoal: Int) -> some View {
         let isAchieved = streakDays >= goal
         let isCurrent = !isAchieved && streakDays >= previousGoal
+        let inactiveTone = NeumorphicColors.text.opacity(0.36)
+        let activeTone = themeColor
 
         return ZStack {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(
                     isAchieved
-                    ? themeColor.opacity(0.18)
+                    ? activeTone.opacity(0.16)
                     : NeumorphicColors.background.opacity(isCurrent ? 0.96 : 0.92)
                 )
                 .frame(width: 44, height: 48)
-                .overlay(alignment: .top) {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(isAchieved ? themeColor.opacity(0.72) : themeColor.opacity(isCurrent ? 0.2 : 0.12))
-                        .frame(width: 34, height: 10)
-                        .padding(.top, 4)
-                }
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(
                             isAchieved
-                                ? themeColor.opacity(0.9)
-                                : themeColor.opacity(isCurrent ? 0.62 : 0.42),
+                                ? activeTone
+                                : inactiveTone.opacity(isCurrent ? 1 : 0.8),
                             lineWidth: 1.2
                         )
-                }
-                .overlay(alignment: .top) {
-                    HStack(spacing: 14) {
-                        Circle()
-                            .fill(Color.white.opacity(0.75))
-                            .frame(width: 4, height: 4)
-                        Circle()
-                            .fill(Color.white.opacity(0.75))
-                            .frame(width: 4, height: 4)
-                    }
-                    .padding(.top, 7)
-                }
-                .overlay {
-                    Rectangle()
-                        .fill(themeColor.opacity(isCurrent ? 0.22 : 0.14))
-                        .frame(width: 28, height: 1)
-                        .offset(y: -6)
                 }
 
             Text("\(goal)")
                 .font(.appSystem(size: scaled(16, pad: 18), weight: .bold, design: .rounded))
-                .foregroundColor(isAchieved ? themeColor : NeumorphicColors.text.opacity(isCurrent ? 0.86 : 0.78))
-                .padding(.top, 10)
+                .foregroundColor(isAchieved ? activeTone : NeumorphicColors.text.opacity(isCurrent ? 0.62 : 0.5))
         }
         .frame(width: 44, height: 48)
     }
@@ -312,6 +283,7 @@ struct SidebarStreakGoalsView: View {
 
 struct SidebarThemePickerTriggerRow: View {
     let isPadLayout: Bool
+    let themeColor: Color
     let onTap: () -> Void
 
     var body: some View {
@@ -325,10 +297,18 @@ struct SidebarThemePickerTriggerRow: View {
             Button {
                 onTap()
             } label: {
-                Image("PickerButton")
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 24, height: 24)
+                ZStack {
+                    Circle()
+                        .fill(themeColor)
+                    Circle()
+                        .stroke(Color.white.opacity(0.72), lineWidth: 2)
+                        .padding(2)
+                    Image(systemName: "paintpalette.fill")
+                        .font(.appSystem(size: 11, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                .frame(width: 26, height: 26)
+                .shadow(color: themeColor.opacity(0.24), radius: 6, x: 0, y: 3)
             }
             .buttonStyle(.plain)
         }
@@ -345,7 +325,7 @@ struct SidebarThemePickerRow: View {
 
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: 12), count: 5), spacing: 12) {
-            ForEach(AppTheme.allCases) { theme in
+            ForEach(AppTheme.selectableCases) { theme in
                 Button {
                     guard themeRawValue != theme.rawValue else { return }
                     themeRawValue = theme.rawValue
@@ -450,6 +430,7 @@ struct SidebarPricingDebugInfoRow: View {
 
 struct SidebarProEntryRow: View {
     let isPremiumMember: Bool
+    let themeColor: Color
     let onTap: () -> Void
 
     var body: some View {
@@ -485,9 +466,9 @@ struct SidebarProEntryRow: View {
         let textAlignment: SwiftUI.Alignment = isPremiumMember ? .center : .leading
         let subtitleColor: Color = isPremiumMember ? .white : .white.opacity(0.82)
         let backgroundGradient = LinearGradient(
-            colors: [Color(hex: "D3A375"), Color(hex: "DFAE7F")],
-            startPoint: .top,
-            endPoint: .bottom
+            colors: [themeColor.opacity(0.92), themeColor],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
         )
 
         return Button {
@@ -570,7 +551,7 @@ struct SidebarAccountSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Account")
+            Text(L10n.tr("Account", zhHans: "账户", zhHant: "帳戶", ja: "アカウント"))
                 .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
                 .foregroundColor(NeumorphicColors.text)
 
@@ -591,7 +572,7 @@ struct SidebarAccountSection: View {
             Button {
                 onSignOut()
             } label: {
-                Text("Sign Out")
+                Text(L10n.tr("Sign Out", zhHans: "退出登录", zhHant: "登出", ja: "サインアウト"))
                     .font(.appSystem(size: scaled(13.5, pad: 15.5), weight: .bold, design: .rounded))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
@@ -640,6 +621,216 @@ struct SidebarAccountSection: View {
             return "Email"
         default:
             return providerID
+        }
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+struct HomeSidebarView: View {
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
+    @EnvironmentObject private var accountSession: AccountSession
+
+    let width: CGFloat
+    let topInset: CGFloat
+    let bottomInset: CGFloat
+    let streakDays: Int
+    let streakGoals: [Int]
+    let themeColor: Color
+    let isPadLayout: Bool
+    let appShortVersion: String
+    @Binding var isPresented: Bool
+    @Binding var isSettingsExpanded: Bool
+    @Binding var isWidgetGuideExpanded: Bool
+    @Binding var isThemePickerExpanded: Bool
+    @Binding var isHapticsEnabled: Bool
+    @Binding var isSoundEffectsEnabled: Bool
+    @Binding var themeRawValue: String
+    let onOpenDiary: () -> Void
+    let onOpenBlackBoxMode: () -> Void
+    let onOpenContact: () -> Void
+    let onPresentPremiumPaywall: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            List {
+                Section {
+                    SidebarStreakHeroView(
+                        streakDays: streakDays,
+                        themeColor: themeColor,
+                        isPadLayout: isPadLayout
+                    )
+                    SidebarStreakGoalsView(
+                        streakDays: streakDays,
+                        goals: streakGoals,
+                        themeColor: themeColor,
+                        isPadLayout: isPadLayout
+                    )
+
+                    sidebarMenuButton(icon: "calendar", title: L10n.bingoDiary) {
+                        closeAndRun(after: 0.16, action: onOpenDiary)
+                    }
+
+                    sidebarMenuButton(icon: "gamecontroller.fill", title: L10n.tr("2048", zhHans: "2048", zhHant: "2048")) {
+                        closeAndRun(after: 0.1, action: onOpenBlackBoxMode)
+                    }
+
+                    sidebarMenuButton(icon: "envelope", title: L10n.contactUs) {
+                        closeAndRun(after: 0.12, action: onOpenContact)
+                    }
+
+                    settingsDisclosureButton
+
+                    SidebarProEntryRow(isPremiumMember: subscriptionManager.hasPremiumAccess, themeColor: themeColor) {
+                        closeAndRun(after: 0.1, action: onPresentPremiumPaywall)
+                    }
+
+                    if isSettingsExpanded {
+                        settingsRows
+                    }
+                }
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
+            .environment(\.defaultMinListRowHeight, 72)
+            .padding(.top, max(topInset, 22))
+            .padding(.bottom, max(bottomInset, 12))
+        }
+        .frame(width: width)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background {
+            sidebarShape
+                .fill(Color(hex: "F4F4F4"))
+                .shadow(color: NeumorphicColors.darkShadow.opacity(0.75), radius: 14, x: 10, y: 0)
+                .shadow(color: NeumorphicColors.lightShadow.opacity(0.8), radius: 8, x: -2, y: 0)
+        }
+        .overlay {
+            sidebarShape
+                .stroke(Color(hex: "F4F4F4").opacity(0.95), lineWidth: 1.5)
+        }
+        .clipShape(sidebarShape)
+        .overlay(alignment: .bottomLeading) {
+            Text("v\(appShortVersion)")
+                .font(.appSystem(size: scaled(12, pad: 13), weight: .medium, design: .rounded))
+                .foregroundColor(NeumorphicColors.text.opacity(0.35))
+                .padding(.leading, 22)
+                .padding(.bottom, max(bottomInset, 12) + 8)
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 18, coordinateSpace: .local)
+                .onEnded { value in
+                    guard isPresented else { return }
+                    let horizontal = value.translation.width
+                    let vertical = value.translation.height
+                    guard abs(horizontal) > abs(vertical) else { return }
+                    let dismissThreshold: CGFloat = isPadLayout ? 72 : 54
+                    guard horizontal <= -dismissThreshold else { return }
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                        isPresented = false
+                    }
+                }
+        )
+        .ignoresSafeArea(edges: .vertical)
+    }
+
+    private var sidebarShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 0,
+            bottomLeadingRadius: 0,
+            bottomTrailingRadius: 28,
+            topTrailingRadius: 28,
+            style: .continuous
+        )
+    }
+
+    private var settingsDisclosureButton: some View {
+        Button {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                isSettingsExpanded.toggle()
+            }
+        } label: {
+            SidebarMenuRow(
+                icon: "gearshape",
+                title: L10n.setting,
+                isPadLayout: isPadLayout,
+                themeColor: themeColor,
+                trailingIcon: "chevron.down",
+                trailingRotation: isSettingsExpanded ? 0 : -90
+            )
+        }
+        .buttonStyle(.plain)
+        .sidebarListRow()
+    }
+
+    @ViewBuilder
+    private var settingsRows: some View {
+        SidebarToggleRowView(title: L10n.haptics, isOn: $isHapticsEnabled, isPadLayout: isPadLayout, themeColor: themeColor)
+            .padding(.top, 6)
+
+        SidebarToggleRowView(title: L10n.soundEffects, isOn: $isSoundEffectsEnabled, isPadLayout: isPadLayout, themeColor: themeColor)
+
+        SidebarDisclosureRow(title: L10n.homeWidget, isExpanded: isWidgetGuideExpanded, isPadLayout: isPadLayout, themeColor: themeColor) {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                isWidgetGuideExpanded.toggle()
+            }
+        }
+
+        if isWidgetGuideExpanded {
+            SidebarWidgetGuideTextRow(isPadLayout: isPadLayout)
+        }
+
+        SidebarThemePickerTriggerRow(isPadLayout: isPadLayout, themeColor: themeColor) {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                isThemePickerExpanded.toggle()
+            }
+        }
+
+        if isThemePickerExpanded {
+            SidebarThemePickerRow(themeRawValue: $themeRawValue)
+        }
+
+        #if DEBUG
+        SidebarPricingDebugInfoRow(
+            loadedProductIDs: subscriptionManager.loadedProductIDs,
+            missingProductIDs: subscriptionManager.missingProductIDs,
+            storefrontCountryCode: subscriptionManager.storefrontCountryCode,
+            storefrontID: subscriptionManager.storefrontID,
+            isPadLayout: isPadLayout
+        )
+        #endif
+
+        if AppFeatureFlags.isAccountEnabled, let profile = accountSession.profile {
+            SidebarAccountSection(
+                profile: profile,
+                errorMessage: accountSession.errorMessage,
+                themeColor: themeColor,
+                isPadLayout: isPadLayout
+            ) {
+                accountSession.signOut()
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    isPresented = false
+                }
+            }
+        }
+    }
+
+    private func sidebarMenuButton(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+        } label: {
+            SidebarMenuRow(icon: icon, title: title, isPadLayout: isPadLayout, themeColor: themeColor)
+        }
+        .buttonStyle(.plain)
+        .sidebarListRow()
+    }
+
+    private func closeAndRun(after delay: TimeInterval, action: @escaping () -> Void) {
+        isPresented = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            action()
         }
     }
 

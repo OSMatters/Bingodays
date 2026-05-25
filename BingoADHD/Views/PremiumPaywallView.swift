@@ -70,20 +70,59 @@ struct PremiumPaywallView: View {
         let subtitle: String?
     }
 
+    private struct PaywallFeature: Identifiable {
+        let id: String
+        let text: String
+    }
+
+    private struct PaywallBenefit: Identifiable {
+        let id: String
+        let iconAssetName: String
+        let title: String
+        let subtitle: String
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     let entrySource: String
 
-    @State private var selectedPlan: PaywallPlan = .monthly
+    @State private var selectedPlan: PaywallPlan = .lifetime
     @State private var feedbackMessage: String?
     @State private var didRunInitialPriceWarmup = false
     @State private var isRetryingPriceLoad = false
     @State private var didLogPaywallView = false
+    @State private var selectedFeatureIndex = 0
+    @State private var didSetInitialFeature = false
+    @AppStorage(AppSettings.hasVisitedPremiumPaywallWithoutPurchaseKey) private var hasVisitedPremiumPaywallWithoutPurchase = false
 
     private let designWidth: CGFloat = 393
     private let designHeight: CGFloat = 852
+    private let classicPaywallContentHeight: CGFloat = 1320
+    private let classicPlanCardsTop: CGFloat = 343
+    private let classicPlanCardsHeight: CGFloat = 144
+    private let classicPinnedCountdownExtraHeight: CGFloat = 12
+    private let classicPinnedBackgroundBleed: CGFloat = 2
+    private let classicBenefitsTop: CGFloat = 519
+    private let classicBenefitsHeight: CGFloat = 469
+    private let classicLegalFooterTopSpacing: CGFloat = 24
+
+    private var classicPaywallBodyTop: CGFloat {
+        classicBenefitsTop - classicPinnedCountdownExtraHeight
+    }
+
+    private var classicPaywallBodyHeight: CGFloat {
+        classicPaywallContentHeight - classicPaywallBodyTop
+    }
+
+    private var classicLegalFooterTop: CGFloat {
+        classicBenefitsTop + classicBenefitsHeight + classicLegalFooterTopSpacing
+    }
+
+    private var classicPinnedHeaderBodyHeight: CGFloat {
+        return classicPlanCardsHeight + classicPinnedCountdownExtraHeight
+    }
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -158,6 +197,144 @@ struct PremiumPaywallView: View {
         Color.black.opacity(0.06)
     }
 
+    private var paywallFeatures: [PaywallFeature] {
+        [
+            PaywallFeature(id: "boards", text: L10n.paywallFeatureUnlimitedBoards),
+            PaywallFeature(id: "grid5x5", text: L10n.paywallFeatureGrid5x5),
+            PaywallFeature(id: "quickTasks", text: L10n.paywallFeatureUnlimitedQuickTasks),
+            PaywallFeature(id: "groups", text: L10n.paywallFeatureUnlimitedGroups),
+            PaywallFeature(id: "customRewards", text: L10n.paywallFeatureCustomRewards),
+            PaywallFeature(id: "history", text: L10n.paywallFeatureAllHistoryTasks),
+            PaywallFeature(id: "customReset", text: L10n.paywallFeatureCustomResetTime)
+        ]
+    }
+
+    private var classicPaywallPlanOrder: [PaywallPlan] {
+        [.lifetime, .yearly, .monthly]
+    }
+
+    private var paywallBenefits: [PaywallBenefit] {
+        [
+            PaywallBenefit(
+                id: "boards",
+                iconAssetName: "PaywallBenefitBoards",
+                title: L10n.paywallBenefitUnlimitedBoardsTitle,
+                subtitle: L10n.paywallBenefitUnlimitedBoardsSubtitle
+            ),
+            PaywallBenefit(
+                id: "bigger",
+                iconAssetName: "PaywallBenefitBigger",
+                title: L10n.paywallBenefitBiggerBoardsTitle,
+                subtitle: L10n.paywallBenefitBiggerBoardsSubtitle
+            ),
+            PaywallBenefit(
+                id: "reusable",
+                iconAssetName: "PaywallBenefitReusable",
+                title: L10n.paywallBenefitReusableTasksTitle,
+                subtitle: L10n.paywallBenefitReusableTasksSubtitle
+            ),
+            PaywallBenefit(
+                id: "groups",
+                iconAssetName: "PaywallBenefitTask",
+                title: L10n.paywallBenefitTaskGroupsTitle,
+                subtitle: L10n.paywallBenefitTaskGroupsSubtitle
+            ),
+            PaywallBenefit(
+                id: "rewards",
+                iconAssetName: "PaywallBenefitRewards",
+                title: L10n.paywallBenefitCustomRewardsTitle,
+                subtitle: L10n.paywallBenefitCustomRewardsSubtitle
+            ),
+            PaywallBenefit(
+                id: "history",
+                iconAssetName: "PaywallBenefitHistory",
+                title: L10n.paywallBenefitTaskHistoryTitle,
+                subtitle: L10n.paywallBenefitTaskHistorySubtitle
+            ),
+            PaywallBenefit(
+                id: "reset",
+                iconAssetName: "PaywallBenefitReset",
+                title: L10n.paywallBenefitFlexibleResetTitle,
+                subtitle: L10n.paywallBenefitFlexibleResetSubtitle
+            ),
+            PaywallBenefit(
+                id: "more",
+                iconAssetName: "PaywallBenefitMoreFeature",
+                title: L10n.paywallBenefitMoreFeaturesTitle,
+                subtitle: L10n.paywallBenefitMoreFeaturesSubtitle
+            )
+        ]
+    }
+
+    private var initialFeatureIndexForEntrySource: Int {
+        let featureID = entryFeatureID(for: entrySource)
+        return paywallFeatures.firstIndex { $0.id == featureID } ?? 0
+    }
+
+    private func entryFeatureID(for source: String) -> String {
+        let source = source.lowercased()
+
+        if source.contains("grid") || source.contains("template") {
+            return "grid5x5"
+        } else if source.contains("history") {
+            return "history"
+        } else if source.contains("reset") {
+            return "customReset"
+        } else if source.contains("reward") {
+            return "customRewards"
+        } else if source.contains("standalone_task") || source.contains("group_task") || source.contains("task_limit") || source.contains("quick_edit") {
+            return "quickTasks"
+        } else if source.contains("group_limit") || source.contains("group") {
+            return "groups"
+        } else if source.contains("board") {
+            return "boards"
+        } else {
+            return "boards"
+        }
+    }
+
+    private var classicHeroTitle: String {
+        if isSidebarEntrySource {
+            return L10n.paywallHeroAllFeaturesTitle
+        }
+        return classicHeroBenefit.title
+    }
+
+    private var classicHeroSubtitle: String {
+        if isSidebarEntrySource {
+            return L10n.paywallHeroAllFeaturesSubtitle
+        }
+        return classicHeroBenefit.subtitle
+    }
+
+    private var isSidebarEntrySource: Bool {
+        entrySource.lowercased() == "sidebar_pro_entry"
+    }
+
+    private var classicHeroBenefit: PaywallBenefit {
+        let featureID = entryFeatureID(for: entrySource)
+        let benefitID: String
+
+        switch featureID {
+        case "grid5x5":
+            benefitID = "bigger"
+        case "quickTasks":
+            benefitID = "reusable"
+        case "groups":
+            benefitID = "groups"
+        case "customRewards":
+            benefitID = "rewards"
+        case "history":
+            benefitID = "history"
+        case "customReset":
+            benefitID = "reset"
+        default:
+            benefitID = "boards"
+        }
+
+        return paywallBenefits.first { $0.id == benefitID } ?? paywallBenefits[0]
+    }
+
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
@@ -172,6 +349,7 @@ struct PremiumPaywallView: View {
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
         }
+        .ignoresSafeArea()
         .task {
             if !didRunInitialPriceWarmup {
                 didRunInitialPriceWarmup = true
@@ -184,7 +362,18 @@ struct PremiumPaywallView: View {
         .onChange(of: subscriptionManager.currentPlanKind) { _, _ in
             syncSelectedPlanWithCurrentStatus()
         }
+        .onChange(of: subscriptionManager.hasPremiumAccess) { _, hasPremiumAccess in
+            if hasPremiumAccess {
+                hasVisitedPremiumPaywallWithoutPurchase = false
+            }
+        }
         .onAppear {
+            if !didSetInitialFeature {
+                selectedFeatureIndex = initialFeatureIndexForEntrySource
+                didSetInitialFeature = true
+            }
+            markLimitedOfferEligibleAfterPaywallVisit()
+            AppHaptics.prepareForInteraction()
             guard !didLogPaywallView else { return }
             didLogPaywallView = true
             AnalyticsService.logPremiumPaywallViewed(
@@ -230,27 +419,61 @@ struct PremiumPaywallView: View {
     }
 
     private func classicPaywallContent(in geo: GeometryProxy) -> some View {
-        let scale = min(geo.size.width / designWidth, geo.size.height / designHeight)
+        let scale = geo.size.width / designWidth
         let contentWidth = designWidth * scale
-        let horizontalOffset = max((geo.size.width - contentWidth) / 2, 0)
+        let pinnedTopInset = min(classicPlanCardsTop, (geo.safeAreaInsets.top + 60) / scale)
 
-        return ZStack(alignment: .topLeading) {
-            heroSection
-            featureSection
-            planCardsSection
-            subscribeButton
-            restoreSubscriptionButton
+        return ScrollView(showsIndicators: false) {
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                heroSection
+                    .frame(width: designWidth, height: classicPlanCardsTop - pinnedTopInset, alignment: .topLeading)
+
+                Section {
+                    ZStack(alignment: .topLeading) {
+                        benefitsSection
+                            .offset(x: 0, y: -classicPaywallBodyTop)
+                        legalFooter
+                            .offset(x: 0, y: -classicPaywallBodyTop)
+                    }
+                    .frame(width: designWidth, height: classicPaywallBodyHeight, alignment: .topLeading)
+                } header: {
+                    pinnedPlanCardsHeader(topInset: pinnedTopInset)
+                }
+            }
+            .frame(width: designWidth, height: classicPaywallContentHeight, alignment: .topLeading)
+            .background(alignment: .top) {
+                classicPaywallScrollBackground
+            }
+            .scaleEffect(scale, anchor: .top)
+            .frame(width: contentWidth, height: classicPaywallContentHeight * scale, alignment: .top)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .frame(width: designWidth, height: designHeight, alignment: .topLeading)
-        .scaleEffect(scale, anchor: .topLeading)
-        .offset(x: horizontalOffset, y: 0)
-        .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+        .frame(width: geo.size.width, height: geo.size.height)
+        .ignoresSafeArea()
         .overlay(alignment: .bottom) {
-            legalFooter
-                .padding(.bottom, 0)
-                .ignoresSafeArea(.container, edges: .bottom)
+            floatingSubscribeButton(scale: scale, bottomInset: geo.safeAreaInsets.bottom)
         }
-        .clipped()
+    }
+
+    private func pinnedPlanCardsHeader(topInset: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(width: designWidth, height: topInset)
+                .allowsHitTesting(false)
+            planCardsSection
+            Color.clear
+                .frame(width: designWidth, height: classicPinnedCountdownExtraHeight)
+                .allowsHitTesting(false)
+        }
+        .frame(
+            width: designWidth,
+            height: topInset + classicPinnedHeaderBodyHeight,
+            alignment: .top
+        )
+        .background(alignment: .top) {
+            classicPaywallPinnedHeaderBackground(topInset: topInset)
+                .allowsHitTesting(false)
+        }
     }
 
     private var memberCenterContent: some View {
@@ -325,9 +548,7 @@ struct PremiumPaywallView: View {
         let price = priceDisplay(for: plan)
 
         return Button {
-            withAnimation(.easeInOut(duration: 0.18)) {
-                selectedPlan = plan
-            }
+            selectPlan(plan, animationDuration: 0.18)
         } label: {
             HStack(alignment: .center, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -491,6 +712,14 @@ struct PremiumPaywallView: View {
         }
     }
 
+    private func selectPlan(_ plan: PaywallPlan, animationDuration: Double) {
+        guard selectedPlan != plan else { return }
+        AppHaptics.control()
+        withAnimation(.easeInOut(duration: animationDuration)) {
+            selectedPlan = plan
+        }
+    }
+
     private func formattedMembershipDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = AppLanguage.displayLocale
@@ -518,6 +747,7 @@ struct PremiumPaywallView: View {
                 analyticsSource: entrySource,
                 analyticsPlan: selectedPlan.rawValue
             )
+            updateLimitedOfferEligibility(afterPurchaseMessage: message)
 
             if selectedPlan == .lifetime,
                shouldTrackPremiumPurchaseSuccess(for: message),
@@ -542,242 +772,284 @@ struct PremiumPaywallView: View {
         message == L10n.subscriptionPurchaseSucceeded || message == L10n.subscriptionActivationPending
     }
 
-    private var heroSection: some View {
-        ZStack(alignment: .topLeading) {
-            backButton
-                .offset(x: 10, y: 49)
+    private func updateLimitedOfferEligibility(afterPurchaseMessage message: String) {
+        if shouldTrackPremiumPurchaseSuccess(for: message) || subscriptionManager.hasPremiumAccess {
+            hasVisitedPremiumPaywallWithoutPurchase = false
+        }
+    }
 
-            Image("PaywallBearAndStar")
+    private func markLimitedOfferEligibleAfterPaywallVisit() {
+        if !subscriptionManager.hasPremiumAccess {
+            hasVisitedPremiumPaywallWithoutPurchase = true
+        }
+    }
+
+    private var classicPaywallScrollBackground: some View {
+        ZStack(alignment: .top) {
+            Color(hex: "1D1002")
+                .frame(width: designWidth, height: classicPaywallContentHeight)
+
+            Image("PaywallFigmaBlackBG")
                 .resizable()
                 .interpolation(.high)
                 .renderingMode(.original)
-                .frame(width: 196.5, height: 146)
-                .opacity(usesLifetimeTheme ? 0.98 : 1)
-                .offset(x: 98, y: 6)
+                .frame(width: designWidth, height: designHeight)
         }
+        .frame(width: designWidth, height: classicPaywallContentHeight, alignment: .top)
+        .clipped()
+        .allowsHitTesting(false)
+    }
+
+    private func classicPaywallPinnedHeaderBackground(topInset: CGFloat) -> some View {
+        ZStack(alignment: .top) {
+            Color(hex: "1D1002")
+                .frame(
+                    width: designWidth,
+                    height: topInset + classicPinnedHeaderBodyHeight + classicPinnedBackgroundBleed
+                )
+
+            Image("PaywallFigmaBlackBG")
+                .resizable()
+                .interpolation(.high)
+                .renderingMode(.original)
+                .frame(width: designWidth, height: designHeight)
+                .offset(y: -(classicPlanCardsTop - topInset - classicPinnedBackgroundBleed))
+        }
+        .frame(
+            width: designWidth,
+            height: topInset + classicPinnedHeaderBodyHeight + classicPinnedBackgroundBleed,
+            alignment: .top
+        )
+        .clipped()
+        .offset(y: -classicPinnedBackgroundBleed)
+        .allowsHitTesting(false)
+    }
+
+    private var heroSection: some View {
+        ZStack(alignment: .topLeading) {
+            backButton
+                .offset(x: 20, y: 50)
+
+            restoreSubscriptionButton
+                .offset(x: 319, y: 50)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(classicHeroTitle)
+                    .font(paywallFont(size: 28, weight: .bold))
+                    .foregroundColor(.white)
+                    .lineSpacing(2)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .minimumScaleFactor(0.82)
+
+                Text(classicHeroSubtitle)
+                    .font(paywallFont(size: 16, weight: .semibold))
+                    .foregroundColor(Color(hex: "C8BBB3"))
+                    .lineSpacing(2)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: 190, alignment: .topLeading)
+                    .frame(minHeight: 42, alignment: .topLeading)
+                    .minimumScaleFactor(0.9)
+            }
+            .frame(width: 260, alignment: .topLeading)
+            .offset(x: 23, y: 188)
+        }
+        .frame(width: designWidth, height: 320, alignment: .topLeading)
     }
 
     private var backButton: some View {
         Button {
             dismiss()
         } label: {
-            Image("PaywallBack")
-                .resizable()
-                .interpolation(.high)
-                .renderingMode(.original)
-                .frame(width: 48, height: 48)
+            Circle()
+                .fill(Color.white.opacity(0.13))
+                .frame(width: 42, height: 42)
+                .overlay {
+                    Image(systemName: "chevron.left")
+                        .font(.appSystem(size: 19, weight: .medium))
+                        .foregroundColor(.white)
+                }
         }
         .buttonStyle(.plain)
     }
 
-    private var featureSection: some View {
-        ZStack(alignment: .topLeading) {
-            featurePanelBackground
-
-            Text(L10n.paywallUnlockProFeatures)
-                .font(paywallFont(size: 24, weight: .bold))
-                .foregroundColor(featureTitleColor)
-                .frame(width: 373, alignment: .center)
-                .offset(x: 0, y: 28)
-
-            featureRow(
-                text: L10n.paywallUnlimitedBoardsTasksAndGroups,
-                x: 36,
-                y: 94
-            )
-
-            featureRow(
-                text: L10n.paywallEditAllHistoryTasks,
-                x: 36,
-                y: 145
-            )
-
-            featureRow(
-                text: L10n.paywallCustomResetTime,
-                x: 36,
-                y: 196
-            )
-
-        }
-        .frame(width: 373, height: featurePanelHeight)
-        .offset(x: 10, y: 183 - classicPaywallVerticalLift)
-    }
-
-    private var featurePanelBackground: some View {
-        Image(usesLifetimeTheme ? "PaywallPrivilegeBGDark" : "PaywallPrivilegeBG")
-            .resizable()
-            .interpolation(.high)
-            .renderingMode(.original)
-            .frame(width: 373, height: featurePanelHeight)
-    }
-
-    private func featureRow(text: String, x: CGFloat, y: CGFloat) -> some View {
-        HStack(spacing: 12) {
-            featureCheckIcon
-                .frame(width: 19, height: 19)
-
-            Text(text)
-                .font(paywallFont(size: 18, weight: .medium))
-                .foregroundColor(featureBodyColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .offset(x: x, y: y)
-    }
-
-    private var featureCheckIcon: some View {
-        ZStack {
-            Circle()
-                .fill(Color(hex: "D3A375"))
-
-            Image(systemName: "checkmark")
-                .font(.appSystem(size: 11, weight: .bold))
-                .foregroundColor(.white)
-        }
-    }
-
     private var planCardsSection: some View {
-        ZStack(alignment: .topLeading) {
-            planCard(.monthly, y: 455 - classicPaywallVerticalLift)
-            planCard(.yearly, y: 551 - classicPaywallVerticalLift)
-            planCard(.lifetime, y: 647 - classicPaywallVerticalLift)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(classicPaywallPlanOrder) { plan in
+                    planCard(plan)
+                }
+            }
+            .padding(.horizontal, 20)
         }
+        .frame(width: designWidth, height: 144)
     }
 
-    private func planCard(_ plan: PaywallPlan, y: CGFloat) -> some View {
+    private func planCard(_ plan: PaywallPlan) -> some View {
         let price = priceDisplay(for: plan)
         let isSelected = selectedPlan == plan
+        let titleColor = isSelected ? Color.black : Color.white
+        let subtitle = classicPlanSubtitle(for: plan, price: price)
 
         return Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                selectedPlan = plan
-            }
+            selectPlan(plan, animationDuration: 0.2)
         } label: {
             ZStack(alignment: .topLeading) {
-                if usesLifetimeTheme {
-                    darkPlanCardBackground(for: plan, isSelected: isSelected)
-                } else {
-                    lightPlanCardBackground(isSelected: isSelected)
+                planCardBackground(isSelected: isSelected)
+
+                if let badgeAssetName = badgeAssetName(for: plan, isSelected: isSelected) {
+                    let badgeSize = badgeDisplaySize(for: plan)
+                    Image(badgeAssetName)
+                        .resizable()
+                        .interpolation(.high)
+                        .renderingMode(.original)
+                        .frame(width: badgeSize.width, height: badgeSize.height)
+                        .offset(x: 200 - badgeSize.width, y: 0)
                 }
 
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 8) {
-                            Text(plan.title)
-                                .font(paywallFont(size: 20, weight: .semibold))
-                                .foregroundColor(usesLifetimeTheme ? .white : Color(hex: "3F270F"))
-                                .lineLimit(1)
-                                .minimumScaleFactor(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .layoutPriority(1)
+                Text(plan.title)
+                    .font(paywallFont(size: 16, weight: .bold))
+                    .foregroundColor(titleColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                    .frame(width: 130, height: 20, alignment: .leading)
+                    .offset(x: 16, y: 16)
 
-                            if plan == .yearly {
-                                popularBadge
-                            }
-                        }
+                Text(spacedCardPrice(price.displayPrice))
+                    .font(paywallFont(size: 28, weight: .bold))
+                    .foregroundStyle(priceStyle(isSelected: isSelected))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .frame(width: 150, height: 35, alignment: .leading)
+                    .offset(x: 16, y: 72)
 
-                        if let subtitle = price.subtitle {
-                            Text(subtitle)
-                                .font(paywallFont(size: 13, weight: .medium))
-                                .foregroundColor(Color(hex: "828282"))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Text(price.displayPrice)
-                        .font(paywallFont(size: 32, weight: .medium))
-                        .foregroundColor(usesLifetimeTheme ? .white : Color(hex: "3F270F"))
+                if let subtitle {
+                    Text(subtitle)
+                        .font(paywallFont(size: 12, weight: .regular))
+                        .foregroundColor(Color(hex: "828282"))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.65)
-                        .multilineTextAlignment(.trailing)
+                        .minimumScaleFactor(0.72)
+                        .frame(width: 168, height: 15, alignment: .leading)
+                        .offset(x: 16, y: 113)
                 }
-                .padding(.horizontal, usesLifetimeTheme ? 20 : 24)
-                .padding(.vertical, 16)
-                .frame(width: 349, height: 80)
             }
-            .frame(width: 349, height: 80)
+            .frame(width: 200, height: 144)
         }
         .buttonStyle(.plain)
         .disabled(subscriptionManager.isPurchasing)
         .opacity(subscriptionManager.isPurchasing ? 0.92 : 1)
-        .offset(x: 21, y: y)
     }
 
-    @ViewBuilder
-    private func lightPlanCardBackground(isSelected: Bool) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+    private func planCardBackground(isSelected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: isSelected
+                    ? [Color(hex: "FFFAF5"), Color(hex: "F1D1B5")]
+                    : [Color(hex: "5C4025"), Color(hex: "3D2610")],
+                    startPoint: UnitPoint(x: 0.08, y: 0.0),
+                    endPoint: UnitPoint(x: 1.0, y: 1.0)
+                )
+            )
+    }
 
-        ZStack {
-            if isSelected {
-                shape
-                    .fill(Color.clear)
-                    .overlay(
-                        shape
-                            .stroke(Color(hex: "D3A375"), lineWidth: 3)
+    private func priceStyle(isSelected: Bool) -> LinearGradient {
+        LinearGradient(
+            colors: isSelected
+            ? [Color(hex: "291E0A"), Color(hex: "D3A375")]
+            : [.white, .white],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    private func badgeAssetName(for plan: PaywallPlan, isSelected: Bool) -> String? {
+        switch plan {
+        case .lifetime:
+            return isSelected ? "PaywallBadgeValueSelected" : "PaywallBadgeValueUnselect"
+        case .yearly:
+            return isSelected ? "PaywallBadgePopularSelected" : "PaywallBadgePopularUnselect"
+        case .monthly:
+            return nil
+        }
+    }
+
+    private func badgeDisplaySize(for plan: PaywallPlan) -> CGSize {
+        switch plan {
+        case .yearly:
+            CGSize(width: 97, height: 24)
+        case .lifetime, .monthly:
+            CGSize(width: 82, height: 24)
+        }
+    }
+
+    private var benefitsSection: some View {
+        ZStack(alignment: .topLeading) {
+            HStack(spacing: 18) {
+                Rectangle()
+                    .fill(Color(hex: "6A452B").opacity(0.62))
+                    .frame(height: 1)
+                Text(L10n.paywallGetFullAccess)
+                    .font(paywallFont(size: 18, weight: .semibold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [Color(hex: "ECD5C2"), Color(hex: "D2A67F")],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
                     )
-            } else {
-                shape
-                    .fill(Color(hex: "EDE2D7").opacity(0.88))
-                    .overlay(
-                        shape
-                            .stroke(Color.white.opacity(0.92), lineWidth: 1)
-                    )
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                    .frame(width: 119, height: 23)
+                Rectangle()
+                    .fill(Color(hex: "6A452B").opacity(0.62))
+                    .frame(height: 1)
+            }
+            .frame(width: 343, height: 23)
+            .offset(x: 25, y: 0)
+
+            VStack(spacing: 12) {
+                ForEach(paywallBenefits) { benefit in
+                    benefitRow(benefit)
+                }
+            }
+            .offset(x: 20, y: 47)
+        }
+        .frame(width: 355, height: 469, alignment: .topLeading)
+        .offset(x: 0, y: classicBenefitsTop)
+    }
+
+    private func benefitRow(_ benefit: PaywallBenefit) -> some View {
+        let isLast = benefit.id == "more"
+
+        return HStack(alignment: .top, spacing: 12) {
+            Image(benefit.iconAssetName)
+                .resizable()
+                .interpolation(.high)
+                .renderingMode(.original)
+                .frame(width: 32, height: 32)
+                .padding(.top, isLast ? 13 : 4)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(benefit.title)
+                    .font(paywallFont(size: 16, weight: .medium))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                    .frame(width: 306, height: 20, alignment: .leading)
+
+                Text(benefit.subtitle)
+                    .font(paywallFont(size: 14, weight: .regular))
+                    .foregroundColor(Color(hex: "828282"))
+                    .lineLimit(isLast ? 2 : 1)
+                    .minimumScaleFactor(0.82)
+                    .frame(width: 306, height: isLast ? 36 : 18, alignment: .topLeading)
             }
         }
-        .shadow(color: Color.white.opacity(isSelected ? 0.45 : 0.7), radius: 10, x: -4, y: -4)
-        .shadow(color: Color(hex: "D3A375").opacity(isSelected ? 0.16 : 0.12), radius: 12, x: 6, y: 6)
-    }
-
-    @ViewBuilder
-    private func darkPlanCardBackground(for plan: PaywallPlan, isSelected: Bool) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-
-        shape
-            .fill(Color(hex: "321B06"))
-            .overlay(
-                shape
-                    .stroke(isSelected ? Color(hex: "D3A375") : Color(hex: "3F270F"), lineWidth: isSelected ? 3 : 1)
-            )
-            .shadow(color: Color(hex: "0A0500").opacity(0.35), radius: 10, x: 4, y: 6)
-            .shadow(color: Color(hex: "8C5F39").opacity(0.12), radius: 8, x: -3, y: -3)
-    }
-
-    private var popularBadge: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(
-                    usesLifetimeTheme
-                    ? LinearGradient(
-                        colors: [Color(hex: "643D19"), Color(hex: "9B6E45"), Color(hex: "58310E")],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    : LinearGradient(
-                        colors: [Color(hex: "E6B17D"), Color(hex: "E6B78A"), Color(hex: "DBA169")],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .shadow(
-                    color: usesLifetimeTheme ? Color(hex: "0A0500") : Color(hex: "CFD4DA").opacity(0.7),
-                    radius: 12,
-                    x: 6,
-                    y: 6
-                )
-                .shadow(
-                    color: usesLifetimeTheme ? Color(hex: "9D734B").opacity(0.3) : .white.opacity(0.7),
-                    radius: 12,
-                    x: -6,
-                    y: -6
-                )
-
-            Text(L10n.paywallPopular)
-                .font(paywallFont(size: 13, weight: .medium))
-                .foregroundColor(.white)
-        }
-        .frame(width: 85, height: 26)
+        .frame(width: 350, height: isLast ? 58 : 40, alignment: .topLeading)
     }
 
     private var subscribeButton: some View {
@@ -788,6 +1060,7 @@ struct PremiumPaywallView: View {
                     analyticsSource: entrySource,
                     analyticsPlan: selectedPlan.rawValue
                 )
+                updateLimitedOfferEligibility(afterPurchaseMessage: message)
                 if shouldTrackPremiumPurchaseSuccess(for: message) {
                     if subscriptionManager.hasPremiumAccess {
                         dismiss()
@@ -799,31 +1072,49 @@ struct PremiumPaywallView: View {
                 }
             }
         } label: {
-            RoundedRectangle(cornerRadius: 100, style: .continuous)
-                .fill(actionButtonColor)
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color(hex: "D3A375"))
                 .frame(width: 350, height: 56)
                 .overlay {
-                    Text(subscriptionManager.isPurchasing ? L10n.subscriptionPleaseWait : L10n.paywallSubscribeNow)
+                    Text(subscriptionManager.isPurchasing ? L10n.subscriptionPleaseWait : primaryClassicPaywallActionTitle)
                         .font(paywallFont(size: 20, weight: .semibold))
-                        .foregroundColor(actionButtonTextColor)
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
                 }
-                .shadow(
-                    color: usesLifetimeTheme ? .clear : Color(hex: "CFD4DA").opacity(0.7),
-                    radius: 12,
-                    x: 6,
-                    y: 6
-                )
-                .shadow(
-                    color: usesLifetimeTheme ? .clear : .white.opacity(0.7),
-                    radius: 12,
-                    x: -6,
-                    y: -6
-                )
         }
         .buttonStyle(.plain)
         .disabled(subscriptionManager.isPurchasing)
         .opacity(subscriptionManager.isPurchasing ? 0.92 : 1)
-        .offset(x: 20, y: 755 - classicPaywallVerticalLift)
+    }
+
+    private func floatingSubscribeButton(scale: CGFloat, bottomInset: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            LinearGradient(
+                colors: [
+                    Color(hex: "1D1002").opacity(0),
+                    Color(hex: "1D1002").opacity(0.95)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 42 * scale)
+            .allowsHitTesting(false)
+
+            subscribeButton
+                .scaleEffect(scale, anchor: .bottom)
+                .frame(width: 350 * scale, height: 56 * scale)
+                .shadow(color: Color.black.opacity(0.38), radius: 18 * scale, x: 0, y: 10 * scale)
+                .shadow(color: Color(hex: "D3A375").opacity(0.2), radius: 10 * scale, x: 0, y: 0)
+                .padding(.bottom, max(32, bottomInset + 16))
+        }
+        .frame(maxWidth: .infinity)
+        .background(alignment: .bottom) {
+            Color(hex: "1D1002")
+                .opacity(0.92)
+                .frame(height: (92 * scale) + max(32, bottomInset + 16))
+                .allowsHitTesting(false)
+        }
     }
 
     private var restoreSubscriptionButton: some View {
@@ -831,35 +1122,37 @@ struct PremiumPaywallView: View {
             Task {
                 let message = await subscriptionManager.restorePurchases()
                 if subscriptionManager.hasPremiumAccess {
+                    hasVisitedPremiumPaywallWithoutPurchase = false
                     dismiss()
                 } else {
                     feedbackMessage = message
                 }
             }
         } label: {
-            Text(L10n.subscriptionRestoreSubscription)
+            Text(L10n.subscriptionRestore)
                 .font(paywallFont(size: 14, weight: .semibold))
-                .foregroundColor(usesLifetimeTheme ? .white.opacity(0.95) : .black.opacity(0.82))
-                .frame(width: 350, alignment: .center)
-                .padding(.vertical, 6)
+                .foregroundColor(.white.opacity(0.82))
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+                .frame(width: 58, height: 42, alignment: .center)
         }
         .buttonStyle(.plain)
         .disabled(subscriptionManager.isPurchasing)
         .opacity(subscriptionManager.isPurchasing ? 0.72 : 1)
-        .offset(x: 20, y: 817 - classicPaywallVerticalLift)
     }
 
     private var legalFooter: some View {
         Text(legalFooterAttributedText)
             .font(paywallFont(size: 11, weight: .medium))
-            .foregroundColor(.white.opacity(0.92))
-            .tint(.white)
+            .foregroundColor(Color(hex: "828282"))
+            .tint(Color(hex: "828282"))
             .lineLimit(1)
             .minimumScaleFactor(0.42)
             .allowsTightening(true)
             .truncationMode(.tail)
-            .frame(width: 350)
+            .frame(width: 314, height: 15)
             .multilineTextAlignment(.center)
+            .offset(x: 39, y: classicLegalFooterTop)
     }
     private var legalFooterAttributedText: AttributedString {
         var text = AttributedString(L10n.paywallLegalOneLine)
@@ -875,12 +1168,17 @@ struct PremiumPaywallView: View {
         return text
     }
 
+    @ViewBuilder
     private var paywallBackground: some View {
-        Image(usesLifetimeTheme ? "PaywallDarkBG" : "PaywallLightBG")
-            .resizable()
-            .interpolation(.high)
-            .renderingMode(.original)
-            .aspectRatio(contentMode: .fill)
+        if isMemberCenter {
+            Image(usesLifetimeTheme ? "PaywallDarkBG" : "PaywallLightBG")
+                .resizable()
+                .interpolation(.high)
+                .renderingMode(.original)
+                .aspectRatio(contentMode: .fill)
+        } else {
+            Color(hex: "1D1002")
+        }
     }
 
     private var wordmarkPositions: [(x: CGFloat, y: CGFloat, opacity: Double)] {
@@ -897,6 +1195,42 @@ struct PremiumPaywallView: View {
             (387.39, 151.93, 0.10 * baseOpacity),
             (396.29, 201.13, 0.05 * baseOpacity)
         ]
+    }
+
+    private var primaryClassicPaywallActionTitle: String {
+        "\(selectedPlan.title) \(priceDisplay(for: selectedPlan).displayPrice)"
+    }
+
+    private func classicPlanSubtitle(for plan: PaywallPlan, price: PlanPriceDisplay) -> String? {
+        switch plan {
+        case .lifetime:
+            return L10n.paywallEarlySupporterSubtitle
+        case .yearly:
+            if let product = subscriptionManager.productsByID[plan.productID] {
+                let monthlyPrice = NSDecimalNumber(decimal: product.price).dividing(by: 12).decimalValue
+                let formattedMonthlyPrice = formattedMonthlyPrice(monthlyPrice, from: product.displayPrice)
+                return L10n.paywallOnlyMonthlyPriceSubtitle(formattedMonthlyPrice)
+            }
+            if let cachedMonthlySubtitle = yearlyMonthlySubtitle(from: price.displayPrice) {
+                return cachedMonthlySubtitle
+            }
+            return price.subtitle
+        case .monthly:
+            return L10n.paywallMilkTeaPriceSubtitle
+        }
+    }
+
+    private func spacedCardPrice(_ displayPrice: String) -> String {
+        guard let firstDigitIndex = displayPrice.firstIndex(where: { $0.isNumber }) else {
+            return displayPrice
+        }
+
+        let prefix = displayPrice[..<firstDigitIndex]
+        if prefix.isEmpty || prefix.last?.isWhitespace == true {
+            return displayPrice
+        }
+
+        return "\(prefix) \(displayPrice[firstDigitIndex...])"
     }
 
     private func priceDisplay(for plan: PaywallPlan) -> PlanPriceDisplay {
@@ -918,7 +1252,9 @@ struct PremiumPaywallView: View {
         switch plan {
         case .lifetime:
             fallbackSubtitle = L10n.paywallOneTimePayment
-        case .yearly, .monthly:
+        case .yearly:
+            fallbackSubtitle = yearlyMonthlySubtitle(from: cachedPrice)
+        case .monthly:
             fallbackSubtitle = nil
         }
         return PlanPriceDisplay(displayPrice: cachedPrice, subtitle: fallbackSubtitle)
@@ -928,6 +1264,42 @@ struct PremiumPaywallView: View {
         let monthlyPrice = NSDecimalNumber(decimal: product.price).dividing(by: 12).decimalValue
         let formattedMonthlyPrice = formattedMonthlyPrice(monthlyPrice, from: product.displayPrice)
         return L10n.paywallPerMonth(formattedMonthlyPrice)
+    }
+
+    private func yearlyMonthlySubtitle(from displayPrice: String) -> String? {
+        guard displayPrice != "--",
+              let yearlyPrice = decimalPrice(from: displayPrice) else {
+            return nil
+        }
+        let monthlyPrice = NSDecimalNumber(decimal: yearlyPrice).dividing(by: 12).decimalValue
+        let formattedMonthlyPrice = formattedMonthlyPrice(monthlyPrice, from: displayPrice)
+        return L10n.paywallOnlyMonthlyPriceSubtitle(formattedMonthlyPrice)
+    }
+
+    private func decimalPrice(from displayPrice: String) -> Decimal? {
+        let allowedCharacters = CharacterSet(charactersIn: "0123456789.,")
+        let numericText = displayPrice
+            .unicodeScalars
+            .filter { allowedCharacters.contains($0) }
+            .map(String.init)
+            .joined()
+
+        guard !numericText.isEmpty else { return nil }
+
+        let decimalSeparator: Character
+        if numericText.contains(",") && !numericText.contains(".") {
+            decimalSeparator = ","
+        } else {
+            decimalSeparator = "."
+        }
+
+        let groupingSeparator: Character = decimalSeparator == "." ? "," : "."
+        let normalized = numericText
+            .filter { $0 != groupingSeparator }
+            .map { $0 == decimalSeparator ? "." : String($0) }
+            .joined()
+
+        return Decimal(string: normalized, locale: Locale(identifier: "en_US_POSIX"))
     }
 
     private func formattedMonthlyPrice(_ monthlyPrice: Decimal, from displayPrice: String) -> String {

@@ -23,35 +23,68 @@ struct QuickEditAddGroupModal: View {
     let onCommit: () -> Void
 
     var body: some View {
-        QuickEditModalShell(maxWidth: 320, onDismiss: onDismiss) {
-            VStack(spacing: 14) {
-                Text(L10n.quickEditAddGroupTitle)
-                    .font(.appSystem(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
+        ZStack {
+            Color.black.opacity(0.16)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onDismiss)
 
-                TextField(
-                    "",
-                    text: $groupName,
-                    prompt: Text(L10n.quickEditGroupNamePlaceholder)
-                        .foregroundColor(placeholderColor)
-                )
-                .textInputAutocapitalization(.sentences)
-                .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-                .quickEditModalTextFieldSurface(background: taskBackground, stroke: fieldStroke)
-                .focused(focusedField, equals: .newGroupName)
-                .onSubmit(onCommit)
+            VStack(spacing: 0) {
+                Spacer()
 
-                HStack(spacing: 12) {
-                    QuickEditModalSecondaryButton(title: L10n.cancel, isPadLayout: isPadLayout, action: onDismiss)
+                VStack(spacing: 0) {
+                    Text(L10n.quickEditAddGroupTitle)
+                        .font(.appSystem(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+                        .padding(.top, 18)
+                        .padding(.bottom, 16)
 
-                    QuickEditModalPrimaryButton(
-                        title: L10n.addGroup,
-                        isEnabled: !groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                        isPadLayout: isPadLayout,
-                        action: onCommit
-                    )
+                    VStack(spacing: 16) {
+                        TextField(
+                            "",
+                            text: $groupName,
+                            prompt: Text(L10n.quickEditGroupNamePlaceholder)
+                                .foregroundColor(placeholderColor)
+                        )
+                        .textInputAutocapitalization(.sentences)
+                        .submitLabel(.done)
+                        .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+                        .quickEditModalTextFieldSurface(background: taskBackground, stroke: fieldStroke)
+                        .focused(focusedField, equals: .newGroupName)
+                        .onSubmit(onCommit)
+
+                        HStack(spacing: 12) {
+                            Button(L10n.cancel, action: onDismiss)
+                                .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+                                .foregroundColor(NeumorphicColors.text.opacity(0.9))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(height: 44)
+                                .buttonStyle(.plain)
+
+                            QuickEditModalPrimaryButton(
+                                title: L10n.save,
+                                isEnabled: !groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                                isPadLayout: isPadLayout,
+                                action: onCommit
+                            )
+                            .frame(width: scaled(132, pad: 156))
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 14)
+                    .padding(.bottom, 16)
                 }
+                .frame(maxWidth: isPadLayout ? 480 : .infinity)
+                .background(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 16,
+                        bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 16,
+                        style: .continuous
+                    )
+                    .fill(NeumorphicColors.background)
+                )
             }
         }
     }
@@ -91,6 +124,7 @@ struct QuickEditTaskEditorModal: View {
                             .foregroundColor(placeholderColor)
                     )
                     .textInputAutocapitalization(.sentences)
+                    .submitLabel(.done)
                     .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
                     .foregroundColor(NeumorphicColors.text)
                     .quickEditModalTextFieldSurface(background: taskBackground, stroke: fieldStroke)
@@ -122,6 +156,7 @@ struct QuickEditTaskEditorModal: View {
             HStack(spacing: 8) {
                 TextField(L10n.quickEditTaskStartMonth, text: startMonth)
                     .keyboardType(.numberPad)
+                    .submitLabel(.done)
                     .multilineTextAlignment(.center)
                     .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
                     .frame(height: 40)
@@ -142,6 +177,7 @@ struct QuickEditTaskEditorModal: View {
 
                 TextField(L10n.quickEditTaskStartDay, text: startDay)
                     .keyboardType(.numberPad)
+                    .submitLabel(.done)
                     .multilineTextAlignment(.center)
                     .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
                     .frame(height: 40)

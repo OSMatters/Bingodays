@@ -183,6 +183,10 @@ enum BingoBoardStore {
 
     static func saveNamedBoardsSnapshot(_ snapshot: NamedBoardsSnapshot) {
         let sanitized = sanitizeNamedBoardsSnapshot(snapshot)
+        #if DEBUG
+        let previousSnapshot = loadPersistedNamedBoardsSnapshotForIntegrityCheck()
+        debugValidateNamedBoardsTransition(from: previousSnapshot, to: sanitized)
+        #endif
         guard let data = try? JSONEncoder().encode(sanitized) else { return }
 
         persistNamedBoardsFile(data)
@@ -296,6 +300,190 @@ enum BingoBoardStore {
 
         return NamedBoardsSnapshot(selectedBoardID: selectedBoardID, boards: sanitizedBoards)
     }
+
+    #if DEBUG
+    private struct DebugBoardSignature {
+        let id: UUID
+        let name: String
+        let hasContent: Bool
+        let signature: String
+    }
+
+    private static func loadPersistedNamedBoardsSnapshotForIntegrityCheck() -> NamedBoardsSnapshot? {
+        if let data = try? Data(contentsOf: namedBoardsFileURL),
+           let decoded = try? JSONDecoder().decode(NamedBoardsSnapshot.self, from: data) {
+            return sanitizeNamedBoardsSnapshot(decoded)
+        }
+
+        if let data = sharedDefaults.data(forKey: boardsSaveKey),
+           let decoded = try? JSONDecoder().decode(NamedBoardsSnapshot.self, from: data) {
+            return sanitizeNamedBoardsSnapshot(decoded)
+        }
+
+        if let data = UserDefaults.standard.data(forKey: boardsSaveKey),
+           let decoded = try? JSONDecoder().decode(NamedBoardsSnapshot.self, from: data) {
+            return sanitizeNamedBoardsSnapshot(decoded)
+        }
+
+        return nil
+    }
+
+    private static func debugValidateNamedBoardsTransition(
+        from previousSnapshot: NamedBoardsSnapshot?,
+        to nextSnapshot: NamedBoardsSnapshot
+    ) {
+        debugAssertNoCrossBoardCellIDReuse(in: nextSnapshot)
+        guard let previousSnapshot,
+              previousSnapshot.boards.count > 1,
+              nextSnapshot.boards.count > 1 else {
+            return
+        }
+
+        let previousSignatures = previousSnapshot.boards.map(debugBoardSignature)
+        let nextSignatures = nextSnapshot.boards.map(debugBoardSignature)
+        let previousByID = Dictionary(uniqueKeysWithValues: previousSignatures.map { ($0.id, $0) })
+
+        for nextBoard in nextSignatures {
+            guard nextBoard.hasContent,
+                  let previousBoard = previousByID[nextBoard.id],
+                  previousBoard.hasContent,
+                  previousBoard.signature != nextBoard.signature else {
+                continue
+            }
+
+            let matchingPreviousBoard = previousSignatures.first {
+                $0.id != nextBoard.id &&
+                $0.hasContent &&
+                $0.signature == nextBoard.signature &&
+                $0.signature != previousBoard.signature
+            }
+            let matchingNextBoard = nextSignatures.first {
+                $0.id != nextBoard.id &&
+                $0.hasContent &&
+                $0.signature == nextBoard.signature &&
+                $0.signature != previousBoard.signature
+            }
+
+            guard let sourceBoard = matchingPreviousBoard ?? matchingNextBoard else {
+                continue
+            }
+
+            debugReportNamedBoardsIntegrityFailure(
+                """
+                [BoardIntegrity] Possible cross-board overwrite detected. Board "\(nextBoard.name)" (\(nextBoard.id)) changed from its previous content to match "\(sourceBoard.name)" (\(sourceBoard.id)). Check recent board persistence, widget sync, and lifecycle reload paths.
+                """
+            )
+        }
+    }
+
+    private static func debugAssertNoCrossBoardCellIDReuse(in snapshot: NamedBoardsSnapshot) {
+        guard snapshot.boards.count > 1 else { return }
+
+        var ownerByCellID: [UUID: (boardID: UUID, boardName: String)] = [:]
+        for namedBoard in snapshot.boards {
+            for cell in debugCanonicalCells(in: namedBoard.board) {
+                if let owner = ownerByCellID[cell.id], owner.boardID != namedBoard.id {
+                    debugReportNamedBoardsIntegrityFailure(
+                        """
+                        [BoardIntegrity] Cell ID \(cell.id) appears in both "\(owner.boardName)" (\(owner.boardID)) and "\(namedBoard.name)" (\(namedBoard.id)). This usually means one board snapshot was copied into another without regenerating cell identities.
+                        """
+                    )
+                } else {
+                    ownerByCellID[cell.id] = (namedBoard.id, namedBoard.name)
+                }
+            }
+        }
+    }
+
+    private static func debugReportNamedBoardsIntegrityFailure(_ message: String) {
+        print(message)
+        assertionFailure(message)
+    }
+
+    private static func debugBoardSignature(_ namedBoard: NamedBoard) -> DebugBoardSignature {
+        DebugBoardSignature(
+            id: namedBoard.id,
+            name: namedBoard.name,
+            hasContent: debugBoardHasContent(namedBoard.board),
+            signature: debugBoardContentSignature(namedBoard.board)
+        )
+    }
+
+    private static func debugBoardHasContent(_ board: SavedBoard) -> Bool {
+        debugCanonicalCells(in: board).contains { $0.hasStoredTask || $0.isCompleted }
+    }
+
+    private static func debugBoardContentSignature(_ board: SavedBoard) -> String {
+        [
+            "grid=\(board.gridSize)",
+            "lines=\(board.completedLines.map(debugLineSignature).sorted().joined(separator: ","))",
+            "visible=\(debugCellMatrixSignature(board.cells))",
+            "full=\(debugCellMatrixSignature(board.fullBoardCells ?? []))"
+        ].joined(separator: "\n")
+    }
+
+    private static func debugCanonicalCells(in board: SavedBoard) -> [BingoCell] {
+        let source = board.fullBoardCells ?? board.cells
+        return source.flatMap { $0 }
+    }
+
+    private static func debugCellMatrixSignature(_ cells: [[BingoCell]]) -> String {
+        cells.enumerated().map { row, rowCells in
+            rowCells.enumerated().map { col, cell in
+                "r\(row)c\(col):\(debugCellSignature(cell))"
+            }.joined(separator: ";")
+        }.joined(separator: "/")
+    }
+
+    private static func debugCellSignature(_ cell: BingoCell) -> String {
+        let residentTaskText = cell.residentTaskText ?? "nil"
+        let residentWeekdays = cell.residentWeekdays.sorted().map { String($0) }.joined(separator: ",")
+        let startVisibleMonth = cell.startVisibleMonth.map { String($0) } ?? "nil"
+        let startVisibleDay = cell.startVisibleDay.map { String($0) } ?? "nil"
+        let countdownPausedRemainingSeconds = cell.countdownPausedRemainingSeconds.map { String($0) } ?? "nil"
+        let estimatedDurationMinutes = cell.estimatedDurationMinutes.map { String($0) } ?? "nil"
+
+        let parts: [String] = [
+            cell.id.uuidString,
+            cell.text,
+            residentTaskText,
+            residentWeekdays,
+            debugDateSignature(cell.oneTimeVisibleDate),
+            debugDateSignature(cell.startVisibleAt),
+            debugDateSignature(cell.endVisibleAt),
+            startVisibleMonth,
+            startVisibleDay,
+            cell.isTaskHidden ? "hidden" : "shown",
+            cell.isCompleted ? "done" : "open",
+            cell.isForced ? "forced" : "normal",
+            debugDateSignature(cell.countdownEndsAt),
+            countdownPausedRemainingSeconds,
+            estimatedDurationMinutes,
+            String(cell.completionStreakCount),
+            debugDateSignature(cell.lastCompletedAt),
+            debugDateSignature(cell.lastVisibilityWindowTimeoutAt)
+        ]
+        return parts.joined(separator: "|")
+    }
+
+    private static func debugDateSignature(_ date: Date?) -> String {
+        guard let date else { return "nil" }
+        return String(date.timeIntervalSinceReferenceDate)
+    }
+
+    private static func debugLineSignature(_ line: BingoLine) -> String {
+        switch line {
+        case .row(let row):
+            return "row:\(row)"
+        case .column(let column):
+            return "column:\(column)"
+        case .diagonalMain:
+            return "diagonalMain"
+        case .diagonalAnti:
+            return "diagonalAnti"
+        }
+    }
+    #endif
 
     private static var sharedDefaults: UserDefaults {
         UserDefaults(suiteName: appGroupID) ?? .standard

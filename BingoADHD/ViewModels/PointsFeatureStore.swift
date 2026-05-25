@@ -5,8 +5,13 @@ final class PointsFeatureStore: ObservableObject {
     @Published private(set) var stickerInventoryCounts: [StickerKind: Int] = [:]
     @Published private(set) var homeStickerPlacements: [HomeStickerPlacement] = []
     @Published private(set) var customRewards: [CustomReward] = []
+    @Published private(set) var redemptionHistory: [PointRedemptionRecord] = []
 
     private var hasLoadedStores = false
+
+    init() {
+        loadPersistedStores()
+    }
 
     var activeRewards: [CustomReward] {
         customRewards.filter { !$0.isArchived }
@@ -24,19 +29,7 @@ final class PointsFeatureStore: ObservableObject {
 
     func loadAfterFirstFrameIfNeeded() {
         guard !hasLoadedStores else { return }
-        hasLoadedStores = true
-
-        Task.detached(priority: .utility) {
-            let inventoryCounts = StickerStore.loadInventoryCounts()
-            let placements = StickerStore.loadPlacements()
-            let rewards = RewardStore.loadRewards()
-
-            await MainActor.run {
-                self.stickerInventoryCounts = inventoryCounts
-                self.homeStickerPlacements = placements
-                self.customRewards = rewards
-            }
-        }
+        loadPersistedStores()
     }
 
     func redeemSticker(_ kind: StickerKind, totalPoints: Int) {
@@ -45,6 +38,15 @@ final class PointsFeatureStore: ObservableObject {
 
         stickerInventoryCounts[kind] = 1
         StickerStore.saveInventoryCounts(stickerInventoryCounts)
+        redemptionHistory = PointRedemptionHistoryStore.append(
+            PointRedemptionRecord(
+                itemKind: .sticker,
+                title: kind.redemptionHistoryTitle,
+                points: kind.requiredPoints,
+                imageName: kind.unlockedImageName
+            )
+        )
+        AppHaptics.completion()
         AnalyticsService.logStickerRedeemed(kind)
     }
 
@@ -115,20 +117,34 @@ final class PointsFeatureStore: ObservableObject {
         StickerStore.savePlacements(homeStickerPlacements)
     }
 
-    func createReward(title: String, requiredPoints: Int, emoji: String) {
+    func canCreateReward(hasPremiumAccess: Bool) -> Bool {
+        hasPremiumAccess || activeRewards.count < AppSettings.maxFreeCustomRewards
+    }
+
+    @discardableResult
+    func createReward(
+        title: String,
+        requiredPoints: Int,
+        emoji: String,
+        themeImageName: String? = nil,
+        hasPremiumAccess: Bool
+    ) -> Bool {
         let trimmedTitle = String(title.prefix(AppSettings.maxRewardTitleLength))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPoints = min(max(requiredPoints, 1), 9_999)
-        guard !trimmedTitle.isEmpty else { return }
+        guard !trimmedTitle.isEmpty else { return false }
+        guard canCreateReward(hasPremiumAccess: hasPremiumAccess) else { return false }
 
         customRewards.append(
             CustomReward(
                 title: trimmedTitle,
                 requiredPoints: normalizedPoints,
-                emoji: emoji
+                emoji: emoji,
+                themeImageName: themeImageName
             )
         )
         RewardStore.saveRewards(customRewards)
+        return true
     }
 
     func updateReward(_ reward: CustomReward) {
@@ -140,6 +156,8 @@ final class PointsFeatureStore: ObservableObject {
         customRewards[index].title = trimmedTitle
         customRewards[index].requiredPoints = min(max(reward.requiredPoints, 1), 9_999)
         customRewards[index].emoji = reward.emoji
+        customRewards[index].themeImageName = reward.themeImageName
+        customRewards[index].cardStyleVersion = CustomReward.currentCardStyleVersion
         RewardStore.saveRewards(customRewards)
     }
 
@@ -157,6 +175,16 @@ final class PointsFeatureStore: ObservableObject {
         customRewards[index].redemptionCount += 1
         customRewards[index].totalSpentPoints += requiredPoints
         RewardStore.saveRewards(customRewards)
+        redemptionHistory = PointRedemptionHistoryStore.append(
+            PointRedemptionRecord(
+                itemKind: .customReward,
+                title: customRewards[index].title,
+                points: requiredPoints,
+                imageName: customRewards[index].themeImageName,
+                emoji: customRewards[index].themeImageName == nil ? customRewards[index].displayEmoji : nil
+            )
+        )
+        AppHaptics.completion()
     }
 
     private var spentStickerPoints: Int {
@@ -169,6 +197,14 @@ final class PointsFeatureStore: ObservableObject {
         customRewards.reduce(0) { partial, reward in
             partial + reward.totalSpentPoints
         }
+    }
+
+    private func loadPersistedStores() {
+        hasLoadedStores = true
+        stickerInventoryCounts = StickerStore.loadInventoryCounts()
+        homeStickerPlacements = StickerStore.loadPlacements()
+        customRewards = RewardStore.loadRewards()
+        redemptionHistory = PointRedemptionHistoryStore.load()
     }
 
     private func availableStickerCount(for kind: StickerKind) -> Int {

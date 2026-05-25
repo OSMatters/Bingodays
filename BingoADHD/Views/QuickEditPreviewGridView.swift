@@ -88,6 +88,7 @@ struct QuickEditPreviewGridView: View {
     private var controlsRow: some View {
         let controlSize: CGFloat = isPadLayout ? 38 : 32
         let iconSize: CGFloat = isPadLayout ? 18 : 16
+        let theme = AppTheme.current
 
         return HStack(alignment: .center, spacing: 12) {
             HStack(spacing: isPadLayout ? 14 : 11) {
@@ -96,9 +97,9 @@ struct QuickEditPreviewGridView: View {
                 } label: {
                     Image(systemName: "minus")
                         .font(.appSystem(size: iconSize, weight: .bold))
-                        .foregroundColor(NeumorphicColors.accent)
+                        .foregroundColor(theme.color)
                         .frame(width: controlSize, height: controlSize)
-                        .background(Color.clear.neumorphicConvex(radius: controlSize / 2))
+                        .background(controlButtonSurface(size: controlSize))
                 }
                 .buttonStyle(.plain)
                 .disabled(targetGridSize <= 2)
@@ -121,9 +122,9 @@ struct QuickEditPreviewGridView: View {
                 } label: {
                     Image(systemName: "plus")
                         .font(.appSystem(size: iconSize, weight: .bold))
-                        .foregroundColor(NeumorphicColors.accent)
+                        .foregroundColor(theme.color)
                         .frame(width: controlSize, height: controlSize)
-                        .background(Color.clear.neumorphicConvex(radius: controlSize / 2))
+                        .background(controlButtonSurface(size: controlSize))
                 }
                 .buttonStyle(.plain)
                 .disabled(targetGridSize >= 5)
@@ -146,6 +147,15 @@ struct QuickEditPreviewGridView: View {
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
         isPadLayout ? (pad ?? base * 1.18) : base
+    }
+
+    private func controlButtonSurface(size: CGFloat) -> some View {
+        let theme = AppTheme.current
+        return Circle()
+            .fill(theme.color.opacity(theme == .concise ? 0.12 : 0.14))
+            .shadow(color: Color.white.opacity(theme == .concise ? 0.72 : 0.62), radius: 6, x: -3, y: -3)
+            .shadow(color: theme.bingoSurfaceShadowColor.opacity(0.2), radius: 6, x: 3, y: 3)
+            .frame(width: size, height: size)
     }
 }
 

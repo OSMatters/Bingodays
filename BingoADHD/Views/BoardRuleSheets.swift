@@ -2,6 +2,8 @@ import SwiftUI
 import Foundation
 
 struct SidebarGlassToggleStyle: ToggleStyle {
+    var accentColor: Color = NeumorphicColors.accent
+
     func makeBody(configuration: Configuration) -> some View {
         Button {
             withAnimation(.interpolatingSpring(stiffness: 210, damping: 18)) {
@@ -10,7 +12,7 @@ struct SidebarGlassToggleStyle: ToggleStyle {
         } label: {
             ZStack(alignment: configuration.isOn ? .trailing : .leading) {
                 Capsule()
-                    .fill(configuration.isOn ? NeumorphicColors.accent.opacity(0.78) : Color.white.opacity(0.18))
+                    .fill(configuration.isOn ? accentColor.opacity(0.78) : Color.white.opacity(0.18))
                     .frame(width: 42, height: 24)
                     .overlay {
                         Capsule()
@@ -203,7 +205,8 @@ struct BoardCountdownSheet: View {
                     L10n.tr(
                         "After canceling, the board countdown will stop immediately.",
                         zhHans: "取消后，面板倒计时会立即停止。",
-                        zhHant: "取消後，面板倒計時會立即停止。"
+                        zhHant: "取消後，面板倒計時會立即停止。",
+                        ja: "キャンセルすると、ボードのカウントダウンはすぐに停止します。"
                     )
                 )
             }
@@ -227,7 +230,8 @@ struct BoardCountdownSheet: View {
         return L10n.tr(
             "Board clears in \(summaryDays)d \(summaryHours)h \(summaryMinutes)m.",
             zhHans: "面板将在 \(summaryDays)天 \(summaryHours)小时 \(summaryMinutes)分钟后清空任务。",
-            zhHant: "面板將在 \(summaryDays)天 \(summaryHours)小時 \(summaryMinutes)分鐘後清空任務。"
+            zhHant: "面板將在 \(summaryDays)天 \(summaryHours)小時 \(summaryMinutes)分鐘後清空任務。",
+            ja: "ボードは \(summaryDays)日 \(summaryHours)時間 \(summaryMinutes)分後にクリアされます。"
         )
     }
 
@@ -574,7 +578,8 @@ struct BoardRulesSheet: View {
         return L10n.tr(
             "Board clears in \(summaryDays)d \(summaryHours)h \(summaryMinutes)m.",
             zhHans: "面板将在 \(summaryDays)天 \(summaryHours)小时 \(summaryMinutes)分钟后清空任务。",
-            zhHant: "面板將在 \(summaryDays)天 \(summaryHours)小時 \(summaryMinutes)分鐘後清空任務。"
+            zhHant: "面板將在 \(summaryDays)天 \(summaryHours)小時 \(summaryMinutes)分鐘後清空任務。",
+            ja: "ボードは \(summaryDays)日 \(summaryHours)時間 \(summaryMinutes)分後にクリアされます。"
         )
     }
 
@@ -585,7 +590,8 @@ struct BoardRulesSheet: View {
         return L10n.tr(
             "Resets every day at \(String(format: "%02d:%02d", hour, minute)).",
             zhHans: "每天将在 \(String(format: "%02d:%02d", hour, minute)) 自动重置。",
-            zhHant: "每天將在 \(String(format: "%02d:%02d", hour, minute)) 自動重置。"
+            zhHant: "每天將在 \(String(format: "%02d:%02d", hour, minute)) 自動重置。",
+            ja: "毎日 \(String(format: "%02d:%02d", hour, minute)) に自動リセットされます。"
         )
     }
 

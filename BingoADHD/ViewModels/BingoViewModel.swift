@@ -77,13 +77,6 @@ class BingoViewModel: ObservableObject {
         case keepCurrentTask
     }
 
-    private enum RewardSettlementMode {
-        // Follow current board completion state (can add or revoke points).
-        case normal
-        // Keep accumulated points, but rebase daily state to current board.
-        case preserveAccumulatedPoints
-    }
-
     @Published var cells: [[BingoCell]]
     @Published var gridSize: Int
     @Published var completedLines: Set<BingoLine> = []
@@ -146,7 +139,7 @@ class BingoViewModel: ObservableObject {
         }
         self.totalPoints = PointsStore.loadTotalPoints() ?? calculateBoardScore()
         self.lifetimePoints = PointsStore.loadLifetimePoints() ?? self.totalPoints
-        self.dailyRewardState = Self.initialDailyRewardState(
+        self.dailyRewardState = BingoRewardSettlement.initialDailyRewardState(
             referenceDate: now,
             boardLastSavedAt: existingSavedAt,
             currentCells: self.cells,
@@ -317,7 +310,7 @@ class BingoViewModel: ObservableObject {
         if !isBoardFullyCompleted {
             showBoardCompletionAnimation = false
         }
-        let rewardMode: RewardSettlementMode = trimmedText.isEmpty ? .preserveAccumulatedPoints : .normal
+        let rewardMode: BingoRewardSettlementMode = trimmedText.isEmpty ? .preserveAccumulatedPoints : .normal
         settleRewardsIfNeeded(mode: rewardMode)
 
         if !trimmedText.isEmpty {
@@ -328,14 +321,8 @@ class BingoViewModel: ObservableObject {
                     endAt: normalizedEndVisibilityAt
                 )
             )
-        } else if !previousStoredTaskText.isEmpty {
-            TaskHistoryStore.upsert(
-                task: MyTaskItem(
-                    text: previousStoredTaskText,
-                    startAt: previousCell.startVisibleAt,
-                    endAt: previousCell.endVisibleAt
-                )
-            )
+        } else if let previousTask = BingoTaskBoardHelpers.taskItem(from: previousCell, maxLength: Self.maxTaskLength) {
+            TaskHistoryStore.upsert(task: previousTask)
         }
         save()
     }
@@ -402,17 +389,8 @@ class BingoViewModel: ObservableObject {
         guard row < cells.count, col < cells[row].count else { return nil }
         let deletedCell = cells[row][col]
         guard !deletedCell.isEmpty else { return nil }
-        let deletedText = deletedCell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !deletedText.isEmpty {
-            TaskHistoryStore.upsert(
-                task: MyTaskItem(
-                    text: deletedText,
-                    startAt: deletedCell.startVisibleAt,
-                    endAt: deletedCell.endVisibleAt,
-                    startMonth: deletedCell.startVisibleMonth,
-                    startDay: deletedCell.startVisibleDay
-                )
-            )
+        if let deletedTask = BingoTaskBoardHelpers.taskItem(from: deletedCell, maxLength: Self.maxTaskLength) {
+            TaskHistoryStore.upsert(task: deletedTask)
         }
 
         cells[row][col] = BingoCell()
@@ -534,13 +512,7 @@ class BingoViewModel: ObservableObject {
     }
 
     func applyTaskPool(_ tasks: [MyTaskItem], targetGridSize: Int) {
-        let sanitizedTasks = tasks
-            .compactMap { task -> MyTaskItem? in
-                var sanitized = task
-                sanitized.text = String(task.text.prefix(Self.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
-                sanitized.normalizeVisibilityWindow()
-                return sanitized.trimmedText.isEmpty ? nil : sanitized
-            }
+        let sanitizedTasks = BingoTaskBoardHelpers.sanitizedTasks(tasks, maxLength: Self.maxTaskLength)
         TaskHistoryStore.upsertBoardTasks(sanitizedTasks)
 
         var newCache = Self.createEmptyGrid(size: Self.maxGridSize)
@@ -548,14 +520,7 @@ class BingoViewModel: ObservableObject {
 
         for (slot, task) in zip(slots, sanitizedTasks) {
             guard slot.row < newCache.count, slot.col < newCache[slot.row].count else { continue }
-            newCache[slot.row][slot.col] = BingoCell(
-                text: task.trimmedText,
-                residentTaskText: task.hasStartDate ? task.trimmedText : nil,
-                startVisibleAt: task.startAt,
-                endVisibleAt: task.endAt,
-                startVisibleMonth: task.startMonth,
-                startVisibleDay: task.startDay
-            )
+            newCache[slot.row][slot.col] = BingoTaskBoardHelpers.cell(for: task)
         }
 
         fullBoardCells = newCache
@@ -574,87 +539,44 @@ class BingoViewModel: ObservableObject {
     }
 
     func applyBoardOrderedTasks(_ tasks: [MyTaskItem?], targetGridSize: Int) {
-        struct TaskSignature: Hashable {
-            let text: String
-            let startAt: Date?
-            let endAt: Date?
-            let startMonth: Int?
-            let startDay: Int?
-        }
-
         let resolvedGridSize = min(max(targetGridSize, 2), Self.maxGridSize)
         let totalSlots = resolvedGridSize * resolvedGridSize
         let clippedTasks = Array(tasks.prefix(totalSlots))
         var newCache = Self.createEmptyGrid(size: Self.maxGridSize)
-        var preservedCellsBySignature: [TaskSignature: [BingoCell]] = [:]
+        var preservedCellsBySignature: [BingoTaskSignature: [BingoCell]] = [:]
 
         for row in 0..<resolvedGridSize {
             for col in 0..<resolvedGridSize {
                 guard row < fullBoardCells.count, col < fullBoardCells[row].count else { continue }
                 let existingCell = fullBoardCells[row][col]
-                let existingText = existingCell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !existingText.isEmpty else { continue }
-
-                let signature = TaskSignature(
-                    text: existingText,
-                    startAt: existingCell.startVisibleAt,
-                    endAt: existingCell.endVisibleAt,
-                    startMonth: existingCell.startVisibleMonth,
-                    startDay: existingCell.startVisibleDay
-                )
+                guard !existingCell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                let signature = BingoTaskSignature(cell: existingCell)
                 preservedCellsBySignature[signature, default: []].append(existingCell)
             }
         }
 
         for index in 0..<clippedTasks.count {
-            guard var task = clippedTasks[index] else { continue }
-            task.text = String(task.text.prefix(Self.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
-            task.normalizeVisibilityWindow()
-            guard !task.trimmedText.isEmpty else { continue }
+            guard let rawTask = clippedTasks[index],
+                  let task = BingoTaskBoardHelpers.sanitizedTask(rawTask, maxLength: Self.maxTaskLength) else { continue }
 
             let row = index / resolvedGridSize
             let col = index % resolvedGridSize
             guard row < newCache.count, col < newCache[row].count else { continue }
 
-            let signature = TaskSignature(
-                text: task.trimmedText,
-                startAt: task.startAt,
-                endAt: task.endAt,
-                startMonth: task.startMonth,
-                startDay: task.startDay
-            )
+            let signature = BingoTaskSignature(task: task)
 
             if var preservedList = preservedCellsBySignature[signature], !preservedList.isEmpty {
                 var preservedCell = preservedList.removeFirst()
                 preservedCellsBySignature[signature] = preservedList
 
-                preservedCell.text = task.trimmedText
-                preservedCell.residentTaskText = task.hasStartDate ? task.trimmedText : nil
-                preservedCell.startVisibleAt = task.startAt
-                preservedCell.endVisibleAt = task.endAt
-                preservedCell.startVisibleMonth = task.startMonth
-                preservedCell.startVisibleDay = task.startDay
-                // Force flag is only allowed via explicit task edit sheet toggle.
-                preservedCell.isForced = false
+                BingoTaskBoardHelpers.applyTask(task, to: &preservedCell)
                 newCache[row][col] = preservedCell
             } else {
-                newCache[row][col] = BingoCell(
-                    text: task.trimmedText,
-                    residentTaskText: task.hasStartDate ? task.trimmedText : nil,
-                    startVisibleAt: task.startAt,
-                    endVisibleAt: task.endAt,
-                    startVisibleMonth: task.startMonth,
-                    startVisibleDay: task.startDay
-                )
+                newCache[row][col] = BingoTaskBoardHelpers.cell(for: task)
             }
         }
 
-        let appliedTasks = clippedTasks.compactMap { task -> MyTaskItem? in
-            guard var task else { return nil }
-            task.text = String(task.text.prefix(Self.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
-            task.normalizeVisibilityWindow()
-            return task.trimmedText.isEmpty ? nil : task
-        }
+        let appliedTasks = BingoTaskBoardHelpers.sanitizedTasks(clippedTasks.compactMap { $0 }, maxLength: Self.maxTaskLength)
         TaskHistoryStore.upsertBoardTasks(appliedTasks)
 
         fullBoardCells = newCache
@@ -718,17 +640,9 @@ class BingoViewModel: ObservableObject {
             newCache[row][col] = cell
         }
 
-        let appliedTasks: [MyTaskItem] = clippedCells.compactMap { cell -> MyTaskItem? in
+        let appliedTasks = clippedCells.compactMap { cell -> MyTaskItem? in
             guard let cell else { return nil }
-            let text = cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return nil }
-            return MyTaskItem(
-                text: text,
-                startAt: cell.startVisibleAt,
-                endAt: cell.endVisibleAt,
-                startMonth: cell.startVisibleMonth,
-                startDay: cell.startVisibleDay
-            )
+            return BingoTaskBoardHelpers.taskItem(from: cell, maxLength: Self.maxTaskLength)
         }
         TaskHistoryStore.upsertBoardTasks(appliedTasks)
 
@@ -777,12 +691,7 @@ class BingoViewModel: ObservableObject {
     }
 
     func makeSavedBoardSnapshot() -> SavedBoard {
-        SavedBoard(
-            gridSize: gridSize,
-            cells: cells,
-            completedLines: completedLines,
-            fullBoardCells: fullBoardCells
-        )
+        persistenceSnapshot().board
     }
 
     func applySavedBoardSnapshot(
@@ -811,7 +720,7 @@ class BingoViewModel: ObservableObject {
 
         checkBingo(shouldCelebrateNewLines: false)
         repairDuplicateCellIDsIfNeeded(referenceDate: referenceDate)
-        dailyRewardState = Self.dailyRewardSnapshot(
+        dailyRewardState = BingoRewardSettlement.dailyRewardSnapshot(
             for: referenceDate,
             cells: cells,
             completedLines: completedLines,
@@ -1000,8 +909,9 @@ class BingoViewModel: ObservableObject {
 
     private func refreshBoardState(
         shouldCelebrateNewLines: Bool,
-        rewardSettlementMode: RewardSettlementMode = .normal
+        rewardSettlementMode: BingoRewardSettlementMode = .normal
     ) {
+        // Keep this as the single board-state commit path: cache sync, bingo detection, rewards, and persistence must stay ordered.
         let wasBoardFullyCompleted = isBoardFullyCompleted
         syncFullBoardCacheFromVisibleCells()
         checkBingo(shouldCelebrateNewLines: shouldCelebrateNewLines)
@@ -1022,17 +932,11 @@ class BingoViewModel: ObservableObject {
     }
 
     private func save(persistDiary: Bool = true, savedAt: Date = .now) {
-        let board = SavedBoard(gridSize: gridSize, cells: cells, completedLines: completedLines, fullBoardCells: fullBoardCells)
-        BingoBoardStore.saveBoard(board, savedAt: savedAt)
-        BingoBoardStore.saveBoardCountdownEndsAt(boardCountdownEndsAt)
-        if persistDiary {
-            BingoDiaryStore.save(board: board, on: savedAt)
-        } else {
-            BingoDiaryStore.syncBoardSnapshotWithoutCounting(board: board, on: savedAt)
-        }
-        PointsStore.saveTotalPoints(totalPoints)
-        PointsStore.saveLifetimePoints(lifetimePoints)
-        PointsStore.saveDailyRewardState(dailyRewardState)
+        BingoViewModelPersistence.save(
+            persistenceSnapshot(),
+            persistDiary: persistDiary,
+            savedAt: savedAt
+        )
     }
 
     private func saveWithExplicitDiaryDelta(
@@ -1040,13 +944,12 @@ class BingoViewModel: ObservableObject {
         delta: Int,
         savedAt: Date = .now
     ) {
-        let board = SavedBoard(gridSize: gridSize, cells: cells, completedLines: completedLines, fullBoardCells: fullBoardCells)
-        BingoBoardStore.saveBoard(board, savedAt: savedAt)
-        BingoBoardStore.saveBoardCountdownEndsAt(boardCountdownEndsAt)
-        BingoDiaryStore.applyExplicitTaskDelta(task: task, delta: delta, board: board, on: savedAt)
-        PointsStore.saveTotalPoints(totalPoints)
-        PointsStore.saveLifetimePoints(lifetimePoints)
-        PointsStore.saveDailyRewardState(dailyRewardState)
+        BingoViewModelPersistence.saveWithExplicitDiaryDelta(
+            persistenceSnapshot(),
+            task: task,
+            delta: delta,
+            savedAt: savedAt
+        )
     }
 
     func processExpiredCountdowns(now: Date = Date()) {
@@ -1061,6 +964,7 @@ class BingoViewModel: ObservableObject {
     func processExpiredTaskCountdowns(now: Date = Date()) {
         guard expiredTaskEvent == nil, expiredBoardCountdownEvent == nil else { return }
 
+        // Emit one prompt at a time so timeout resolution cannot race with another expired task or board countdown.
         for row in cells.indices {
             for col in cells[row].indices {
                 let cell = cells[row][col]
@@ -1098,6 +1002,7 @@ class BingoViewModel: ObservableObject {
 
     @discardableResult
     func refreshVisibilityWindowsIfNeeded(now: Date = Date()) -> Bool {
+        // Visibility windows are evaluated against the full board cache, then projected into the current grid size.
         var updatedCache = fullBoardCells
         var didMutateCache = false
         let hasVisibilityWindowTasks = updatedCache
@@ -1148,6 +1053,7 @@ class BingoViewModel: ObservableObject {
         guard scheduledTaskReplacementEvent == nil else { return }
         guard expiredTaskEvent == nil, expiredBoardCountdownEvent == nil else { return }
 
+        // Scheduled replacements pause on conflicts so the user decides whether today's custom text or the preset wins.
         for row in 0..<min(gridSize, fullBoardCells.count) {
             for col in 0..<min(gridSize, fullBoardCells[row].count) {
                 let cell = fullBoardCells[row][col]
@@ -1390,7 +1296,7 @@ class BingoViewModel: ObservableObject {
         newlyCompletedLines = []
         showCelebration = false
         showBoardCompletionAnimation = false
-        dailyRewardState = Self.emptyDailyRewardState(for: now)
+        dailyRewardState = BingoRewardSettlement.emptyDailyRewardState(for: now)
     }
 
     private func notifyDailyResetApplied(clearedCount: Int) {
@@ -1399,11 +1305,22 @@ class BingoViewModel: ObservableObject {
     }
 
     private func syncDiarySnapshot() {
-        let board = SavedBoard(gridSize: gridSize, cells: cells, completedLines: completedLines, fullBoardCells: fullBoardCells)
-        BingoDiaryStore.save(board: board)
-        PointsStore.saveTotalPoints(totalPoints)
-        PointsStore.saveLifetimePoints(lifetimePoints)
-        PointsStore.saveDailyRewardState(dailyRewardState)
+        BingoViewModelPersistence.syncDiarySnapshot(persistenceSnapshot())
+    }
+
+    private func persistenceSnapshot() -> BingoViewModelPersistenceSnapshot {
+        BingoViewModelPersistenceSnapshot(
+            board: SavedBoard(
+                gridSize: gridSize,
+                cells: cells,
+                completedLines: completedLines,
+                fullBoardCells: fullBoardCells
+            ),
+            boardCountdownEndsAt: boardCountdownEndsAt,
+            totalPoints: totalPoints,
+            lifetimePoints: lifetimePoints,
+            dailyRewardState: dailyRewardState
+        )
     }
 
     private func calculateBoardScore() -> Int {
@@ -1545,75 +1462,25 @@ class BingoViewModel: ObservableObject {
 
     private func settleRewardsIfNeeded(
         on date: Date = .now,
-        mode: RewardSettlementMode = .normal
+        mode: BingoRewardSettlementMode = .normal
     ) {
-        resetDailyRewardStateIfNeeded(for: date)
-
-        let completedCellIDs = Set(
-            cells
-                .flatMap { $0 }
-                .filter { $0.isCompleted && !$0.isEmpty }
-                .map(\.id)
+        // Reward settlement is pure; only this wrapper mutates published point state and persists it through save().
+        let output = BingoRewardSettlement.settle(
+            input: BingoRewardSettlementInput(
+                date: date,
+                cells: cells,
+                completedLines: completedLines,
+                isBoardFullyCompleted: isBoardFullyCompleted,
+                totalPoints: totalPoints,
+                lifetimePoints: lifetimePoints,
+                dailyRewardState: dailyRewardState,
+                nonRevocableConsumedPoints: BingoRewardSettlement.nonRevocableConsumedPointsTotal()
+            ),
+            mode: mode
         )
-        let newLineCount = completedLines.count
-        let newFullBoardRewardGranted = isBoardFullyCompleted
-
-        let previousPoints = dailyRewardState.rewardedCellIDs.count
-            + (dailyRewardState.peakCompletedLineCount * 5)
-            + (dailyRewardState.fullBoardRewardGranted ? 10 : 0)
-        let currentBoardPoints = completedCellIDs.count
-            + (newLineCount * 5)
-            + (newFullBoardRewardGranted ? 10 : 0)
-
-        if mode == .normal {
-            // Normal interaction: checking grants points, unchecking revokes points.
-            let delta = currentBoardPoints - previousPoints
-            if delta != 0 {
-                totalPoints = max(totalPoints + delta, 0)
-                if delta > 0 {
-                    lifetimePoints += delta
-                }
-            }
-        }
-
-        // Rebase daily reward state to current board after each settlement.
-        // In preserveAccumulatedPoints mode we keep totalPoints unchanged, but reset
-        // the baseline so subsequent interactions behave correctly.
-        dailyRewardState.rewardedCellIDs = completedCellIDs
-        dailyRewardState.peakCompletedLineCount = newLineCount
-        dailyRewardState.fullBoardRewardGranted = newFullBoardRewardGranted
-
-        let earnedTodayPoints = currentBoardPoints
-
-        // Guardrail: totalPoints should not be below today's rewarded points.
-        if totalPoints < earnedTodayPoints {
-            let correction = earnedTodayPoints - totalPoints
-            totalPoints = earnedTodayPoints
-            lifetimePoints += correction
-        }
-
-        // Guardrail: keep points ledger consistent with non-revocable spending.
-        // Sticker ownership can now be revoked when points drop, so only custom reward
-        // redemptions must remain protected as irreversible spending.
-        let minimumExpectedTotalPoints = nonRevocableConsumedPointsTotal() + earnedTodayPoints
-        if totalPoints < minimumExpectedTotalPoints {
-            let correction = minimumExpectedTotalPoints - totalPoints
-            totalPoints = minimumExpectedTotalPoints
-            lifetimePoints += correction
-        }
-    }
-
-    private func nonRevocableConsumedPointsTotal() -> Int {
-        let spentRewardPoints = RewardStore.loadRewards().reduce(0) { partial, reward in
-            partial + reward.totalSpentPoints
-        }
-        return spentRewardPoints
-    }
-
-    private func resetDailyRewardStateIfNeeded(for date: Date) {
-        let dateKey = PointsStore.dateKey(for: date)
-        guard dailyRewardState.dateKey != dateKey else { return }
-        dailyRewardState = Self.emptyDailyRewardState(for: date)
+        totalPoints = output.totalPoints
+        lifetimePoints = output.lifetimePoints
+        dailyRewardState = output.dailyRewardState
     }
 
     private static func projectVisibleCells(from cache: [[BingoCell]], size: Int, referenceDate: Date) -> [[BingoCell]] {
@@ -1671,64 +1538,6 @@ class BingoViewModel: ObservableObject {
         for position in forcedPositions where !(position.row == keepPosition.row && position.col == keepPosition.col) {
             cache[position.row][position.col].isForced = false
         }
-    }
-
-    private static func initialDailyRewardState(
-        referenceDate: Date,
-        boardLastSavedAt: Date?,
-        currentCells: [[BingoCell]],
-        currentCompletedLines: Set<BingoLine>,
-        isBoardFullyCompleted: Bool
-    ) -> DailyRewardState {
-        let todayKey = PointsStore.dateKey(for: referenceDate)
-        if let savedState = PointsStore.loadDailyRewardState(),
-           savedState.dateKey == todayKey {
-            return savedState
-        }
-
-        let calendar = Calendar.current
-        let shouldSeedFromCurrentBoard: Bool
-        if let boardLastSavedAt {
-            shouldSeedFromCurrentBoard = calendar.isDate(boardLastSavedAt, inSameDayAs: referenceDate)
-        } else {
-            shouldSeedFromCurrentBoard = false
-        }
-
-        guard shouldSeedFromCurrentBoard else {
-            return emptyDailyRewardState(for: referenceDate)
-        }
-
-        return dailyRewardSnapshot(
-            for: referenceDate,
-            cells: currentCells,
-            completedLines: currentCompletedLines,
-            isBoardFullyCompleted: isBoardFullyCompleted
-        )
-    }
-
-    private static func dailyRewardSnapshot(
-        for date: Date,
-        cells: [[BingoCell]],
-        completedLines: Set<BingoLine>,
-        isBoardFullyCompleted: Bool
-    ) -> DailyRewardState {
-        let rewardedCellIDs = Set(
-            cells
-                .flatMap { $0 }
-                .filter { $0.isCompleted && !$0.isEmpty }
-                .map(\.id)
-        )
-
-        return DailyRewardState(
-            dateKey: PointsStore.dateKey(for: date),
-            rewardedCellIDs: rewardedCellIDs,
-            peakCompletedLineCount: completedLines.count,
-            fullBoardRewardGranted: isBoardFullyCompleted
-        )
-    }
-
-    private static func emptyDailyRewardState(for date: Date) -> DailyRewardState {
-        DailyRewardState(dateKey: PointsStore.dateKey(for: date))
     }
 
     private func trackBingoCompletionIfNeeded(
