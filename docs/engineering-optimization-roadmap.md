@@ -76,6 +76,16 @@ Done means:
 - The optimization roadmap is checked in.
 - The project still builds for the `BingoADHD` scheme.
 
+## Stabilization Stop Line
+
+After the current persistence work, stop broad refactoring when these are done:
+
+- Board mutations, named-board snapshot writes, active-board mirror writes, points, diary, reminders, and widget reloads each have one clear owner.
+- Hot paths avoid duplicate WidgetKit reloads and unchanged UI publishes.
+- The main board/domain rules are in pure helpers or injected repositories, so new feature work does not require touching unrelated storage code.
+
+Remaining optimization should be treated as targeted fixes only, unless a measured performance issue or a specific feature forces a deeper change.
+
 ## Progress Log
 
 - Phase 1 guardrails are in place for unchanged visibility refreshes, reminder sync debounce, and cell schedule date formatting.
@@ -88,3 +98,4 @@ Done means:
 - `BingoViewModelPersistence` now returns an explicit commit result for board, diary, points, and widget side effects, giving future coordinators a stable contract instead of relying on hidden static-store work.
 - `BoardManagementStore` now uses an injected board-management repository for named-board snapshots, active-board mirrors, widget task sync, and widget panel selection instead of calling static stores from each workflow.
 - `BoardStateCommitter` now centralizes active-board mirror writes, countdown persistence, optional widget panel selection, and widget timeline reload decisions for both ViewModel persistence and board-management flows.
+- `BoardManagementStore` now commits named-board snapshots and active-board mirrors through one private helper, reducing duplicated save-and-mirror combinations across select, create, delete, and template import flows.

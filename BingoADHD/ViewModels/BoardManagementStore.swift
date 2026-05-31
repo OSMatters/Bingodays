@@ -187,15 +187,8 @@ final class BoardManagementStore: ObservableObject {
         namedBoards[boardIndex].updatedAt = .now
         if save {
             let shouldMirrorActiveBoard = selectedBoardID == boardID
-            persistSnapshot(reloadWidgets: !shouldMirrorActiveBoard)
-            if shouldMirrorActiveBoard {
-                persistActiveBoardMirror(
-                    boardID: boardID,
-                    board: board,
-                    countdownEndsAt: countdownEndsAt,
-                    savedAt: namedBoards[boardIndex].updatedAt
-                )
-            }
+            let activeMirror = shouldMirrorActiveBoard ? namedBoards[boardIndex] : nil
+            commitNamedBoardsSnapshot(activeMirror: activeMirror)
         }
     }
 
@@ -229,15 +222,7 @@ final class BoardManagementStore: ObservableObject {
 
         selectedBoardID = boardID
         let selected = selectedBoard
-        persistSnapshot(reloadWidgets: selected == nil)
-        if let selected {
-            persistActiveBoardMirror(
-                boardID: selected.id,
-                board: selected.board,
-                countdownEndsAt: selected.countdownEndsAt,
-                savedAt: selected.updatedAt
-            )
-        }
+        commitNamedBoardsSnapshot(activeMirror: selected)
         return selected
     }
 
@@ -266,13 +251,7 @@ final class BoardManagementStore: ObservableObject {
 
         namedBoards.append(newBoard)
         selectedBoardID = newBoard.id
-        persistSnapshot(reloadWidgets: false)
-        persistActiveBoardMirror(
-            boardID: newBoard.id,
-            board: newBoard.board,
-            countdownEndsAt: newBoard.countdownEndsAt,
-            savedAt: newBoard.updatedAt
-        )
+        commitNamedBoardsSnapshot(activeMirror: newBoard)
         return newBoard
     }
 
@@ -301,15 +280,7 @@ final class BoardManagementStore: ObservableObject {
         }
 
         let selectedAfterDelete = selectedBoard
-        persistSnapshot(reloadWidgets: selectedAfterDelete == nil)
-        if let selectedBoard = selectedAfterDelete {
-            persistActiveBoardMirror(
-                boardID: selectedBoard.id,
-                board: selectedBoard.board,
-                countdownEndsAt: selectedBoard.countdownEndsAt,
-                savedAt: selectedBoard.updatedAt
-            )
-        }
+        commitNamedBoardsSnapshot(activeMirror: selectedAfterDelete)
         return selectedAfterDelete
     }
 
@@ -358,13 +329,7 @@ final class BoardManagementStore: ObservableObject {
         )
         namedBoards.append(importedBoard)
         selectedBoardID = importedBoard.id
-        persistSnapshot(reloadWidgets: false)
-        persistActiveBoardMirror(
-            boardID: importedBoard.id,
-            board: importedBoard.board,
-            countdownEndsAt: importedBoard.countdownEndsAt,
-            savedAt: importedBoard.updatedAt
-        )
+        commitNamedBoardsSnapshot(activeMirror: importedBoard)
         return importedBoard
     }
 
@@ -383,13 +348,7 @@ final class BoardManagementStore: ObservableObject {
         namedBoards[boardIndex].countdownEndsAt = nil
         namedBoards[boardIndex].updatedAt = .now
         selectedBoardID = targetBoardID
-        persistSnapshot(reloadWidgets: false)
-        persistActiveBoardMirror(
-            boardID: targetBoardID,
-            board: namedBoards[boardIndex].board,
-            countdownEndsAt: namedBoards[boardIndex].countdownEndsAt,
-            savedAt: namedBoards[boardIndex].updatedAt
-        )
+        commitNamedBoardsSnapshot(activeMirror: namedBoards[boardIndex])
         return namedBoards[boardIndex]
     }
 
@@ -475,6 +434,17 @@ final class BoardManagementStore: ObservableObject {
             reloadWidgets: true
         )
         return updatedSnapshot
+    }
+
+    private func commitNamedBoardsSnapshot(activeMirror: BingoBoardStore.NamedBoard?) {
+        persistSnapshot(reloadWidgets: activeMirror == nil)
+        guard let activeMirror else { return }
+        persistActiveBoardMirror(
+            boardID: activeMirror.id,
+            board: activeMirror.board,
+            countdownEndsAt: activeMirror.countdownEndsAt,
+            savedAt: activeMirror.updatedAt
+        )
     }
 
     private func persistActiveBoardMirror(
