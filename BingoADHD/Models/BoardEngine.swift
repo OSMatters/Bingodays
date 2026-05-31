@@ -19,6 +19,30 @@ enum BoardEngine {
         let presetTaskText: String
     }
 
+    enum ExpiredTaskResolution: Equatable {
+        case markAsCompleted
+        case abandon
+        case postpone(minutes: Int)
+    }
+
+    struct ExpiredTaskResolutionResult: Equatable {
+        let cells: [[BingoCell]]
+        let unfinishedTimeoutTaskText: String?
+        let clampedPostponeMinutes: Int?
+    }
+
+    enum ExpiredBoardCountdownResolution: Equatable {
+        case markAsCompleted
+        case abandon
+        case postpone(minutes: Int)
+    }
+
+    struct ExpiredBoardCountdownResolutionResult: Equatable {
+        let cells: [[BingoCell]]
+        let boardCountdownEndsAt: Date?
+        let clampedPostponeMinutes: Int?
+    }
+
     static func createEmptyGrid(size: Int) -> [[BingoCell]] {
         (0..<size).map { _ in
             (0..<size).map { _ in BingoCell() }
@@ -121,6 +145,11 @@ enum BoardEngine {
         return !allCells.isEmpty && allCells.allSatisfy { !$0.isEmpty && $0.isCompleted }
     }
 
+    static func expiredBoardCountdownDeadline(_ deadline: Date?, now: Date) -> Date? {
+        guard let deadline, deadline <= now else { return nil }
+        return deadline
+    }
+
     static func expiredTaskCandidate(in board: SavedBoard, now: Date) -> ExpiredTaskCandidate? {
         let size = min(max(board.gridSize, 2), maxGridSize)
         let visibleCells = projectVisibleCells(
@@ -150,6 +179,16 @@ enum BoardEngine {
         }
 
         return nil
+    }
+
+    static func acknowledgeExpiredTaskCountdown(
+        in cells: [[BingoCell]],
+        candidate: ExpiredTaskCandidate
+    ) -> [[BingoCell]]? {
+        guard let position = expiredTaskPosition(in: cells, candidate: candidate) else { return nil }
+        var updatedCells = cells
+        updatedCells[position.row][position.col].countdownEndsAt = nil
+        return updatedCells
     }
 
     static func scheduledTaskReplacementCandidate(
@@ -185,6 +224,108 @@ enum BoardEngine {
         return nil
     }
 
+    static func resolveExpiredTask(
+        in cells: [[BingoCell]],
+        candidate: ExpiredTaskCandidate,
+        resolution: ExpiredTaskResolution,
+        now: Date,
+        maxCountdownMinutes: Int,
+        calendar: Calendar = .current
+    ) -> ExpiredTaskResolutionResult? {
+        guard let position = expiredTaskPosition(in: cells, candidate: candidate) else { return nil }
+        var updatedCells = cells
+        var cell = updatedCells[position.row][position.col]
+        guard !cell.isEmpty else { return nil }
+
+        switch resolution {
+        case .markAsCompleted:
+            let visibilityWindowExpired =
+                cell.countdownEndsAt == nil &&
+                cell.startVisibleAt != nil &&
+                cell.endVisibleAt != nil &&
+                cell.isEndVisibilityReached(on: now)
+
+            cell.isCompleted = true
+            registerCompletionIfNeeded(on: &cell, now: now, calendar: calendar)
+            cell.countdownEndsAt = nil
+            if visibilityWindowExpired {
+                cell.startVisibleAt = nil
+                cell.endVisibleAt = nil
+                cell.lastVisibilityWindowTimeoutAt = nil
+            }
+            updatedCells[position.row][position.col] = cell
+            return ExpiredTaskResolutionResult(
+                cells: updatedCells,
+                unfinishedTimeoutTaskText: nil,
+                clampedPostponeMinutes: nil
+            )
+
+        case .abandon:
+            let unfinishedTaskText = cell.storedTaskText
+            updatedCells[position.row][position.col] = BingoCell()
+            return ExpiredTaskResolutionResult(
+                cells: updatedCells,
+                unfinishedTimeoutTaskText: unfinishedTaskText,
+                clampedPostponeMinutes: nil
+            )
+
+        case .postpone(let minutes):
+            let clampedMinutes = min(max(minutes, 1), maxCountdownMinutes)
+            cell.startVisibleAt = nil
+            cell.endVisibleAt = nil
+            cell.lastVisibilityWindowTimeoutAt = nil
+            cell.countdownEndsAt = now.addingTimeInterval(Double(clampedMinutes * 60))
+            updatedCells[position.row][position.col] = cell
+            return ExpiredTaskResolutionResult(
+                cells: updatedCells,
+                unfinishedTimeoutTaskText: candidate.taskText,
+                clampedPostponeMinutes: clampedMinutes
+            )
+        }
+    }
+
+    static func resolveExpiredBoardCountdown(
+        in cells: [[BingoCell]],
+        resolution: ExpiredBoardCountdownResolution,
+        now: Date,
+        maxCountdownMinutes: Int,
+        calendar: Calendar = .current
+    ) -> ExpiredBoardCountdownResolutionResult {
+        var updatedCells = cells
+
+        switch resolution {
+        case .markAsCompleted:
+            for row in updatedCells.indices {
+                for col in updatedCells[row].indices {
+                    guard !updatedCells[row][col].isEmpty else { continue }
+                    updatedCells[row][col].isCompleted = true
+                    registerCompletionIfNeeded(on: &updatedCells[row][col], now: now, calendar: calendar)
+                    updatedCells[row][col].countdownEndsAt = nil
+                }
+            }
+            return ExpiredBoardCountdownResolutionResult(
+                cells: updatedCells,
+                boardCountdownEndsAt: nil,
+                clampedPostponeMinutes: nil
+            )
+
+        case .abandon:
+            return ExpiredBoardCountdownResolutionResult(
+                cells: updatedCells,
+                boardCountdownEndsAt: nil,
+                clampedPostponeMinutes: nil
+            )
+
+        case .postpone(let minutes):
+            let clampedMinutes = min(max(minutes, 1), maxCountdownMinutes)
+            return ExpiredBoardCountdownResolutionResult(
+                cells: updatedCells,
+                boardCountdownEndsAt: now.addingTimeInterval(Double(clampedMinutes * 60)),
+                clampedPostponeMinutes: clampedMinutes
+            )
+        }
+    }
+
     private static func expiredTaskDeadline(for cell: BingoCell, now: Date) -> Date? {
         guard !cell.isEmpty, !cell.isCompleted else { return nil }
 
@@ -201,5 +342,60 @@ enum BoardEngine {
             return nil
         }
         return deadline
+    }
+
+    private struct Position: Equatable {
+        let row: Int
+        let col: Int
+    }
+
+    private static func expiredTaskPosition(
+        in cells: [[BingoCell]],
+        candidate: ExpiredTaskCandidate
+    ) -> Position? {
+        if candidate.row >= 0,
+           candidate.col >= 0,
+           candidate.row < cells.count,
+           candidate.col < cells[candidate.row].count,
+           !cells[candidate.row][candidate.col].isEmpty {
+            return Position(row: candidate.row, col: candidate.col)
+        }
+
+        for row in cells.indices {
+            for col in cells[row].indices where cells[row][col].id == candidate.cellID {
+                if !cells[row][col].isEmpty {
+                    return Position(row: row, col: col)
+                }
+            }
+        }
+
+        let normalizedTask = candidate.taskText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTask.isEmpty else { return nil }
+
+        for row in cells.indices {
+            for col in cells[row].indices {
+                let cell = cells[row][col]
+                guard !cell.isEmpty, !cell.isCompleted else { continue }
+                if cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTask {
+                    return Position(row: row, col: col)
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func registerCompletionIfNeeded(
+        on cell: inout BingoCell,
+        now: Date,
+        calendar: Calendar
+    ) {
+        guard !cell.isEmpty else { return }
+        if let lastCompletedAt = cell.lastCompletedAt,
+           calendar.isDate(lastCompletedAt, inSameDayAs: now) {
+            return
+        }
+
+        cell.completionStreakCount += 1
+        cell.lastCompletedAt = now
     }
 }

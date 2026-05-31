@@ -916,7 +916,7 @@ class BingoViewModel: ObservableObject {
     }
 
     func processExpiredCountdowns(now: Date = Date()) {
-        guard let deadline = boardCountdownEndsAt, deadline <= now else { return }
+        guard let deadline = BoardEngine.expiredBoardCountdownDeadline(boardCountdownEndsAt, now: now) else { return }
         guard expiredBoardCountdownEvent == nil else { return }
 
         boardCountdownEndsAt = nil
@@ -929,10 +929,15 @@ class BingoViewModel: ObservableObject {
 
         // Emit one prompt at a time so timeout resolution cannot race with another expired task or board countdown.
         guard let candidate = BoardEngine.expiredTaskCandidate(in: cells, now: now) else { return }
+        guard let updatedCells = BoardEngine.acknowledgeExpiredTaskCountdown(in: cells, candidate: candidate) else {
+            return
+        }
 
-        cells[candidate.row][candidate.col].countdownEndsAt = nil
-        syncFullBoardCacheFromVisibleCells()
-        save()
+        if updatedCells != cells {
+            cells = updatedCells
+            syncFullBoardCacheFromVisibleCells()
+            save()
+        }
         expiredTaskEvent = ExpiredTaskEvent(
             cellID: candidate.cellID,
             row: candidate.row,
@@ -1007,85 +1012,76 @@ class BingoViewModel: ObservableObject {
         )
     }
 
+    private func boardEngineExpiredTaskCandidate(from event: ExpiredTaskEvent) -> BoardEngine.ExpiredTaskCandidate {
+        BoardEngine.ExpiredTaskCandidate(
+            cellID: event.cellID,
+            row: event.row,
+            col: event.col,
+            taskText: event.taskText,
+            expiredAt: event.expiredAt
+        )
+    }
+
+    private func boardEngineExpiredTaskResolution(
+        for resolution: ExpiredTaskResolution
+    ) -> BoardEngine.ExpiredTaskResolution {
+        switch resolution {
+        case .markAsCompleted:
+            return .markAsCompleted
+        case .abandon:
+            return .abandon
+        case .postpone(let minutes):
+            return .postpone(minutes: minutes)
+        }
+    }
+
+    private func boardEngineExpiredBoardCountdownResolution(
+        for resolution: ExpiredBoardCountdownResolution
+    ) -> BoardEngine.ExpiredBoardCountdownResolution {
+        switch resolution {
+        case .markAsCompleted:
+            return .markAsCompleted
+        case .abandon:
+            return .abandon
+        case .postpone(let minutes):
+            return .postpone(minutes: minutes)
+        }
+    }
+
     func resolveExpiredTask(_ resolution: ExpiredTaskResolution, now: Date = Date()) -> String? {
         guard let event = expiredTaskEvent else { return nil }
         defer {
             expiredTaskEvent = nil
         }
 
-        let position = resolveExpiredTaskPosition(for: event)
-        guard let position else { return nil }
-        let row = position.row
-        let col = position.col
-        guard row < cells.count, col < cells[row].count else { return nil }
-        guard !cells[row][col].isEmpty else { return nil }
+        guard let result = BoardEngine.resolveExpiredTask(
+            in: cells,
+            candidate: boardEngineExpiredTaskCandidate(from: event),
+            resolution: boardEngineExpiredTaskResolution(for: resolution),
+            now: now,
+            maxCountdownMinutes: Self.maxCountdownMinutes
+        ) else {
+            return nil
+        }
 
+        if let unfinishedTaskText = result.unfinishedTimeoutTaskText {
+            BingoTimeoutStore.recordUnfinishedTimeout(task: unfinishedTaskText, on: now)
+        }
+        cells = result.cells
         switch resolution {
         case .markAsCompleted:
-            let visibilityWindowExpired =
-                cells[row][col].countdownEndsAt == nil &&
-                cells[row][col].startVisibleAt != nil &&
-                cells[row][col].endVisibleAt != nil &&
-                cells[row][col].isEndVisibilityReached(on: now)
-
-            cells[row][col].isCompleted = true
-            registerCompletionIfNeeded(row: row, col: col, now: now)
-            cells[row][col].countdownEndsAt = nil
-            if visibilityWindowExpired {
-                // User explicitly marks done at window timeout: keep completed visual state.
-                cells[row][col].startVisibleAt = nil
-                cells[row][col].endVisibleAt = nil
-                cells[row][col].lastVisibilityWindowTimeoutAt = nil
-            }
             refreshBoardState(shouldCelebrateNewLines: true)
             return L10n.taskMarkedCompletedSuccess
 
         case .abandon:
-            BingoTimeoutStore.recordUnfinishedTimeout(task: cells[row][col].storedTaskText, on: now)
-            cells[row][col] = BingoCell()
             refreshBoardState(shouldCelebrateNewLines: false)
             return L10n.taskAbandonedSuccess
 
         case .postpone(let minutes):
-            let clampedMinutes = min(max(minutes, 1), Self.maxCountdownMinutes)
-            BingoTimeoutStore.recordUnfinishedTimeout(task: event.taskText, on: now)
-            // Postpone should continue as a regular countdown task, not return to inactive window state.
-            cells[row][col].startVisibleAt = nil
-            cells[row][col].endVisibleAt = nil
-            cells[row][col].lastVisibilityWindowTimeoutAt = nil
-            cells[row][col].countdownEndsAt = now.addingTimeInterval(Double(clampedMinutes * 60))
+            let clampedMinutes = result.clampedPostponeMinutes ?? min(max(minutes, 1), Self.maxCountdownMinutes)
             refreshBoardState(shouldCelebrateNewLines: false)
             return L10n.taskPostponedSuccess(clampedMinutes)
         }
-    }
-
-    private func resolveExpiredTaskPosition(for event: ExpiredTaskEvent) -> Position? {
-        if event.row >= 0,
-           event.col >= 0,
-           event.row < cells.count,
-           event.col < cells[event.row].count,
-           !cells[event.row][event.col].isEmpty {
-            return Position(row: event.row, col: event.col)
-        }
-
-        if let idMatched = findVisiblePosition(forCellID: event.cellID),
-           !cells[idMatched.row][idMatched.col].isEmpty {
-            return idMatched
-        }
-
-        let normalizedTask = event.taskText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedTask.isEmpty else { return nil }
-
-        for row in cells.indices {
-            for col in cells[row].indices {
-                let cell = cells[row][col]
-                guard !cell.isEmpty, !cell.isCompleted else { continue }
-                if cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTask {
-                    return Position(row: row, col: col)
-                }
-            }
-        }
-        return nil
     }
 
     func resolveScheduledTaskReplacement(
@@ -1172,29 +1168,29 @@ class BingoViewModel: ObservableObject {
             expiredBoardCountdownEvent = nil
         }
 
+        let result = BoardEngine.resolveExpiredBoardCountdown(
+            in: cells,
+            resolution: boardEngineExpiredBoardCountdownResolution(for: resolution),
+            now: now,
+            maxCountdownMinutes: Self.maxCountdownMinutes
+        )
+        if result.cells != cells {
+            cells = result.cells
+        }
+        boardCountdownEndsAt = result.boardCountdownEndsAt
+
         switch resolution {
         case .markAsCompleted:
-            for row in cells.indices {
-                for col in cells[row].indices {
-                    guard !cells[row][col].isEmpty else { continue }
-                    cells[row][col].isCompleted = true
-                    registerCompletionIfNeeded(row: row, col: col, now: now)
-                    cells[row][col].countdownEndsAt = nil
-                }
-            }
-            boardCountdownEndsAt = nil
             expiredTaskEvent = nil
             refreshBoardState(shouldCelebrateNewLines: true)
             return L10n.boardMarkedCompletedSuccess
 
         case .abandon:
-            boardCountdownEndsAt = nil
             save()
             return L10n.boardCountdownCanceledSuccess
 
         case .postpone(let minutes):
-            let clampedMinutes = min(max(minutes, 1), Self.maxCountdownMinutes)
-            boardCountdownEndsAt = now.addingTimeInterval(Double(clampedMinutes * 60))
+            let clampedMinutes = result.clampedPostponeMinutes ?? min(max(minutes, 1), Self.maxCountdownMinutes)
             save()
             return L10n.boardCountdownPostponedSuccess(clampedMinutes)
         }
@@ -1292,15 +1288,6 @@ class BingoViewModel: ObservableObject {
 
         cells[row][col].completionStreakCount += 1
         cells[row][col].lastCompletedAt = now
-    }
-
-    private func findVisiblePosition(forCellID cellID: UUID) -> Position? {
-        for row in cells.indices {
-            for col in cells[row].indices where cells[row][col].id == cellID {
-                return Position(row: row, col: col)
-            }
-        }
-        return nil
     }
 
     private func visibleCells(from cache: [[BingoCell]], size: Int) -> [[BingoCell]] {

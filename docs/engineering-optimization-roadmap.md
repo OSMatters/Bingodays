@@ -82,4 +82,5 @@ Done means:
 - `BoardEngine` now owns shared board cache expansion and visible-cell projection for the app, widget intent, and template import paths.
 - `BoardEngine` now owns Bingo line detection, board score baselines, and full-board completion checks used by both the app and widget task toggle path.
 - `BoardEngine` now owns timeout and scheduled replacement candidate detection, so UI coordinators can react to domain events without duplicating scan rules.
+- `BoardEngine` now owns expired task and board countdown resolution transforms, keeping timeout business mutations out of `BingoViewModel` UI event handling.
 - Widget timeline reloads can now be batched by persistence callers, so multi-step board saves can write named boards, active-board mirrors, countdown state, and widget selection before issuing one refresh.
