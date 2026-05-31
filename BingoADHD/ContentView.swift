@@ -1574,39 +1574,7 @@ struct ContentView: View {
     }
 
     private func hasExpiredTaskCountdown(in namedBoard: BingoBoardStore.NamedBoard, now: Date) -> Bool {
-        let savedBoard = namedBoard.board
-        let gridSize = min(max(savedBoard.gridSize, 2), BingoViewModel.maxGridSize)
-        let sourceCells = savedBoard.fullBoardCells ?? savedBoard.cells
-
-        for row in 0..<gridSize {
-            for col in 0..<gridSize {
-                guard row < sourceCells.count, col < sourceCells[row].count else {
-                    continue
-                }
-
-                let cell = sourceCells[row][col].projectedForDisplay(on: now)
-                guard !cell.isEmpty, !cell.isCompleted else {
-                    continue
-                }
-
-                let executionDeadline = cell.countdownEndsAt
-                let visibilityWindowDeadline: Date? = {
-                    guard executionDeadline == nil else { return nil }
-                    guard let start = cell.startVisibleAt, let end = cell.endVisibleAt else { return nil }
-                    guard now >= start, now >= end else { return nil }
-                    return end
-                }()
-
-                guard let deadline = executionDeadline ?? visibilityWindowDeadline else {
-                    continue
-                }
-                if deadline <= now {
-                    return true
-                }
-            }
-        }
-
-        return false
+        BoardEngine.expiredTaskCandidate(in: namedBoard.board, now: now) != nil
     }
 
     private func selectBoard(_ boardID: UUID) {

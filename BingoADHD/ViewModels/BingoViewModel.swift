@@ -928,39 +928,18 @@ class BingoViewModel: ObservableObject {
         guard expiredTaskEvent == nil, expiredBoardCountdownEvent == nil else { return }
 
         // Emit one prompt at a time so timeout resolution cannot race with another expired task or board countdown.
-        for row in cells.indices {
-            for col in cells[row].indices {
-                let cell = cells[row][col]
-                guard !cell.isEmpty, !cell.isCompleted else {
-                    continue
-                }
+        guard let candidate = BoardEngine.expiredTaskCandidate(in: cells, now: now) else { return }
 
-                let executionDeadline = cell.countdownEndsAt
-                let visibilityWindowDeadline: Date? = {
-                    guard executionDeadline == nil else { return nil }
-                    guard let start = cell.startVisibleAt, let end = cell.endVisibleAt else { return nil }
-                    guard now >= start, now >= end else { return nil }
-                    return end
-                }()
-
-                guard let deadline = executionDeadline ?? visibilityWindowDeadline,
-                      deadline <= now else {
-                    continue
-                }
-
-                cells[row][col].countdownEndsAt = nil
-                syncFullBoardCacheFromVisibleCells()
-                save()
-                expiredTaskEvent = ExpiredTaskEvent(
-                    cellID: cell.id,
-                    row: row,
-                    col: col,
-                    taskText: cell.storedTaskText,
-                    expiredAt: deadline
-                )
-                return
-            }
-        }
+        cells[candidate.row][candidate.col].countdownEndsAt = nil
+        syncFullBoardCacheFromVisibleCells()
+        save()
+        expiredTaskEvent = ExpiredTaskEvent(
+            cellID: candidate.cellID,
+            row: candidate.row,
+            col: candidate.col,
+            taskText: candidate.taskText,
+            expiredAt: candidate.expiredAt
+        )
     }
 
     @discardableResult
@@ -1012,29 +991,20 @@ class BingoViewModel: ObservableObject {
         guard expiredTaskEvent == nil, expiredBoardCountdownEvent == nil else { return }
 
         // Scheduled replacements pause on conflicts so the user decides whether today's custom text or the preset wins.
-        for row in 0..<min(gridSize, fullBoardCells.count) {
-            for col in 0..<min(gridSize, fullBoardCells[row].count) {
-                let cell = fullBoardCells[row][col]
-                guard cell.hasStartVisibilityDate else { continue }
-                guard cell.isStartVisibilityReached(on: now) else { continue }
-                guard !cell.hasResidentSchedule, !cell.isOneTimeTask else { continue }
-                guard !ignoredScheduledReplacementCellIDs.contains(cell.id) else { continue }
+        guard let candidate = BoardEngine.scheduledTaskReplacementCandidate(
+            in: fullBoardCells,
+            size: gridSize,
+            ignoredCellIDs: ignoredScheduledReplacementCellIDs,
+            now: now
+        ) else { return }
 
-                let currentText = cell.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                let presetText = (cell.residentTaskText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !currentText.isEmpty, !presetText.isEmpty else { continue }
-                guard currentText != presetText else { continue }
-
-                scheduledTaskReplacementEvent = ScheduledTaskReplacementEvent(
-                    cellID: cell.id,
-                    row: row,
-                    col: col,
-                    currentTaskText: currentText,
-                    presetTaskText: presetText
-                )
-                return
-            }
-        }
+        scheduledTaskReplacementEvent = ScheduledTaskReplacementEvent(
+            cellID: candidate.cellID,
+            row: candidate.row,
+            col: candidate.col,
+            currentTaskText: candidate.currentTaskText,
+            presetTaskText: candidate.presetTaskText
+        )
     }
 
     func resolveExpiredTask(_ resolution: ExpiredTaskResolution, now: Date = Date()) -> String? {
