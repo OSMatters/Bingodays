@@ -44,6 +44,7 @@ struct ContentView: View {
     @StateObject private var pointsAnimationStore = PointsAnimationStore()
     @StateObject private var boardActionPresentationStore = BoardActionPresentationStore()
     @StateObject private var boardSwitchAnimationStore = BoardSwitchAnimationStore()
+    private let taskStartReminderScheduler: any TaskStartReminderScheduling
     @State private var isSidebarPresented = false
     @State private var isSettingsExpanded = false
     @State private var isWidgetGuideExpanded = false
@@ -103,6 +104,10 @@ struct ContentView: View {
     @AppStorage(AppSettings.hasVisitedPremiumPaywallWithoutPurchaseKey) private var hasVisitedPremiumPaywallWithoutPurchase = false
     @AppStorage(AppSettings.limitedTimeDiscountStartedAtKey) private var limitedTimeDiscountStartedAt = 0.0
     @AppStorage(AppSettings.limitedTimeDiscountCampaignIDKey) private var limitedTimeDiscountCampaignID = ""
+
+    init(taskStartReminderScheduler: any TaskStartReminderScheduling = LiveTaskStartReminderScheduler()) {
+        self.taskStartReminderScheduler = taskStartReminderScheduler
+    }
     @AppStorage(AppSettings.hasAcknowledgedBoardEditHintKey) private var hasAcknowledgedBoardEditHint = false
     @AppStorage(AppSettings.hasInteractedWithBoardPanelKey) private var hasInteractedWithBoardPanel = false
     private let countdownTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -1462,7 +1467,7 @@ struct ContentView: View {
         let currentSelectedBoardID = selectedBoardID
         let activeBoard = viewModel.makeSavedBoardSnapshot()
         let syncNow = Date()
-        let syncSignature = taskStartReminderSyncSignature(
+        let syncSignature = taskStartReminderScheduler.syncSignature(
             namedBoards: currentBoards,
             selectedBoardID: currentSelectedBoardID,
             activeBoard: activeBoard,
@@ -1476,58 +1481,13 @@ struct ContentView: View {
         reminderSyncTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
-            await TaskStartReminderService.syncReminders(
+            await taskStartReminderScheduler.syncReminders(
                 namedBoards: currentBoards,
                 selectedBoardID: currentSelectedBoardID,
                 activeBoard: activeBoard,
                 now: syncNow
             )
         }
-    }
-
-    private func taskStartReminderSyncSignature(
-        namedBoards: [BingoBoardStore.NamedBoard],
-        selectedBoardID: UUID?,
-        activeBoard: SavedBoard?,
-        now: Date
-    ) -> String {
-        var boards = namedBoards
-        if let selectedBoardID,
-           let activeBoard,
-           let selectedIndex = boards.firstIndex(where: { $0.id == selectedBoardID }) {
-            boards[selectedIndex].board = activeBoard
-        }
-
-        var components: [String] = []
-        for board in boards {
-            let sourceCells = board.board.fullBoardCells ?? board.board.cells
-            for row in sourceCells {
-                for cell in row {
-                    let taskText = cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard cell.startReminderEnabled,
-                          !taskText.isEmpty,
-                          !cell.isCompleted,
-                          let startDate = cell.startVisibleAt,
-                          cell.endVisibleAt != nil else {
-                        continue
-                    }
-
-                    let offsetMinutes = TaskStartReminderService.normalizedOffsetMinutes(cell.startReminderOffsetMinutes)
-                    let reminderDate = startDate.addingTimeInterval(Double(-offsetMinutes * 60))
-                    guard reminderDate > now else { continue }
-
-                    components.append([
-                        board.id.uuidString,
-                        board.name,
-                        cell.id.uuidString,
-                        taskText,
-                        String(Int(reminderDate.timeIntervalSince1970)),
-                        String(offsetMinutes)
-                    ].joined(separator: "|"))
-                }
-            }
-        }
-        return components.sorted().joined(separator: "\n")
     }
 
     private func processExpiredTimeoutsOnOtherBoards(now: Date) {

@@ -99,3 +99,4 @@ Remaining optimization should be treated as targeted fixes only, unless a measur
 - `BoardManagementStore` now uses an injected board-management repository for named-board snapshots, active-board mirrors, widget task sync, and widget panel selection instead of calling static stores from each workflow.
 - `BoardStateCommitter` now centralizes active-board mirror writes, countdown persistence, optional widget panel selection, and widget timeline reload decisions for both ViewModel persistence and board-management flows.
 - `BoardManagementStore` now commits named-board snapshots and active-board mirrors through one private helper, reducing duplicated save-and-mirror combinations across select, create, delete, and template import flows.
+- Task-start reminder syncing now has an injectable scheduler boundary, moving reminder signatures and notification scheduling details out of `ContentView`.

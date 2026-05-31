@@ -101,13 +101,11 @@ enum TaskStartReminderService {
         activeBoard: SavedBoard?,
         now: Date = .now
     ) async {
-        var boards = namedBoards
-        if let selectedBoardID,
-           let activeBoard,
-           let selectedIndex = boards.firstIndex(where: { $0.id == selectedBoardID }) {
-            boards[selectedIndex].board = activeBoard
-        }
-
+        let boards = resolvedBoards(
+            namedBoards: namedBoards,
+            selectedBoardID: selectedBoardID,
+            activeBoard: activeBoard
+        )
         let desiredReminders = desiredReminders(from: boards, now: now)
         let desiredIDs = Set(desiredReminders.map(\.identifier))
         let center = UNUserNotificationCenter.current()
@@ -130,6 +128,44 @@ enum TaskStartReminderService {
         for reminder in desiredReminders {
             schedule(reminder, center: center)
         }
+    }
+
+    static func syncSignature(
+        namedBoards: [BingoBoardStore.NamedBoard],
+        selectedBoardID: UUID?,
+        activeBoard: SavedBoard?,
+        now: Date
+    ) -> String {
+        let boards = resolvedBoards(
+            namedBoards: namedBoards,
+            selectedBoardID: selectedBoardID,
+            activeBoard: activeBoard
+        )
+        return desiredReminders(from: boards, now: now)
+            .map { reminder in
+                [
+                    reminder.identifier,
+                    reminder.title,
+                    reminder.body,
+                    String(Int(reminder.date.timeIntervalSince1970))
+                ].joined(separator: "|")
+            }
+            .sorted()
+            .joined(separator: "\n")
+    }
+
+    private static func resolvedBoards(
+        namedBoards: [BingoBoardStore.NamedBoard],
+        selectedBoardID: UUID?,
+        activeBoard: SavedBoard?
+    ) -> [BingoBoardStore.NamedBoard] {
+        var boards = namedBoards
+        if let selectedBoardID,
+           let activeBoard,
+           let selectedIndex = boards.firstIndex(where: { $0.id == selectedBoardID }) {
+            boards[selectedIndex].board = activeBoard
+        }
+        return boards
     }
 
     private static func desiredReminders(
@@ -252,6 +288,52 @@ enum TaskStartReminderService {
                 continuation.resume(returning: notifications.map { $0.request.identifier })
             }
         }
+    }
+}
+
+protocol TaskStartReminderScheduling {
+    func syncReminders(
+        namedBoards: [BingoBoardStore.NamedBoard],
+        selectedBoardID: UUID?,
+        activeBoard: SavedBoard?,
+        now: Date
+    ) async
+
+    func syncSignature(
+        namedBoards: [BingoBoardStore.NamedBoard],
+        selectedBoardID: UUID?,
+        activeBoard: SavedBoard?,
+        now: Date
+    ) -> String
+}
+
+struct LiveTaskStartReminderScheduler: TaskStartReminderScheduling {
+    func syncReminders(
+        namedBoards: [BingoBoardStore.NamedBoard],
+        selectedBoardID: UUID?,
+        activeBoard: SavedBoard?,
+        now: Date
+    ) async {
+        await TaskStartReminderService.syncReminders(
+            namedBoards: namedBoards,
+            selectedBoardID: selectedBoardID,
+            activeBoard: activeBoard,
+            now: now
+        )
+    }
+
+    func syncSignature(
+        namedBoards: [BingoBoardStore.NamedBoard],
+        selectedBoardID: UUID?,
+        activeBoard: SavedBoard?,
+        now: Date
+    ) -> String {
+        TaskStartReminderService.syncSignature(
+            namedBoards: namedBoards,
+            selectedBoardID: selectedBoardID,
+            activeBoard: activeBoard,
+            now: now
+        )
     }
 }
 
