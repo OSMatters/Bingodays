@@ -14,6 +14,7 @@ struct HomeLifecycleObserversModifier: ViewModifier {
     let onDismissPendingTemplate: () -> Void
     let onProcessLifecycleEvents: (Date, Bool, String, Bool) -> Void
     let onCheckAppUpdate: () async -> Void
+    let onRefreshLimitedTimeOfferConfig: () async -> Void
     let onRefreshAllSubscriptions: () async -> Void
     let onRefreshEntitlements: () async -> Void
     let onEnforceCustomResetAccess: () -> Void
@@ -29,6 +30,7 @@ struct HomeLifecycleObserversModifier: ViewModifier {
                 }
 
                 onProcessLifecycleEvents(Date(), true, "onAppear", true)
+                refreshLimitedTimeOfferConfig()
                 startDeferredHomePreloadsIfNeeded()
                 startDeferredUpdateCheckIfNeeded()
                 startDeferredSubscriptionRefreshIfNeeded()
@@ -43,7 +45,14 @@ struct HomeLifecycleObserversModifier: ViewModifier {
                 Task {
                     await onCheckAppUpdate()
                 }
+                refreshLimitedTimeOfferConfig()
             }
+    }
+
+    private func refreshLimitedTimeOfferConfig() {
+        Task {
+            await onRefreshLimitedTimeOfferConfig()
+        }
     }
 
     private func startDeferredHomePreloadsIfNeeded() {

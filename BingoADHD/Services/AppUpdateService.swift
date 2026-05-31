@@ -4,6 +4,78 @@ import Foundation
 import FirebaseRemoteConfig
 #endif
 
+struct LimitedTimeOfferConfig: Equatable {
+    static let defaultCampaignID = "lifetime_early_supporter_early20_relaunch_v1"
+    static let defaultOfferDurationHours = 48.0
+    static let disabled = LimitedTimeOfferConfig(
+        isEnabled: false,
+        campaignID: defaultCampaignID,
+        offerDuration: defaultOfferDurationHours * 60 * 60
+    )
+
+    let isEnabled: Bool
+    let campaignID: String
+    let offerDuration: TimeInterval
+}
+
+enum LimitedTimeOfferRemoteConfigService {
+    private static let isEnabledKey = "ios_lifetime_early_supporter_offer_enabled"
+    private static let campaignIDKey = "ios_lifetime_early_supporter_offer_campaign_id"
+    private static let durationHoursKey = "ios_lifetime_early_supporter_offer_duration_hours"
+
+    static func fetchOfferConfig() async -> LimitedTimeOfferConfig {
+#if canImport(FirebaseRemoteConfig)
+        let remoteConfig = RemoteConfig.remoteConfig()
+        let settings = RemoteConfigSettings()
+#if DEBUG
+        settings.minimumFetchInterval = 0
+#else
+        settings.minimumFetchInterval = 60 * 60
+#endif
+        settings.fetchTimeout = 10
+        remoteConfig.configSettings = settings
+        remoteConfig.setDefaults([
+            isEnabledKey: NSNumber(value: false),
+            campaignIDKey: LimitedTimeOfferConfig.defaultCampaignID as NSObject,
+            durationHoursKey: NSNumber(value: LimitedTimeOfferConfig.defaultOfferDurationHours)
+        ])
+
+        do {
+            _ = try await remoteConfig.fetchAndActivate()
+        } catch {
+            // Continue with cached/default values when Remote Config cannot be fetched.
+        }
+
+        let campaignID = sanitizedCampaignID(
+            remoteConfig.configValue(forKey: campaignIDKey).stringValue
+        )
+        let durationHours = sanitizedDurationHours(
+            remoteConfig.configValue(forKey: durationHoursKey).numberValue.doubleValue
+        )
+
+        return LimitedTimeOfferConfig(
+            isEnabled: remoteConfig.configValue(forKey: isEnabledKey).boolValue,
+            campaignID: campaignID,
+            offerDuration: durationHours * 60 * 60
+        )
+#else
+        return .disabled
+#endif
+    }
+
+    private static func sanitizedCampaignID(_ rawValue: String) -> String {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? LimitedTimeOfferConfig.defaultCampaignID : value
+    }
+
+    private static func sanitizedDurationHours(_ rawValue: Double) -> Double {
+        guard rawValue.isFinite, rawValue > 0 else {
+            return LimitedTimeOfferConfig.defaultOfferDurationHours
+        }
+        return min(rawValue, 24 * 14)
+    }
+}
+
 struct AppUpdateInfo: Equatable {
     let latestVersion: String
     let trackViewURL: URL

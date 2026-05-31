@@ -651,6 +651,7 @@ struct HomeSidebarView: View {
     let onOpenDiary: () -> Void
     let onOpenBlackBoxMode: () -> Void
     let onOpenContact: () -> Void
+    let onEncourageUs: () -> Void
     let onPresentPremiumPaywall: () -> Void
 
     var body: some View {
@@ -679,6 +680,10 @@ struct HomeSidebarView: View {
 
                     sidebarMenuButton(icon: "envelope", title: L10n.contactUs) {
                         closeAndRun(after: 0.12, action: onOpenContact)
+                    }
+
+                    sidebarMenuButton(icon: "star.fill", title: L10n.encourageUs) {
+                        closeAndRun(after: 0.12, action: onEncourageUs)
                     }
 
                     settingsDisclosureButton

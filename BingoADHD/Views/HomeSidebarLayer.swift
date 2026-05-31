@@ -21,6 +21,7 @@ struct HomeSidebarLayer: View {
     let onOpenDiary: () -> Void
     let onOpenBlackBoxMode: () -> Void
     let onOpenContact: () -> Void
+    let onEncourageUs: () -> Void
     let onPresentPremiumPaywall: () -> Void
 
     private var sidebarWidth: CGFloat {
@@ -62,6 +63,7 @@ struct HomeSidebarLayer: View {
                 onOpenDiary: onOpenDiary,
                 onOpenBlackBoxMode: onOpenBlackBoxMode,
                 onOpenContact: onOpenContact,
+                onEncourageUs: onEncourageUs,
                 onPresentPremiumPaywall: onPresentPremiumPaywall
             )
             .offset(x: isPresented ? 0 : hiddenOffset)

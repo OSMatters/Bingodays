@@ -14,6 +14,7 @@ enum BingoBoardStore {
     static let appGroupID = "group.com.bingoday.app"
     private static let saveKey = "bingo_board_v1"
     private static let lastSavedAtKey = "bingo_board_last_saved_at_v1"
+    private static let activeNamedBoardIDKey = "bingo_board_active_named_board_id_v1"
     private static let sharedFileName = "bingo_board_v1.json"
     private static let metricsFileName = "bingo_metrics_v1.json"
     private static let boardsSaveKey = "bingo_boards_v1"
@@ -116,13 +117,14 @@ enum BingoBoardStore {
         return nil
     }
 
-    static func saveBoard(_ board: SavedBoard, savedAt: Date = .now) {
+    static func saveBoard(_ board: SavedBoard, savedAt: Date = .now, associatedBoardID: UUID? = nil) {
         guard let data = try? JSONEncoder().encode(board) else { return }
 
         persistSharedFile(data)
         sharedDefaults.set(data, forKey: saveKey)
         UserDefaults.standard.set(data, forKey: saveKey)
         saveBoardLastSavedAt(savedAt)
+        saveActiveNamedBoardID(associatedBoardID)
 
         #if canImport(WidgetKit)
         WidgetCenter.shared.reloadAllTimelines()
@@ -135,6 +137,7 @@ enum BingoBoardStore {
         UserDefaults.standard.removeObject(forKey: saveKey)
         sharedDefaults.removeObject(forKey: lastSavedAtKey)
         UserDefaults.standard.removeObject(forKey: lastSavedAtKey)
+        saveActiveNamedBoardID(nil)
         saveBoardCountdownEndsAt(nil)
 
         #if canImport(WidgetKit)
@@ -222,6 +225,32 @@ enum BingoBoardStore {
         UserDefaults.standard.set(date, forKey: lastSavedAtKey)
     }
 
+    static func loadActiveNamedBoardID() -> UUID? {
+        if let rawValue = sharedDefaults.string(forKey: activeNamedBoardIDKey),
+           let boardID = UUID(uuidString: rawValue) {
+            return boardID
+        }
+
+        if let rawValue = UserDefaults.standard.string(forKey: activeNamedBoardIDKey),
+           let boardID = UUID(uuidString: rawValue) {
+            sharedDefaults.set(rawValue, forKey: activeNamedBoardIDKey)
+            return boardID
+        }
+
+        return nil
+    }
+
+    static func saveActiveNamedBoardID(_ boardID: UUID?) {
+        guard let boardID else {
+            sharedDefaults.removeObject(forKey: activeNamedBoardIDKey)
+            UserDefaults.standard.removeObject(forKey: activeNamedBoardIDKey)
+            return
+        }
+
+        sharedDefaults.set(boardID.uuidString, forKey: activeNamedBoardIDKey)
+        UserDefaults.standard.set(boardID.uuidString, forKey: activeNamedBoardIDKey)
+    }
+
     static func loadBoardCountdownEndsAt() -> Date? {
         if let countdown = sharedDefaults.object(forKey: AppSettings.boardCountdownKey) as? Date {
             return countdown
@@ -290,6 +319,8 @@ enum BingoBoardStore {
             sanitizedBoards[index].name = limited.isEmpty ? L10n.boardDefaultName(fallbackIndex) : limited
         }
 
+        sanitizeCrossBoardCellIdentityReuse(in: &sanitizedBoards)
+
         let selectedBoardID: UUID?
         if let existingSelected = snapshot.selectedBoardID,
            sanitizedBoards.contains(where: { $0.id == existingSelected }) {
@@ -299,6 +330,106 @@ enum BingoBoardStore {
         }
 
         return NamedBoardsSnapshot(selectedBoardID: selectedBoardID, boards: sanitizedBoards)
+    }
+
+    private static func sanitizeCrossBoardCellIdentityReuse(in boards: inout [NamedBoard]) {
+        guard boards.count > 1 else { return }
+
+        var ownerByCellID: [UUID: UUID] = [:]
+        for index in boards.indices {
+            let originalIDs = canonicalCellIDs(in: boards[index].board)
+            var IDsInCurrentBoard = Set<UUID>()
+            let hasInternalDuplicate = originalIDs.contains { !IDsInCurrentBoard.insert($0).inserted }
+            let hasCrossBoardDuplicate = originalIDs.contains { cellID in
+                guard let ownerID = ownerByCellID[cellID] else { return false }
+                return ownerID != boards[index].id
+            }
+
+            if hasInternalDuplicate || hasCrossBoardDuplicate {
+                boards[index].board = boardByRegeneratingCellIDs(boards[index].board)
+            }
+
+            for cellID in canonicalCellIDs(in: boards[index].board) {
+                ownerByCellID[cellID] = boards[index].id
+            }
+        }
+    }
+
+    private static func canonicalCellIDs(in board: SavedBoard) -> [UUID] {
+        let source = board.fullBoardCells ?? board.cells
+        return source.flatMap { $0.map(\.id) }
+    }
+
+    private static func boardByRegeneratingCellIDs(_ board: SavedBoard) -> SavedBoard {
+        if let fullBoardCells = board.fullBoardCells {
+            var remintedFullBoardCells = fullBoardCells
+            var idByPosition: [CellPositionKey: UUID] = [:]
+
+            for row in remintedFullBoardCells.indices {
+                for col in remintedFullBoardCells[row].indices {
+                    let newID = UUID()
+                    idByPosition[CellPositionKey(row: row, col: col)] = newID
+                    remintedFullBoardCells[row][col] = cellByReplacingID(remintedFullBoardCells[row][col], id: newID)
+                }
+            }
+
+            let remintedVisibleCells = cellsByRegeneratingIDs(board.cells, preferredIDsByPosition: idByPosition)
+            return SavedBoard(
+                gridSize: board.gridSize,
+                cells: remintedVisibleCells,
+                completedLines: board.completedLines,
+                fullBoardCells: remintedFullBoardCells
+            )
+        }
+
+        return SavedBoard(
+            gridSize: board.gridSize,
+            cells: cellsByRegeneratingIDs(board.cells, preferredIDsByPosition: [:]),
+            completedLines: board.completedLines,
+            fullBoardCells: nil
+        )
+    }
+
+    private struct CellPositionKey: Hashable {
+        let row: Int
+        let col: Int
+    }
+
+    private static func cellsByRegeneratingIDs(
+        _ cells: [[BingoCell]],
+        preferredIDsByPosition: [CellPositionKey: UUID]
+    ) -> [[BingoCell]] {
+        cells.indices.map { row in
+            cells[row].indices.map { col in
+                let preferredID = preferredIDsByPosition[CellPositionKey(row: row, col: col)]
+                return cellByReplacingID(cells[row][col], id: preferredID ?? UUID())
+            }
+        }
+    }
+
+    private static func cellByReplacingID(_ cell: BingoCell, id: UUID) -> BingoCell {
+        BingoCell(
+            id: id,
+            text: cell.text,
+            residentTaskText: cell.residentTaskText,
+            residentWeekdays: cell.residentWeekdays,
+            oneTimeVisibleDate: cell.oneTimeVisibleDate,
+            startVisibleAt: cell.startVisibleAt,
+            endVisibleAt: cell.endVisibleAt,
+            startReminderEnabled: cell.startReminderEnabled,
+            startReminderOffsetMinutes: cell.startReminderOffsetMinutes,
+            startVisibleMonth: cell.startVisibleMonth,
+            startVisibleDay: cell.startVisibleDay,
+            isTaskHidden: cell.isTaskHidden,
+            isCompleted: cell.isCompleted,
+            isForced: cell.isForced,
+            countdownEndsAt: cell.countdownEndsAt,
+            countdownPausedRemainingSeconds: cell.countdownPausedRemainingSeconds,
+            estimatedDurationMinutes: cell.estimatedDurationMinutes,
+            completionStreakCount: cell.completionStreakCount,
+            lastCompletedAt: cell.lastCompletedAt,
+            lastVisibilityWindowTimeoutAt: cell.lastVisibilityWindowTimeoutAt
+        )
     }
 
     #if DEBUG

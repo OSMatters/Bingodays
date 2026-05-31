@@ -85,6 +85,9 @@ struct ContentView: View {
     @State private var hasDismissedBoardEditHintThisLaunch = false
     @State private var pendingAppReviewPromptCandidate: AppReviewPromptCandidate?
     @State private var hasPresentedDebugAppReviewPromptThisLaunch = false
+    @State private var limitedTimeOfferConfig = LimitedTimeOfferConfig.disabled
+    @State private var reminderSyncTask: Task<Void, Never>?
+    @State private var lastReminderSyncSignature: String?
     @AppStorage(AppSettings.hapticsEnabledKey) private var isHapticsEnabled = true
     @AppStorage(AppSettings.soundEffectsEnabledKey) private var isSoundEffectsEnabled = true
     @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
@@ -99,11 +102,11 @@ struct ContentView: View {
     @AppStorage(AppSettings.firstStepGuideMilestoneKey) private var firstStepGuideMilestoneShown = 0
     @AppStorage(AppSettings.hasVisitedPremiumPaywallWithoutPurchaseKey) private var hasVisitedPremiumPaywallWithoutPurchase = false
     @AppStorage(AppSettings.limitedTimeDiscountStartedAtKey) private var limitedTimeDiscountStartedAt = 0.0
+    @AppStorage(AppSettings.limitedTimeDiscountCampaignIDKey) private var limitedTimeDiscountCampaignID = ""
     @AppStorage(AppSettings.hasAcknowledgedBoardEditHintKey) private var hasAcknowledgedBoardEditHint = false
     @AppStorage(AppSettings.hasInteractedWithBoardPanelKey) private var hasInteractedWithBoardPanel = false
     private let countdownTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     @State private var countdownNow = Date()
-    private let limitedOfferDuration: TimeInterval = 48 * 60 * 60
     private var bingoStreakDays: Int { BingoDiaryStore.consecutiveBingoDays() }
     private var streakGoals: [Int] { bingoStreakDays >= 60 ? [60, 180, 270, 365] : [7, 14, 30, 60] }
     private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
@@ -256,6 +259,8 @@ struct ContentView: View {
     }
 
     private func presentLimitedTimeDiscount() {
+        guard shouldShowLimitedOfferEntry else { return }
+        syncLimitedTimeOfferCampaignIfNeeded(for: limitedTimeOfferConfig)
         Task { @MainActor in
             isLimitedTimeDiscountPresented = true
             await subscriptionManager.warmupProductsForPaywall()
@@ -388,6 +393,9 @@ struct ContentView: View {
                     onOpenContact: {
                         isContactUsPresented = true
                     },
+                    onEncourageUs: {
+                        requestAppStoreReviewFromSidebar()
+                    },
                     onPresentPremiumPaywall: {
                         presentPremiumPaywall(source: "sidebar_pro_entry")
                     }
@@ -485,20 +493,46 @@ struct ContentView: View {
     }
 
     private var shouldShowLimitedOfferEntry: Bool {
-        hasVisitedPremiumPaywallWithoutPurchase
+        limitedTimeOfferConfig.isEnabled
             && !subscriptionManager.hasPremiumAccess
             && !hasLimitedOfferCountdownExpired
     }
 
     private var hasLimitedOfferCountdownExpired: Bool {
         guard limitedTimeDiscountStartedAt > 0 else { return false }
-        return countdownNow.timeIntervalSince1970 >= limitedTimeDiscountStartedAt + limitedOfferDuration
+        return countdownNow.timeIntervalSince1970 >= limitedTimeDiscountStartedAt + limitedTimeOfferConfig.offerDuration
     }
 
     private func clearLimitedOfferEntryIfPremium() {
         if subscriptionManager.hasPremiumAccess {
             hasVisitedPremiumPaywallWithoutPurchase = false
+            isLimitedTimeDiscountPresented = false
         }
+    }
+
+    private func refreshLimitedTimeOfferConfig() async {
+        let config = await LimitedTimeOfferRemoteConfigService.fetchOfferConfig()
+        await MainActor.run {
+            applyLimitedTimeOfferConfig(config)
+        }
+    }
+
+    private func applyLimitedTimeOfferConfig(_ config: LimitedTimeOfferConfig) {
+        limitedTimeOfferConfig = config
+        guard config.isEnabled else {
+            isLimitedTimeDiscountPresented = false
+            return
+        }
+        syncLimitedTimeOfferCampaignIfNeeded(for: config)
+        if subscriptionManager.hasPremiumAccess {
+            isLimitedTimeDiscountPresented = false
+        }
+    }
+
+    private func syncLimitedTimeOfferCampaignIfNeeded(for config: LimitedTimeOfferConfig) {
+        guard limitedTimeDiscountCampaignID != config.campaignID else { return }
+        limitedTimeDiscountCampaignID = config.campaignID
+        limitedTimeDiscountStartedAt = 0
     }
 
     private func withPresentationLayers<Content: View>(content: Content) -> some View {
@@ -518,6 +552,7 @@ struct ContentView: View {
                     availablePoints: availablePoints,
                     totalPoints: viewModel.totalPoints,
                     premiumPaywallSource: premiumPaywallSource,
+                    limitedTimeOfferConfig: limitedTimeOfferConfig,
                     onQuickEditSuccess: showCommonTasksToast,
                     onQuickEditBoardApplied: syncSelectedBoardSnapshotIfNeeded
                 )
@@ -608,6 +643,7 @@ struct ContentView: View {
 
     private func clearBoardFromAlert() {
         viewModel.resetBoard()
+        syncTaskStartReminders()
         showCommonTasksToast(L10n.boardClearedSuccess)
     }
 
@@ -634,6 +670,7 @@ struct ContentView: View {
                         onDismissPendingTemplate: boardTemplateImportCoordinator.dismissPendingTemplate,
                         onProcessLifecycleEvents: processHomeLifecycleEvents,
                         onCheckAppUpdate: checkForAppUpdateIfNeeded,
+                        onRefreshLimitedTimeOfferConfig: refreshLimitedTimeOfferConfig,
                         onRefreshAllSubscriptions: subscriptionManager.refreshAll,
                         onRefreshEntitlements: subscriptionManager.refreshEntitlements,
                         onEnforceCustomResetAccess: enforceCustomResetAccessIfNeeded
@@ -668,6 +705,7 @@ struct ContentView: View {
         viewModel.processExpiredTaskCountdowns(now: now)
         viewModel.processScheduledTaskReplacementConflicts(now: now)
         processExpiredTimeoutsOnOtherBoards(now: now)
+        syncTaskStartReminders()
         evaluateAppReviewPromptOpportunity()
         debugTileGestureBlockers(source: source)
     }
@@ -995,6 +1033,11 @@ struct ContentView: View {
     private func requestAppStoreReviewFromPrompt() {
         hasRatedAppReviewPrompt = true
         dismissAppReviewPrompt(cooldownDays: nil)
+        requestReview()
+    }
+
+    private func requestAppStoreReviewFromSidebar() {
+        hasRatedAppReviewPrompt = true
         requestReview()
     }
 
@@ -1355,6 +1398,7 @@ struct ContentView: View {
             )
         }
 
+        syncTaskStartReminders()
         showCommonTasksToast(L10n.tr("Board deleted", zhHans: "棋盘已删除", zhHant: "棋盤已刪除"))
     }
 
@@ -1410,6 +1454,80 @@ struct ContentView: View {
             board: viewModel.makeSavedBoardSnapshot(),
             countdownEndsAt: viewModel.boardCountdownEndsAt
         )
+        syncTaskStartReminders()
+    }
+
+    private func syncTaskStartReminders() {
+        let currentBoards = namedBoards
+        let currentSelectedBoardID = selectedBoardID
+        let activeBoard = viewModel.makeSavedBoardSnapshot()
+        let syncNow = Date()
+        let syncSignature = taskStartReminderSyncSignature(
+            namedBoards: currentBoards,
+            selectedBoardID: currentSelectedBoardID,
+            activeBoard: activeBoard,
+            now: syncNow
+        )
+
+        guard syncSignature != lastReminderSyncSignature else { return }
+        lastReminderSyncSignature = syncSignature
+
+        reminderSyncTask?.cancel()
+        reminderSyncTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            await TaskStartReminderService.syncReminders(
+                namedBoards: currentBoards,
+                selectedBoardID: currentSelectedBoardID,
+                activeBoard: activeBoard,
+                now: syncNow
+            )
+        }
+    }
+
+    private func taskStartReminderSyncSignature(
+        namedBoards: [BingoBoardStore.NamedBoard],
+        selectedBoardID: UUID?,
+        activeBoard: SavedBoard?,
+        now: Date
+    ) -> String {
+        var boards = namedBoards
+        if let selectedBoardID,
+           let activeBoard,
+           let selectedIndex = boards.firstIndex(where: { $0.id == selectedBoardID }) {
+            boards[selectedIndex].board = activeBoard
+        }
+
+        var components: [String] = []
+        for board in boards {
+            let sourceCells = board.board.fullBoardCells ?? board.board.cells
+            for row in sourceCells {
+                for cell in row {
+                    let taskText = cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard cell.startReminderEnabled,
+                          !taskText.isEmpty,
+                          !cell.isCompleted,
+                          let startDate = cell.startVisibleAt,
+                          cell.endVisibleAt != nil else {
+                        continue
+                    }
+
+                    let offsetMinutes = TaskStartReminderService.normalizedOffsetMinutes(cell.startReminderOffsetMinutes)
+                    let reminderDate = startDate.addingTimeInterval(Double(-offsetMinutes * 60))
+                    guard reminderDate > now else { continue }
+
+                    components.append([
+                        board.id.uuidString,
+                        board.name,
+                        cell.id.uuidString,
+                        taskText,
+                        String(Int(reminderDate.timeIntervalSince1970)),
+                        String(offsetMinutes)
+                    ].joined(separator: "|"))
+                }
+            }
+        }
+        return components.sorted().joined(separator: "\n")
     }
 
     private func processExpiredTimeoutsOnOtherBoards(now: Date) {
@@ -1507,6 +1625,7 @@ struct ContentView: View {
                 referenceDate: .now
             )
         }
+        syncTaskStartReminders()
     }
 
     private func beginCreateBoard() {
@@ -1540,6 +1659,7 @@ struct ContentView: View {
             countdownEndsAt: nil,
             referenceDate: .now
         )
+        syncTaskStartReminders()
         boardActionPresentationStore.clearCreateDraft()
     }
 
@@ -1693,6 +1813,7 @@ struct ContentView: View {
             countdownEndsAt: nil,
             referenceDate: .now
         )
+        syncTaskStartReminders()
         finishTemplateImport(
             template: template,
             createsNewBoard: createsNewBoard,
@@ -1742,6 +1863,7 @@ struct ContentView: View {
             boardPendingRenameID,
             nameDraft: boardActionPresentationStore.renameNameDraft
         )
+        syncTaskStartReminders()
     }
 
     private var boardCountdownText: String? {

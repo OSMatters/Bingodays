@@ -219,6 +219,8 @@ func quickEditMakePreviewCell(from task: MyTaskItem, preserving existingCell: Bi
     }
     cell.startVisibleAt = taskCopy.startAt
     cell.endVisibleAt = taskCopy.endAt
+    cell.startReminderEnabled = false
+    cell.startReminderOffsetMinutes = BingoCell.defaultStartReminderOffsetMinutes
     cell.startVisibleMonth = taskCopy.startMonth
     cell.startVisibleDay = taskCopy.startDay
     cell.isTaskHidden = false
@@ -235,7 +237,9 @@ func quickEditMakePreviewCellFromEdit(
     isOneTimeTask: Bool,
     estimatedDurationMinutes: Int?,
     startVisibleAt: Date?,
-    endVisibleAt: Date?
+    endVisibleAt: Date?,
+    startReminderEnabled: Bool = false,
+    startReminderOffsetMinutes: Int = BingoCell.defaultStartReminderOffsetMinutes
 ) -> BingoCell? {
     let limitedText = String(text.prefix(AppSettings.maxTaskLength))
     let trimmedText = limitedText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -251,6 +255,8 @@ func quickEditMakePreviewCellFromEdit(
         }
         return endVisibleAt
     }()
+    let normalizedReminderEnabled = normalizedStartVisibleAt != nil && normalizedEndVisibleAt != nil && startReminderEnabled
+    let normalizedReminderOffset = BingoCell.normalizedStartReminderOffsetMinutes(startReminderOffsetMinutes)
     let usesStoredSchedule = !normalizedWeekdays.isEmpty || normalizedOneTimeTask || normalizedStartVisibleAt != nil || normalizedEndVisibleAt != nil
 
     var cell = existingCell ?? BingoCell()
@@ -261,6 +267,8 @@ func quickEditMakePreviewCellFromEdit(
     cell.oneTimeVisibleDate = normalizedOneTimeTask ? .now : nil
     cell.startVisibleAt = normalizedStartVisibleAt
     cell.endVisibleAt = normalizedEndVisibleAt
+    cell.startReminderEnabled = normalizedReminderEnabled
+    cell.startReminderOffsetMinutes = normalizedReminderOffset
     cell.startVisibleMonth = nil
     cell.startVisibleDay = nil
     cell.residentTaskText = usesStoredSchedule ? limitedText : nil

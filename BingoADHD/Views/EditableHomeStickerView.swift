@@ -26,7 +26,7 @@ struct EditableHomeStickerView: View {
     }
 
     private var normalizedYRatio: Double {
-        normalized(placement.yRatio, min: 0.02, max: 0.98, fallback: 0.5)
+        normalized(placement.yRatio, min: 0.02, max: bottomOverflowYRatio, fallback: 0.5)
     }
 
     private var normalizedScale: Double {
@@ -41,6 +41,10 @@ struct EditableHomeStickerView: View {
     private var verticalInsetRatio: Double {
         let inset = stickerWidth / 2
         return clampRatio(inset / max(canvasSize.height, 1))
+    }
+
+    private var bottomOverflowYRatio: Double {
+        1.08
     }
 
     var body: some View {
@@ -98,7 +102,7 @@ struct EditableHomeStickerView: View {
                     let newY = clamp(
                         baseline.yRatio + value.translation.height / max(canvasSize.height, 1),
                         min: verticalInsetRatio,
-                        max: 1 - verticalInsetRatio
+                        max: bottomOverflowYRatio
                     )
 
                     onUpdate(

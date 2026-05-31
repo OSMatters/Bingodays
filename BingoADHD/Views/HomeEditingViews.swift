@@ -683,9 +683,11 @@ struct QuickEditView: View {
                 isOneTimeTask: currentCell.isOneTimeTask,
                 startVisibleAt: currentCell.startVisibleAt,
                 endVisibleAt: currentCell.endVisibleAt,
+                startReminderEnabled: currentCell.startReminderEnabled,
+                startReminderOffsetMinutes: currentCell.startReminderOffsetMinutes,
                 isCompletedTask: currentCell.isCompleted,
                 estimatedDurationMinutes: quickEditRemainingMinutes(from: currentCell.countdownEndsAt),
-                onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, estimatedDurationMinutes, startVisibleAt, endVisibleAt in
+                onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes in
                     guard let latestIndex = previewSlots.firstIndex(where: { $0.id == slotID }) else {
                         previewEditingTarget = nil
                         return
@@ -700,7 +702,9 @@ struct QuickEditView: View {
                         isOneTimeTask: isOneTimeTask,
                         estimatedDurationMinutes: estimatedDurationMinutes,
                         startVisibleAt: startVisibleAt,
-                        endVisibleAt: endVisibleAt
+                        endVisibleAt: endVisibleAt,
+                        startReminderEnabled: startReminderEnabled,
+                        startReminderOffsetMinutes: startReminderOffsetMinutes
                     )
 
                     if let sourceTaskKey = previewSlots[latestIndex].sourceTaskKey {

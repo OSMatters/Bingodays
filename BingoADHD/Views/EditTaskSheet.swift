@@ -9,9 +9,11 @@ struct EditTaskSheet: View {
     @State var isOneTimeTask: Bool
     @State var startVisibleAt: Date?
     @State var endVisibleAt: Date?
+    @State var startReminderEnabled: Bool
+    @State var startReminderOffsetMinutes: Int
     let isCompletedTask: Bool
     let autoFocusTaskField: Bool
-    let onSave: (String, Bool, Set<Int>, Bool, Int?, Date?, Date?) -> Void
+    let onSave: (String, Bool, Set<Int>, Bool, Int?, Date?, Date?, Bool, Int) -> Void
     let onDelete: () -> Void
     let onCancel: () -> Void
 
@@ -52,10 +54,12 @@ struct EditTaskSheet: View {
         isOneTimeTask: Bool,
         startVisibleAt: Date?,
         endVisibleAt: Date?,
+        startReminderEnabled: Bool = false,
+        startReminderOffsetMinutes: Int = BingoCell.defaultStartReminderOffsetMinutes,
         isCompletedTask: Bool,
         estimatedDurationMinutes: Int?,
         autoFocusTaskField: Bool = false,
-        onSave: @escaping (String, Bool, Set<Int>, Bool, Int?, Date?, Date?) -> Void,
+        onSave: @escaping (String, Bool, Set<Int>, Bool, Int?, Date?, Date?, Bool, Int) -> Void,
         onDelete: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -65,6 +69,8 @@ struct EditTaskSheet: View {
         _isOneTimeTask = State(initialValue: isOneTimeTask)
         _startVisibleAt = State(initialValue: startVisibleAt)
         _endVisibleAt = State(initialValue: endVisibleAt)
+        _startReminderEnabled = State(initialValue: startReminderEnabled && startVisibleAt != nil && endVisibleAt != nil && !isCompletedTask)
+        _startReminderOffsetMinutes = State(initialValue: TaskStartReminderService.normalizedOffsetMinutes(startReminderOffsetMinutes))
         self.isCompletedTask = isCompletedTask
         self.autoFocusTaskField = autoFocusTaskField
         self.onSave = onSave
@@ -148,21 +154,37 @@ struct EditTaskSheet: View {
                             forceCompletionSection
                             repeatSection
                             timerSection
-
-                            saveButton
                         }
                         .frame(width: contentColumnWidth, alignment: .leading)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 8)
-                        .padding(.bottom, max(26, geo.safeAreaInsets.bottom + (isPadLayout ? 40 : 26)))
+                        .padding(.bottom, scrollBottomPadding(safeAreaBottom: geo.safeAreaInsets.bottom))
                     }
                     .frame(maxHeight: .infinity)
                     .scrollDismissesKeyboard(.interactively)
+
+                    Color.clear
+                        .frame(height: scrollViewportBottomReservedHeight(safeAreaBottom: geo.safeAreaInsets.bottom))
+                        .allowsHitTesting(false)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(.top, isPadLayout ? geo.safeAreaInsets.top : 0)
                 .offset(y: sheetVerticalOffset)
                 .animation(.easeInOut(duration: 0.22), value: repeatMode)
+
+                floatingSaveButton(safeAreaBottom: geo.safeAreaInsets.bottom)
+
+                if let blockedSaveToastMessage {
+                    IOSNativeToastView(
+                        blockedSaveToastMessage,
+                        isPadLayout: isPadLayout
+                    )
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, blockedSaveToastBottomPadding(safeAreaBottom: geo.safeAreaInsets.bottom))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .allowsHitTesting(false)
+                }
             }
         }
         .ignoresSafeArea()
@@ -182,21 +204,14 @@ struct EditTaskSheet: View {
         .onAppear {
             focusTaskFieldIfNeeded()
         }
-        .overlay(alignment: .bottom) {
-            if let blockedSaveToastMessage {
-                Text(blockedSaveToastMessage)
-                    .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                    .foregroundColor(.white.opacity(0.96))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Color.black.opacity(0.55))
-                    )
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, 34)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+        .onChange(of: startVisibleAt) { _, newValue in
+            if newValue == nil {
+                startReminderEnabled = false
+            }
+        }
+        .onChange(of: endVisibleAt) { _, newValue in
+            if newValue == nil {
+                startReminderEnabled = false
             }
         }
     }
@@ -362,7 +377,54 @@ struct EditTaskSheet: View {
             .font(bodySFont.weight(.medium))
             .foregroundColor(secondaryTextColor)
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if canUseStartReminder {
+                startReminderControls
+                    .transition(.opacity)
+            }
         }
+    }
+
+    private var startReminderControls: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: startReminderEnabled ? "bell.fill" : "bell")
+                    .font(.appSystem(size: scaled(17, pad: 19), weight: .semibold))
+                    .foregroundColor(Color.white.opacity(0.88))
+                    .frame(width: 18)
+
+                Text(L10n.tr("Start reminder", zhHans: "开始前提醒", zhHant: "開始前提醒", ja: "開始前の通知"))
+                    .font(bodySFont.weight(.medium))
+                    .kerning(bodySLetterSpacing)
+                    .foregroundColor(Color.white.opacity(0.96))
+
+                Spacer(minLength: 0)
+
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { startReminderEnabled },
+                        set: { handleStartReminderToggle($0) }
+                    )
+                )
+                .labelsHidden()
+                .toggleStyle(DarkSheetToggleStyle(onTint: accentColor))
+            }
+            .frame(height: scaled(34, pad: 42))
+
+            if startReminderEnabled {
+                HStack(spacing: 8) {
+                    ForEach(TaskStartReminderService.allowedOffsetMinutes, id: \.self) { minutes in
+                        reminderOffsetButton(minutes)
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(inputBackground(cornerRadius: 14))
+        .animation(.easeInOut(duration: 0.18), value: startReminderEnabled)
     }
 
     private var forceCompletionSection: some View {
@@ -524,7 +586,7 @@ struct EditTaskSheet: View {
                 .font(.appSystem(size: scaled(17, pad: 20), weight: .bold, design: .rounded))
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
-                .frame(height: scaled(60, pad: 68))
+                .frame(height: saveButtonHeight)
                 .background(
                     RoundedRectangle(cornerRadius: 100, style: .continuous)
                         .fill(accentColor)
@@ -533,7 +595,38 @@ struct EditTaskSheet: View {
         .buttonStyle(.plain)
         .disabled(!hasValidTaskLength)
         .opacity(hasValidTaskLength ? 1 : 0.5)
-        .padding(.top, 8)
+        .shadow(color: accentColor.opacity(0.28), radius: 16, x: 0, y: 8)
+    }
+
+    private var saveButtonHeight: CGFloat {
+        scaled(60, pad: 68)
+    }
+
+    private func floatingSaveButton(safeAreaBottom: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+
+            saveButton
+                .frame(width: contentColumnWidth)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, floatingSaveButtonBottomPadding(safeAreaBottom: safeAreaBottom))
+        }
+    }
+
+    private func floatingSaveButtonBottomPadding(safeAreaBottom: CGFloat) -> CGFloat {
+        max(safeAreaBottom, isPadLayout ? 16 : 12) + (isPadLayout ? 22 : 14)
+    }
+
+    private func scrollBottomPadding(safeAreaBottom: CGFloat) -> CGFloat {
+        scaled(18, pad: 24)
+    }
+
+    private func scrollViewportBottomReservedHeight(safeAreaBottom: CGFloat) -> CGFloat {
+        saveButtonHeight + floatingSaveButtonBottomPadding(safeAreaBottom: safeAreaBottom) + max(sheetVerticalOffset, 0) + scaled(10, pad: 14)
+    }
+
+    private func blockedSaveToastBottomPadding(safeAreaBottom: CGFloat) -> CGFloat {
+        saveButtonHeight + floatingSaveButtonBottomPadding(safeAreaBottom: safeAreaBottom) + scaled(14, pad: 18)
     }
 
     private func saveTask() {
@@ -583,7 +676,31 @@ struct EditTaskSheet: View {
             )
             return
         }
-        onSave(text, isForcedTask, residentWeekdays, isOneTimeTask, normalizedEstimatedDurationMinutes, startVisibleAt, endVisibleAt)
+        let resolvedStartReminderEnabled = canUseStartReminder && startReminderEnabled
+        if resolvedStartReminderEnabled, let startVisibleAt {
+            let reminderDate = startVisibleAt.addingTimeInterval(Double(-startReminderOffsetMinutes * 60))
+            if reminderDate <= Date() {
+                showBlockedSaveToast(
+                    L10n.tr(
+                        "Reminder time has already passed.",
+                        zhHans: "提醒时间已过，请选择更短的提前时间。",
+                        zhHant: "提醒時間已過，請選擇更短的提前時間。"
+                    )
+                )
+                return
+            }
+        }
+        onSave(
+            text,
+            isForcedTask,
+            residentWeekdays,
+            isOneTimeTask,
+            normalizedEstimatedDurationMinutes,
+            startVisibleAt,
+            endVisibleAt,
+            resolvedStartReminderEnabled,
+            startReminderOffsetMinutes
+        )
     }
 
     private var hasPendingCountdownChange: Bool {
@@ -714,6 +831,63 @@ struct EditTaskSheet: View {
         .buttonStyle(.plain)
     }
 
+    private func reminderOffsetButton(_ minutes: Int) -> some View {
+        Button {
+            startReminderOffsetMinutes = TaskStartReminderService.normalizedOffsetMinutes(minutes)
+            focusedField = nil
+        } label: {
+            Text(TaskStartReminderService.offsetTitle(minutes: minutes))
+                .font(.appSystem(size: scaled(11, pad: 13), weight: .semibold, design: .rounded))
+                .foregroundColor(startReminderOffsetMinutes == minutes ? Color.white : Color.white.opacity(0.88))
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+                .frame(maxWidth: .infinity)
+                .frame(height: scaled(32, pad: 38))
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(startReminderOffsetMinutes == minutes ? accentColor : Color.white.opacity(0.08))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func handleStartReminderToggle(_ enabled: Bool) {
+        focusedField = nil
+        guard enabled else {
+            startReminderEnabled = false
+            return
+        }
+        guard startVisibleAt != nil else {
+            startReminderEnabled = false
+            showBlockedSaveToast(
+                L10n.tr(
+                    "Select a start time first.",
+                    zhHans: "请先选择开始时间。",
+                    zhHant: "請先選擇開始時間。"
+                )
+            )
+            return
+        }
+
+        Task {
+            let granted = await TaskStartReminderService.requestAuthorizationIfNeeded()
+            await MainActor.run {
+                if granted {
+                    startReminderEnabled = true
+                } else {
+                    startReminderEnabled = false
+                    showBlockedSaveToast(
+                        L10n.tr(
+                            "Notifications are disabled.",
+                            zhHans: "系统通知未开启，请在设置中允许通知。",
+                            zhHant: "系統通知未開啟，請在設定中允許通知。"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     private var weekdayOptions: [(value: Int, label: String)] {
         [
             (2, L10n.mondayShort),
@@ -737,6 +911,14 @@ struct EditTaskSheet: View {
 
     private var hasStartDate: Bool {
         startVisibleAt != nil
+    }
+
+    private var canUseStartReminder: Bool {
+        hasStartDate && hasEndDate && !isCompletedTask
+    }
+
+    private var hasEndDate: Bool {
+        endVisibleAt != nil
     }
 
     private var startDateDisplayText: String {

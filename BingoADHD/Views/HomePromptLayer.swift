@@ -88,19 +88,35 @@ private struct AppReviewPromptOverlayView: View {
                 Color.black.opacity(0.78)
                     .ignoresSafeArea()
 
-                closeButton
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(.top, proxy.safeAreaInsets.top + scaled(128, pad: 96))
-                    .padding(.trailing, horizontalInset + scaled(32, pad: 34))
+                if isPadLayout {
+                    panel
+                        .frame(width: panelWidth, height: panelHeight, alignment: .top)
+                        .background(
+                            RoundedRectangle(cornerRadius: scaled(16, pad: 20), style: .continuous)
+                                .fill(Color(hex: "FBF6F2"))
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: scaled(16, pad: 20), style: .continuous))
+                        .overlay(alignment: .topTrailing) {
+                            closeButton
+                                .padding(.top, 14)
+                                .padding(.trailing, 14)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                } else {
+                    closeButton
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(.top, proxy.safeAreaInsets.top + scaled(128, pad: 96))
+                        .padding(.trailing, horizontalInset + scaled(32, pad: 34))
 
-                panel
-                    .frame(width: panelWidth, height: panelHeight, alignment: .top)
-                    .background(
-                        AppReviewPromptTopRoundedShape(radius: scaled(16, pad: 20))
-                            .fill(Color(hex: "FBF6F2"))
-                    )
-                    .clipShape(AppReviewPromptTopRoundedShape(radius: scaled(16, pad: 20)))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    panel
+                        .frame(width: panelWidth, height: panelHeight, alignment: .top)
+                        .background(
+                            AppReviewPromptTopRoundedShape(radius: scaled(16, pad: 20))
+                                .fill(Color(hex: "FBF6F2"))
+                        )
+                        .clipShape(AppReviewPromptTopRoundedShape(radius: scaled(16, pad: 20)))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                }
             }
         }
         .ignoresSafeArea()

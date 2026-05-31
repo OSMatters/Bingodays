@@ -74,22 +74,29 @@ private struct LimitedTimePAGView: View {
 
 struct LimitedTimeDiscountView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
 
     let entrySource: String
+    let campaignID: String
+    let offerDuration: TimeInterval
 
     @AppStorage(AppSettings.hasVisitedPremiumPaywallWithoutPurchaseKey) private var hasVisitedPremiumPaywallWithoutPurchase = false
     @AppStorage(AppSettings.limitedTimeDiscountStartedAtKey) private var limitedTimeDiscountStartedAt = 0.0
+    @AppStorage(AppSettings.limitedTimeDiscountCampaignIDKey) private var limitedTimeDiscountCampaignID = ""
     @State private var feedbackMessage: String?
     @State private var didLogPaywallView = false
 
     private let designWidth: CGFloat = 393
     private let designHeight: CGFloat = 852
-    private let offerDuration: TimeInterval = 48 * 60 * 60
+
+    private var isPadLayout: Bool {
+        horizontalSizeClass == .regular
+    }
 
     var body: some View {
         GeometryReader { geo in
-            let scale = geo.size.width / designWidth
+            let scale = limitedTimeScale(for: geo.size)
 
             ZStack(alignment: .top) {
                 limitedTimeBackground
@@ -117,6 +124,14 @@ struct LimitedTimeDiscountView: View {
                 hasVisitedPremiumPaywallWithoutPurchase = false
             }
         }
+    }
+
+    private func limitedTimeScale(for size: CGSize) -> CGFloat {
+        let widthScale = size.width / designWidth
+        let heightScale = size.height / designHeight
+
+        guard isPadLayout else { return widthScale }
+        return min(widthScale, heightScale, 1.12)
     }
 
     private func logPaywallViewIfNeeded() {
@@ -456,6 +471,10 @@ struct LimitedTimeDiscountView: View {
     }
 
     private func startCountdownIfNeeded() {
+        if limitedTimeDiscountCampaignID != campaignID {
+            limitedTimeDiscountCampaignID = campaignID
+            limitedTimeDiscountStartedAt = 0
+        }
         guard limitedTimeDiscountStartedAt <= 0 else { return }
         limitedTimeDiscountStartedAt = Date().timeIntervalSince1970
     }

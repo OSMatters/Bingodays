@@ -41,15 +41,10 @@ struct ContactUsSheet: View {
         }
         .overlay(alignment: .bottom) {
             if isCopyToastVisible {
-                Text(L10n.contactUsEmailCopied)
-                    .font(.appSystem(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Color.black.opacity(0.82))
-                    )
+                IOSNativeToastView(
+                    L10n.contactUsEmailCopied,
+                    isPadLayout: isPadLayout
+                )
                     .padding(.bottom, 22)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }

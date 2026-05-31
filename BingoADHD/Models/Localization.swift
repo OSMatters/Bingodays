@@ -251,6 +251,7 @@ enum L10n {
     static var myTasks: String { tr("My Tasks", zhHans: "我的任务", ja: "マイタスク") }
     static var bingoDiary: String { tr("Bingo Dairy", zhHans: "Bingo 日记", ja: "Bingo日記") }
     static var setting: String { tr("Setting", zhHans: "设置", ja: "設定") }
+    static var encourageUs: String { tr("Encourage Us", zhHans: "鼓励我们", zhHant: "鼓勵我們", ja: "応援する") }
     static var contactUs: String { tr("Contact Us", zhHans: "联系我们", zhHant: "聯絡我們", ja: "お問い合わせ") }
     static var contactUsTitle: String { tr("Contact Us", zhHans: "联系我们", zhHant: "聯絡我們", ja: "お問い合わせ") }
     static var contactUsEmail: String { tr("Evalong9820@gmail.com", zhHans: "Evalong9820@gmail.com", zhHant: "Evalong9820@gmail.com", ja: "Evalong9820@gmail.com") }

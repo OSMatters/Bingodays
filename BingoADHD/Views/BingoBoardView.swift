@@ -266,33 +266,15 @@ struct BingoBoardView: View {
     }
 
     private var undoToast: some View {
-        HStack(spacing: 12) {
-            Text(L10n.taskDeleted)
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(.white.opacity(0.96))
-
-            Spacer(minLength: 0)
-
-            Button(L10n.undo) {
-                if let deletedCellSnapshot {
-                    restoreDeletedCell(deletedCellSnapshot)
-                }
+        IOSNativeToastView(
+            L10n.taskDeleted,
+            actionTitle: L10n.undo,
+            isPadLayout: isPadLayout
+        ) {
+            if let deletedCellSnapshot {
+                restoreDeletedCell(deletedCellSnapshot)
             }
-            .font(.subheadline.weight(.semibold))
-            .foregroundColor(.white)
-            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(
-            Capsule(style: .continuous)
-                .fill(NeumorphicColors.accent.opacity(0.92))
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(.white.opacity(0.28), lineWidth: 1)
-                )
-        )
-        .shadow(color: NeumorphicColors.accent.opacity(0.34), radius: 10, x: 0, y: 6)
     }
 
     private var phoneEditingTargetBinding: Binding<EditingTarget?> {
@@ -318,10 +300,12 @@ struct BingoBoardView: View {
             isOneTimeTask: editingCell.isOneTimeTask,
             startVisibleAt: editingCell.startVisibleAt,
             endVisibleAt: editingCell.endVisibleAt,
+            startReminderEnabled: editingCell.startReminderEnabled,
+            startReminderOffsetMinutes: editingCell.startReminderOffsetMinutes,
             isCompletedTask: editingCell.isCompleted,
             estimatedDurationMinutes: viewModel.remainingTaskCountdownMinutes(row: target.row, col: target.col),
             autoFocusTaskField: true,
-            onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, estimatedDurationMinutes, startVisibleAt, endVisibleAt in
+            onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes in
                 let scheduleNotice = residentVisibilityNotice(
                     text: newText,
                     residentWeekdays: residentWeekdays,
@@ -336,7 +320,9 @@ struct BingoBoardView: View {
                     isOneTimeTask: isOneTimeTask,
                     estimatedDurationMinutes: estimatedDurationMinutes,
                     startVisibleAt: startVisibleAt,
-                    endVisibleAt: endVisibleAt
+                    endVisibleAt: endVisibleAt,
+                    startReminderEnabled: startReminderEnabled,
+                    startReminderOffsetMinutes: startReminderOffsetMinutes
                 )
                 editingTarget = nil
                 residentScheduleNotice = scheduleNotice

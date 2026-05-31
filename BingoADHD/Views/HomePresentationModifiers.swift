@@ -16,6 +16,7 @@ struct HomePrimaryCoversModifier: ViewModifier {
     let availablePoints: Int
     let totalPoints: Int
     let premiumPaywallSource: String
+    let limitedTimeOfferConfig: LimitedTimeOfferConfig
     let onQuickEditSuccess: (String) -> Void
     let onQuickEditBoardApplied: () -> Void
 
@@ -50,7 +51,11 @@ struct HomePrimaryCoversModifier: ViewModifier {
                 PremiumPaywallView(entrySource: premiumPaywallSource)
             }
             .fullScreenCover(isPresented: $isLimitedTimeDiscountPresented) {
-                LimitedTimeDiscountView(entrySource: "home_limited_offer")
+                LimitedTimeDiscountView(
+                    entrySource: "home_limited_offer",
+                    campaignID: limitedTimeOfferConfig.campaignID,
+                    offerDuration: limitedTimeOfferConfig.offerDuration
+                )
             }
     }
 }

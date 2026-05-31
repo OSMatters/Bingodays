@@ -114,6 +114,14 @@ final class BoardManagementStore: ObservableObject {
         namedBoards[boardIndex].updatedAt = .now
         if save {
             persistSnapshot()
+            if selectedBoardID == boardID {
+                persistActiveBoardMirror(
+                    boardID: boardID,
+                    board: board,
+                    countdownEndsAt: countdownEndsAt,
+                    savedAt: namedBoards[boardIndex].updatedAt
+                )
+            }
         }
     }
 
@@ -148,6 +156,14 @@ final class BoardManagementStore: ObservableObject {
         selectedBoardID = boardID
         let selected = selectedBoard
         persistSnapshot()
+        if let selected {
+            persistActiveBoardMirror(
+                boardID: selected.id,
+                board: selected.board,
+                countdownEndsAt: selected.countdownEndsAt,
+                savedAt: selected.updatedAt
+            )
+        }
         return selected
     }
 
@@ -177,6 +193,12 @@ final class BoardManagementStore: ObservableObject {
         namedBoards.append(newBoard)
         selectedBoardID = newBoard.id
         persistSnapshot()
+        persistActiveBoardMirror(
+            boardID: newBoard.id,
+            board: newBoard.board,
+            countdownEndsAt: newBoard.countdownEndsAt,
+            savedAt: newBoard.updatedAt
+        )
         return newBoard
     }
 
@@ -205,6 +227,14 @@ final class BoardManagementStore: ObservableObject {
         }
 
         persistSnapshot()
+        if let selectedBoard {
+            persistActiveBoardMirror(
+                boardID: selectedBoard.id,
+                board: selectedBoard.board,
+                countdownEndsAt: selectedBoard.countdownEndsAt,
+                savedAt: selectedBoard.updatedAt
+            )
+        }
         return selectedBoard
     }
 
@@ -254,6 +284,12 @@ final class BoardManagementStore: ObservableObject {
         namedBoards.append(importedBoard)
         selectedBoardID = importedBoard.id
         persistSnapshot()
+        persistActiveBoardMirror(
+            boardID: importedBoard.id,
+            board: importedBoard.board,
+            countdownEndsAt: importedBoard.countdownEndsAt,
+            savedAt: importedBoard.updatedAt
+        )
         return importedBoard
     }
 
@@ -273,6 +309,12 @@ final class BoardManagementStore: ObservableObject {
         namedBoards[boardIndex].updatedAt = .now
         selectedBoardID = targetBoardID
         persistSnapshot()
+        persistActiveBoardMirror(
+            boardID: targetBoardID,
+            board: namedBoards[boardIndex].board,
+            countdownEndsAt: namedBoards[boardIndex].countdownEndsAt,
+            savedAt: namedBoards[boardIndex].updatedAt
+        )
         return namedBoards[boardIndex]
     }
 
@@ -303,17 +345,24 @@ final class BoardManagementStore: ObservableObject {
             return snapshot
         }
 
-        let selectedID = snapshot.selectedBoardID ?? snapshot.boards.first?.id
-        guard let selectedID,
-              let selectedIndex = snapshot.boards.firstIndex(where: { $0.id == selectedID }),
-              currentBoardSavedAt > snapshot.boards[selectedIndex].updatedAt else {
+        let activeMirrorBoardID = BingoBoardStore.loadActiveNamedBoardID()
+        let targetIndex: Int?
+        if let activeMirrorBoardID {
+            targetIndex = snapshot.boards.firstIndex(where: { $0.id == activeMirrorBoardID })
+        } else if snapshot.boards.count == 1 {
+            targetIndex = snapshot.boards.startIndex
+        } else {
+            targetIndex = nil
+        }
+
+        guard let targetIndex,
+              currentBoardSavedAt > snapshot.boards[targetIndex].updatedAt else {
             return snapshot
         }
 
-        snapshot.boards[selectedIndex].board = currentBoard
-        snapshot.boards[selectedIndex].countdownEndsAt = BingoBoardStore.loadBoardCountdownEndsAt()
-        snapshot.boards[selectedIndex].updatedAt = currentBoardSavedAt
-        snapshot.selectedBoardID = selectedID
+        snapshot.boards[targetIndex].board = currentBoard
+        snapshot.boards[targetIndex].countdownEndsAt = BingoBoardStore.loadBoardCountdownEndsAt()
+        snapshot.boards[targetIndex].updatedAt = currentBoardSavedAt
         BingoBoardStore.saveNamedBoardsSnapshot(snapshot)
         return snapshot
     }
@@ -340,9 +389,20 @@ final class BoardManagementStore: ObservableObject {
 
         updatedSnapshot.selectedBoardID = event.boardID
         BingoBoardStore.saveNamedBoardsSnapshot(updatedSnapshot)
-        BingoBoardStore.saveBoard(event.board.board, savedAt: event.savedAt)
+        BingoBoardStore.saveBoard(event.board.board, savedAt: event.savedAt, associatedBoardID: event.boardID)
         BingoBoardStore.saveBoardCountdownEndsAt(event.board.countdownEndsAt)
         WidgetPanelSelectionStore.saveSelectedPanelID(event.boardID)
         return updatedSnapshot
+    }
+
+    private func persistActiveBoardMirror(
+        boardID: UUID,
+        board: SavedBoard,
+        countdownEndsAt: Date?,
+        savedAt: Date
+    ) {
+        BingoBoardStore.saveBoard(board, savedAt: savedAt, associatedBoardID: boardID)
+        BingoBoardStore.saveBoardCountdownEndsAt(countdownEndsAt)
+        WidgetPanelSelectionStore.saveSelectedPanelID(boardID)
     }
 }

@@ -28,6 +28,11 @@ struct PointsRewardBackground: View {
 }
 
 struct PointsStickerActionOverlay: View {
+    private enum Phase {
+        case detail
+        case success
+    }
+
     let sticker: StickerKind
     let isOwned: Bool
     let isPlacedOnHome: Bool
@@ -35,24 +40,59 @@ struct PointsStickerActionOverlay: View {
     let isPadLayout: Bool
     let onPrimary: () -> Void
     let onCancel: () -> Void
+    @State private var phase: Phase = .detail
+    @State private var isRedeeming = false
+    @State private var stickerFlipDegrees = 0.0
+    @State private var hasRevealedRedeemedSticker = false
+    @State private var backgroundMaterialOpacity = 0.0
+    @State private var backgroundMaterialScale = 0.96
+    private let redeemAnimationDuration = 0.92
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
         isPadLayout ? (pad ?? base * 1.18) : base
     }
 
     private var primaryTitle: String {
-        isOwned ? L10n.addToHome : L10n.redeem
+        if phase == .success {
+            return L10n.ok
+        }
+        return isOwned ? L10n.addToHome : L10n.redeem
     }
 
     private var isPrimaryEnabled: Bool {
-        isOwned ? !isPlacedOnHome : canRedeem
+        guard !isRedeeming else { return false }
+        if phase == .success {
+            return true
+        }
+        return isOwned ? !isPlacedOnHome : canRedeem
     }
 
     private var showsPrimaryButton: Bool {
-        !(isOwned && isPlacedOnHome)
+        if phase == .success {
+            return true
+        }
+        return !(isOwned && isPlacedOnHome)
     }
 
     private var activeTheme: AppTheme { .current }
+    private var previewShowsUnlocked: Bool {
+        isOwned || hasRevealedRedeemedSticker || phase == .success
+    }
+    private var previewLightOpacity: Double {
+        previewShowsUnlocked ? max(backgroundMaterialOpacity, isOwned ? 0.92 : 0) : backgroundMaterialOpacity
+    }
+    private var stickerFlipRadians: CGFloat {
+        CGFloat(stickerFlipDegrees * .pi / 180)
+    }
+    private var stickerDepthShadowX: CGFloat {
+        sin(stickerFlipRadians) * scaled(14, pad: 20)
+    }
+    private var stickerDepthShadowY: CGFloat {
+        isRedeeming ? scaled(18, pad: 24) : scaled(10, pad: 14)
+    }
+    private var stickerDepthShadowRadius: CGFloat {
+        isRedeeming ? scaled(28, pad: 36) : scaled(18, pad: 24)
+    }
 
     var body: some View {
         ZStack {
@@ -71,29 +111,60 @@ struct PointsStickerActionOverlay: View {
                 let pointsY = stickerCenterY + scaled(252, pad: 320)
                 let primaryY = pointsY + scaled(58, pad: 72)
                 let cancelY = primaryY + scaled(62, pad: 76)
+                let effectWidth = proxy.size.width * (isPadLayout ? 0.9 : 1.24)
+                let effectHeight = effectWidth * (902.0 / 1140.0)
+                let effectCenterY = stickerCenterY + scaled(36, pad: 48)
 
                 ZStack {
+                    redeemLightEffect(width: effectWidth, height: effectHeight)
+                        .position(x: centerX, y: effectCenterY)
+                        .scaleEffect(backgroundMaterialScale)
+                        .opacity(previewLightOpacity)
+                        .allowsHitTesting(false)
+
                     stickerPreview
                         .frame(width: proxy.size.width, height: scaled(340, pad: 430))
                         .position(x: centerX, y: stickerCenterY)
-                        .animation(nil, value: isOwned)
+                        .rotation3DEffect(
+                            .degrees(stickerFlipDegrees),
+                            axis: (x: 0, y: 1, z: 0),
+                            perspective: 0.78
+                        )
+                        .compositingGroup()
+                        .shadow(
+                            color: .black.opacity(isRedeeming ? 0.34 : 0.22),
+                            radius: stickerDepthShadowRadius,
+                            x: stickerDepthShadowX,
+                            y: stickerDepthShadowY
+                        )
+                        .scaleEffect(isRedeeming ? 1.06 : (phase == .success ? 1.03 : 1))
 
                     Text("\(sticker.requiredPoints) \(L10n.pointsUnit)")
                         .font(.appSystem(size: scaled(20, pad: 24), weight: .bold, design: .rounded))
                         .foregroundColor(.white)
-                        .opacity(isOwned ? 0 : 1)
+                        .opacity((previewShowsUnlocked || phase == .success) ? 0 : 1)
                         .frame(height: scaled(28, pad: 34))
                         .position(x: centerX, y: pointsY)
-                        .animation(nil, value: isOwned)
+
+                    if phase == .success {
+                        Text(L10n.tr("Congrats! You've redeemed your sticker!", zhHans: "恭喜！你已成功兑换贴纸！", zhHant: "恭喜！你已成功兌換貼紙！", ja: "おめでとう！ステッカーの交換が完了しました！"))
+                            .font(.appSystem(size: scaled(16, pad: 20), weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, scaled(24, pad: 40))
+                            .position(x: centerX, y: pointsY)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
 
                     if showsPrimaryButton {
                         primaryButton
                             .position(x: centerX, y: primaryY)
-                            .animation(nil, value: isOwned)
                     }
 
-                    cancelButton
-                        .position(x: centerX, y: cancelY)
+                    if phase == .detail && !isRedeeming {
+                        cancelButton
+                            .position(x: centerX, y: cancelY)
+                    }
                 }
             }
             .padding(.horizontal, scaled(32, pad: 64))
@@ -103,40 +174,7 @@ struct PointsStickerActionOverlay: View {
     @ViewBuilder
     private var stickerPreview: some View {
         ZStack {
-            if isOwned {
-                let effectWidth = scaled(430, pad: 560)
-                let effectHeight = effectWidth * (902.0 / 1140.0)
-
-                Image("RedeemLightEffect")
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(width: effectWidth, height: effectHeight)
-                    .offset(y: scaled(28, pad: 36))
-                    .mask {
-                        VStack(spacing: 0) {
-                            LinearGradient(
-                                colors: [.clear, .white],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                            .frame(height: effectHeight * 0.22)
-
-                            Rectangle()
-                                .fill(.white)
-
-                            LinearGradient(
-                                colors: [.white, .clear],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                            .frame(height: effectHeight * 0.12)
-                        }
-                        .frame(width: effectWidth, height: effectHeight)
-                        .offset(y: scaled(28, pad: 36))
-                    }
-                    .opacity(0.92)
-
+            if previewShowsUnlocked {
                 Image(sticker.unlockedImageName)
                     .resizable()
                     .interpolation(.high)
@@ -162,7 +200,13 @@ struct PointsStickerActionOverlay: View {
     private var primaryButton: some View {
         Button {
             guard isPrimaryEnabled else { return }
-            onPrimary()
+            if phase == .success {
+                onCancel()
+            } else if isOwned {
+                onPrimary()
+            } else {
+                startRedeemAnimation()
+            }
         } label: {
             Text(primaryTitle)
                 .font(.appSystem(size: scaled(16, pad: 19), weight: .bold, design: .rounded))
@@ -173,7 +217,7 @@ struct PointsStickerActionOverlay: View {
                         .fill(activeTheme.color)
                         .shadow(color: activeTheme.bingoSurfaceShadowColor.opacity(0.22), radius: 8, x: 0, y: 4)
                 )
-                .opacity(isPrimaryEnabled ? 1 : 0.55)
+                .opacity(isRedeeming ? 0.68 : (isPrimaryEnabled ? 1 : 0.55))
         }
         .buttonStyle(.plain)
         .disabled(!isPrimaryEnabled)
@@ -189,6 +233,66 @@ struct PointsStickerActionOverlay: View {
                 .frame(height: scaled(36, pad: 44))
         }
         .buttonStyle(.plain)
+    }
+
+    private func redeemLightEffect(width: CGFloat, height: CGFloat) -> some View {
+        Image("RedeemLightEffect")
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: width, height: height)
+            .mask {
+                VStack(spacing: 0) {
+                    LinearGradient(
+                        colors: [.clear, .white],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: height * 0.22)
+
+                    Rectangle()
+                        .fill(.white)
+
+                    LinearGradient(
+                        colors: [.white, .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: height * 0.12)
+                }
+                .frame(width: width, height: height)
+            }
+    }
+
+    private func startRedeemAnimation() {
+        guard !isRedeeming, canRedeem else { return }
+        isRedeeming = true
+        PointsSoundPlayer.shared.playRewardRedeemed()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
+        withAnimation(.timingCurve(0.2, 0.72, 0.24, 1.0, duration: redeemAnimationDuration)) {
+            stickerFlipDegrees += 360
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + redeemAnimationDuration * 0.46) {
+            guard isRedeeming else { return }
+            withAnimation(.easeInOut(duration: 0.12)) {
+                hasRevealedRedeemedSticker = true
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + redeemAnimationDuration) {
+            guard isRedeeming else { return }
+            onPrimary()
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                phase = .success
+                isRedeeming = false
+                hasRevealedRedeemedSticker = true
+                backgroundMaterialOpacity = 0.92
+                backgroundMaterialScale = 1.04
+            }
+        }
     }
 }
 

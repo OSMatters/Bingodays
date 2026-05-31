@@ -419,7 +419,7 @@ struct PremiumPaywallView: View {
     }
 
     private func classicPaywallContent(in geo: GeometryProxy) -> some View {
-        let scale = geo.size.width / designWidth
+        let scale = classicPaywallScale(for: geo.size)
         let contentWidth = designWidth * scale
         let pinnedTopInset = min(classicPlanCardsTop, (geo.safeAreaInsets.top + 60) / scale)
 
@@ -453,6 +453,12 @@ struct PremiumPaywallView: View {
         .overlay(alignment: .bottom) {
             floatingSubscribeButton(scale: scale, bottomInset: geo.safeAreaInsets.bottom)
         }
+    }
+
+    private func classicPaywallScale(for size: CGSize) -> CGFloat {
+        let widthScale = size.width / designWidth
+        guard isPadLayout else { return widthScale }
+        return min(widthScale, 1.12)
     }
 
     private func pinnedPlanCardsHeader(topInset: CGFloat) -> some View {

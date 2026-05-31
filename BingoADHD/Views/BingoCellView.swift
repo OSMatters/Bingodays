@@ -3,6 +3,13 @@ import SwiftUI
 struct BingoCellView: View {
     private static let longPressDuration = 0.28
     private static let dragThreshold: CGFloat = 20
+    private static let scheduleDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.calendar = Calendar.current
+        formatter.dateFormat = "M/d HH:mm"
+        return formatter
+    }()
 
     let cell: BingoCell
     let currentTime: Date
@@ -358,16 +365,12 @@ struct BingoCellView: View {
 
     private var scheduleWindowText: String? {
         guard cell.startVisibleAt != nil || cell.endVisibleAt != nil else { return nil }
-        let formatter = DateFormatter()
-        formatter.locale = Locale.current
-        formatter.calendar = Calendar.current
-        formatter.dateFormat = "M/d HH:mm"
 
         if let start = cell.startVisibleAt {
-            return formatter.string(from: start)
+            return Self.scheduleDateFormatter.string(from: start)
         }
         if let end = cell.endVisibleAt {
-            return formatter.string(from: end)
+            return Self.scheduleDateFormatter.string(from: end)
         }
         return nil
     }

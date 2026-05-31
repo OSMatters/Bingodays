@@ -11,6 +11,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
     var oneTimeVisibleDate: Date?
     var startVisibleAt: Date?
     var endVisibleAt: Date?
+    var startReminderEnabled: Bool
+    var startReminderOffsetMinutes: Int
     var startVisibleMonth: Int?
     var startVisibleDay: Int?
     var isTaskHidden: Bool
@@ -31,6 +33,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
         case oneTimeVisibleDate
         case startVisibleAt
         case endVisibleAt
+        case startReminderEnabled
+        case startReminderOffsetMinutes
         case startVisibleMonth
         case startVisibleDay
         case isTaskHidden
@@ -52,6 +56,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
         oneTimeVisibleDate: Date? = nil,
         startVisibleAt: Date? = nil,
         endVisibleAt: Date? = nil,
+        startReminderEnabled: Bool = false,
+        startReminderOffsetMinutes: Int = Self.defaultStartReminderOffsetMinutes,
         startVisibleMonth: Int? = nil,
         startVisibleDay: Int? = nil,
         isTaskHidden: Bool = false,
@@ -71,6 +77,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
         self.oneTimeVisibleDate = oneTimeVisibleDate
         self.startVisibleAt = startVisibleAt
         self.endVisibleAt = endVisibleAt
+        self.startReminderEnabled = startReminderEnabled
+        self.startReminderOffsetMinutes = Self.normalizedStartReminderOffsetMinutes(startReminderOffsetMinutes)
         self.startVisibleMonth = startVisibleMonth
         self.startVisibleDay = startVisibleDay
         self.isTaskHidden = isTaskHidden
@@ -93,6 +101,10 @@ struct BingoCell: Identifiable, Codable, Equatable {
         oneTimeVisibleDate = try container.decodeIfPresent(Date.self, forKey: .oneTimeVisibleDate)
         startVisibleAt = try container.decodeIfPresent(Date.self, forKey: .startVisibleAt)
         endVisibleAt = try container.decodeIfPresent(Date.self, forKey: .endVisibleAt)
+        startReminderEnabled = try container.decodeIfPresent(Bool.self, forKey: .startReminderEnabled) ?? false
+        startReminderOffsetMinutes = Self.normalizedStartReminderOffsetMinutes(
+            try container.decodeIfPresent(Int.self, forKey: .startReminderOffsetMinutes)
+        )
         startVisibleMonth = try container.decodeIfPresent(Int.self, forKey: .startVisibleMonth)
         startVisibleDay = try container.decodeIfPresent(Int.self, forKey: .startVisibleDay)
         isTaskHidden = try container.decodeIfPresent(Bool.self, forKey: .isTaskHidden) ?? false
@@ -108,6 +120,14 @@ struct BingoCell: Identifiable, Codable, Equatable {
 
     var hasVisibilityWindow: Bool {
         hasStartVisibilityDate || hasEndVisibilityDate
+    }
+
+    static let defaultStartReminderOffsetMinutes = 5
+    static let allowedStartReminderOffsetMinutes = [5, 10, 30]
+
+    static func normalizedStartReminderOffsetMinutes(_ value: Int?) -> Int {
+        guard let value else { return defaultStartReminderOffsetMinutes }
+        return allowedStartReminderOffsetMinutes.contains(value) ? value : defaultStartReminderOffsetMinutes
     }
 
     func isVisibilityWindowActive(on date: Date, calendar: Calendar = .current) -> Bool {
@@ -1069,7 +1089,7 @@ struct HomeStickerPlacement: Identifiable, Codable, Equatable {
             id: id,
             kind: kind,
             xRatio: Self.clamp(xRatio, min: 0.02, max: 0.98, fallback: 0.5),
-            yRatio: Self.clamp(yRatio, min: 0.02, max: 0.98, fallback: 0.5),
+            yRatio: Self.clamp(yRatio, min: 0.02, max: 1.08, fallback: 0.5),
             scale: Self.clamp(scale, min: 0.5, max: 1.6, fallback: 1.0)
         )
     }
@@ -1113,6 +1133,7 @@ enum AppSettings {
     static let hasInteractedWithBoardPanelKey = "has_interacted_with_board_panel_v1"
     static let hasVisitedPremiumPaywallWithoutPurchaseKey = "has_visited_premium_paywall_without_purchase_v1"
     static let limitedTimeDiscountStartedAtKey = "limited_time_discount_started_at_v1"
+    static let limitedTimeDiscountCampaignIDKey = "limited_time_discount_campaign_id_v1"
     static let maxCommonTasks = 8
     static let maxTaskGroups = 3
     static let maxTasksPerGroup = 5

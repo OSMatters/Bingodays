@@ -1,7 +1,10 @@
 import Foundation
 import FirebaseAnalytics
+import StoreKit
 
 enum AnalyticsService {
+    private static let loggedStoreKitTransactionIDsKey = "analytics.logged_storekit_transaction_ids"
+
     static func setCollectionEnabled(_ isEnabled: Bool) {
         Analytics.setAnalyticsCollectionEnabled(isEnabled)
     }
@@ -80,12 +83,56 @@ enum AnalyticsService {
         ])
     }
 
-    static func logPremiumFeaturePurchaseSuccess(source: String, plan: String, productID: String) {
-        Analytics.logEvent("premium_feature_purchase_success", parameters: [
+    static func logPremiumFeaturePurchaseSuccess(
+        source: String,
+        plan: String,
+        productID: String,
+        transactionID: String? = nil,
+        value: Double? = nil,
+        currency: String? = nil
+    ) {
+        var parameters: [String: Any] = [
             "source": source,
             "plan": plan,
             "product_id": productID
-        ])
+        ]
+        if let transactionID {
+            parameters["transaction_id"] = transactionID
+        }
+        if let value {
+            parameters["value"] = value
+        }
+        if let currency {
+            parameters["currency"] = currency
+        }
+        Analytics.logEvent("premium_feature_purchase_success", parameters: parameters)
+    }
+
+    static func logPremiumPurchaseSuccess(
+        source: String,
+        plan: String,
+        product: Product,
+        transaction: StoreKit.Transaction
+    ) {
+        guard logStoreKitTransactionIfNeeded(transaction) else { return }
+        logPremiumFeaturePurchaseSuccess(
+            source: source,
+            plan: plan,
+            productID: transaction.productID,
+            transactionID: String(transaction.id),
+            value: NSDecimalNumber(decimal: product.price).doubleValue,
+            currency: product.priceFormatStyle.currencyCode
+        )
+    }
+
+    static func logPremiumTransactionUpdate(source: String, plan: String, transaction: StoreKit.Transaction) {
+        guard logStoreKitTransactionIfNeeded(transaction) else { return }
+        logPremiumFeaturePurchaseSuccess(
+            source: source,
+            plan: plan,
+            productID: transaction.productID,
+            transactionID: String(transaction.id)
+        )
     }
 
     static func logOnboardingCompleted() {
@@ -215,5 +262,20 @@ enum AnalyticsService {
 
     private static func syncThemeUserProperty(_ theme: AppTheme) {
         Analytics.setUserProperty(theme.rawValue, forName: "selected_theme_color")
+    }
+
+    @discardableResult
+    private static func logStoreKitTransactionIfNeeded(_ transaction: StoreKit.Transaction) -> Bool {
+        let transactionID = String(transaction.id)
+        var loggedIDs = UserDefaults.standard.stringArray(forKey: loggedStoreKitTransactionIDsKey) ?? []
+        guard !loggedIDs.contains(transactionID) else { return false }
+
+        Analytics.logTransaction(transaction)
+        loggedIDs.append(transactionID)
+        if loggedIDs.count > 200 {
+            loggedIDs = Array(loggedIDs.suffix(200))
+        }
+        UserDefaults.standard.set(loggedIDs, forKey: loggedStoreKitTransactionIDsKey)
+        return true
     }
 }

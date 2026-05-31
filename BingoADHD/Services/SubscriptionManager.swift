@@ -238,10 +238,11 @@ final class SubscriptionManager: ObservableObject {
                 }
                 applyImmediateActivation(from: transaction)
                 if let analyticsSource, let analyticsPlan {
-                    AnalyticsService.logPremiumFeaturePurchaseSuccess(
+                    AnalyticsService.logPremiumPurchaseSuccess(
                         source: analyticsSource,
                         plan: analyticsPlan,
-                        productID: transaction.productID
+                        product: product,
+                        transaction: transaction
                     )
                 }
                 await transaction.finish()
@@ -343,6 +344,21 @@ final class SubscriptionManager: ObservableObject {
             for await update in Transaction.updates {
                 if case .verified(let transaction) = update {
                     applyImmediateActivation(from: transaction)
+                    let plan = analyticsPlan(for: transaction.productID)
+                    if let product = productsByID[transaction.productID] {
+                        AnalyticsService.logPremiumPurchaseSuccess(
+                            source: "storekit_transaction_update",
+                            plan: plan,
+                            product: product,
+                            transaction: transaction
+                        )
+                    } else {
+                        AnalyticsService.logPremiumTransactionUpdate(
+                            source: "storekit_transaction_update",
+                            plan: plan,
+                            transaction: transaction
+                        )
+                    }
                     await transaction.finish()
                 }
                 await refreshEntitlements()
@@ -369,6 +385,21 @@ final class SubscriptionManager: ObservableObject {
             return .lifetime
         default:
             return nil
+        }
+    }
+
+    private func analyticsPlan(for productID: String) -> String {
+        switch productID {
+        case Self.monthlyProductID:
+            return "monthly"
+        case Self.yearlyProductID:
+            return "yearly"
+        case Self.lifetimeProductID:
+            return "lifetime"
+        case Self.lifetimeEarlySupporterProductID:
+            return "limited_time_lifetime"
+        default:
+            return "unknown"
         }
     }
 

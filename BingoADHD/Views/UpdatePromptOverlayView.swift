@@ -73,20 +73,12 @@ struct UpdatePromptOverlayView: View {
 
     private var changeList: some View {
         VStack(alignment: .leading, spacing: scaled(12, pad: 15)) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                HStack(alignment: .top, spacing: 9) {
-                    Text("\(index + 1).")
-                        .font(.appSystem(size: scaled(15, pad: 18), weight: .semibold, design: .rounded))
-                        .foregroundColor(updateTextColor)
-                        .frame(width: scaled(20, pad: 24), alignment: .trailing)
-                        .padding(.top, 1)
-
-                    Text(item)
-                        .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                        .foregroundColor(updateTextColor)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                Text(item)
+                    .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
+                    .foregroundColor(updateTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

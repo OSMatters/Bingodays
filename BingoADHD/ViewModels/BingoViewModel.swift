@@ -121,7 +121,11 @@ class BingoViewModel: ObservableObject {
                 fullBoardCells: self.fullBoardCells
             )
             if normalizedBoard != saved {
-                BingoBoardStore.saveBoard(normalizedBoard, savedAt: savedAt)
+                BingoBoardStore.saveBoard(
+                    normalizedBoard,
+                    savedAt: savedAt,
+                    associatedBoardID: BingoBoardStore.loadActiveNamedBoardID()
+                )
             }
         } else {
             self.gridSize = Self.defaultInitialGridSize
@@ -233,7 +237,9 @@ class BingoViewModel: ObservableObject {
         isOneTimeTask: Bool = false,
         estimatedDurationMinutes: Int? = nil,
         startVisibleAt: Date? = nil,
-        endVisibleAt: Date? = nil
+        endVisibleAt: Date? = nil,
+        startReminderEnabled: Bool = false,
+        startReminderOffsetMinutes: Int = BingoCell.defaultStartReminderOffsetMinutes
     ) {
         guard row < cells.count, col < cells[row].count else { return }
         let previousCell = cells[row][col]
@@ -243,6 +249,8 @@ class BingoViewModel: ObservableObject {
         let normalizedOneTimeTask = !trimmedText.isEmpty && isOneTimeTask
         let normalizedStartVisibilityAt = trimmedText.isEmpty ? nil : normalizedStartVisibility(date: startVisibleAt)
         let normalizedEndVisibilityAt = trimmedText.isEmpty ? nil : normalizedEndVisibility(date: endVisibleAt, startVisibleAt: normalizedStartVisibilityAt)
+        let normalizedReminderEnabled = !trimmedText.isEmpty && !previousCell.isCompleted && normalizedStartVisibilityAt != nil && normalizedEndVisibilityAt != nil && startReminderEnabled
+        let normalizedReminderOffset = BingoCell.normalizedStartReminderOffsetMinutes(startReminderOffsetMinutes)
         let usesStoredSchedule = !normalizedWeekdays.isEmpty || normalizedOneTimeTask || normalizedStartVisibilityAt != nil || normalizedEndVisibilityAt != nil
         let previousStoredTaskText = previousCell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
         let isReplacingTaskIdentity = previousStoredTaskText != trimmedText
@@ -251,6 +259,8 @@ class BingoViewModel: ObservableObject {
         cells[row][col].oneTimeVisibleDate = normalizedOneTimeTask ? .now : nil
         cells[row][col].startVisibleAt = normalizedStartVisibilityAt
         cells[row][col].endVisibleAt = normalizedEndVisibilityAt
+        cells[row][col].startReminderEnabled = normalizedReminderEnabled
+        cells[row][col].startReminderOffsetMinutes = normalizedReminderOffset
         cells[row][col].startVisibleMonth = nil
         cells[row][col].startVisibleDay = nil
         cells[row][col].residentTaskText = usesStoredSchedule ? limitedText : nil
@@ -1005,9 +1015,6 @@ class BingoViewModel: ObservableObject {
         // Visibility windows are evaluated against the full board cache, then projected into the current grid size.
         var updatedCache = fullBoardCells
         var didMutateCache = false
-        let hasVisibilityWindowTasks = updatedCache
-            .flatMap { $0 }
-            .contains { $0.hasVisibilityWindow && !$0.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
         for row in 0..<min(gridSize, updatedCache.count) {
             for col in 0..<min(gridSize, updatedCache[row].count) {
@@ -1034,9 +1041,7 @@ class BingoViewModel: ObservableObject {
 
         let projectedCells = Self.projectVisibleCells(from: fullBoardCells, size: gridSize, referenceDate: now)
         if projectedCells == cells {
-            guard hasVisibilityWindowTasks else { return false }
-            cells = projectedCells
-            return true
+            return didMutateCache
         }
 
         cells = projectedCells
@@ -1418,6 +1423,8 @@ class BingoViewModel: ObservableObject {
             oneTimeVisibleDate: cell.oneTimeVisibleDate,
             startVisibleAt: cell.startVisibleAt,
             endVisibleAt: cell.endVisibleAt,
+            startReminderEnabled: cell.startReminderEnabled,
+            startReminderOffsetMinutes: cell.startReminderOffsetMinutes,
             startVisibleMonth: cell.startVisibleMonth,
             startVisibleDay: cell.startVisibleDay,
             isTaskHidden: cell.isTaskHidden,
