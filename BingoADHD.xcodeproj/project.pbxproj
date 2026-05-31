@@ -49,6 +49,7 @@
 			AA30000000000000000038 /* BingoRewardSettlement.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000037 /* BingoRewardSettlement.swift */; };
 			AA30000000000000000039 /* BingoTaskBoardHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000038 /* BingoTaskBoardHelpers.swift */; };
 			AA3000000000000000003A /* BingoViewModelPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000039 /* BingoViewModelPersistence.swift */; };
+			AA3000000000000000004F /* BoardStateCommitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000004F /* BoardStateCommitter.swift */; };
 			AA3000000000000000003B /* PointsFlowOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000003A /* PointsFlowOverlays.swift */; };
 			AA3000000000000000003C /* PointsRedemptionHistorySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000003B /* PointsRedemptionHistorySheet.swift */; };
 			AA3000000000000000003D /* RewardEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000003C /* RewardEditorSheet.swift */; };
@@ -187,6 +188,7 @@
 				AA20000000000000000037 /* BingoRewardSettlement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoRewardSettlement.swift; sourceTree = "<group>"; };
 				AA20000000000000000038 /* BingoTaskBoardHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoTaskBoardHelpers.swift; sourceTree = "<group>"; };
 				AA20000000000000000039 /* BingoViewModelPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoViewModelPersistence.swift; sourceTree = "<group>"; };
+				AA2000000000000000004F /* BoardStateCommitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardStateCommitter.swift; sourceTree = "<group>"; };
 				AA2000000000000000003A /* PointsFlowOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointsFlowOverlays.swift; sourceTree = "<group>"; };
 				AA2000000000000000003B /* PointsRedemptionHistorySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointsRedemptionHistorySheet.swift; sourceTree = "<group>"; };
 				AA2000000000000000003C /* RewardEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewardEditorSheet.swift; sourceTree = "<group>"; };
@@ -404,6 +406,7 @@
 								AA20000000000000000037 /* BingoRewardSettlement.swift */,
 								AA20000000000000000038 /* BingoTaskBoardHelpers.swift */,
 								AA20000000000000000039 /* BingoViewModelPersistence.swift */,
+								AA2000000000000000004F /* BoardStateCommitter.swift */,
 							AA2000000000000000001F /* BoardManagementStore.swift */,
 						B7D6CE3F00A0498A917C384A /* FirstStepGuideStore.swift */,
 						FEC27A1F93734E4A8802CD30 /* HomeToastStore.swift */,
@@ -654,6 +657,7 @@
 					AA30000000000000000038 /* BingoRewardSettlement.swift in Sources */,
 					AA30000000000000000039 /* BingoTaskBoardHelpers.swift in Sources */,
 					AA3000000000000000003A /* BingoViewModelPersistence.swift in Sources */,
+					AA3000000000000000004F /* BoardStateCommitter.swift in Sources */,
 					AA30000000000000000005 /* BingoBoardView.swift in Sources */,
 				AA30000000000000000006 /* BingoCellView.swift in Sources */,
 				AA30000000000000000007 /* EditTaskSheet.swift in Sources */,
