@@ -1,6 +1,78 @@
 import Combine
 import Foundation
 
+protocol BoardManagementRepository {
+    func loadNamedBoardsSnapshot() -> BingoBoardStore.NamedBoardsSnapshot
+    func saveNamedBoardsSnapshot(_ snapshot: BingoBoardStore.NamedBoardsSnapshot, reloadWidgets: Bool)
+    func loadBoard() -> SavedBoard?
+    func loadBoardLastSavedAt() -> Date?
+    func loadBoardCountdownEndsAt() -> Date?
+    func loadActiveNamedBoardID() -> UUID?
+
+    @discardableResult
+    func saveBoard(_ board: SavedBoard, savedAt: Date, associatedBoardID: UUID?, reloadWidgets: Bool) -> Bool
+    func saveBoardCountdownEndsAt(_ endsAt: Date?)
+    func loadWidgetTaskSyncEvent() -> WidgetTaskSyncStore.Event?
+    func clearWidgetTaskSyncEvent()
+    func saveSelectedWidgetPanelID(_ boardID: UUID?)
+    func reloadWidgetTimelines()
+}
+
+struct LiveBoardManagementRepository: BoardManagementRepository {
+    func loadNamedBoardsSnapshot() -> BingoBoardStore.NamedBoardsSnapshot {
+        BingoBoardStore.loadNamedBoardsSnapshot()
+    }
+
+    func saveNamedBoardsSnapshot(_ snapshot: BingoBoardStore.NamedBoardsSnapshot, reloadWidgets: Bool) {
+        BingoBoardStore.saveNamedBoardsSnapshot(snapshot, reloadWidgets: reloadWidgets)
+    }
+
+    func loadBoard() -> SavedBoard? {
+        BingoBoardStore.loadBoard()
+    }
+
+    func loadBoardLastSavedAt() -> Date? {
+        BingoBoardStore.loadBoardLastSavedAt()
+    }
+
+    func loadBoardCountdownEndsAt() -> Date? {
+        BingoBoardStore.loadBoardCountdownEndsAt()
+    }
+
+    func loadActiveNamedBoardID() -> UUID? {
+        BingoBoardStore.loadActiveNamedBoardID()
+    }
+
+    func saveBoard(_ board: SavedBoard, savedAt: Date, associatedBoardID: UUID?, reloadWidgets: Bool) -> Bool {
+        BingoBoardStore.saveBoard(
+            board,
+            savedAt: savedAt,
+            associatedBoardID: associatedBoardID,
+            reloadWidgets: reloadWidgets
+        )
+    }
+
+    func saveBoardCountdownEndsAt(_ endsAt: Date?) {
+        BingoBoardStore.saveBoardCountdownEndsAt(endsAt)
+    }
+
+    func loadWidgetTaskSyncEvent() -> WidgetTaskSyncStore.Event? {
+        WidgetTaskSyncStore.load()
+    }
+
+    func clearWidgetTaskSyncEvent() {
+        WidgetTaskSyncStore.clear()
+    }
+
+    func saveSelectedWidgetPanelID(_ boardID: UUID?) {
+        WidgetPanelSelectionStore.saveSelectedPanelID(boardID)
+    }
+
+    func reloadWidgetTimelines() {
+        BingoBoardStore.reloadWidgetTimelines()
+    }
+}
+
 @MainActor
 final class BoardManagementStore: ObservableObject {
     static let boardNameMaxLength = 20
@@ -8,6 +80,12 @@ final class BoardManagementStore: ObservableObject {
     @Published var namedBoards: [BingoBoardStore.NamedBoard] = []
     @Published var selectedBoardID: UUID?
     @Published var hasLoadedBoardSwitcherState = false
+
+    private let repository: any BoardManagementRepository
+
+    init(repository: any BoardManagementRepository = LiveBoardManagementRepository()) {
+        self.repository = repository
+    }
 
     var selectedNamedBoardIndex: Int? {
         guard let selectedBoardID else { return nil }
@@ -42,7 +120,7 @@ final class BoardManagementStore: ObservableObject {
                 selectedBoardID: initialBoard.id,
                 boards: [initialBoard]
             )
-            BingoBoardStore.saveNamedBoardsSnapshot(snapshot)
+            repository.saveNamedBoardsSnapshot(snapshot, reloadWidgets: true)
         }
 
         namedBoards = snapshot.boards
@@ -87,7 +165,7 @@ final class BoardManagementStore: ObservableObject {
             selectedBoardID: selectedBoardID,
             boards: namedBoards
         )
-        BingoBoardStore.saveNamedBoardsSnapshot(snapshot, reloadWidgets: reloadWidgets)
+        repository.saveNamedBoardsSnapshot(snapshot, reloadWidgets: reloadWidgets)
     }
 
     func replaceBoards(
@@ -339,15 +417,15 @@ final class BoardManagementStore: ObservableObject {
     }
 
     private func persistedSnapshotPreferringCurrentBoard() -> BingoBoardStore.NamedBoardsSnapshot {
-        var snapshot = BingoBoardStore.loadNamedBoardsSnapshot()
+        var snapshot = repository.loadNamedBoardsSnapshot()
         snapshot = snapshotByApplyingPendingWidgetTaskEvent(snapshot)
         guard !snapshot.boards.isEmpty,
-              let currentBoard = BingoBoardStore.loadBoard(),
-              let currentBoardSavedAt = BingoBoardStore.loadBoardLastSavedAt() else {
+              let currentBoard = repository.loadBoard(),
+              let currentBoardSavedAt = repository.loadBoardLastSavedAt() else {
             return snapshot
         }
 
-        let activeMirrorBoardID = BingoBoardStore.loadActiveNamedBoardID()
+        let activeMirrorBoardID = repository.loadActiveNamedBoardID()
         let targetIndex: Int?
         if let activeMirrorBoardID {
             targetIndex = snapshot.boards.firstIndex(where: { $0.id == activeMirrorBoardID })
@@ -363,20 +441,20 @@ final class BoardManagementStore: ObservableObject {
         }
 
         snapshot.boards[targetIndex].board = currentBoard
-        snapshot.boards[targetIndex].countdownEndsAt = BingoBoardStore.loadBoardCountdownEndsAt()
+        snapshot.boards[targetIndex].countdownEndsAt = repository.loadBoardCountdownEndsAt()
         snapshot.boards[targetIndex].updatedAt = currentBoardSavedAt
-        BingoBoardStore.saveNamedBoardsSnapshot(snapshot)
+        repository.saveNamedBoardsSnapshot(snapshot, reloadWidgets: true)
         return snapshot
     }
 
     private func snapshotByApplyingPendingWidgetTaskEvent(
         _ snapshot: BingoBoardStore.NamedBoardsSnapshot
     ) -> BingoBoardStore.NamedBoardsSnapshot {
-        guard let event = WidgetTaskSyncStore.load() else {
+        guard let event = repository.loadWidgetTaskSyncEvent() else {
             return snapshot
         }
         defer {
-            WidgetTaskSyncStore.clear()
+            repository.clearWidgetTaskSyncEvent()
         }
 
         var updatedSnapshot = snapshot
@@ -390,16 +468,16 @@ final class BoardManagementStore: ObservableObject {
         }
 
         updatedSnapshot.selectedBoardID = event.boardID
-        BingoBoardStore.saveNamedBoardsSnapshot(updatedSnapshot, reloadWidgets: false)
-        BingoBoardStore.saveBoard(
+        repository.saveNamedBoardsSnapshot(updatedSnapshot, reloadWidgets: false)
+        repository.saveBoard(
             event.board.board,
             savedAt: event.savedAt,
             associatedBoardID: event.boardID,
             reloadWidgets: false
         )
-        BingoBoardStore.saveBoardCountdownEndsAt(event.board.countdownEndsAt)
-        WidgetPanelSelectionStore.saveSelectedPanelID(event.boardID)
-        BingoBoardStore.reloadWidgetTimelines()
+        repository.saveBoardCountdownEndsAt(event.board.countdownEndsAt)
+        repository.saveSelectedWidgetPanelID(event.boardID)
+        repository.reloadWidgetTimelines()
         return updatedSnapshot
     }
 
@@ -409,14 +487,14 @@ final class BoardManagementStore: ObservableObject {
         countdownEndsAt: Date?,
         savedAt: Date
     ) {
-        BingoBoardStore.saveBoard(
+        repository.saveBoard(
             board,
             savedAt: savedAt,
             associatedBoardID: boardID,
             reloadWidgets: false
         )
-        BingoBoardStore.saveBoardCountdownEndsAt(countdownEndsAt)
-        WidgetPanelSelectionStore.saveSelectedPanelID(boardID)
-        BingoBoardStore.reloadWidgetTimelines()
+        repository.saveBoardCountdownEndsAt(countdownEndsAt)
+        repository.saveSelectedWidgetPanelID(boardID)
+        repository.reloadWidgetTimelines()
     }
 }

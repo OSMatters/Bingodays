@@ -86,3 +86,4 @@ Done means:
 - `BingoViewModelPersistence` now depends on board, diary, and points repositories instead of binding directly to static stores, creating the first injectable persistence boundary.
 - Widget timeline reloads can now be batched by persistence callers, so multi-step board saves can write named boards, active-board mirrors, countdown state, and widget selection before issuing one refresh.
 - `BingoViewModelPersistence` now returns an explicit commit result for board, diary, points, and widget side effects, giving future coordinators a stable contract instead of relying on hidden static-store work.
+- `BoardManagementStore` now uses an injected board-management repository for named-board snapshots, active-board mirrors, widget task sync, and widget panel selection instead of calling static stores from each workflow.
