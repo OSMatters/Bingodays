@@ -299,14 +299,19 @@ final class AccountSession: NSObject, ObservableObject {
         UserDefaults.standard.set(snapshot.soundEffectsEnabled, forKey: AppSettings.soundEffectsEnabledKey)
 
         if let board = snapshot.board {
-            BingoBoardStore.saveBoard(board, savedAt: snapshot.boardLastSavedAt ?? snapshot.updatedAt)
+            BingoBoardStore.saveBoard(
+                board,
+                savedAt: snapshot.boardLastSavedAt ?? snapshot.updatedAt,
+                reloadWidgets: false
+            )
         } else {
-            BingoBoardStore.clearBoard()
+            BingoBoardStore.clearBoard(reloadWidgets: false)
         }
         BingoBoardStore.saveBoardCountdownEndsAt(snapshot.boardCountdownEndsAt)
         if let firstSeenDate = snapshot.firstSeenDate {
             BingoBoardStore.setFirstSeenDate(firstSeenDate)
         }
+        BingoBoardStore.reloadWidgetTimelines()
 
         CommonTasksStore.saveLibrary(snapshot.tasksLibrary)
         RewardStore.saveRewards(snapshot.rewards)
@@ -563,8 +568,9 @@ private actor AccountSyncService {
         UserDefaults.standard.removeObject(forKey: AppSettings.hapticsEnabledKey)
         UserDefaults.standard.removeObject(forKey: AppSettings.soundEffectsEnabledKey)
 
-        BingoBoardStore.clearBoard()
+        BingoBoardStore.clearBoard(reloadWidgets: false)
         BingoBoardStore.clearFirstSeenDate()
+        BingoBoardStore.reloadWidgetTimelines()
         CommonTasksStore.saveLibrary(MyTasksLibrary())
         RewardStore.clearRewards()
         StickerStore.clearInventoryCounts()

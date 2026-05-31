@@ -1,7 +1,4 @@
 import SwiftUI
-#if canImport(WidgetKit)
-import WidgetKit
-#endif
 
 struct SidebarMenuRow: View {
     let icon: String
@@ -331,9 +328,7 @@ struct SidebarThemePickerRow: View {
                     themeRawValue = theme.rawValue
                     UserDefaults(suiteName: BingoBoardStore.appGroupID)?.set(theme.rawValue, forKey: AppSettings.themeKey)
                     AnalyticsService.logThemeColorSelected(theme)
-                    #if canImport(WidgetKit)
-                    WidgetCenter.shared.reloadAllTimelines()
-                    #endif
+                    BingoBoardStore.reloadWidgetTimelines()
                 } label: {
                     Circle()
                         .fill(theme.color)

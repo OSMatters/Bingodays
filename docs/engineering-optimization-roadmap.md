@@ -75,3 +75,9 @@ Done means:
 - Reminder sync calls are debounced from UI state cascades and skipped when reminder inputs are unchanged.
 - The optimization roadmap is checked in.
 - The project still builds for the `BingoADHD` scheme.
+
+## Progress Log
+
+- Phase 1 guardrails are in place for unchanged visibility refreshes, reminder sync debounce, and cell schedule date formatting.
+- `BoardEngine` now owns shared board cache expansion and visible-cell projection for the app, widget intent, and template import paths.
+- Widget timeline reloads can now be batched by persistence callers, so multi-step board saves can write named boards, active-board mirrors, countdown state, and widget selection before issuing one refresh.

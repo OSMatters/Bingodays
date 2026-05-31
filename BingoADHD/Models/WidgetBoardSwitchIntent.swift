@@ -189,10 +189,15 @@ struct ToggleWidgetTaskIntent: AppIntent {
         snapshot.boards[index] = updatedBoard
         snapshot.selectedBoardID = id
         WidgetTaskSyncStore.save(board: updatedBoard)
-        BingoBoardStore.saveNamedBoardsSnapshot(snapshot)
+        BingoBoardStore.saveNamedBoardsSnapshot(snapshot, reloadWidgets: false)
         WidgetPanelSelectionStore.saveSelectedPanelID(id)
 
-        BingoBoardStore.saveBoard(updatedBoard.board, savedAt: updatedBoard.updatedAt, associatedBoardID: id)
+        BingoBoardStore.saveBoard(
+            updatedBoard.board,
+            savedAt: updatedBoard.updatedAt,
+            associatedBoardID: id,
+            reloadWidgets: false
+        )
         BingoBoardStore.saveBoardCountdownEndsAt(updatedBoard.countdownEndsAt)
 
         WidgetCenter.shared.reloadTimelines(ofKind: "BingodaysLargeWidget")

@@ -82,12 +82,12 @@ final class BoardManagementStore: ObservableObject {
         return selectedBoard
     }
 
-    func persistSnapshot() {
+    func persistSnapshot(reloadWidgets: Bool = true) {
         let snapshot = BingoBoardStore.NamedBoardsSnapshot(
             selectedBoardID: selectedBoardID,
             boards: namedBoards
         )
-        BingoBoardStore.saveNamedBoardsSnapshot(snapshot)
+        BingoBoardStore.saveNamedBoardsSnapshot(snapshot, reloadWidgets: reloadWidgets)
     }
 
     func replaceBoards(
@@ -113,8 +113,9 @@ final class BoardManagementStore: ObservableObject {
         namedBoards[boardIndex].countdownEndsAt = countdownEndsAt
         namedBoards[boardIndex].updatedAt = .now
         if save {
-            persistSnapshot()
-            if selectedBoardID == boardID {
+            let shouldMirrorActiveBoard = selectedBoardID == boardID
+            persistSnapshot(reloadWidgets: !shouldMirrorActiveBoard)
+            if shouldMirrorActiveBoard {
                 persistActiveBoardMirror(
                     boardID: boardID,
                     board: board,
@@ -155,7 +156,7 @@ final class BoardManagementStore: ObservableObject {
 
         selectedBoardID = boardID
         let selected = selectedBoard
-        persistSnapshot()
+        persistSnapshot(reloadWidgets: selected == nil)
         if let selected {
             persistActiveBoardMirror(
                 boardID: selected.id,
@@ -192,7 +193,7 @@ final class BoardManagementStore: ObservableObject {
 
         namedBoards.append(newBoard)
         selectedBoardID = newBoard.id
-        persistSnapshot()
+        persistSnapshot(reloadWidgets: false)
         persistActiveBoardMirror(
             boardID: newBoard.id,
             board: newBoard.board,
@@ -226,8 +227,9 @@ final class BoardManagementStore: ObservableObject {
             selectedBoardID = namedBoards.first?.id
         }
 
-        persistSnapshot()
-        if let selectedBoard {
+        let selectedAfterDelete = selectedBoard
+        persistSnapshot(reloadWidgets: selectedAfterDelete == nil)
+        if let selectedBoard = selectedAfterDelete {
             persistActiveBoardMirror(
                 boardID: selectedBoard.id,
                 board: selectedBoard.board,
@@ -235,7 +237,7 @@ final class BoardManagementStore: ObservableObject {
                 savedAt: selectedBoard.updatedAt
             )
         }
-        return selectedBoard
+        return selectedAfterDelete
     }
 
     func canDeleteBoard(_ boardID: UUID, allowsDeletingFirstBoard: Bool) -> Bool {
@@ -283,7 +285,7 @@ final class BoardManagementStore: ObservableObject {
         )
         namedBoards.append(importedBoard)
         selectedBoardID = importedBoard.id
-        persistSnapshot()
+        persistSnapshot(reloadWidgets: false)
         persistActiveBoardMirror(
             boardID: importedBoard.id,
             board: importedBoard.board,
@@ -308,7 +310,7 @@ final class BoardManagementStore: ObservableObject {
         namedBoards[boardIndex].countdownEndsAt = nil
         namedBoards[boardIndex].updatedAt = .now
         selectedBoardID = targetBoardID
-        persistSnapshot()
+        persistSnapshot(reloadWidgets: false)
         persistActiveBoardMirror(
             boardID: targetBoardID,
             board: namedBoards[boardIndex].board,
@@ -388,10 +390,16 @@ final class BoardManagementStore: ObservableObject {
         }
 
         updatedSnapshot.selectedBoardID = event.boardID
-        BingoBoardStore.saveNamedBoardsSnapshot(updatedSnapshot)
-        BingoBoardStore.saveBoard(event.board.board, savedAt: event.savedAt, associatedBoardID: event.boardID)
+        BingoBoardStore.saveNamedBoardsSnapshot(updatedSnapshot, reloadWidgets: false)
+        BingoBoardStore.saveBoard(
+            event.board.board,
+            savedAt: event.savedAt,
+            associatedBoardID: event.boardID,
+            reloadWidgets: false
+        )
         BingoBoardStore.saveBoardCountdownEndsAt(event.board.countdownEndsAt)
         WidgetPanelSelectionStore.saveSelectedPanelID(event.boardID)
+        BingoBoardStore.reloadWidgetTimelines()
         return updatedSnapshot
     }
 
@@ -401,8 +409,14 @@ final class BoardManagementStore: ObservableObject {
         countdownEndsAt: Date?,
         savedAt: Date
     ) {
-        BingoBoardStore.saveBoard(board, savedAt: savedAt, associatedBoardID: boardID)
+        BingoBoardStore.saveBoard(
+            board,
+            savedAt: savedAt,
+            associatedBoardID: boardID,
+            reloadWidgets: false
+        )
         BingoBoardStore.saveBoardCountdownEndsAt(countdownEndsAt)
         WidgetPanelSelectionStore.saveSelectedPanelID(boardID)
+        BingoBoardStore.reloadWidgetTimelines()
     }
 }

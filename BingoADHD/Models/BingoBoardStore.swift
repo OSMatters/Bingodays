@@ -117,7 +117,12 @@ enum BingoBoardStore {
         return nil
     }
 
-    static func saveBoard(_ board: SavedBoard, savedAt: Date = .now, associatedBoardID: UUID? = nil) {
+    static func saveBoard(
+        _ board: SavedBoard,
+        savedAt: Date = .now,
+        associatedBoardID: UUID? = nil,
+        reloadWidgets: Bool = true
+    ) {
         guard let data = try? JSONEncoder().encode(board) else { return }
 
         persistSharedFile(data)
@@ -126,12 +131,12 @@ enum BingoBoardStore {
         saveBoardLastSavedAt(savedAt)
         saveActiveNamedBoardID(associatedBoardID)
 
-        #if canImport(WidgetKit)
-        WidgetCenter.shared.reloadAllTimelines()
-        #endif
+        if reloadWidgets {
+            reloadWidgetTimelines()
+        }
     }
 
-    static func clearBoard() {
+    static func clearBoard(reloadWidgets: Bool = true) {
         try? FileManager.default.removeItem(at: sharedFileURL)
         sharedDefaults.removeObject(forKey: saveKey)
         UserDefaults.standard.removeObject(forKey: saveKey)
@@ -140,9 +145,9 @@ enum BingoBoardStore {
         saveActiveNamedBoardID(nil)
         saveBoardCountdownEndsAt(nil)
 
-        #if canImport(WidgetKit)
-        WidgetCenter.shared.reloadAllTimelines()
-        #endif
+        if reloadWidgets {
+            reloadWidgetTimelines()
+        }
     }
 
     static func loadNamedBoardsSnapshot() -> NamedBoardsSnapshot {
@@ -184,7 +189,10 @@ enum BingoBoardStore {
         return NamedBoardsSnapshot(selectedBoardID: nil, boards: [])
     }
 
-    static func saveNamedBoardsSnapshot(_ snapshot: NamedBoardsSnapshot) {
+    static func saveNamedBoardsSnapshot(
+        _ snapshot: NamedBoardsSnapshot,
+        reloadWidgets: Bool = true
+    ) {
         let sanitized = sanitizeNamedBoardsSnapshot(snapshot)
         #if DEBUG
         let previousSnapshot = loadPersistedNamedBoardsSnapshotForIntegrityCheck()
@@ -196,6 +204,12 @@ enum BingoBoardStore {
         sharedDefaults.set(data, forKey: boardsSaveKey)
         UserDefaults.standard.set(data, forKey: boardsSaveKey)
 
+        if reloadWidgets {
+            reloadWidgetTimelines()
+        }
+    }
+
+    static func reloadWidgetTimelines() {
         #if canImport(WidgetKit)
         WidgetCenter.shared.reloadAllTimelines()
         #endif
