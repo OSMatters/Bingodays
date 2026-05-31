@@ -85,3 +85,4 @@ Done means:
 - `BoardEngine` now owns expired task and board countdown resolution transforms, keeping timeout business mutations out of `BingoViewModel` UI event handling.
 - `BingoViewModelPersistence` now depends on board, diary, and points repositories instead of binding directly to static stores, creating the first injectable persistence boundary.
 - Widget timeline reloads can now be batched by persistence callers, so multi-step board saves can write named boards, active-board mirrors, countdown state, and widget selection before issuing one refresh.
+- `BingoViewModelPersistence` now returns an explicit commit result for board, diary, points, and widget side effects, giving future coordinators a stable contract instead of relying on hidden static-store work.

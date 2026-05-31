@@ -901,7 +901,11 @@ class BingoViewModel: ObservableObject {
         save()
     }
 
-    private func save(persistDiary: Bool = true, savedAt: Date = .now) {
+    @discardableResult
+    private func save(
+        persistDiary: Bool = true,
+        savedAt: Date = .now
+    ) -> BingoViewModelPersistenceCommitResult {
         BingoViewModelPersistence.save(
             persistenceSnapshot(),
             persistDiary: persistDiary,
@@ -910,11 +914,12 @@ class BingoViewModel: ObservableObject {
         )
     }
 
+    @discardableResult
     private func saveWithExplicitDiaryDelta(
         task: String,
         delta: Int,
         savedAt: Date = .now
-    ) {
+    ) -> BingoViewModelPersistenceCommitResult {
         BingoViewModelPersistence.saveWithExplicitDiaryDelta(
             persistenceSnapshot(),
             task: task,
@@ -1237,7 +1242,8 @@ class BingoViewModel: ObservableObject {
         dailyResetNoticeID += 1
     }
 
-    private func syncDiarySnapshot() {
+    @discardableResult
+    private func syncDiarySnapshot() -> BingoViewModelPersistenceCommitResult {
         BingoViewModelPersistence.syncDiarySnapshot(
             persistenceSnapshot(),
             dependencies: persistenceDependencies

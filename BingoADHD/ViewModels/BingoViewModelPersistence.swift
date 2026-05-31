@@ -8,13 +8,23 @@ struct BingoViewModelPersistenceSnapshot {
     var dailyRewardState: DailyRewardState
 }
 
+struct BingoViewModelPersistenceCommitResult: Equatable {
+    var savedBoard = false
+    var savedBoardCountdown = false
+    var updatedDiary = false
+    var savedPoints = false
+    var reloadedWidgets = false
+}
+
 protocol BingoBoardRepository {
     func loadBoard() -> SavedBoard?
     func loadBoardLastSavedAt() -> Date?
     func loadBoardCountdownEndsAt() -> Date?
     func loadActiveNamedBoardID() -> UUID?
-    func saveBoard(_ board: SavedBoard, savedAt: Date, associatedBoardID: UUID?, reloadWidgets: Bool)
+    @discardableResult
+    func saveBoard(_ board: SavedBoard, savedAt: Date, associatedBoardID: UUID?, reloadWidgets: Bool) -> Bool
     func saveBoardCountdownEndsAt(_ endsAt: Date?)
+    func reloadWidgetTimelines()
 }
 
 protocol BingoDiaryRepository {
@@ -61,7 +71,7 @@ private struct LiveBingoBoardRepository: BingoBoardRepository {
         BingoBoardStore.loadActiveNamedBoardID()
     }
 
-    func saveBoard(_ board: SavedBoard, savedAt: Date, associatedBoardID: UUID?, reloadWidgets: Bool) {
+    func saveBoard(_ board: SavedBoard, savedAt: Date, associatedBoardID: UUID?, reloadWidgets: Bool) -> Bool {
         BingoBoardStore.saveBoard(
             board,
             savedAt: savedAt,
@@ -72,6 +82,10 @@ private struct LiveBingoBoardRepository: BingoBoardRepository {
 
     func saveBoardCountdownEndsAt(_ endsAt: Date?) {
         BingoBoardStore.saveBoardCountdownEndsAt(endsAt)
+    }
+
+    func reloadWidgetTimelines() {
+        BingoBoardStore.reloadWidgetTimelines()
     }
 }
 
@@ -116,58 +130,92 @@ private struct LiveBingoPointsRepository: BingoPointsRepository {
 }
 
 enum BingoViewModelPersistence {
+    @discardableResult
     static func save(
         _ snapshot: BingoViewModelPersistenceSnapshot,
         persistDiary: Bool,
         savedAt: Date,
         dependencies: BingoViewModelPersistenceDependencies = .live
-    ) {
-        dependencies.boardRepository.saveBoard(
-            snapshot.board,
-            savedAt: savedAt,
-            associatedBoardID: nil,
-            reloadWidgets: true
-        )
-        dependencies.boardRepository.saveBoardCountdownEndsAt(snapshot.boardCountdownEndsAt)
+    ) -> BingoViewModelPersistenceCommitResult {
+        var result = saveBoardState(snapshot, savedAt: savedAt, dependencies: dependencies)
 
         if persistDiary {
             dependencies.diaryRepository.save(board: snapshot.board, on: savedAt)
         } else {
             dependencies.diaryRepository.syncBoardSnapshotWithoutCounting(board: snapshot.board, on: savedAt)
         }
+        result.updatedDiary = true
 
         savePoints(snapshot, dependencies: dependencies)
+        result.savedPoints = true
+
+        reloadWidgetsIfNeeded(&result, dependencies: dependencies)
+
+        return result
     }
 
+    @discardableResult
     static func saveWithExplicitDiaryDelta(
         _ snapshot: BingoViewModelPersistenceSnapshot,
         task: String,
         delta: Int,
         savedAt: Date,
         dependencies: BingoViewModelPersistenceDependencies = .live
-    ) {
-        dependencies.boardRepository.saveBoard(
-            snapshot.board,
-            savedAt: savedAt,
-            associatedBoardID: nil,
-            reloadWidgets: true
-        )
-        dependencies.boardRepository.saveBoardCountdownEndsAt(snapshot.boardCountdownEndsAt)
+    ) -> BingoViewModelPersistenceCommitResult {
+        var result = saveBoardState(snapshot, savedAt: savedAt, dependencies: dependencies)
         dependencies.diaryRepository.applyExplicitTaskDelta(
             task: task,
             delta: delta,
             board: snapshot.board,
             on: savedAt
         )
+        result.updatedDiary = true
         savePoints(snapshot, dependencies: dependencies)
+        result.savedPoints = true
+
+        reloadWidgetsIfNeeded(&result, dependencies: dependencies)
+
+        return result
     }
 
+    @discardableResult
     static func syncDiarySnapshot(
         _ snapshot: BingoViewModelPersistenceSnapshot,
         dependencies: BingoViewModelPersistenceDependencies = .live
-    ) {
+    ) -> BingoViewModelPersistenceCommitResult {
+        var result = BingoViewModelPersistenceCommitResult()
         dependencies.diaryRepository.save(board: snapshot.board, on: .now)
+        result.updatedDiary = true
         savePoints(snapshot, dependencies: dependencies)
+        result.savedPoints = true
+
+        return result
+    }
+
+    private static func saveBoardState(
+        _ snapshot: BingoViewModelPersistenceSnapshot,
+        savedAt: Date,
+        dependencies: BingoViewModelPersistenceDependencies
+    ) -> BingoViewModelPersistenceCommitResult {
+        var result = BingoViewModelPersistenceCommitResult()
+        result.savedBoard = dependencies.boardRepository.saveBoard(
+            snapshot.board,
+            savedAt: savedAt,
+            associatedBoardID: nil,
+            reloadWidgets: false
+        )
+        dependencies.boardRepository.saveBoardCountdownEndsAt(snapshot.boardCountdownEndsAt)
+        result.savedBoardCountdown = true
+        return result
+    }
+
+    private static func reloadWidgetsIfNeeded(
+        _ result: inout BingoViewModelPersistenceCommitResult,
+        dependencies: BingoViewModelPersistenceDependencies
+    ) {
+        guard result.savedBoard else { return }
+        dependencies.boardRepository.reloadWidgetTimelines()
+        result.reloadedWidgets = true
     }
 
     private static func savePoints(

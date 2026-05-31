@@ -117,13 +117,14 @@ enum BingoBoardStore {
         return nil
     }
 
+    @discardableResult
     static func saveBoard(
         _ board: SavedBoard,
         savedAt: Date = .now,
         associatedBoardID: UUID? = nil,
         reloadWidgets: Bool = true
-    ) {
-        guard let data = try? JSONEncoder().encode(board) else { return }
+    ) -> Bool {
+        guard let data = try? JSONEncoder().encode(board) else { return false }
 
         persistSharedFile(data)
         sharedDefaults.set(data, forKey: saveKey)
@@ -134,6 +135,8 @@ enum BingoBoardStore {
         if reloadWidgets {
             reloadWidgetTimelines()
         }
+
+        return true
     }
 
     static func clearBoard(reloadWidgets: Bool = true) {
