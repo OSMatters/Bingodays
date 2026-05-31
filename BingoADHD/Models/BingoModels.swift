@@ -294,7 +294,7 @@ struct BoardTemplateTile: Codable, Equatable {
 
 struct BoardTemplatePayload: Codable, Equatable, Identifiable {
     private static let minGridSize = 2
-    private static let maxGridSize = 5
+    private static let maxGridSize = BoardEngine.maxGridSize
     static let urlScheme = "bingodays"
     static let urlHost = "template"
     static let universalHost = "dashbingo.xyz"
@@ -389,7 +389,7 @@ struct BoardTemplatePayload: Codable, Equatable, Identifiable {
             count: max(requiredTiles - tiles.count, 0)
         )
 
-        var fullBoardCells = Self.createEmptyGrid(size: Self.maxGridSize)
+        var fullBoardCells = BoardEngine.createEmptyGrid(size: Self.maxGridSize)
         for index in 0..<requiredTiles {
             let row = index / normalizedGridSize
             let col = index % normalizedGridSize
@@ -421,11 +421,11 @@ struct BoardTemplatePayload: Codable, Equatable, Identifiable {
             fullBoardCells[row][col] = cell
         }
 
-        let visibleCells = (0..<normalizedGridSize).map { row in
-            (0..<normalizedGridSize).map { col in
-                fullBoardCells[row][col].projectedForDisplay(on: referenceDate)
-            }
-        }
+        let visibleCells = BoardEngine.projectVisibleCells(
+            from: fullBoardCells,
+            size: normalizedGridSize,
+            referenceDate: referenceDate
+        )
 
         return SavedBoard(
             gridSize: normalizedGridSize,
@@ -499,11 +499,6 @@ struct BoardTemplatePayload: Codable, Equatable, Identifiable {
         return Data(base64URLToken: token)
     }
 
-    private static func createEmptyGrid(size: Int) -> [[BingoCell]] {
-        (0..<size).map { _ in
-            (0..<size).map { _ in BingoCell() }
-        }
-    }
 }
 
 @MainActor

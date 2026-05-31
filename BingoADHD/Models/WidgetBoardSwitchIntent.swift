@@ -203,7 +203,7 @@ struct ToggleWidgetTaskIntent: AppIntent {
 }
 
 private enum WidgetTaskToggleService {
-    private static let maxGridSize = 5
+    private static let maxGridSize = BoardEngine.maxGridSize
 
     private struct Position: Hashable {
         let row: Int
@@ -222,12 +222,12 @@ private enum WidgetTaskToggleService {
             return nil
         }
 
-        var fullBoard = expandedBoardCache(from: preparedBoard.board)
+        var fullBoard = BoardEngine.expandedBoardCache(from: preparedBoard.board)
         guard row < fullBoard.count, col < fullBoard[row].count else {
             return nil
         }
 
-        let visibleCells = projectVisibleCells(from: fullBoard, size: gridSize, referenceDate: now)
+        let visibleCells = BoardEngine.projectVisibleCells(from: fullBoard, size: gridSize, referenceDate: now)
         guard row < visibleCells.count, col < visibleCells[row].count else {
             return nil
         }
@@ -261,7 +261,7 @@ private enum WidgetTaskToggleService {
             fullBoard[row][col].lastCompletedAt = nil
         }
 
-        let updatedVisibleCells = projectVisibleCells(from: fullBoard, size: gridSize, referenceDate: now)
+        let updatedVisibleCells = BoardEngine.projectVisibleCells(from: fullBoard, size: gridSize, referenceDate: now)
         let completedLines = completedLines(in: updatedVisibleCells, gridSize: gridSize)
         let updatedSavedBoard = SavedBoard(
             gridSize: gridSize,
@@ -357,7 +357,7 @@ private enum WidgetTaskToggleService {
         referenceDate: Date,
         calendar: Calendar
     ) -> Bool {
-        let fullBoard = expandedBoardCache(from: board.board)
+        let fullBoard = BoardEngine.expandedBoardCache(from: board.board)
 
         for row in fullBoard {
             for cell in row {
@@ -385,7 +385,7 @@ private enum WidgetTaskToggleService {
 
         switch mode {
         case .resetStatusNextDay, .customResetStatusTime:
-            fullBoard = expandedBoardCache(from: board)
+            fullBoard = BoardEngine.expandedBoardCache(from: board)
             let calendar = Calendar.current
             for row in fullBoard.indices {
                 for col in fullBoard[row].indices {
@@ -408,9 +408,9 @@ private enum WidgetTaskToggleService {
             }
             normalizeForceFlagsForBoardReset(&fullBoard, referenceDate: referenceDate)
         case .clearTasksNextDay:
-            fullBoard = createEmptyGrid(size: maxGridSize)
+            fullBoard = BoardEngine.createEmptyGrid(size: maxGridSize)
         case .keepTaskStatus:
-            fullBoard = expandedBoardCache(from: board)
+            fullBoard = BoardEngine.expandedBoardCache(from: board)
         }
 
         let gridSize = min(max(board.gridSize, 2), maxGridSize)
@@ -487,40 +487,6 @@ private enum WidgetTaskToggleService {
 
         for position in forcedPositions where !(position.row == keepPosition.row && position.col == keepPosition.col) {
             fullBoard[position.row][position.col].isForced = false
-        }
-    }
-
-    private static func expandedBoardCache(from saved: SavedBoard) -> [[BingoCell]] {
-        var cache = createEmptyGrid(size: maxGridSize)
-        let source = saved.fullBoardCells ?? saved.cells
-        let maxRows = min(source.count, maxGridSize)
-        for row in 0..<maxRows {
-            let maxCols = min(source[row].count, maxGridSize)
-            for col in 0..<maxCols {
-                cache[row][col] = source[row][col]
-            }
-        }
-        return cache
-    }
-
-    private static func createEmptyGrid(size: Int) -> [[BingoCell]] {
-        (0..<size).map { _ in
-            (0..<size).map { _ in BingoCell() }
-        }
-    }
-
-    private static func projectVisibleCells(
-        from cache: [[BingoCell]],
-        size: Int,
-        referenceDate: Date
-    ) -> [[BingoCell]] {
-        (0..<size).map { row in
-            (0..<size).map { col in
-                if row < cache.count, col < cache[row].count {
-                    return cache[row][col].projectedForDisplay(on: referenceDate)
-                }
-                return BingoCell()
-            }
         }
     }
 

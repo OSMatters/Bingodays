@@ -2,7 +2,7 @@ import SwiftUI
 import Combine
 
 class BingoViewModel: ObservableObject {
-    static let maxGridSize = 5
+    static let maxGridSize = BoardEngine.maxGridSize
     static let defaultInitialGridSize = 3
     static let maxTaskLength = 20
     static let maxCountdownMinutes = 30 * 24 * 60
@@ -104,11 +104,11 @@ class BingoViewModel: ObservableObject {
         if let saved = BingoBoardStore.loadBoard() {
             existingSavedAt = BingoBoardStore.loadBoardLastSavedAt()
             let savedAt = existingSavedAt ?? now
-            var expandedCache = Self.expandedBoardCache(from: saved)
+            var expandedCache = BoardEngine.expandedBoardCache(from: saved)
             Self.normalizeForceFlagsInBoardCache(&expandedCache, referenceDate: now)
             self.fullBoardCells = expandedCache
             self.gridSize = saved.gridSize
-            self.cells = Self.projectVisibleCells(
+            self.cells = BoardEngine.projectVisibleCells(
                 from: self.fullBoardCells,
                 size: saved.gridSize,
                 referenceDate: now
@@ -154,9 +154,7 @@ class BingoViewModel: ObservableObject {
     }
 
     static func createEmptyGrid(size: Int) -> [[BingoCell]] {
-        (0..<size).map { _ in
-            (0..<size).map { _ in BingoCell() }
-        }
+        BoardEngine.createEmptyGrid(size: size)
     }
 
     static func createDefaultSavedBoard() -> SavedBoard {
@@ -710,12 +708,12 @@ class BingoViewModel: ObservableObject {
         referenceDate: Date = .now
     ) {
         let normalizedGridSize = min(max(savedBoard.gridSize, 2), Self.maxGridSize)
-        var expandedCache = Self.expandedBoardCache(from: savedBoard)
+        var expandedCache = BoardEngine.expandedBoardCache(from: savedBoard)
         Self.normalizeForceFlagsInBoardCache(&expandedCache, referenceDate: referenceDate)
 
         fullBoardCells = expandedCache
         gridSize = normalizedGridSize
-        cells = Self.projectVisibleCells(
+        cells = BoardEngine.projectVisibleCells(
             from: expandedCache,
             size: normalizedGridSize,
             referenceDate: referenceDate
@@ -1039,7 +1037,7 @@ class BingoViewModel: ObservableObject {
             fullBoardCells = updatedCache
         }
 
-        let projectedCells = Self.projectVisibleCells(from: fullBoardCells, size: gridSize, referenceDate: now)
+        let projectedCells = BoardEngine.projectVisibleCells(from: fullBoardCells, size: gridSize, referenceDate: now)
         if projectedCells == cells {
             return didMutateCache
         }
@@ -1391,7 +1389,7 @@ class BingoViewModel: ObservableObject {
     }
 
     private func visibleCells(from cache: [[BingoCell]], size: Int) -> [[BingoCell]] {
-        Self.projectVisibleCells(from: cache, size: size, referenceDate: .now)
+        BoardEngine.projectVisibleCells(from: cache, size: size, referenceDate: .now)
     }
 
     private func repairDuplicateCellIDsIfNeeded(referenceDate: Date = .now) {
@@ -1410,7 +1408,7 @@ class BingoViewModel: ObservableObject {
         }
 
         guard didRepair else { return }
-        cells = Self.projectVisibleCells(from: fullBoardCells, size: gridSize, referenceDate: referenceDate)
+        cells = BoardEngine.projectVisibleCells(from: fullBoardCells, size: gridSize, referenceDate: referenceDate)
         save(persistDiary: false, savedAt: referenceDate)
     }
 
@@ -1488,32 +1486,6 @@ class BingoViewModel: ObservableObject {
         totalPoints = output.totalPoints
         lifetimePoints = output.lifetimePoints
         dailyRewardState = output.dailyRewardState
-    }
-
-    private static func projectVisibleCells(from cache: [[BingoCell]], size: Int, referenceDate: Date) -> [[BingoCell]] {
-        (0..<size).map { row in
-            (0..<size).map { col in
-                if row < cache.count, col < cache[row].count {
-                    return cache[row][col].projectedForDisplay(on: referenceDate)
-                }
-                return BingoCell()
-            }
-        }
-    }
-
-    private static func expandedBoardCache(from saved: SavedBoard) -> [[BingoCell]] {
-        var cache = Self.createEmptyGrid(size: Self.maxGridSize)
-        let source = saved.fullBoardCells ?? saved.cells
-        let maxRows = min(source.count, Self.maxGridSize)
-
-        for row in 0..<maxRows {
-            let maxCols = min(source[row].count, Self.maxGridSize)
-            for col in 0..<maxCols {
-                cache[row][col] = source[row][col]
-            }
-        }
-
-        return cache
     }
 
     private static func normalizeForceFlagsInBoardCache(
