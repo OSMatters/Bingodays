@@ -90,10 +90,11 @@ enum BingoRewardSettlement {
         boardLastSavedAt: Date?,
         currentCells: [[BingoCell]],
         currentCompletedLines: Set<BingoLine>,
-        isBoardFullyCompleted: Bool
+        isBoardFullyCompleted: Bool,
+        savedDailyRewardState: DailyRewardState? = PointsStore.loadDailyRewardState()
     ) -> DailyRewardState {
         let todayKey = PointsStore.dateKey(for: referenceDate)
-        if let savedState = PointsStore.loadDailyRewardState(),
+        if let savedState = savedDailyRewardState,
            savedState.dateKey == todayKey {
             return savedState
         }

@@ -92,17 +92,19 @@ class BingoViewModel: ObservableObject {
     private var fullBoardCells: [[BingoCell]]
     private var lifetimePoints: Int
     private var dailyRewardState: DailyRewardState
+    private let persistenceDependencies: BingoViewModelPersistenceDependencies
     private var ignoredScheduledReplacementCellIDs = Set<UUID>()
 
-    init() {
+    init(persistenceDependencies: BingoViewModelPersistenceDependencies = .live) {
+        self.persistenceDependencies = persistenceDependencies
         self.totalPoints = 0
         self.lifetimePoints = 0
         self.dailyRewardState = DailyRewardState(dateKey: PointsStore.dateKey(for: .now))
-        self.boardCountdownEndsAt = BingoBoardStore.loadBoardCountdownEndsAt()
+        self.boardCountdownEndsAt = persistenceDependencies.boardRepository.loadBoardCountdownEndsAt()
         let now = Date()
         var existingSavedAt: Date?
-        if let saved = BingoBoardStore.loadBoard() {
-            existingSavedAt = BingoBoardStore.loadBoardLastSavedAt()
+        if let saved = persistenceDependencies.boardRepository.loadBoard() {
+            existingSavedAt = persistenceDependencies.boardRepository.loadBoardLastSavedAt()
             let savedAt = existingSavedAt ?? now
             var expandedCache = BoardEngine.expandedBoardCache(from: saved)
             Self.normalizeForceFlagsInBoardCache(&expandedCache, referenceDate: now)
@@ -121,10 +123,11 @@ class BingoViewModel: ObservableObject {
                 fullBoardCells: self.fullBoardCells
             )
             if normalizedBoard != saved {
-                BingoBoardStore.saveBoard(
+                persistenceDependencies.boardRepository.saveBoard(
                     normalizedBoard,
                     savedAt: savedAt,
-                    associatedBoardID: BingoBoardStore.loadActiveNamedBoardID()
+                    associatedBoardID: persistenceDependencies.boardRepository.loadActiveNamedBoardID(),
+                    reloadWidgets: true
                 )
             }
         } else {
@@ -132,23 +135,27 @@ class BingoViewModel: ObservableObject {
             self.cells = Self.createEmptyGrid(size: Self.defaultInitialGridSize)
             self.fullBoardCells = Self.createEmptyGrid(size: Self.maxGridSize)
             self.syncFullBoardCacheFromVisibleCells()
-            BingoBoardStore.saveBoard(
+            persistenceDependencies.boardRepository.saveBoard(
                 SavedBoard(
                     gridSize: Self.defaultInitialGridSize,
                     cells: self.cells,
                     completedLines: [],
                     fullBoardCells: self.fullBoardCells
-                )
+                ),
+                savedAt: now,
+                associatedBoardID: nil,
+                reloadWidgets: true
             )
         }
-        self.totalPoints = PointsStore.loadTotalPoints() ?? calculateBoardScore()
-        self.lifetimePoints = PointsStore.loadLifetimePoints() ?? self.totalPoints
+        self.totalPoints = persistenceDependencies.pointsRepository.loadTotalPoints() ?? calculateBoardScore()
+        self.lifetimePoints = persistenceDependencies.pointsRepository.loadLifetimePoints() ?? self.totalPoints
         self.dailyRewardState = BingoRewardSettlement.initialDailyRewardState(
             referenceDate: now,
             boardLastSavedAt: existingSavedAt,
             currentCells: self.cells,
             currentCompletedLines: self.completedLines,
-            isBoardFullyCompleted: self.isBoardFullyCompleted
+            isBoardFullyCompleted: self.isBoardFullyCompleted,
+            savedDailyRewardState: persistenceDependencies.pointsRepository.loadDailyRewardState()
         )
         repairDuplicateCellIDsIfNeeded(referenceDate: now)
     }
@@ -898,7 +905,8 @@ class BingoViewModel: ObservableObject {
         BingoViewModelPersistence.save(
             persistenceSnapshot(),
             persistDiary: persistDiary,
-            savedAt: savedAt
+            savedAt: savedAt,
+            dependencies: persistenceDependencies
         )
     }
 
@@ -911,7 +919,8 @@ class BingoViewModel: ObservableObject {
             persistenceSnapshot(),
             task: task,
             delta: delta,
-            savedAt: savedAt
+            savedAt: savedAt,
+            dependencies: persistenceDependencies
         )
     }
 
@@ -1229,7 +1238,10 @@ class BingoViewModel: ObservableObject {
     }
 
     private func syncDiarySnapshot() {
-        BingoViewModelPersistence.syncDiarySnapshot(persistenceSnapshot())
+        BingoViewModelPersistence.syncDiarySnapshot(
+            persistenceSnapshot(),
+            dependencies: persistenceDependencies
+        )
     }
 
     private func persistenceSnapshot() -> BingoViewModelPersistenceSnapshot {
