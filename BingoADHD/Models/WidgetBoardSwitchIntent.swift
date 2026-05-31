@@ -267,7 +267,7 @@ private enum WidgetTaskToggleService {
         }
 
         let updatedVisibleCells = BoardEngine.projectVisibleCells(from: fullBoard, size: gridSize, referenceDate: now)
-        let completedLines = completedLines(in: updatedVisibleCells, gridSize: gridSize)
+        let completedLines = BoardEngine.completedLines(in: updatedVisibleCells, size: gridSize)
         let updatedSavedBoard = SavedBoard(
             gridSize: gridSize,
             cells: updatedVisibleCells,
@@ -536,58 +536,6 @@ private enum WidgetTaskToggleService {
         cell.lastCompletedAt = now
     }
 
-    private static func completedLines(in cells: [[BingoCell]], gridSize: Int) -> Set<BingoLine> {
-        var currentLines: Set<BingoLine> = []
-
-        for row in 0..<gridSize where row < cells.count {
-            let rowCells = Array(cells[row].prefix(gridSize))
-            if rowCells.count == gridSize && rowCells.allSatisfy({ $0.isCompleted && !$0.isEmpty }) {
-                currentLines.insert(.row(row))
-            }
-        }
-
-        for col in 0..<gridSize {
-            var allCompleted = true
-            for row in 0..<gridSize {
-                guard row < cells.count, col < cells[row].count,
-                      cells[row][col].isCompleted, !cells[row][col].isEmpty else {
-                    allCompleted = false
-                    break
-                }
-            }
-            if allCompleted {
-                currentLines.insert(.column(col))
-            }
-        }
-
-        var mainDiagonalCompleted = true
-        for index in 0..<gridSize {
-            guard index < cells.count, index < cells[index].count,
-                  cells[index][index].isCompleted, !cells[index][index].isEmpty else {
-                mainDiagonalCompleted = false
-                break
-            }
-        }
-        if mainDiagonalCompleted {
-            currentLines.insert(.diagonalMain)
-        }
-
-        var antiDiagonalCompleted = true
-        for index in 0..<gridSize {
-            let col = gridSize - 1 - index
-            guard index < cells.count, col < cells[index].count,
-                  cells[index][col].isCompleted, !cells[index][col].isEmpty else {
-                antiDiagonalCompleted = false
-                break
-            }
-        }
-        if antiDiagonalCompleted {
-            currentLines.insert(.diagonalAnti)
-        }
-
-        return currentLines
-    }
-
     private static func settleRewards(
         previousBoard: SavedBoard,
         updatedBoard: SavedBoard,
@@ -596,7 +544,7 @@ private enum WidgetTaskToggleService {
     ) {
         let previousCells = previousBoard.cells
         let previousCompletedLines = previousBoard.completedLines
-        let initialTotalPoints = PointsStore.loadTotalPoints() ?? boardScore(
+        let initialTotalPoints = PointsStore.loadTotalPoints() ?? BoardEngine.boardScore(
             cells: previousCells,
             completedLines: previousCompletedLines
         )
@@ -606,7 +554,7 @@ private enum WidgetTaskToggleService {
             boardLastSavedAt: boardLastSavedAt,
             currentCells: previousCells,
             currentCompletedLines: previousCompletedLines,
-            isBoardFullyCompleted: isBoardFullyCompleted(previousCells)
+            isBoardFullyCompleted: BoardEngine.isBoardFullyCompleted(previousCells)
         )
 
         let output = BingoRewardSettlement.settle(
@@ -614,7 +562,7 @@ private enum WidgetTaskToggleService {
                 date: now,
                 cells: updatedBoard.cells,
                 completedLines: updatedBoard.completedLines,
-                isBoardFullyCompleted: isBoardFullyCompleted(updatedBoard.cells),
+                isBoardFullyCompleted: BoardEngine.isBoardFullyCompleted(updatedBoard.cells),
                 totalPoints: initialTotalPoints,
                 lifetimePoints: initialLifetimePoints,
                 dailyRewardState: initialDailyRewardState,
@@ -628,17 +576,4 @@ private enum WidgetTaskToggleService {
         PointsStore.saveDailyRewardState(output.dailyRewardState)
     }
 
-    private static func boardScore(cells: [[BingoCell]], completedLines: Set<BingoLine>) -> Int {
-        let completedTaskCount = cells
-            .flatMap { $0 }
-            .filter { $0.isCompleted && !$0.isEmpty }
-            .count
-        let allTasksCompletedBonus = isBoardFullyCompleted(cells) ? 10 : 0
-        return completedTaskCount + (completedLines.count * 5) + allTasksCompletedBonus
-    }
-
-    private static func isBoardFullyCompleted(_ cells: [[BingoCell]]) -> Bool {
-        let allCells = cells.flatMap { $0 }
-        return !allCells.isEmpty && allCells.allSatisfy { !$0.isEmpty && $0.isCompleted }
-    }
 }

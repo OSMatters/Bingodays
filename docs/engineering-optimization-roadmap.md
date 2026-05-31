@@ -80,4 +80,5 @@ Done means:
 
 - Phase 1 guardrails are in place for unchanged visibility refreshes, reminder sync debounce, and cell schedule date formatting.
 - `BoardEngine` now owns shared board cache expansion and visible-cell projection for the app, widget intent, and template import paths.
+- `BoardEngine` now owns Bingo line detection, board score baselines, and full-board completion checks used by both the app and widget task toggle path.
 - Widget timeline reloads can now be batched by persistence callers, so multi-step board saves can write named boards, active-board mirrors, countdown state, and widget selection before issuing one refresh.

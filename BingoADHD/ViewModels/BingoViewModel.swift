@@ -851,52 +851,7 @@ class BingoViewModel: ObservableObject {
     }
 
     private func checkBingo(shouldCelebrateNewLines: Bool = true) {
-        var currentLines: Set<BingoLine> = []
-        let size = gridSize
-
-        // Check rows
-        for row in 0..<size where row < cells.count {
-            let rowCells = Array(cells[row].prefix(size))
-            if rowCells.count == size && rowCells.allSatisfy({ $0.isCompleted && !$0.isEmpty }) {
-                currentLines.insert(.row(row))
-            }
-        }
-
-        // Check columns
-        for col in 0..<size {
-            var allCompleted = true
-            for row in 0..<size {
-                guard row < cells.count, col < cells[row].count,
-                      cells[row][col].isCompleted, !cells[row][col].isEmpty else {
-                    allCompleted = false
-                    break
-                }
-            }
-            if allCompleted { currentLines.insert(.column(col)) }
-        }
-
-        // Check main diagonal (top-left to bottom-right)
-        var diagMain = true
-        for i in 0..<size {
-            guard i < cells.count, i < cells[i].count,
-                  cells[i][i].isCompleted, !cells[i][i].isEmpty else {
-                diagMain = false; break
-            }
-        }
-        if diagMain { currentLines.insert(.diagonalMain) }
-
-        // Check anti-diagonal (top-right to bottom-left)
-        var diagAnti = true
-        for i in 0..<size {
-            let col = size - 1 - i
-            guard i < cells.count, col < cells[i].count,
-                  cells[i][col].isCompleted, !cells[i][col].isEmpty else {
-                diagAnti = false; break
-            }
-        }
-        if diagAnti { currentLines.insert(.diagonalAnti) }
-
-        // Detect newly completed lines
+        let currentLines = BoardEngine.completedLines(in: cells, size: gridSize)
         let newLines = currentLines.subtracting(completedLines)
         if !newLines.isEmpty && shouldCelebrateNewLines {
             newlyCompletedLines = Array(newLines)
@@ -1327,21 +1282,11 @@ class BingoViewModel: ObservableObject {
     }
 
     private func calculateBoardScore() -> Int {
-        let completedTaskCount = cells
-            .flatMap { $0 }
-            .filter { $0.isCompleted && !$0.isEmpty }
-            .count
-
-        let allCells = cells.flatMap { $0 }
-        let allTilesFilledAndCompleted = !allCells.isEmpty && allCells.allSatisfy { !$0.isEmpty && $0.isCompleted }
-        let allTasksCompletedBonus = allTilesFilledAndCompleted ? 10 : 0
-
-        return completedTaskCount + (completedLines.count * 5) + allTasksCompletedBonus
+        BoardEngine.boardScore(cells: cells, completedLines: completedLines)
     }
 
     private var isBoardFullyCompleted: Bool {
-        let allCells = cells.flatMap { $0 }
-        return !allCells.isEmpty && allCells.allSatisfy { !$0.isEmpty && $0.isCompleted }
+        BoardEngine.isBoardFullyCompleted(cells)
     }
 
     private func syncFullBoardCacheFromVisibleCells() {
