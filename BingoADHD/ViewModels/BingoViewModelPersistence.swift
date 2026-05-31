@@ -1,5 +1,67 @@
 import Foundation
 
+struct BoardStateCommitResult: Equatable {
+    var savedBoard = false
+    var savedBoardCountdown = false
+    var savedSelectedWidgetPanel = false
+    var reloadedWidgets = false
+}
+
+protocol BoardStateCommitRepository {
+    @discardableResult
+    func saveBoard(_ board: SavedBoard, savedAt: Date, associatedBoardID: UUID?, reloadWidgets: Bool) -> Bool
+    func saveBoardCountdownEndsAt(_ endsAt: Date?)
+    func reloadWidgetTimelines()
+}
+
+protocol WidgetPanelSelectionRepository {
+    func saveSelectedWidgetPanelID(_ boardID: UUID?)
+}
+
+enum BoardStateCommitter {
+    @discardableResult
+    static func saveActiveBoardState(
+        board: SavedBoard,
+        countdownEndsAt: Date?,
+        savedAt: Date,
+        associatedBoardID: UUID?,
+        repository: any BoardStateCommitRepository,
+        widgetPanelRepository: (any WidgetPanelSelectionRepository)? = nil,
+        selectedWidgetPanelID: UUID? = nil,
+        reloadWidgets: Bool
+    ) -> BoardStateCommitResult {
+        var result = BoardStateCommitResult()
+        result.savedBoard = repository.saveBoard(
+            board,
+            savedAt: savedAt,
+            associatedBoardID: associatedBoardID,
+            reloadWidgets: false
+        )
+        repository.saveBoardCountdownEndsAt(countdownEndsAt)
+        result.savedBoardCountdown = true
+
+        if let widgetPanelRepository {
+            widgetPanelRepository.saveSelectedWidgetPanelID(selectedWidgetPanelID)
+            result.savedSelectedWidgetPanel = true
+        }
+
+        if reloadWidgets {
+            reloadWidgetsIfNeeded(&result, repository: repository)
+        }
+
+        return result
+    }
+
+    static func reloadWidgetsIfNeeded(
+        _ result: inout BoardStateCommitResult,
+        repository: any BoardStateCommitRepository
+    ) {
+        guard result.savedBoard else { return }
+        repository.reloadWidgetTimelines()
+        result.reloadedWidgets = true
+    }
+}
+
 struct BingoViewModelPersistenceSnapshot {
     var board: SavedBoard
     var boardCountdownEndsAt: Date?
@@ -14,17 +76,27 @@ struct BingoViewModelPersistenceCommitResult: Equatable {
     var updatedDiary = false
     var savedPoints = false
     var reloadedWidgets = false
+
+    init() {}
+
+    init(boardStateCommit: BoardStateCommitResult) {
+        savedBoard = boardStateCommit.savedBoard
+        savedBoardCountdown = boardStateCommit.savedBoardCountdown
+        reloadedWidgets = boardStateCommit.reloadedWidgets
+    }
+
+    mutating func apply(_ boardStateCommit: BoardStateCommitResult) {
+        savedBoard = boardStateCommit.savedBoard
+        savedBoardCountdown = boardStateCommit.savedBoardCountdown
+        reloadedWidgets = boardStateCommit.reloadedWidgets
+    }
 }
 
-protocol BingoBoardRepository {
+protocol BingoBoardRepository: BoardStateCommitRepository {
     func loadBoard() -> SavedBoard?
     func loadBoardLastSavedAt() -> Date?
     func loadBoardCountdownEndsAt() -> Date?
     func loadActiveNamedBoardID() -> UUID?
-    @discardableResult
-    func saveBoard(_ board: SavedBoard, savedAt: Date, associatedBoardID: UUID?, reloadWidgets: Bool) -> Bool
-    func saveBoardCountdownEndsAt(_ endsAt: Date?)
-    func reloadWidgetTimelines()
 }
 
 protocol BingoDiaryRepository {
@@ -197,25 +269,28 @@ enum BingoViewModelPersistence {
         savedAt: Date,
         dependencies: BingoViewModelPersistenceDependencies
     ) -> BingoViewModelPersistenceCommitResult {
-        var result = BingoViewModelPersistenceCommitResult()
-        result.savedBoard = dependencies.boardRepository.saveBoard(
-            snapshot.board,
+        let boardResult = BoardStateCommitter.saveActiveBoardState(
+            board: snapshot.board,
+            countdownEndsAt: snapshot.boardCountdownEndsAt,
             savedAt: savedAt,
             associatedBoardID: nil,
+            repository: dependencies.boardRepository,
             reloadWidgets: false
         )
-        dependencies.boardRepository.saveBoardCountdownEndsAt(snapshot.boardCountdownEndsAt)
-        result.savedBoardCountdown = true
-        return result
+        return BingoViewModelPersistenceCommitResult(boardStateCommit: boardResult)
     }
 
     private static func reloadWidgetsIfNeeded(
         _ result: inout BingoViewModelPersistenceCommitResult,
         dependencies: BingoViewModelPersistenceDependencies
     ) {
-        guard result.savedBoard else { return }
-        dependencies.boardRepository.reloadWidgetTimelines()
-        result.reloadedWidgets = true
+        var boardResult = BoardStateCommitResult(
+            savedBoard: result.savedBoard,
+            savedBoardCountdown: result.savedBoardCountdown,
+            reloadedWidgets: result.reloadedWidgets
+        )
+        BoardStateCommitter.reloadWidgetsIfNeeded(&boardResult, repository: dependencies.boardRepository)
+        result.apply(boardResult)
     }
 
     private static func savePoints(

@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-protocol BoardManagementRepository {
+protocol BoardManagementRepository: BoardStateCommitRepository, WidgetPanelSelectionRepository {
     func loadNamedBoardsSnapshot() -> BingoBoardStore.NamedBoardsSnapshot
     func saveNamedBoardsSnapshot(_ snapshot: BingoBoardStore.NamedBoardsSnapshot, reloadWidgets: Bool)
     func loadBoard() -> SavedBoard?
@@ -9,13 +9,8 @@ protocol BoardManagementRepository {
     func loadBoardCountdownEndsAt() -> Date?
     func loadActiveNamedBoardID() -> UUID?
 
-    @discardableResult
-    func saveBoard(_ board: SavedBoard, savedAt: Date, associatedBoardID: UUID?, reloadWidgets: Bool) -> Bool
-    func saveBoardCountdownEndsAt(_ endsAt: Date?)
     func loadWidgetTaskSyncEvent() -> WidgetTaskSyncStore.Event?
     func clearWidgetTaskSyncEvent()
-    func saveSelectedWidgetPanelID(_ boardID: UUID?)
-    func reloadWidgetTimelines()
 }
 
 struct LiveBoardManagementRepository: BoardManagementRepository {
@@ -469,15 +464,16 @@ final class BoardManagementStore: ObservableObject {
 
         updatedSnapshot.selectedBoardID = event.boardID
         repository.saveNamedBoardsSnapshot(updatedSnapshot, reloadWidgets: false)
-        repository.saveBoard(
-            event.board.board,
+        BoardStateCommitter.saveActiveBoardState(
+            board: event.board.board,
+            countdownEndsAt: event.board.countdownEndsAt,
             savedAt: event.savedAt,
             associatedBoardID: event.boardID,
-            reloadWidgets: false
+            repository: repository,
+            widgetPanelRepository: repository,
+            selectedWidgetPanelID: event.boardID,
+            reloadWidgets: true
         )
-        repository.saveBoardCountdownEndsAt(event.board.countdownEndsAt)
-        repository.saveSelectedWidgetPanelID(event.boardID)
-        repository.reloadWidgetTimelines()
         return updatedSnapshot
     }
 
@@ -487,14 +483,15 @@ final class BoardManagementStore: ObservableObject {
         countdownEndsAt: Date?,
         savedAt: Date
     ) {
-        repository.saveBoard(
-            board,
+        BoardStateCommitter.saveActiveBoardState(
+            board: board,
+            countdownEndsAt: countdownEndsAt,
             savedAt: savedAt,
             associatedBoardID: boardID,
-            reloadWidgets: false
+            repository: repository,
+            widgetPanelRepository: repository,
+            selectedWidgetPanelID: boardID,
+            reloadWidgets: true
         )
-        repository.saveBoardCountdownEndsAt(countdownEndsAt)
-        repository.saveSelectedWidgetPanelID(boardID)
-        repository.reloadWidgetTimelines()
     }
 }
