@@ -14,14 +14,30 @@ class BingoViewModel: ObservableObject {
         let col: Int
         let taskText: String
         let expiredAt: Date
+        let expiredByCountdown: Bool
+        let expiredByVisibilityWindow: Bool
+        let allowsPostpone: Bool
 
-        init(id: UUID = UUID(), cellID: UUID, row: Int, col: Int, taskText: String, expiredAt: Date) {
+        init(
+            id: UUID = UUID(),
+            cellID: UUID,
+            row: Int,
+            col: Int,
+            taskText: String,
+            expiredAt: Date,
+            expiredByCountdown: Bool,
+            expiredByVisibilityWindow: Bool,
+            allowsPostpone: Bool
+        ) {
             self.id = id
             self.cellID = cellID
             self.row = row
             self.col = col
             self.taskText = taskText
             self.expiredAt = expiredAt
+            self.expiredByCountdown = expiredByCountdown
+            self.expiredByVisibilityWindow = expiredByVisibilityWindow
+            self.allowsPostpone = allowsPostpone
         }
     }
 
@@ -123,10 +139,12 @@ class BingoViewModel: ObservableObject {
                 fullBoardCells: self.fullBoardCells
             )
             if normalizedBoard != saved {
-                persistenceDependencies.boardRepository.saveBoard(
-                    normalizedBoard,
+                BoardStateCommitter.saveActiveBoardState(
+                    board: normalizedBoard,
+                    countdownEndsAt: self.boardCountdownEndsAt,
                     savedAt: savedAt,
                     associatedBoardID: persistenceDependencies.boardRepository.loadActiveNamedBoardID(),
+                    repository: persistenceDependencies.boardRepository,
                     reloadWidgets: true
                 )
             }
@@ -135,15 +153,17 @@ class BingoViewModel: ObservableObject {
             self.cells = Self.createEmptyGrid(size: Self.defaultInitialGridSize)
             self.fullBoardCells = Self.createEmptyGrid(size: Self.maxGridSize)
             self.syncFullBoardCacheFromVisibleCells()
-            persistenceDependencies.boardRepository.saveBoard(
-                SavedBoard(
+            BoardStateCommitter.saveActiveBoardState(
+                board: SavedBoard(
                     gridSize: Self.defaultInitialGridSize,
                     cells: self.cells,
                     completedLines: [],
                     fullBoardCells: self.fullBoardCells
                 ),
+                countdownEndsAt: self.boardCountdownEndsAt,
                 savedAt: now,
                 associatedBoardID: nil,
+                repository: persistenceDependencies.boardRepository,
                 reloadWidgets: true
             )
         }
@@ -176,26 +196,19 @@ class BingoViewModel: ObservableObject {
         )
     }
 
-    func toggleComplete(row: Int, col: Int) {
-        guard row < cells.count, col < cells[row].count else { return }
-        guard !cells[row][col].isEmpty else { return }
-        guard !isLocked(row: row, col: col) else { return }
-        guard isTaskCurrentlyTappable(row: row, col: col) else { return }
+    func toggleComplete(row: Int, col: Int, referenceDate: Date = Date()) {
+        guard canToggleComplete(row: row, col: col, referenceDate: referenceDate) else { return }
         let wasBoardFullyCompleted = isBoardFullyCompleted
         let isNowCompleted = !cells[row][col].isCompleted
         let diaryTaskText = cells[row][col].storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
         cells[row][col].isCompleted = isNowCompleted
         if isNowCompleted {
-            if let deadline = cells[row][col].countdownEndsAt {
-                let remaining = max(Int(deadline.timeIntervalSince(.now)), 0)
-                cells[row][col].countdownPausedRemainingSeconds = remaining > 0 ? remaining : nil
-            } else {
-                cells[row][col].countdownPausedRemainingSeconds = nil
-            }
-            registerCompletionIfNeeded(row: row, col: col, now: .now)
+            registerCompletionIfNeeded(row: row, col: col, now: referenceDate)
             // Force completion should only block until this task is completed once.
             cells[row][col].isForced = false
             cells[row][col].countdownEndsAt = nil
+            cells[row][col].countdownPausedRemainingSeconds = nil
+            cells[row][col].estimatedDurationMinutes = nil
             if expiredTaskEvent?.cellID == cells[row][col].id {
                 expiredTaskEvent = nil
             }
@@ -207,10 +220,9 @@ class BingoViewModel: ObservableObject {
             if cells[row][col].completionStreakCount <= 0 {
                 cells[row][col].completionStreakCount = 0
             }
-            if let paused = cells[row][col].countdownPausedRemainingSeconds, paused > 0 {
-                cells[row][col].countdownEndsAt = Date().addingTimeInterval(TimeInterval(paused))
-            }
+            cells[row][col].countdownEndsAt = nil
             cells[row][col].countdownPausedRemainingSeconds = nil
+            cells[row][col].estimatedDurationMinutes = nil
             // Allow complete -> cancel -> complete on the same day to be counted again.
             cells[row][col].lastCompletedAt = nil
         }
@@ -226,7 +238,7 @@ class BingoViewModel: ObservableObject {
             wasBoardFullyCompleted: wasBoardFullyCompleted,
             isBoardNowFullyCompleted: isBoardNowFullyCompleted
         )
-        settleRewardsIfNeeded()
+        settleRewardsIfNeeded(on: referenceDate)
         saveWithExplicitDiaryDelta(
             task: diaryTaskText,
             delta: isNowCompleted ? 1 : -1
@@ -240,6 +252,7 @@ class BingoViewModel: ObservableObject {
         isForced: Bool,
         residentWeekdays: Set<Int>,
         isOneTimeTask: Bool = false,
+        recurrenceRule: TaskRecurrenceRule? = nil,
         estimatedDurationMinutes: Int? = nil,
         startVisibleAt: Date? = nil,
         endVisibleAt: Date? = nil,
@@ -250,20 +263,57 @@ class BingoViewModel: ObservableObject {
         let previousCell = cells[row][col]
         let limitedText = String(text.prefix(Self.maxTaskLength))
         let trimmedText = limitedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedWeekdays: Set<Int> = trimmedText.isEmpty ? [] : residentWeekdays
-        let normalizedOneTimeTask = !trimmedText.isEmpty && isOneTimeTask
         let normalizedStartVisibilityAt = trimmedText.isEmpty ? nil : normalizedStartVisibility(date: startVisibleAt)
         let normalizedEndVisibilityAt = trimmedText.isEmpty ? nil : normalizedEndVisibility(date: endVisibleAt, startVisibleAt: normalizedStartVisibilityAt)
+        let recurrenceDefaultDate = normalizedStartVisibilityAt ?? Date()
+        let normalizedRecurrenceRule = trimmedText.isEmpty ? nil : recurrenceRule?.normalized(
+            defaultWeekday: Calendar.current.component(.weekday, from: recurrenceDefaultDate),
+            defaultMonthDay: Calendar.current.component(.day, from: recurrenceDefaultDate),
+            defaultAnchorDate: recurrenceDefaultDate
+        )
+        let normalizedWeekdays: Set<Int>
+        if normalizedRecurrenceRule?.kind == .weekly {
+            normalizedWeekdays = normalizedRecurrenceRule?.weekdays ?? []
+        } else {
+            normalizedWeekdays = trimmedText.isEmpty || normalizedRecurrenceRule != nil ? [] : residentWeekdays
+        }
+        let hasRepeatingSchedule = normalizedRecurrenceRule.map { $0.kind != .none } ?? !normalizedWeekdays.isEmpty
+        let allowsTaskCountdown = !trimmedText.isEmpty && !hasRepeatingSchedule
+        let normalizedEstimatedDurationMinutes = allowsTaskCountdown
+            ? estimatedDurationMinutes.map { min(max($0, 1), Self.maxCountdownMinutes) }
+            : nil
+        let normalizedOneTimeTask = !trimmedText.isEmpty && (normalizedRecurrenceRule?.kind == TaskRecurrenceRule.Kind.none || (normalizedRecurrenceRule == nil && isOneTimeTask))
+        let normalizedOneTimeVisibleDate = normalizedOneTimeTask
+            ? (normalizedRecurrenceRule?.anchorDate ?? normalizedStartVisibilityAt ?? Date())
+            : nil
         let normalizedReminderEnabled = !trimmedText.isEmpty && !previousCell.isCompleted && normalizedStartVisibilityAt != nil && normalizedEndVisibilityAt != nil && startReminderEnabled
         let normalizedReminderOffset = BingoCell.normalizedStartReminderOffsetMinutes(startReminderOffsetMinutes)
-        let usesStoredSchedule = !normalizedWeekdays.isEmpty || normalizedOneTimeTask || normalizedStartVisibilityAt != nil || normalizedEndVisibilityAt != nil
-        let previousStoredTaskText = previousCell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isReplacingTaskIdentity = previousStoredTaskText != trimmedText
+        let normalizedUsesRecurringTimeWindow: Bool
+        if let recurrenceKind = normalizedRecurrenceRule?.kind {
+            normalizedUsesRecurringTimeWindow = recurrenceKind != .none &&
+                (normalizedStartVisibilityAt != nil || normalizedEndVisibilityAt != nil)
+        } else {
+            normalizedUsesRecurringTimeWindow = false
+        }
+        let usesStoredSchedule = normalizedRecurrenceRule != nil || !normalizedWeekdays.isEmpty || normalizedOneTimeTask || normalizedStartVisibilityAt != nil || normalizedEndVisibilityAt != nil
+        let previousTaskIdentity = taskIdentity(for: previousCell)
+        let updatedTaskIdentity = TaskIdentity(
+            text: trimmedText,
+            residentWeekdays: normalizedWeekdays,
+            oneTimeVisibleDate: normalizedOneTimeVisibleDate,
+            recurrenceRule: normalizedRecurrenceRule,
+            startVisibleAt: normalizedStartVisibilityAt,
+            endVisibleAt: normalizedEndVisibilityAt,
+            usesRecurringTimeWindow: normalizedUsesRecurringTimeWindow
+        )
+        let didChangeTaskIdentity = previousTaskIdentity != updatedTaskIdentity
 
         cells[row][col].residentWeekdays = normalizedWeekdays
-        cells[row][col].oneTimeVisibleDate = normalizedOneTimeTask ? .now : nil
+        cells[row][col].oneTimeVisibleDate = normalizedOneTimeVisibleDate
+        cells[row][col].recurrenceRule = normalizedRecurrenceRule
         cells[row][col].startVisibleAt = normalizedStartVisibilityAt
         cells[row][col].endVisibleAt = normalizedEndVisibilityAt
+        cells[row][col].usesRecurringTimeWindow = normalizedUsesRecurringTimeWindow
         cells[row][col].startReminderEnabled = normalizedReminderEnabled
         cells[row][col].startReminderOffsetMinutes = normalizedReminderOffset
         cells[row][col].startVisibleMonth = nil
@@ -275,14 +325,20 @@ class BingoViewModel: ObservableObject {
         cells[row][col].countdownEndsAt = nil
         cells[row][col].countdownPausedRemainingSeconds = nil
         cells[row][col].lastVisibilityWindowTimeoutAt = nil
-        cells[row][col].estimatedDurationMinutes = estimatedDurationMinutes.map { min(max($0, 1), Self.maxCountdownMinutes) }
+        cells[row][col].estimatedDurationMinutes = normalizedEstimatedDurationMinutes
 
         if cells[row][col].isForced {
             // Keep force mode deterministic: only one active forced task per board.
             clearForceFlagsExcept(row: row, col: col)
         }
-        if isReplacingTaskIdentity {
+        if didChangeTaskIdentity {
             cells[row][col].completionStreakCount = 0
+            cells[row][col].lastCompletedAt = nil
+        }
+        if previousCell.isCompleted && didChangeTaskIdentity {
+            cells[row][col].isCompleted = false
+            cells[row][col].isTaskHidden = false
+            cells[row][col].countdownPausedRemainingSeconds = nil
             cells[row][col].lastCompletedAt = nil
         }
 
@@ -294,8 +350,10 @@ class BingoViewModel: ObservableObject {
             cells[row][col].residentTaskText = nil
             cells[row][col].residentWeekdays = []
             cells[row][col].oneTimeVisibleDate = nil
+            cells[row][col].recurrenceRule = nil
             cells[row][col].startVisibleAt = nil
             cells[row][col].endVisibleAt = nil
+            cells[row][col].usesRecurringTimeWindow = false
             cells[row][col].startVisibleMonth = nil
             cells[row][col].startVisibleDay = nil
             cells[row][col].estimatedDurationMinutes = nil
@@ -308,14 +366,11 @@ class BingoViewModel: ObservableObject {
             if scheduledTaskReplacementEvent?.cellID == cells[row][col].id {
                 scheduledTaskReplacementEvent = nil
             }
-        } else if let estimatedDurationMinutes,
-                  !cells[row][col].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let totalMinutes = min(max(estimatedDurationMinutes, 1), Self.maxCountdownMinutes)
-            if let startVisibleAt = normalizedStartVisibilityAt, startVisibleAt > .now {
-                cells[row][col].countdownEndsAt = nil
-            } else {
-                cells[row][col].countdownEndsAt = Date().addingTimeInterval(Double(totalMinutes * 60))
-            }
+        } else if cells[row][col].shouldStartCountdownForCurrentOccurrence(on: .now) {
+            cells[row][col].countdownEndsAt = cells[row][col].countdownDeadlineForCurrentOccurrence(
+                startingAt: .now,
+                maxCountdownMinutes: Self.maxCountdownMinutes
+            )
             cells[row][col].countdownPausedRemainingSeconds = nil
         }
         syncFullBoardCacheFromVisibleCells()
@@ -362,6 +417,28 @@ class BingoViewModel: ObservableObject {
         return date
     }
 
+    private struct TaskIdentity: Equatable {
+        let text: String
+        let residentWeekdays: Set<Int>
+        let oneTimeVisibleDate: Date?
+        let recurrenceRule: TaskRecurrenceRule?
+        let startVisibleAt: Date?
+        let endVisibleAt: Date?
+        let usesRecurringTimeWindow: Bool
+    }
+
+    private func taskIdentity(for cell: BingoCell) -> TaskIdentity {
+        TaskIdentity(
+            text: cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines),
+            residentWeekdays: cell.residentWeekdays,
+            oneTimeVisibleDate: cell.oneTimeVisibleDate,
+            recurrenceRule: cell.recurrenceRule,
+            startVisibleAt: cell.startVisibleAt,
+            endVisibleAt: cell.endVisibleAt,
+            usesRecurringTimeWindow: cell.usesRecurringTimeWindow
+        )
+    }
+
     func clearTask(row: Int, col: Int) {
         updateTask(row: row, col: col, text: "", isForced: false, residentWeekdays: [], isOneTimeTask: false)
     }
@@ -373,13 +450,162 @@ class BingoViewModel: ObservableObject {
             let remainingMinutes = Int(ceil(remainingSeconds / 60))
             return max(remainingMinutes, 1)
         }
+        if let pausedSeconds = editingCell.countdownPausedRemainingSeconds, pausedSeconds > 0 {
+            return max(Int(ceil(Double(pausedSeconds) / 60)), 1)
+        }
         return editingCell.estimatedDurationMinutes
+    }
+
+    func canSetTaskCountdown(row: Int, col: Int, referenceDate: Date = Date()) -> Bool {
+        guard let editingCell = editingCell(row: row, col: col) else { return false }
+        return editingCell.canManuallySetTaskCountdown && !editingCell.completionApplies(on: referenceDate)
+    }
+
+    func hasTaskCountdown(row: Int, col: Int) -> Bool {
+        guard let editingCell = editingCell(row: row, col: col) else { return false }
+        return editingCell.estimatedDurationMinutes != nil ||
+            editingCell.countdownEndsAt != nil ||
+            editingCell.countdownPausedRemainingSeconds != nil
+    }
+
+    func isTaskCountdownPaused(row: Int, col: Int) -> Bool {
+        guard let editingCell = editingCell(row: row, col: col) else { return false }
+        return (editingCell.countdownPausedRemainingSeconds ?? 0) > 0
+    }
+
+    func canPauseOrResumeTaskCountdown(row: Int, col: Int, referenceDate: Date = Date()) -> Bool {
+        guard let editingCell = editingCell(row: row, col: col) else { return false }
+        if (editingCell.countdownPausedRemainingSeconds ?? 0) > 0 {
+            return editingCell.canUseTaskCountdown &&
+                editingCell.isCurrentlyTappable(on: referenceDate) &&
+                !editingCell.completionApplies(on: referenceDate)
+        }
+        guard let deadline = editingCell.countdownEndsAt else { return false }
+        return deadline > referenceDate &&
+            editingCell.canUseTaskCountdown &&
+            editingCell.isCurrentlyTappable(on: referenceDate) &&
+            !editingCell.completionApplies(on: referenceDate)
+    }
+
+    @discardableResult
+    func setTaskCountdown(row: Int, col: Int, minutes: Int?, referenceDate: Date = Date()) -> Bool {
+        guard row >= 0, col >= 0 else { return false }
+        guard row < min(gridSize, fullBoardCells.count),
+              col < min(gridSize, fullBoardCells[row].count) else {
+            return false
+        }
+
+        var cell = fullBoardCells[row][col]
+        guard cell.hasStoredTask else { return false }
+
+        if let minutes {
+            guard cell.canManuallySetTaskCountdown,
+                  !cell.completionApplies(on: referenceDate) else {
+                return false
+            }
+            cell.estimatedDurationMinutes = min(max(minutes, 1), Self.maxCountdownMinutes)
+            cell.countdownEndsAt = nil
+            cell.countdownPausedRemainingSeconds = nil
+            if cell.shouldStartCountdownForCurrentOccurrence(on: referenceDate) {
+                cell.countdownEndsAt = cell.countdownDeadlineForCurrentOccurrence(
+                    startingAt: referenceDate,
+                    maxCountdownMinutes: Self.maxCountdownMinutes
+                )
+            }
+        } else {
+            cell.estimatedDurationMinutes = nil
+            cell.countdownEndsAt = nil
+            cell.countdownPausedRemainingSeconds = nil
+        }
+
+        fullBoardCells[row][col] = cell
+        cells = BoardEngine.projectVisibleCells(from: fullBoardCells, size: gridSize, referenceDate: referenceDate)
+        if expiredTaskEvent?.cellID == cell.id, cell.countdownEndsAt == nil {
+            expiredTaskEvent = nil
+        }
+        save(persistDiary: false, savedAt: referenceDate)
+        return true
+    }
+
+    @discardableResult
+    func pauseTaskCountdown(row: Int, col: Int, referenceDate: Date = Date()) -> Bool {
+        guard row >= 0, col >= 0 else { return false }
+        guard row < min(gridSize, fullBoardCells.count),
+              col < min(gridSize, fullBoardCells[row].count) else {
+            return false
+        }
+
+        var cell = fullBoardCells[row][col]
+        guard cell.canUseTaskCountdown,
+              cell.isCurrentlyTappable(on: referenceDate),
+              !cell.completionApplies(on: referenceDate),
+              let deadline = cell.countdownEndsAt else {
+            return false
+        }
+
+        let remainingSeconds = max(Int(ceil(deadline.timeIntervalSince(referenceDate))), 0)
+        guard remainingSeconds > 0 else { return false }
+        cell.countdownPausedRemainingSeconds = remainingSeconds
+        cell.countdownEndsAt = nil
+
+        fullBoardCells[row][col] = cell
+        cells = BoardEngine.projectVisibleCells(from: fullBoardCells, size: gridSize, referenceDate: referenceDate)
+        save(persistDiary: false, savedAt: referenceDate)
+        return true
+    }
+
+    @discardableResult
+    func resumeTaskCountdown(row: Int, col: Int, referenceDate: Date = Date()) -> Bool {
+        guard row >= 0, col >= 0 else { return false }
+        guard row < min(gridSize, fullBoardCells.count),
+              col < min(gridSize, fullBoardCells[row].count) else {
+            return false
+        }
+
+        var cell = fullBoardCells[row][col]
+        guard cell.canUseTaskCountdown,
+              cell.isCurrentlyTappable(on: referenceDate),
+              !cell.completionApplies(on: referenceDate),
+              let pausedSeconds = cell.countdownPausedRemainingSeconds,
+              pausedSeconds > 0 else {
+            return false
+        }
+
+        let resumedDeadline = referenceDate.addingTimeInterval(Double(pausedSeconds))
+        if let endDeadline = cell.occurrenceEndVisibleAt(on: referenceDate),
+           endDeadline > referenceDate {
+            cell.countdownEndsAt = min(resumedDeadline, endDeadline)
+        } else {
+            cell.countdownEndsAt = resumedDeadline
+        }
+        cell.countdownPausedRemainingSeconds = nil
+
+        fullBoardCells[row][col] = cell
+        cells = BoardEngine.projectVisibleCells(from: fullBoardCells, size: gridSize, referenceDate: referenceDate)
+        save(persistDiary: false, savedAt: referenceDate)
+        return true
+    }
+
+    @discardableResult
+    func cancelTaskCountdown(row: Int, col: Int, referenceDate: Date = Date()) -> Bool {
+        setTaskCountdown(row: row, col: col, minutes: nil, referenceDate: referenceDate)
     }
 
     func isTaskCurrentlyTappable(row: Int, col: Int, referenceDate: Date = Date()) -> Bool {
         guard row >= 0, col >= 0 else { return false }
         guard let sourceCell = editingCell(row: row, col: col) else { return false }
-        return !sourceCell.isVisibilityWindowInactive(on: referenceDate)
+        return sourceCell.isCurrentlyTappable(on: referenceDate)
+    }
+
+    func canToggleComplete(row: Int, col: Int, referenceDate: Date = Date()) -> Bool {
+        guard row >= 0, col >= 0 else { return false }
+        guard row < cells.count, col < cells[row].count else { return false }
+        guard !cells[row][col].isEmpty else { return false }
+        guard !isLocked(row: row, col: col) else { return false }
+        if cells[row][col].isCompleted {
+            return true
+        }
+        return isTaskCurrentlyTappable(row: row, col: col, referenceDate: referenceDate)
     }
 
     func editingCell(row: Int, col: Int) -> BingoCell? {
@@ -461,6 +687,7 @@ class BingoViewModel: ObservableObject {
             cells[position.row][position.col].residentTaskText = nil
             cells[position.row][position.col].residentWeekdays = []
             cells[position.row][position.col].oneTimeVisibleDate = nil
+            cells[position.row][position.col].recurrenceRule = nil
             cells[position.row][position.col].isTaskHidden = false
             cells[position.row][position.col].isCompleted = false
             cells[position.row][position.col].isForced = false
@@ -632,15 +859,24 @@ class BingoViewModel: ObservableObject {
                 date: cell.endVisibleAt,
                 startVisibleAt: normalizedStartVisibilityAt
             )
+            let recurrenceDefaultDate = normalizedStartVisibilityAt ?? Date()
+            let normalizedRecurrenceRule = cell.recurrenceRule?.normalized(
+                defaultWeekday: Calendar.current.component(.weekday, from: recurrenceDefaultDate),
+                defaultMonthDay: Calendar.current.component(.day, from: recurrenceDefaultDate),
+                defaultAnchorDate: recurrenceDefaultDate
+            )
 
             if let residentText = cell.residentTaskText?.trimmingCharacters(in: .whitespacesAndNewlines),
                !residentText.isEmpty {
                 cell.residentTaskText = String(residentText.prefix(Self.maxTaskLength))
+            } else if normalizedRecurrenceRule != nil {
+                cell.residentTaskText = limitedStoredText
             } else {
                 cell.residentTaskText = nil
             }
 
             cell.residentWeekdays = Set(cell.residentWeekdays.filter { (1...7).contains($0) })
+            cell.recurrenceRule = normalizedRecurrenceRule
             cell.text = limitedStoredText
             cell.startVisibleAt = normalizedStartVisibilityAt
             cell.endVisibleAt = normalizedEndVisibilityAt
@@ -712,7 +948,8 @@ class BingoViewModel: ObservableObject {
     func applySavedBoardSnapshot(
         _ savedBoard: SavedBoard,
         countdownEndsAt: Date?,
-        referenceDate: Date = .now
+        referenceDate: Date = .now,
+        reloadPersistedPoints: Bool = false
     ) {
         let normalizedGridSize = min(max(savedBoard.gridSize, 2), Self.maxGridSize)
         var expandedCache = BoardEngine.expandedBoardCache(from: savedBoard)
@@ -735,12 +972,16 @@ class BingoViewModel: ObservableObject {
 
         checkBingo(shouldCelebrateNewLines: false)
         repairDuplicateCellIDsIfNeeded(referenceDate: referenceDate)
-        dailyRewardState = BingoRewardSettlement.dailyRewardSnapshot(
-            for: referenceDate,
-            cells: cells,
-            completedLines: completedLines,
-            isBoardFullyCompleted: isBoardFullyCompleted
-        )
+        if reloadPersistedPoints {
+            reloadPersistedPointsState(referenceDate: referenceDate)
+        } else {
+            dailyRewardState = BingoRewardSettlement.dailyRewardSnapshot(
+                for: referenceDate,
+                cells: cells,
+                completedLines: completedLines,
+                isBoardFullyCompleted: isBoardFullyCompleted
+            )
+        }
         save(persistDiary: false, savedAt: referenceDate)
     }
 
@@ -821,7 +1062,7 @@ class BingoViewModel: ObservableObject {
         for row in cells.indices {
             for col in cells[row].indices {
                 let cell = cells[row][col]
-                if cell.isForced && !cell.isCompleted && !cell.isEmpty && !cell.isVisibilityWindowInactive(on: Date()) {
+                if cell.isForced && !cell.isCompleted && !cell.isEmpty && cell.isCurrentlyTappable(on: Date()) {
                     positions.insert(Position(row: row, col: col))
                 }
             }
@@ -957,7 +1198,10 @@ class BingoViewModel: ObservableObject {
             row: candidate.row,
             col: candidate.col,
             taskText: candidate.taskText,
-            expiredAt: candidate.expiredAt
+            expiredAt: candidate.expiredAt,
+            expiredByCountdown: candidate.expiredByCountdown,
+            expiredByVisibilityWindow: candidate.expiredByVisibilityWindow,
+            allowsPostpone: candidate.allowsPostpone
         )
     }
 
@@ -972,15 +1216,15 @@ class BingoViewModel: ObservableObject {
                 var cell = updatedCache[row][col]
                 let trimmedTask = cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmedTask.isEmpty else { continue }
-                guard let estimatedDurationMinutes = cell.estimatedDurationMinutes,
-                      estimatedDurationMinutes > 0,
-                      !cell.isCompleted,
-                      cell.countdownEndsAt == nil,
-                      cell.isVisibilityWindowActive(on: now) else {
+                guard cell.shouldStartCountdownForCurrentOccurrence(on: now) else {
                     continue
                 }
 
-                cell.countdownEndsAt = now.addingTimeInterval(Double(estimatedDurationMinutes * 60))
+                cell.countdownEndsAt = cell.countdownDeadlineForCurrentOccurrence(
+                    startingAt: now,
+                    maxCountdownMinutes: Self.maxCountdownMinutes
+                )
+                cell.countdownPausedRemainingSeconds = nil
                 updatedCache[row][col] = cell
                 didMutateCache = true
             }
@@ -1026,13 +1270,39 @@ class BingoViewModel: ObservableObject {
         )
     }
 
+    func requiresLiveCountdownTicks(now: Date = Date()) -> Bool {
+        if expiredTaskEvent != nil || expiredBoardCountdownEvent != nil {
+            return true
+        }
+        if let boardCountdownEndsAt, boardCountdownEndsAt > now {
+            return true
+        }
+        return BoardEngine.hasActiveCountdownDisplay(in: cells, size: gridSize, now: now)
+    }
+
+    func nextTimeSensitiveUpdateDate(now: Date = Date()) -> Date? {
+        var nextDate = BoardEngine.nextTimeSensitiveUpdateDate(
+            in: fullBoardCells,
+            size: gridSize,
+            now: now
+        )
+        if let boardCountdownEndsAt {
+            let candidate = boardCountdownEndsAt <= now ? now : boardCountdownEndsAt
+            nextDate = nextDate.map { min($0, candidate) } ?? candidate
+        }
+        return nextDate
+    }
+
     private func boardEngineExpiredTaskCandidate(from event: ExpiredTaskEvent) -> BoardEngine.ExpiredTaskCandidate {
         BoardEngine.ExpiredTaskCandidate(
             cellID: event.cellID,
             row: event.row,
             col: event.col,
             taskText: event.taskText,
-            expiredAt: event.expiredAt
+            expiredAt: event.expiredAt,
+            expiredByCountdown: event.expiredByCountdown,
+            expiredByVisibilityWindow: event.expiredByVisibilityWindow,
+            allowsPostpone: event.allowsPostpone
         )
     }
 
@@ -1130,6 +1400,7 @@ class BingoViewModel: ObservableObject {
             cell.startVisibleMonth = nil
             cell.startVisibleDay = nil
             cell.residentTaskText = nil
+            cell.recurrenceRule = nil
             cell.completionStreakCount = 0
             cell.lastCompletedAt = nil
             fullBoardCells[row][col] = cell
@@ -1144,6 +1415,7 @@ class BingoViewModel: ObservableObject {
             cell.startVisibleMonth = nil
             cell.startVisibleDay = nil
             cell.residentTaskText = nil
+            cell.recurrenceRule = nil
             cell.isForced = false
             fullBoardCells[row][col] = cell
             ignoredScheduledReplacementCellIDs.insert(cell.id)
@@ -1339,8 +1611,10 @@ class BingoViewModel: ObservableObject {
             residentTaskText: cell.residentTaskText,
             residentWeekdays: cell.residentWeekdays,
             oneTimeVisibleDate: cell.oneTimeVisibleDate,
+            recurrenceRule: cell.recurrenceRule,
             startVisibleAt: cell.startVisibleAt,
             endVisibleAt: cell.endVisibleAt,
+            usesRecurringTimeWindow: cell.usesRecurringTimeWindow,
             startReminderEnabled: cell.startReminderEnabled,
             startReminderOffsetMinutes: cell.startReminderOffsetMinutes,
             startVisibleMonth: cell.startVisibleMonth,
@@ -1398,14 +1672,34 @@ class BingoViewModel: ObservableObject {
                 isBoardFullyCompleted: isBoardFullyCompleted,
                 totalPoints: totalPoints,
                 lifetimePoints: lifetimePoints,
-                dailyRewardState: dailyRewardState,
-                nonRevocableConsumedPoints: BingoRewardSettlement.nonRevocableConsumedPointsTotal()
+                dailyRewardState: dailyRewardState
             ),
             mode: mode
         )
         totalPoints = output.totalPoints
         lifetimePoints = output.lifetimePoints
         dailyRewardState = output.dailyRewardState
+    }
+
+    private func reloadPersistedPointsState(referenceDate: Date) {
+        if let persistedTotalPoints = persistenceDependencies.pointsRepository.loadTotalPoints() {
+            totalPoints = persistedTotalPoints
+        }
+
+        if let persistedLifetimePoints = persistenceDependencies.pointsRepository.loadLifetimePoints() {
+            lifetimePoints = persistedLifetimePoints
+        } else if let persistedTotalPoints = persistenceDependencies.pointsRepository.loadTotalPoints() {
+            lifetimePoints = persistedTotalPoints
+        }
+
+        dailyRewardState = BingoRewardSettlement.initialDailyRewardState(
+            referenceDate: referenceDate,
+            boardLastSavedAt: referenceDate,
+            currentCells: cells,
+            currentCompletedLines: completedLines,
+            isBoardFullyCompleted: isBoardFullyCompleted,
+            savedDailyRewardState: persistenceDependencies.pointsRepository.loadDailyRewardState()
+        )
     }
 
     private static func normalizeForceFlagsInBoardCache(

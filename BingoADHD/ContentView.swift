@@ -1,30 +1,23 @@
 import SwiftUI
 import StoreKit
 import UIKit
-#if canImport(WidgetKit)
-import WidgetKit
-#endif
 
 struct ContentView: View {
     private struct TemplateImportResult {
-        let board: BingoBoardStore.NamedBoard
+        let mutationResult: BoardManagementMutationResult
         let successMessage: String
     }
 
-    private enum AppReviewPromptCandidate: Equatable {
-        case firstTwoLines
-        case secondThreeDayStreak
-        case secondFullBoard
-        case debug
+    private enum FeedbackEmailKind {
+        case bugReport
+        case featureSuggestion
 
-        var stageToRecord: Int? {
+        var logValue: String {
             switch self {
-            case .firstTwoLines:
-                return 1
-            case .secondThreeDayStreak, .secondFullBoard:
-                return 2
-            case .debug:
-                return nil
+            case .bugReport:
+                return "bug_report"
+            case .featureSuggestion:
+                return "feature_suggestion"
             }
         }
     }
@@ -44,7 +37,11 @@ struct ContentView: View {
     @StateObject private var pointsAnimationStore = PointsAnimationStore()
     @StateObject private var boardActionPresentationStore = BoardActionPresentationStore()
     @StateObject private var boardSwitchAnimationStore = BoardSwitchAnimationStore()
-    private let taskStartReminderScheduler: any TaskStartReminderScheduling
+    @StateObject private var homeBoardSnapshotSyncStore = HomeBoardSnapshotSyncStore()
+    @StateObject private var taskStartReminderSyncStore: TaskStartReminderSyncStore
+    private let homeLifecycleWorkStore = HomeLifecycleWorkStore()
+    private let homeTimeoutWorkStore = HomeTimeoutWorkStore()
+    private let homeAppReviewPromptStore = HomeAppReviewPromptStore()
     @State private var isSidebarPresented = false
     @State private var isSettingsExpanded = false
     @State private var isWidgetGuideExpanded = false
@@ -87,8 +84,6 @@ struct ContentView: View {
     @State private var pendingAppReviewPromptCandidate: AppReviewPromptCandidate?
     @State private var hasPresentedDebugAppReviewPromptThisLaunch = false
     @State private var limitedTimeOfferConfig = LimitedTimeOfferConfig.disabled
-    @State private var reminderSyncTask: Task<Void, Never>?
-    @State private var lastReminderSyncSignature: String?
     @AppStorage(AppSettings.hapticsEnabledKey) private var isHapticsEnabled = true
     @AppStorage(AppSettings.soundEffectsEnabledKey) private var isSoundEffectsEnabled = true
     @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
@@ -102,16 +97,21 @@ struct ContentView: View {
     @AppStorage(AppSettings.firstStepGuideStateKey) private var firstStepGuideStateRawValue = FirstStepGuideState.notStarted.rawValue
     @AppStorage(AppSettings.firstStepGuideMilestoneKey) private var firstStepGuideMilestoneShown = 0
     @AppStorage(AppSettings.hasVisitedPremiumPaywallWithoutPurchaseKey) private var hasVisitedPremiumPaywallWithoutPurchase = false
+    @AppStorage(AppSettings.hasLegacyLimitedTimeDiscountExposureKey) private var hasLegacyLimitedTimeDiscountExposure = false
     @AppStorage(AppSettings.limitedTimeDiscountStartedAtKey) private var limitedTimeDiscountStartedAt = 0.0
     @AppStorage(AppSettings.limitedTimeDiscountCampaignIDKey) private var limitedTimeDiscountCampaignID = ""
 
     init(taskStartReminderScheduler: any TaskStartReminderScheduling = LiveTaskStartReminderScheduler()) {
-        self.taskStartReminderScheduler = taskStartReminderScheduler
+        _taskStartReminderSyncStore = StateObject(
+            wrappedValue: TaskStartReminderSyncStore(scheduler: taskStartReminderScheduler)
+        )
     }
     @AppStorage(AppSettings.hasAcknowledgedBoardEditHintKey) private var hasAcknowledgedBoardEditHint = false
     @AppStorage(AppSettings.hasInteractedWithBoardPanelKey) private var hasInteractedWithBoardPanel = false
     private let countdownTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     @State private var countdownNow = Date()
+    @State private var nextCountdownTickWorkDate: Date?
+    @State private var hasComputedCountdownTickSchedule = false
     private var bingoStreakDays: Int { BingoDiaryStore.consecutiveBingoDays() }
     private var streakGoals: [Int] { bingoStreakDays >= 60 ? [60, 180, 270, 365] : [7, 14, 30, 60] }
     private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
@@ -208,9 +208,48 @@ struct ContentView: View {
         }
         return !hasInteractedWithBoardPanel && !hasAcknowledgedBoardEditHint
     }
+    private var shouldReserveBoardEditHintSpace: Bool {
+        hasInteractedWithBoardPanel || hasAcknowledgedBoardEditHint
+    }
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
+    }
+
+    private func shortDiagnosticID(_ id: UUID?) -> String {
+        guard let id else { return "none" }
+        return String(id.uuidString.prefix(8))
+    }
+
+    private func diagnosticHomeStateDetails(source: String) -> [String: String] {
+        [
+            "source": source,
+            "selected_board_id": shortDiagnosticID(selectedBoardID),
+            "board_count": "\(namedBoards.count)",
+            "grid_size": "\(viewModel.gridSize)",
+            "has_premium": "\(subscriptionManager.hasPremiumAccess)",
+            "sidebar": "\(isSidebarPresented)",
+            "edit_actions": "\(isEditActionsExpanded)",
+            "points_flow": "\(isPointsFlowPresented)",
+            "contact": "\(isContactUsPresented)",
+            "quick_edit": "\(isQuickEditPresented)",
+            "black_box": "\(isBlackBoxModePresented)",
+            "diary": "\(isDiaryPresented)",
+            "premium_paywall": "\(isPremiumPaywallPresented)",
+            "limited_offer": "\(isLimitedTimeDiscountPresented)",
+            "app_review_prompt": "\(isAppReviewPromptPresented)",
+            "update_prompt": "\(isUpdatePromptPresented)",
+            "board_countdown": "\(isBoardCountdownPresented)",
+            "board_rules": "\(isBoardRulesPresented)",
+            "grid_size_sheet": "\(isGridSizeSheetPresented)",
+            "template_preview": "\(isTemplateImportPreviewPresented)",
+            "template_share": "\(isTemplateShareComposerPresented)",
+            "board_action_sheet": "\(boardActionPresentationStore.actionSheetBoardID != nil)",
+            "timeout_delay_picker": "\(timeoutDelayPickerContext != nil)",
+            "expired_task": "\(viewModel.expiredTaskEvent != nil)",
+            "expired_board": "\(viewModel.expiredBoardCountdownEvent != nil)",
+            "scheduled_replace": "\(viewModel.scheduledTaskReplacementEvent != nil)"
+        ]
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
@@ -222,12 +261,36 @@ struct ContentView: View {
     }
 
     private func resizeGridWithPremiumGate(targetSize: Int, source: String) {
+        DiagnosticLogStore.recordUserAction(
+            "grid_size.resize_request",
+            details: diagnosticHomeStateDetails(source: source)
+                .merging([
+                    "current_grid_size": "\(viewModel.gridSize)",
+                    "target_grid_size": "\(targetSize)"
+                ]) { current, _ in current }
+        )
         guard targetSize > viewModel.gridSize else {
             viewModel.resizeGrid(to: targetSize)
+            DiagnosticLogStore.recordStateChange(
+                "grid_size.resized",
+                details: [
+                    "source": source,
+                    "target_grid_size": "\(targetSize)"
+                ]
+            )
             return
         }
 
         guard targetSize <= maxGridSizeForCurrentPlan else {
+            DiagnosticLogStore.recordWarning(
+                "grid_size.blocked_premium",
+                details: [
+                    "source": source,
+                    "current_grid_size": "\(viewModel.gridSize)",
+                    "target_grid_size": "\(targetSize)",
+                    "has_premium": "\(subscriptionManager.hasPremiumAccess)"
+                ]
+            )
             AnalyticsService.logPremiumGrid5x5LimitHit(
                 currentGridSize: viewModel.gridSize,
                 source: source
@@ -250,25 +313,75 @@ struct ContentView: View {
         }
 
         viewModel.resizeGrid(to: targetSize)
+        DiagnosticLogStore.recordStateChange(
+            "grid_size.resized",
+            details: [
+                "source": source,
+                "target_grid_size": "\(targetSize)"
+            ]
+        )
     }
 
     private func presentPremiumPaywall(source: String) {
+        DiagnosticLogStore.recordUserAction(
+            "premium_paywall.request",
+            details: diagnosticHomeStateDetails(source: source)
+        )
         if source.lowercased().contains("reset") {
             AnalyticsService.logPremiumCustomResetTimeLimitHit(source: source)
         }
         premiumPaywallSource = source
         Task { @MainActor in
+            guard !subscriptionManager.hasPremiumAccess else {
+                DiagnosticLogStore.recordStateChange(
+                    "premium_paywall.skip_already_premium",
+                    details: ["source": source]
+                )
+                return
+            }
+            await subscriptionManager.refreshEntitlements()
+            guard !subscriptionManager.hasPremiumAccess else {
+                DiagnosticLogStore.recordStateChange(
+                    "premium_paywall.skip_after_refresh",
+                    details: ["source": source]
+                )
+                return
+            }
             isPremiumPaywallPresented = true
+            DiagnosticLogStore.recordStateChange(
+                "premium_paywall.presented",
+                details: diagnosticHomeStateDetails(source: source)
+            )
             await subscriptionManager.warmupProductsForPaywall()
         }
     }
 
     private func presentLimitedTimeDiscount() {
-        guard shouldShowLimitedOfferEntry else { return }
-        syncLimitedTimeOfferCampaignIfNeeded(for: limitedTimeOfferConfig)
+        guard shouldShowLimitedOfferEntry else {
+            DiagnosticLogStore.recordWarning(
+                "limited_offer.blocked",
+                details: diagnosticHomeStateDetails(source: "limited_offer_entry")
+            )
+            return
+        }
         Task { @MainActor in
+            await subscriptionManager.refreshEntitlements()
+            guard shouldShowLimitedOfferEntry else {
+                DiagnosticLogStore.recordStateChange(
+                    "limited_offer.dismissed_after_refresh",
+                    details: diagnosticHomeStateDetails(source: "limited_offer_entry")
+                )
+                clearLimitedOfferEntryIfPremium()
+                return
+            }
+            syncLimitedTimeOfferCampaignIfNeeded(for: limitedTimeOfferConfig)
             isLimitedTimeDiscountPresented = true
+            DiagnosticLogStore.recordStateChange(
+                "limited_offer.presented",
+                details: diagnosticHomeStateDetails(source: "limited_offer_entry")
+            )
             await subscriptionManager.warmupProductsForPaywall()
+            clearLimitedOfferEntryIfPremium()
         }
     }
 
@@ -281,10 +394,16 @@ struct ContentView: View {
             )
         )
         .onAppear {
+            resetLimitedOfferStateForDebugIfNeeded()
             clearLimitedOfferEntryIfPremium()
         }
         .onChange(of: subscriptionManager.hasPremiumAccess) { _, _ in
             clearLimitedOfferEntryIfPremium()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .limitedOfferEligibilityDidChange)) { _ in
+            Task {
+                await refreshLimitedTimeOfferConfig()
+            }
         }
     }
 
@@ -317,15 +436,31 @@ struct ContentView: View {
                         isPadLayout: isPadLayout,
                         availablePoints: availablePoints,
                         showsLimitedOffer: shouldShowLimitedOfferEntry,
+                        limitedTimeOfferDuration: limitedTimeOfferConfig.offerDuration,
                         onToggleSidebar: {
+                            DiagnosticLogStore.recordUserAction(
+                                "home_header.sidebar_toggle",
+                                details: diagnosticHomeStateDetails(source: "home_header")
+                            )
+                            selectedStickerID = nil
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
                                 isSidebarPresented.toggle()
                             }
                         },
                         onOpenPointsFlow: {
+                            DiagnosticLogStore.recordUserAction(
+                                "home_header.points_flow",
+                                details: diagnosticHomeStateDetails(source: "home_header")
+                            )
+                            selectedStickerID = nil
                             isPointsFlowPresented = true
                         },
                         onOpenLimitedOffer: {
+                            DiagnosticLogStore.recordUserAction(
+                                "home_header.limited_offer",
+                                details: diagnosticHomeStateDetails(source: "home_header")
+                            )
+                            selectedStickerID = nil
                             presentLimitedTimeDiscount()
                         }
                     )
@@ -343,6 +478,7 @@ struct ContentView: View {
                         currentTime: countdownNow,
                         shouldShowCenterLongPressHint: firstStepGuideState == .finished,
                         shouldShowBoardEditHint: shouldShowBoardEditHint,
+                        shouldReserveBoardEditHintSpace: shouldReserveBoardEditHintSpace,
                         countdownText: boardCountdownText,
                         isTemplateShareDisabled: isTemplateShareComposerPresented,
                         isEditActionsExpanded: isEditActionsExpanded,
@@ -352,12 +488,25 @@ struct ContentView: View {
                         onBoardLongPress: beginBoardActions,
                         onCreateBoard: beginCreateBoard,
                         onDismissBoardEditHint: dismissBoardEditHint,
-                        onCellCompletionToggled: reconcileStickerOwnershipIfPointsInsufficient,
+                        onCellCompletionToggled: {
+                            selectedStickerID = nil
+                            reconcileRedemptionsIfPointsInsufficient()
+                        },
                         onTemplateShare: beginBoardTemplateShare,
                         onCountdown: {
+                            DiagnosticLogStore.recordUserAction(
+                                "board_header.countdown",
+                                details: diagnosticHomeStateDetails(source: "board_header")
+                            )
+                            selectedStickerID = nil
                             isBoardCountdownPresented = true
                         },
                         onEditActionsToggle: {
+                            DiagnosticLogStore.recordUserAction(
+                                "board_header.edit_actions_toggle",
+                                details: diagnosticHomeStateDetails(source: "board_header")
+                            )
+                            selectedStickerID = nil
                             withAnimation(.easeInOut(duration: 0.18)) {
                                 isEditActionsExpanded.toggle()
                             }
@@ -390,15 +539,31 @@ struct ContentView: View {
                     isSoundEffectsEnabled: $isSoundEffectsEnabled,
                     themeRawValue: $themeRawValue,
                     onOpenDiary: {
+                        DiagnosticLogStore.recordUserAction(
+                            "sidebar.diary",
+                            details: diagnosticHomeStateDetails(source: "sidebar")
+                        )
                         isDiaryPresented = true
                     },
                     onOpenBlackBoxMode: {
+                        DiagnosticLogStore.recordUserAction(
+                            "sidebar.black_box",
+                            details: diagnosticHomeStateDetails(source: "sidebar")
+                        )
                         isBlackBoxModePresented = true
                     },
                     onOpenContact: {
+                        DiagnosticLogStore.recordUserAction(
+                            "sidebar.contact",
+                            details: diagnosticHomeStateDetails(source: "sidebar")
+                        )
                         isContactUsPresented = true
                     },
                     onEncourageUs: {
+                        DiagnosticLogStore.recordUserAction(
+                            "sidebar.encourage_us",
+                            details: diagnosticHomeStateDetails(source: "sidebar")
+                        )
                         requestAppStoreReviewFromSidebar()
                     },
                     onPresentPremiumPaywall: {
@@ -465,17 +630,33 @@ struct ContentView: View {
                         }
                     },
                     onShuffle: {
+                        DiagnosticLogStore.recordUserAction(
+                            "edit_actions.shuffle",
+                            details: diagnosticHomeStateDetails(source: "edit_actions")
+                        )
                         withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
                             viewModel.shuffleBoard()
                         }
                     },
                     onClearBoard: {
+                        DiagnosticLogStore.recordUserAction(
+                            "edit_actions.clear_board",
+                            details: diagnosticHomeStateDetails(source: "edit_actions")
+                        )
                         isClearBoardConfirmationPresented = true
                     },
                     onGridSize: {
+                        DiagnosticLogStore.recordUserAction(
+                            "edit_actions.grid_size",
+                            details: diagnosticHomeStateDetails(source: "edit_actions")
+                        )
                         isGridSizeSheetPresented = true
                     },
                     onQuickEdit: {
+                        DiagnosticLogStore.recordUserAction(
+                            "edit_actions.quick_edit",
+                            details: diagnosticHomeStateDetails(source: "edit_actions")
+                        )
                         isQuickEditPresented = true
                     }
                 )
@@ -498,21 +679,43 @@ struct ContentView: View {
     }
 
     private var shouldShowLimitedOfferEntry: Bool {
-        limitedTimeOfferConfig.isEnabled
-            && !subscriptionManager.hasPremiumAccess
-            && !hasLimitedOfferCountdownExpired
+        LimitedOfferEntryEligibility.shouldShowEntry(
+            config: limitedTimeOfferConfig,
+            appVersion: appShortVersion,
+            hasPremiumAccess: subscriptionManager.hasPremiumAccess,
+            hasCompletedEntitlementRefresh: subscriptionManager.hasCompletedEntitlementRefresh,
+            hasVisitedPaywallWithoutPurchase: hasVisitedPremiumPaywallWithoutPurchase || AppDebugFlags.forceLimitedOfferEligible,
+            hasLegacyExposure: hasLegacyLimitedTimeDiscountExposure,
+            startedAt: limitedTimeDiscountStartedAt,
+            campaignID: limitedTimeDiscountCampaignID,
+            now: countdownNow
+        )
+    }
+
+    private var hasUnlockedLimitedOfferEntry: Bool {
+        LimitedOfferHomeRules.hasUnlockedEntry(
+            hasVisitedPaywallWithoutPurchase: hasVisitedPremiumPaywallWithoutPurchase,
+            hasLegacyExposure: hasLegacyLimitedTimeDiscountExposure,
+            forceEligible: AppDebugFlags.forceLimitedOfferEligible
+        )
     }
 
     private var hasLimitedOfferCountdownExpired: Bool {
-        guard limitedTimeDiscountStartedAt > 0 else { return false }
-        return countdownNow.timeIntervalSince1970 >= limitedTimeDiscountStartedAt + limitedTimeOfferConfig.offerDuration
+        LimitedOfferEntryEligibility.hasCountdownExpired(
+            config: limitedTimeOfferConfig,
+            startedAt: limitedTimeDiscountStartedAt,
+            campaignID: limitedTimeDiscountCampaignID,
+            now: countdownNow
+        )
     }
 
     private func clearLimitedOfferEntryIfPremium() {
-        if subscriptionManager.hasPremiumAccess {
-            hasVisitedPremiumPaywallWithoutPurchase = false
-            isLimitedTimeDiscountPresented = false
-        }
+        applyLimitedOfferHomeState(
+            LimitedOfferHomeRules.applyingPremiumAccess(
+                to: limitedOfferHomeState,
+                hasPremiumAccess: subscriptionManager.hasPremiumAccess
+            )
+        )
     }
 
     private func refreshLimitedTimeOfferConfig() async {
@@ -523,21 +726,72 @@ struct ContentView: View {
     }
 
     private func applyLimitedTimeOfferConfig(_ config: LimitedTimeOfferConfig) {
+        resetLimitedOfferStateForDebugIfNeeded()
+        migrateLegacyLimitedOfferExposureIfNeeded()
         limitedTimeOfferConfig = config
-        guard config.isEnabled else {
+#if DEBUG
+        print(
+            "[LimitedOffer] Home config applied",
+            "enabledForVersion=\(config.isEnabled(forAppVersion: appShortVersion))",
+            "hasPremium=\(subscriptionManager.hasPremiumAccess)",
+            "eligible=\(hasUnlockedLimitedOfferEntry)",
+            "expired=\(hasLimitedOfferCountdownExpired)",
+            "shouldShow=\(shouldShowLimitedOfferEntry)"
+        )
+#endif
+        guard !LimitedOfferHomeRules.shouldDismissPresentedOffer(
+            config: config,
+            appVersion: appShortVersion,
+            hasPremiumAccess: subscriptionManager.hasPremiumAccess
+        ) else {
             isLimitedTimeDiscountPresented = false
             return
         }
-        syncLimitedTimeOfferCampaignIfNeeded(for: config)
-        if subscriptionManager.hasPremiumAccess {
-            isLimitedTimeDiscountPresented = false
-        }
+    }
+
+    private func resetLimitedOfferStateForDebugIfNeeded() {
+#if DEBUG
+        let shouldReset = AppDebugFlags.consumeLimitedOfferStateResetIfNeeded()
+        guard shouldReset else { return }
+        applyLimitedOfferHomeState(LimitedOfferHomeRules.applyingDebugReset(
+            to: limitedOfferHomeState,
+            shouldReset: shouldReset
+        ))
+#if DEBUG
+        print("[LimitedOffer] Debug reset local offer state")
+#endif
+#endif
+    }
+
+    private func migrateLegacyLimitedOfferExposureIfNeeded() {
+        applyLimitedOfferHomeState(
+            LimitedOfferHomeRules.applyingLegacyExposureMigration(to: limitedOfferHomeState)
+        )
     }
 
     private func syncLimitedTimeOfferCampaignIfNeeded(for config: LimitedTimeOfferConfig) {
-        guard limitedTimeDiscountCampaignID != config.campaignID else { return }
-        limitedTimeDiscountCampaignID = config.campaignID
-        limitedTimeDiscountStartedAt = 0
+        applyLimitedOfferHomeState(
+            LimitedOfferHomeRules.applyingCampaignSync(to: limitedOfferHomeState, config: config)
+        )
+    }
+
+    private var limitedOfferHomeState: LimitedOfferHomeState {
+        LimitedOfferHomeState(
+            hasVisitedPaywallWithoutPurchase: hasVisitedPremiumPaywallWithoutPurchase,
+            hasLegacyExposure: hasLegacyLimitedTimeDiscountExposure,
+            startedAt: limitedTimeDiscountStartedAt,
+            campaignID: limitedTimeDiscountCampaignID,
+            isPresented: isLimitedTimeDiscountPresented
+        )
+    }
+
+    private func applyLimitedOfferHomeState(_ state: LimitedOfferHomeState) {
+        guard state != limitedOfferHomeState else { return }
+        hasVisitedPremiumPaywallWithoutPurchase = state.hasVisitedPaywallWithoutPurchase
+        hasLegacyLimitedTimeDiscountExposure = state.hasLegacyExposure
+        limitedTimeDiscountStartedAt = state.startedAt
+        limitedTimeDiscountCampaignID = state.campaignID
+        isLimitedTimeDiscountPresented = state.isPresented
     }
 
     private func withPresentationLayers<Content: View>(content: Content) -> some View {
@@ -580,7 +834,12 @@ struct ContentView: View {
                     boardCountdownEndsAt: viewModel.boardCountdownEndsAt,
                     isPadLayout: isPadLayout,
                     onCopyEmail: showContactUsCopyToast,
-                    onOpenFeedbackEmail: openFeedbackEmail,
+                    onOpenBugReportEmail: {
+                        openFeedbackEmail(kind: .bugReport, source: "contact_sheet")
+                    },
+                    onOpenFeatureSuggestionEmail: {
+                        openFeedbackEmail(kind: .featureSuggestion, source: "contact_sheet")
+                    },
                     onApplyImportedTemplate: applyImportedTemplate,
                     onDismissTemplatePreview: templateImportFlowStore.dismissPreview,
                     onTemplateImportSheetHeight: TemplateImportFlowStore.previewSheetHeight,
@@ -606,9 +865,24 @@ struct ContentView: View {
                                 gridSize: viewModel.gridSize,
                                 isPadLayout: isPadLayout,
                                 onDecrease: {
+                                    DiagnosticLogStore.recordUserAction(
+                                        "grid_size.decrease",
+                                        details: diagnosticHomeStateDetails(source: "grid_size_sheet")
+                                            .merging([
+                                                "current_grid_size": "\(viewModel.gridSize)",
+                                                "target_grid_size": "\(viewModel.gridSize - 1)"
+                                            ]) { current, _ in current }
+                                    )
                                     withAnimation(.spring(response: 0.4)) {
                                         viewModel.resizeGrid(to: viewModel.gridSize - 1)
                                     }
+                                    DiagnosticLogStore.recordStateChange(
+                                        "grid_size.resized",
+                                        details: [
+                                            "source": "grid_size_sheet",
+                                            "target_grid_size": "\(viewModel.gridSize)"
+                                        ]
+                                    )
                                 },
                                 onIncrease: {
                                     withAnimation(.spring(response: 0.4)) {
@@ -647,8 +921,19 @@ struct ContentView: View {
     }
 
     private func clearBoardFromAlert() {
+        DiagnosticLogStore.recordUserAction(
+            "board.clear_confirm",
+            details: diagnosticHomeStateDetails(source: "clear_board_alert")
+        )
         viewModel.resetBoard()
         syncTaskStartReminders()
+        DiagnosticLogStore.recordStateChange(
+            "board.cleared",
+            details: [
+                "selected_board_id": shortDiagnosticID(selectedBoardID),
+                "grid_size": "\(viewModel.gridSize)"
+            ]
+        )
         showCommonTasksToast(L10n.boardClearedSuccess)
     }
 
@@ -692,27 +977,57 @@ struct ContentView: View {
         source: String,
         shouldApplyForegroundCleanup: Bool
     ) {
-        pointsFeatureStore.loadAfterFirstFrameIfNeeded()
-        ensureBoardSwitcherLoaded()
-        reloadBoardSwitcherSnapshotFromSharedStoreIfNeeded(now: now)
-        handleBoardResetLifecycle(
+        let plan = homeLifecycleWorkStore.catchUpPlan(
             now: now,
             force: force,
             source: source,
-            shouldApplyForegroundCleanup: shouldApplyForegroundCleanup
+            shouldApplyForegroundCleanup: shouldApplyForegroundCleanup,
+            simulateNextDayBoardRuleReset: AppDebugFlags.simulateNextDayBoardRuleReset
         )
-        if AppDebugFlags.simulateNextDayBoardRuleReset {
-            forceApplyBoardTaskResetRulesForDebug(now: now)
+        performHomeLifecycleWorkPlan(plan)
+    }
+
+    private func performHomeLifecycleWorkPlan(_ plan: HomeLifecycleWorkPlan) {
+        for step in plan.steps {
+            performHomeLifecycleWorkStep(step, context: plan.context)
         }
-        evaluateFirstStepGuideEntryIfNeeded()
-        countdownNow = now
-        viewModel.processExpiredCountdowns(now: now)
-        viewModel.processExpiredTaskCountdowns(now: now)
-        viewModel.processScheduledTaskReplacementConflicts(now: now)
-        processExpiredTimeoutsOnOtherBoards(now: now)
-        syncTaskStartReminders()
-        evaluateAppReviewPromptOpportunity()
-        debugTileGestureBlockers(source: source)
+    }
+
+    private func performHomeLifecycleWorkStep(
+        _ step: HomeLifecycleWorkStep,
+        context: HomeLifecycleWorkContext
+    ) {
+        switch step {
+        case .loadPointsAfterFirstFrame:
+            pointsFeatureStore.loadAfterFirstFrameIfNeeded()
+        case .ensureBoardSwitcherLoaded:
+            ensureBoardSwitcherLoaded()
+        case .reloadBoardSwitcherSnapshotFromSharedStore:
+            reloadBoardSwitcherSnapshotFromSharedStoreIfNeeded(now: context.now)
+        case .handleBoardResetLifecycle:
+            handleBoardResetLifecycle(
+                now: context.now,
+                force: context.force,
+                source: context.source,
+                shouldApplyForegroundCleanup: context.shouldApplyForegroundCleanup
+            )
+        case .forceApplyDebugBoardReset:
+            forceApplyBoardTaskResetRulesForDebug(now: context.now)
+        case .evaluateFirstStepGuideEntry:
+            evaluateFirstStepGuideEntryIfNeeded()
+        case .updateCountdownClock:
+            countdownNow = context.now
+        case .processTimeoutWork:
+            processHomeTimeoutWork(now: context.now, refreshVisibilityWindows: false)
+        case .syncTaskStartReminders:
+            syncTaskStartReminders()
+        case .evaluateAppReviewPromptOpportunity:
+            evaluateAppReviewPromptOpportunity()
+        case .debugTileGestureBlockers:
+            debugTileGestureBlockers(source: context.source)
+        case .refreshCountdownTickSchedule:
+            refreshCountdownTickSchedule(now: context.now)
+        }
     }
 
     private func withPresentationStateObservers(content: AnyView) -> AnyView {
@@ -758,11 +1073,11 @@ struct ContentView: View {
                         boardCountdownEndsAt: viewModel.boardCountdownEndsAt,
                         hasCompletedEntitlementRefresh: subscriptionManager.hasCompletedEntitlementRefresh,
                         hasPremiumAccess: subscriptionManager.hasPremiumAccess,
-                        onSyncSelectedBoardSnapshot: syncSelectedBoardSnapshotIfNeeded,
+                        onSyncSelectedBoardSnapshot: syncSelectedBoardSnapshotAfterBoardStateChange,
                         onEvaluateFirstStepGuideProgress: evaluateFirstStepGuideProgressIfNeeded,
                         onEvaluateAppReviewTaskCompletionOpportunity: evaluateAppReviewTaskCompletionOpportunity,
                         onEvaluateAppReviewLineCompletionOpportunity: evaluateAppReviewLineCompletionOpportunity,
-                        onReconcileStickerOwnership: reconcileStickerOwnershipIfPointsInsufficient,
+                        onReconcileStickerOwnership: reconcileRedemptionsIfPointsInsufficient,
                         onEnforceCustomResetAccess: enforceCustomResetAccessIfNeeded
                     )
                 )
@@ -780,7 +1095,7 @@ struct ContentView: View {
                         countdownTicker: countdownTicker,
                         expiredTaskEventID: viewModel.expiredTaskEvent?.id,
                         expiredBoardCountdownEventID: viewModel.expiredBoardCountdownEvent?.id,
-                        onReconcileStickerOwnership: reconcileStickerOwnershipIfPointsInsufficient,
+                        onReconcileStickerOwnership: reconcileRedemptionsIfPointsInsufficient,
                         onAvailablePointsChange: pointsAnimationStore.handleAvailablePointsChange,
                         onShowDailyReset: toastStore.showDailyReset,
                         onTick: handleCountdownTick,
@@ -792,13 +1107,77 @@ struct ContentView: View {
     }
 
     private func handleCountdownTick(now: Date) {
-        countdownNow = now
-        handleBoardResetLifecycle(now: now, source: "ticker")
-        _ = viewModel.refreshVisibilityWindowsIfNeeded(now: now)
+        let shouldRunMaintenance = shouldRunCountdownTickMaintenance(now: now)
+        guard let plan = homeTimeoutWorkStore.tickPlan(
+            now: now,
+            shouldRunMaintenance: shouldRunMaintenance,
+            requiresLiveCountdownTicks: viewModel.requiresLiveCountdownTicks(now: now),
+            hasTimeoutDelayPicker: timeoutDelayPickerContext != nil
+        ) else {
+            return
+        }
+        performHomeTimeoutWorkPlan(plan)
+    }
+
+    private func performHomeTimeoutWorkPlan(_ plan: HomeTimeoutWorkPlan) {
+        for step in plan.steps {
+            performHomeTimeoutWorkStep(step, context: plan.context)
+        }
+    }
+
+    private func performHomeTimeoutWorkStep(
+        _ step: HomeTimeoutWorkStep,
+        context: HomeTimeoutWorkContext
+    ) {
+        switch step {
+        case .updateCountdownClock:
+            countdownNow = context.now
+        case .handleBoardResetLifecycle:
+            handleBoardResetLifecycle(now: context.now, source: "ticker")
+        case .processTimeoutWork(let refreshVisibilityWindows):
+            processHomeTimeoutWork(
+                now: context.now,
+                refreshVisibilityWindows: refreshVisibilityWindows
+            )
+        case .refreshCountdownTickSchedule:
+            refreshCountdownTickSchedule(now: context.now)
+        }
+    }
+
+    private func processHomeTimeoutWork(now: Date, refreshVisibilityWindows: Bool) {
+        if refreshVisibilityWindows {
+            _ = viewModel.refreshVisibilityWindowsIfNeeded(now: now)
+        }
         viewModel.processExpiredCountdowns(now: now)
         viewModel.processExpiredTaskCountdowns(now: now)
         viewModel.processScheduledTaskReplacementConflicts(now: now)
         processExpiredTimeoutsOnOtherBoards(now: now)
+    }
+
+    private func shouldRunCountdownTickMaintenance(now: Date) -> Bool {
+        homeTimeoutWorkStore.shouldRunMaintenance(
+            now: now,
+            hasComputedSchedule: hasComputedCountdownTickSchedule,
+            nextWorkDate: nextCountdownTickWorkDate
+        )
+    }
+
+    private func refreshCountdownTickSchedule(now: Date) {
+        nextCountdownTickWorkDate = homeTimeoutWorkStore.nextCountdownTickWorkDate(
+            after: now,
+            activeBoardNextUpdateDate: viewModel.nextTimeSensitiveUpdateDate(now: now),
+            namedBoards: namedBoards,
+            selectedBoardID: selectedBoardID,
+            lastBoardRulesEvaluationDateKey: lastBoardRulesEvaluationDateKey,
+            hasAppliedDebugSimulatedResetThisLaunch: hasAppliedDebugSimulatedResetThisLaunch,
+            simulateNextDayBoardRuleReset: AppDebugFlags.simulateNextDayBoardRuleReset
+        )
+        hasComputedCountdownTickSchedule = true
+    }
+
+    private func invalidateCountdownTickSchedule() {
+        nextCountdownTickWorkDate = nil
+        hasComputedCountdownTickSchedule = false
     }
 
     private func resetTaskTimeoutDelayPicker() {
@@ -941,40 +1320,24 @@ struct ContentView: View {
     }
 
     private func appReviewPromptCandidate(for trigger: AppReviewPromptCandidate?) -> AppReviewPromptCandidate? {
-#if DEBUG
-        if AppDebugFlags.forceAppReviewPrompt && !hasPresentedDebugAppReviewPromptThisLaunch {
-            return .debug
-        }
-#endif
-
-        guard !hasRatedAppReviewPrompt,
-              appReviewPromptLifetimeShownCount < 2,
-              Date().timeIntervalSince1970 >= appReviewPromptCooldownUntil else {
-            return nil
-        }
-
-        if appReviewPromptStage <= 0, currentCompletedLineCount >= 2 {
-            return .firstTwoLines
-        }
-
-        guard appReviewPromptStage == 1, appReviewPromptLastShownDay != appReviewDayKey() else {
-            return nil
-        }
-
-        if trigger == .secondFullBoard, isCurrentBoardFullyCompleted {
-            return .secondFullBoard
-        }
-
-        if trigger == .secondThreeDayStreak || trigger == nil,
-           BingoDiaryStore.consecutiveTaskCompletionDays() >= 3 {
-            return .secondThreeDayStreak
-        }
-
-        if isCurrentBoardFullyCompleted {
-            return .secondFullBoard
-        }
-
-        return nil
+        let now = Date()
+        return homeAppReviewPromptStore.candidate(
+            trigger: trigger,
+            state: AppReviewPromptEvaluationState(
+                now: now,
+                todayKey: appReviewDayKey(for: now),
+                forceDebugPrompt: AppDebugFlags.forceAppReviewPrompt,
+                hasPresentedDebugPromptThisLaunch: hasPresentedDebugAppReviewPromptThisLaunch,
+                hasRatedPrompt: hasRatedAppReviewPrompt,
+                lifetimeShownCount: appReviewPromptLifetimeShownCount,
+                cooldownUntil: appReviewPromptCooldownUntil,
+                stage: appReviewPromptStage,
+                lastShownDay: appReviewPromptLastShownDay,
+                completedLineCount: currentCompletedLineCount,
+                isBoardFullyCompleted: isCurrentBoardFullyCompleted,
+                consecutiveTaskCompletionDays: BingoDiaryStore.consecutiveTaskCompletionDays()
+            )
+        )
     }
 
     private func presentPendingAppReviewPromptIfReady() {
@@ -1001,61 +1364,77 @@ struct ContentView: View {
     }
 
     private func canPresentAppReviewPrompt(candidate: AppReviewPromptCandidate) -> Bool {
-        if isAppReviewPromptPresented { return false }
-
 #if DEBUG
-        if candidate == .debug {
-            return true
-        }
+        let debugBypassesBlockers = true
+#else
+        let debugBypassesBlockers = false
 #endif
-
-        guard firstStepGuideOverlay == nil,
-              !isUpdatePromptPresented,
-              !isCustomResetDowngradeAlertPresented,
-              !isSidebarPresented,
-              !isQuickEditPresented,
-              !isBlackBoxModePresented,
-              !isContactUsPresented,
-              !isPointsFlowPresented,
-              !isBoardCountdownPresented,
-              !isBoardRulesPresented,
-              !isGridSizeSheetPresented,
-              !isTemplateImportPreviewPresented,
-              !isTemplateShareComposerPresented,
-              !viewModel.showCelebration,
-              !viewModel.showBoardCompletionAnimation,
-              boardActionPresentationStore.actionSheetBoardID == nil,
-              timeoutDelayPickerContext == nil,
-              viewModel.expiredTaskEvent == nil,
-              viewModel.expiredBoardCountdownEvent == nil,
-              viewModel.scheduledTaskReplacementEvent == nil else {
-            return false
-        }
-
-        return true
+        return homeAppReviewPromptStore.canPresent(
+            candidate: candidate,
+            state: AppReviewPromptPresentationState(
+                isPromptPresented: isAppReviewPromptPresented,
+                debugBypassesBlockers: debugBypassesBlockers,
+                hasFirstStepGuideOverlay: firstStepGuideOverlay != nil,
+                isUpdatePromptPresented: isUpdatePromptPresented,
+                isCustomResetDowngradeAlertPresented: isCustomResetDowngradeAlertPresented,
+                isSidebarPresented: isSidebarPresented,
+                isQuickEditPresented: isQuickEditPresented,
+                isBlackBoxModePresented: isBlackBoxModePresented,
+                isContactUsPresented: isContactUsPresented,
+                isPointsFlowPresented: isPointsFlowPresented,
+                isBoardCountdownPresented: isBoardCountdownPresented,
+                isBoardRulesPresented: isBoardRulesPresented,
+                isGridSizeSheetPresented: isGridSizeSheetPresented,
+                isTemplateImportPreviewPresented: isTemplateImportPreviewPresented,
+                isTemplateShareComposerPresented: isTemplateShareComposerPresented,
+                isShowingCelebration: viewModel.showCelebration,
+                isShowingBoardCompletionAnimation: viewModel.showBoardCompletionAnimation,
+                hasBoardActionSheet: boardActionPresentationStore.actionSheetBoardID != nil,
+                hasTimeoutDelayPicker: timeoutDelayPickerContext != nil,
+                hasExpiredTaskEvent: viewModel.expiredTaskEvent != nil,
+                hasExpiredBoardCountdownEvent: viewModel.expiredBoardCountdownEvent != nil,
+                hasScheduledTaskReplacementEvent: viewModel.scheduledTaskReplacementEvent != nil
+            )
+        )
     }
 
     private func requestAppStoreReviewFromPrompt() {
+        DiagnosticLogStore.recordUserAction(
+            "app_review_prompt.rate",
+            details: diagnosticHomeStateDetails(source: "app_review_prompt")
+        )
         hasRatedAppReviewPrompt = true
         dismissAppReviewPrompt(cooldownDays: nil)
         requestReview()
     }
 
     private func requestAppStoreReviewFromSidebar() {
+        DiagnosticLogStore.recordUserAction(
+            "app_review.request",
+            details: diagnosticHomeStateDetails(source: "sidebar")
+        )
         hasRatedAppReviewPrompt = true
         requestReview()
     }
 
     private func openFeedbackEmailFromPrompt() {
         dismissAppReviewPrompt(cooldownDays: 30)
-        openFeedbackEmail()
+        openFeedbackEmail(kind: .bugReport, source: "app_review_prompt")
     }
 
     private func rejectAppReviewPrompt() {
+        DiagnosticLogStore.recordUserAction(
+            "app_review_prompt.reject",
+            details: diagnosticHomeStateDetails(source: "app_review_prompt")
+        )
         dismissAppReviewPrompt(cooldownDays: 90)
     }
 
     private func closeAppReviewPrompt() {
+        DiagnosticLogStore.recordUserAction(
+            "app_review_prompt.close",
+            details: diagnosticHomeStateDetails(source: "app_review_prompt")
+        )
         dismissAppReviewPrompt(cooldownDays: 30)
     }
 
@@ -1090,42 +1469,81 @@ struct ContentView: View {
         )
     }
 
-    private func openFeedbackEmail() {
-        guard let url = feedbackMailURL else {
+    private func openFeedbackEmail(kind: FeedbackEmailKind, source: String) {
+        var details = diagnosticHomeStateDetails(source: source)
+        details["kind"] = kind.logValue
+        DiagnosticLogStore.recordUserAction(
+            "feedback_email.open",
+            details: details
+        )
+        guard let url = feedbackMailURL(for: kind) else {
+            DiagnosticLogStore.recordWarning(
+                "feedback_email.url_failed",
+                details: ["source": source, "kind": kind.logValue]
+            )
             showCommonTasksToast(L10n.feedbackMailOpenFailed)
             isContactUsPresented = true
             return
         }
 
         openURL(url) { accepted in
-            guard !accepted else { return }
+            guard !accepted else {
+                DiagnosticLogStore.recordStateChange(
+                    "feedback_email.accepted",
+                    details: ["source": source, "kind": kind.logValue]
+                )
+                return
+            }
             DispatchQueue.main.async {
+                DiagnosticLogStore.recordWarning(
+                    "feedback_email.rejected",
+                    details: ["source": source, "kind": kind.logValue]
+                )
                 showCommonTasksToast(L10n.feedbackMailOpenFailed)
                 isContactUsPresented = true
             }
         }
     }
 
-    private var feedbackMailURL: URL? {
+    private func feedbackMailURL(for kind: FeedbackEmailKind) -> URL? {
         var components = URLComponents()
         components.scheme = "mailto"
         components.path = L10n.contactUsEmail
         components.queryItems = [
-            URLQueryItem(name: "subject", value: L10n.appReviewFeedbackEmailSubject),
-            URLQueryItem(name: "body", value: feedbackMailBody)
+            URLQueryItem(name: "subject", value: feedbackMailSubject(for: kind)),
+            URLQueryItem(name: "body", value: feedbackMailBody(for: kind))
         ]
         return components.url
     }
 
-    private var feedbackMailBody: String {
+    private func feedbackMailSubject(for kind: FeedbackEmailKind) -> String {
+        switch kind {
+        case .bugReport:
+            return L10n.appReviewFeedbackEmailSubject
+        case .featureSuggestion:
+            return L10n.featureSuggestionEmailSubject
+        }
+    }
+
+    private func feedbackMailBody(for kind: FeedbackEmailKind) -> String {
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
         let version = build.isEmpty ? appShortVersion : "\(appShortVersion) (\(build))"
         let system = "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"
-        return L10n.appReviewFeedbackEmailBody(
-            appVersion: version,
-            device: UIDevice.current.model,
-            system: system
-        )
+        switch kind {
+        case .bugReport:
+            return L10n.appReviewFeedbackEmailBody(
+                appVersion: version,
+                device: UIDevice.current.model,
+                system: system,
+                diagnosticLog: DiagnosticLogStore.exportText()
+            )
+        case .featureSuggestion:
+            return L10n.featureSuggestionEmailBody(
+                appVersion: version,
+                device: UIDevice.current.model,
+                system: system
+            )
+        }
     }
 
     private func showCommonTasksToast(_ message: String) {
@@ -1133,6 +1551,10 @@ struct ContentView: View {
     }
 
     private func showContactUsCopyToast() {
+        DiagnosticLogStore.recordUserAction(
+            "contact.copy_email",
+            details: diagnosticHomeStateDetails(source: "contact_sheet")
+        )
         toastStore.showContactUsCopy()
     }
 
@@ -1148,12 +1570,22 @@ struct ContentView: View {
     }
 
     private func beginBoardActions(for boardID: UUID) {
+        DiagnosticLogStore.recordUserAction(
+            "board.actions",
+            details: diagnosticHomeStateDetails(source: "board_panel")
+                .merging(["board_id": shortDiagnosticID(boardID)]) { current, _ in current }
+        )
         markBoardPanelInteracted()
         focusedEditingResetForBoardActions()
         boardActionPresentationStore.presentActions(for: boardID)
     }
 
     private func beginBoardRules(for boardID: UUID) {
+        DiagnosticLogStore.recordUserAction(
+            "board.rules",
+            details: diagnosticHomeStateDetails(source: "board_actions")
+                .merging(["board_id": shortDiagnosticID(boardID)]) { current, _ in current }
+        )
         markBoardPanelInteracted()
         boardRulesTargetBoardID = boardID
         isBoardRulesPresented = true
@@ -1170,7 +1602,13 @@ struct ContentView: View {
         resetMode: BoardTaskResetMode,
         customResetMinutes: Int?
     ) {
-        guard let boardIndex = namedBoards.firstIndex(where: { $0.id == boardID }) else { return }
+        guard let boardIndex = namedBoards.firstIndex(where: { $0.id == boardID }) else {
+            DiagnosticLogStore.recordWarning(
+                "board_rules.save_missing_board",
+                details: ["board_id": shortDiagnosticID(boardID)]
+            )
+            return
+        }
         let now = Date()
         let resolvedMinutes = countdownMinutes.map { min(max($0, 1), BingoViewModel.maxCountdownMinutes) }
         let countdownEndsAt = resolvedMinutes.map { now.addingTimeInterval(Double($0 * 60)) }
@@ -1193,6 +1631,15 @@ struct ContentView: View {
 
         markBoardPanelInteracted()
         persistNamedBoardsSnapshot()
+        DiagnosticLogStore.recordStateChange(
+            "board_rules.saved",
+            details: [
+                "board_id": shortDiagnosticID(boardID),
+                "has_countdown": "\(resolvedMinutes != nil)",
+                "reset_mode": normalizedResetMode.rawValue,
+                "has_custom_reset": "\(customResetMinutes != nil)"
+            ]
+        )
         showCommonTasksToast(L10n.tr("Board rules saved", zhHans: "面板规则已保存", zhHant: "面板規則已儲存"))
     }
 
@@ -1365,6 +1812,11 @@ struct ContentView: View {
     }
 
     private func requestDeleteBoard(_ boardID: UUID) {
+        DiagnosticLogStore.recordUserAction(
+            "board.delete_request",
+            details: diagnosticHomeStateDetails(source: "board_actions")
+                .merging(["board_id": shortDiagnosticID(boardID)]) { current, _ in current }
+        )
         markBoardPanelInteracted()
         switch BoardActionPresentationStore.deleteAvailability(
             for: boardID,
@@ -1374,6 +1826,15 @@ struct ContentView: View {
         case .allowed:
             boardActionPresentationStore.beginDelete(boardID: boardID)
         case .blocked(let message):
+            DiagnosticLogStore.recordWarning(
+                "board.delete_blocked",
+                details: [
+                    "board_id": shortDiagnosticID(boardID),
+                    "board_count": "\(namedBoards.count)",
+                    "has_premium": "\(subscriptionManager.hasPremiumAccess)",
+                    "is_first_board": "\(namedBoards.first?.id == boardID)"
+                ]
+            )
             showCommonTasksToast(message)
         }
     }
@@ -1388,22 +1849,44 @@ struct ContentView: View {
             namedBoards: namedBoards,
             allowsDeletingFirstBoard: subscriptionManager.hasPremiumAccess
         ) else {
+            DiagnosticLogStore.recordWarning(
+                "board.delete_guard_failed",
+                details: [
+                    "board_id": shortDiagnosticID(boardID),
+                    "board_count": "\(namedBoards.count)",
+                    "has_premium": "\(subscriptionManager.hasPremiumAccess)"
+                ]
+            )
             return
         }
         markBoardPanelInteracted()
 
-        if let selectedBoard = boardManagementStore.deleteBoard(
+        guard let deletion = boardManagementStore.deleteBoard(
             boardID,
             allowsDeletingFirstBoard: subscriptionManager.hasPremiumAccess
-        ) {
-            viewModel.applySavedBoardSnapshot(
-                selectedBoard.board,
-                countdownEndsAt: selectedBoard.countdownEndsAt,
-                referenceDate: .now
+        ) else {
+            DiagnosticLogStore.recordWarning(
+                "board.delete_failed",
+                details: ["board_id": shortDiagnosticID(boardID)]
             )
+            return
         }
 
-        syncTaskStartReminders()
+        viewModel.applySavedBoardSnapshot(
+            deletion.selectedBoard.board,
+            countdownEndsAt: deletion.selectedBoard.countdownEndsAt,
+            referenceDate: .now
+        )
+
+        applyBoardManagementMutationResult(deletion)
+        DiagnosticLogStore.recordStateChange(
+            "board.deleted",
+            details: [
+                "board_id": shortDiagnosticID(boardID),
+                "selected_board_id": shortDiagnosticID(deletion.selectedBoard.id),
+                "board_count": "\(namedBoards.count)"
+            ]
+        )
         showCommonTasksToast(L10n.tr("Board deleted", zhHans: "棋盘已删除", zhHant: "棋盤已刪除"))
     }
 
@@ -1424,7 +1907,8 @@ struct ContentView: View {
         viewModel.applySavedBoardSnapshot(
             selectedBoard.board,
             countdownEndsAt: selectedBoard.countdownEndsAt,
-            referenceDate: .now
+            referenceDate: .now,
+            reloadPersistedPoints: true
         )
         syncSelectedBoardSnapshotIfNeeded()
     }
@@ -1437,12 +1921,16 @@ struct ContentView: View {
         viewModel.applySavedBoardSnapshot(
             selectedBoard.board,
             countdownEndsAt: selectedBoard.countdownEndsAt,
-            referenceDate: now
+            referenceDate: now,
+            reloadPersistedPoints: true
         )
     }
 
     private func persistNamedBoardsSnapshot() {
-        boardManagementStore.persistSnapshot()
+        let result = homeBoardSnapshotSyncStore.persistNamedBoardsSnapshot(
+            boardManagementStore: boardManagementStore
+        )
+        applyBoardSnapshotSyncResult(result)
     }
 
     private func persistBoardState(for boardID: UUID, save: Bool = true) {
@@ -1455,39 +1943,36 @@ struct ContentView: View {
     }
 
     private func syncSelectedBoardSnapshotIfNeeded() {
-        boardManagementStore.syncSelectedBoard(
+        syncSelectedBoardSnapshotIfNeeded(syncTaskReminders: true)
+    }
+
+    private func syncSelectedBoardSnapshotAfterBoardStateChange(_ change: HomeBoardStateChange) {
+        syncSelectedBoardSnapshotIfNeeded(syncTaskReminders: change.affectsTaskReminders)
+    }
+
+    private func syncSelectedBoardSnapshotIfNeeded(syncTaskReminders: Bool) {
+        let result = homeBoardSnapshotSyncStore.syncSelectedBoardSnapshot(
+            boardManagementStore: boardManagementStore,
             board: viewModel.makeSavedBoardSnapshot(),
-            countdownEndsAt: viewModel.boardCountdownEndsAt
+            countdownEndsAt: viewModel.boardCountdownEndsAt,
+            syncTaskReminders: syncTaskReminders
         )
-        syncTaskStartReminders()
+        applyBoardSnapshotSyncResult(result)
+    }
+
+    private func applyBoardSnapshotSyncResult(_ result: HomeBoardSnapshotSyncResult) {
+        applyBoardSideEffects(
+            shouldInvalidateCountdownTickSchedule: result.shouldInvalidateCountdownTickSchedule,
+            shouldSyncTaskReminders: result.shouldSyncTaskReminders
+        )
     }
 
     private func syncTaskStartReminders() {
-        let currentBoards = namedBoards
-        let currentSelectedBoardID = selectedBoardID
-        let activeBoard = viewModel.makeSavedBoardSnapshot()
-        let syncNow = Date()
-        let syncSignature = taskStartReminderScheduler.syncSignature(
-            namedBoards: currentBoards,
-            selectedBoardID: currentSelectedBoardID,
-            activeBoard: activeBoard,
-            now: syncNow
+        taskStartReminderSyncStore.scheduleSync(
+            namedBoards: namedBoards,
+            selectedBoardID: selectedBoardID,
+            activeBoard: viewModel.makeSavedBoardSnapshot()
         )
-
-        guard syncSignature != lastReminderSyncSignature else { return }
-        lastReminderSyncSignature = syncSignature
-
-        reminderSyncTask?.cancel()
-        reminderSyncTask = Task {
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            guard !Task.isCancelled else { return }
-            await taskStartReminderScheduler.syncReminders(
-                namedBoards: currentBoards,
-                selectedBoardID: currentSelectedBoardID,
-                activeBoard: activeBoard,
-                now: syncNow
-            )
-        }
     }
 
     private func processExpiredTimeoutsOnOtherBoards(now: Date) {
@@ -1499,11 +1984,15 @@ struct ContentView: View {
         }
         guard namedBoards.count > 1 else { return }
         guard let activeBoardID = selectedBoardID ?? namedBoards.first?.id else { return }
-        guard let targetBoardID = nextBoardWithExpiredTimeout(excluding: activeBoardID, now: now) else {
+        guard let targetBoardID = homeTimeoutWorkStore.nextBoardWithExpiredTimeout(
+            in: namedBoards,
+            excluding: activeBoardID,
+            now: now
+        ) else {
             return
         }
 
-        guard let selectedBoard = boardManagementStore.selectBoard(
+        guard let selection = boardManagementStore.selectBoard(
             targetBoardID,
             currentBoard: viewModel.makeSavedBoardSnapshot(),
             currentCountdownEndsAt: viewModel.boardCountdownEndsAt
@@ -1512,54 +2001,104 @@ struct ContentView: View {
         }
 
         viewModel.applySavedBoardSnapshot(
-            selectedBoard.board,
-            countdownEndsAt: selectedBoard.countdownEndsAt,
+            selection.selectedBoard.board,
+            countdownEndsAt: selection.selectedBoard.countdownEndsAt,
             referenceDate: now
         )
         _ = viewModel.refreshVisibilityWindowsIfNeeded(now: now)
         viewModel.processExpiredCountdowns(now: now)
         viewModel.processExpiredTaskCountdowns(now: now)
-    }
-
-    private func nextBoardWithExpiredTimeout(excluding activeBoardID: UUID, now: Date) -> UUID? {
-        for board in namedBoards where board.id != activeBoardID {
-            if let boardDeadline = board.countdownEndsAt, boardDeadline <= now {
-                return board.id
-            }
-            if hasExpiredTaskCountdown(in: board, now: now) {
-                return board.id
-            }
-        }
-        return nil
-    }
-
-    private func hasExpiredTaskCountdown(in namedBoard: BingoBoardStore.NamedBoard, now: Date) -> Bool {
-        BoardEngine.expiredTaskCandidate(in: namedBoard.board, now: now) != nil
+        applyBoardManagementMutationResult(selection)
     }
 
     private func selectBoard(_ boardID: UUID) {
-        guard selectedBoardID != boardID else { return }
-        guard boardSwitchAnimationStore.beginSelection() else { return }
+        DiagnosticLogStore.recordUserAction(
+            "board.select",
+            details: diagnosticHomeStateDetails(source: "board_panel")
+                .merging(["target_board_id": shortDiagnosticID(boardID)]) { current, _ in current }
+        )
+        selectedStickerID = nil
+        guard selectedBoardID != boardID else {
+            DiagnosticLogStore.recordStateChange(
+                "board.select_ignored_current",
+                details: ["board_id": shortDiagnosticID(boardID)]
+            )
+            return
+        }
+        guard boardSwitchAnimationStore.beginSelection() else {
+            DiagnosticLogStore.recordWarning(
+                "board.select_blocked_animation",
+                details: ["board_id": shortDiagnosticID(boardID)]
+            )
+            return
+        }
         markBoardPanelInteracted()
 
-        if let selectedBoard = boardManagementStore.selectBoard(
+        guard let selection = boardManagementStore.selectBoard(
             boardID,
             currentBoard: viewModel.makeSavedBoardSnapshot(),
             currentCountdownEndsAt: viewModel.boardCountdownEndsAt
-        ) {
-            viewModel.applySavedBoardSnapshot(
-                selectedBoard.board,
-                countdownEndsAt: selectedBoard.countdownEndsAt,
-                referenceDate: .now
+        ) else {
+            DiagnosticLogStore.recordWarning(
+                "board.select_failed",
+                details: ["board_id": shortDiagnosticID(boardID)]
             )
+            return
         }
-        syncTaskStartReminders()
+
+        viewModel.applySavedBoardSnapshot(
+            selection.selectedBoard.board,
+            countdownEndsAt: selection.selectedBoard.countdownEndsAt,
+            referenceDate: .now
+        )
+        applyBoardManagementMutationResult(selection)
+        DiagnosticLogStore.recordStateChange(
+            "board.selected",
+            details: [
+                "board_id": shortDiagnosticID(selection.selectedBoard.id),
+                "grid_size": "\(viewModel.gridSize)"
+            ]
+        )
+    }
+
+    private func applyBoardManagementMutationResult(_ result: BoardManagementMutationResult) {
+        applyBoardSideEffects(
+            shouldInvalidateCountdownTickSchedule: result.shouldInvalidateCountdownTickSchedule,
+            shouldSyncTaskReminders: result.shouldSyncTaskReminders
+        )
+    }
+
+    private func applyBoardSideEffects(
+        shouldInvalidateCountdownTickSchedule: Bool,
+        shouldSyncTaskReminders: Bool
+    ) {
+        if shouldInvalidateCountdownTickSchedule {
+            invalidateCountdownTickSchedule()
+        }
+        if shouldSyncTaskReminders {
+            syncTaskStartReminders()
+        }
     }
 
     private func beginCreateBoard() {
+        DiagnosticLogStore.recordUserAction(
+            "board.create_begin",
+            details: diagnosticHomeStateDetails(source: "board_panel")
+        )
+        selectedStickerID = nil
         markBoardPanelInteracted()
         guard canCreateAdditionalBoard else {
-            AnalyticsService.logPremiumBoardsLimitHit(currentBoardCount: namedBoards.count)
+            DiagnosticLogStore.recordWarning(
+                "board.create_blocked_limit",
+                details: [
+                    "board_count": "\(namedBoards.count)",
+                    "has_premium": "\(subscriptionManager.hasPremiumAccess)"
+                ]
+            )
+            AnalyticsService.logPremiumBoardsLimitHit(
+                currentBoardCount: namedBoards.count,
+                source: "boards_limit"
+            )
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                 presentPremiumPaywall(source: "boards_limit")
             }
@@ -1571,30 +2110,71 @@ struct ContentView: View {
 
     private func createBoard() {
         guard canCreateAdditionalBoard else {
-            AnalyticsService.logPremiumBoardsLimitHit(currentBoardCount: namedBoards.count)
+            DiagnosticLogStore.recordWarning(
+                "board.create_guard_failed_limit",
+                details: [
+                    "board_count": "\(namedBoards.count)",
+                    "has_premium": "\(subscriptionManager.hasPremiumAccess)"
+                ]
+            )
+            AnalyticsService.logPremiumBoardsLimitHit(
+                currentBoardCount: namedBoards.count,
+                source: "boards_limit"
+            )
             return
         }
         markBoardPanelInteracted()
 
-        let newBoard = boardManagementStore.createBoard(
+        let creation = boardManagementStore.createBoard(
             nameDraft: boardActionPresentationStore.createNameDraft,
             currentBoard: viewModel.makeSavedBoardSnapshot(),
             currentCountdownEndsAt: viewModel.boardCountdownEndsAt
         )
 
         viewModel.applySavedBoardSnapshot(
-            newBoard.board,
-            countdownEndsAt: nil,
+            creation.selectedBoard.board,
+            countdownEndsAt: creation.selectedBoard.countdownEndsAt,
             referenceDate: .now
         )
-        syncTaskStartReminders()
+        applyBoardManagementMutationResult(creation)
         boardActionPresentationStore.clearCreateDraft()
+        DiagnosticLogStore.recordStateChange(
+            "board.created",
+            details: [
+                "selected_board_id": shortDiagnosticID(creation.selectedBoard.id),
+                "board_count": "\(namedBoards.count)"
+            ]
+        )
     }
 
     private func beginBoardTemplateShare() {
-        guard AppFeatureFlags.isTemplateSharingEnabled else { return }
-        guard !isTemplateShareComposerPresented else { return }
+        DiagnosticLogStore.recordUserAction(
+            "template.share_begin",
+            details: diagnosticHomeStateDetails(source: "board_header")
+        )
+        guard AppFeatureFlags.isTemplateSharingEnabled else {
+            DiagnosticLogStore.recordWarning(
+                "template.share_blocked_feature_flag",
+                details: ["source": "board_header"]
+            )
+            return
+        }
+        guard !isTemplateShareComposerPresented else {
+            DiagnosticLogStore.recordWarning(
+                "template.share_blocked_already_presented",
+                details: ["source": "board_header"]
+            )
+            return
+        }
+        selectedStickerID = nil
         guard let template = makeCurrentBoardTemplate() else {
+            DiagnosticLogStore.recordWarning(
+                "template.share_blocked_empty_board",
+                details: [
+                    "selected_board_id": shortDiagnosticID(selectedBoardID),
+                    "grid_size": "\(viewModel.gridSize)"
+                ]
+            )
             showCommonTasksToast(L10n.templateShareEmptyBoard)
             return
         }
@@ -1605,14 +2185,35 @@ struct ContentView: View {
         )
         boardTemplateShareDraft = template
         isTemplateShareComposerPresented = true
+        DiagnosticLogStore.recordStateChange(
+            "template.share_presented",
+            details: [
+                "grid_size": "\(template.gridSize)",
+                "has_premium": "\(subscriptionManager.hasPremiumAccess)"
+            ]
+        )
     }
 
     private func beginBoardTemplateImport() {
-        guard AppFeatureFlags.isTemplateSharingEnabled else { return }
+        DiagnosticLogStore.recordUserAction(
+            "template.import_begin",
+            details: diagnosticHomeStateDetails(source: "pasteboard")
+        )
+        guard AppFeatureFlags.isTemplateSharingEnabled else {
+            DiagnosticLogStore.recordWarning(
+                "template.import_blocked_feature_flag",
+                details: ["source": "pasteboard"]
+            )
+            return
+        }
         if let clipboardText = UIPasteboard.general.string,
            resolveTemplateImport(from: clipboardText, showsErrorToast: false) {
             return
         }
+        DiagnosticLogStore.recordWarning(
+            "template.import_invalid_clipboard",
+            details: ["has_clipboard_text": "\(UIPasteboard.general.string != nil)"]
+        )
         showCommonTasksToast(L10n.templateImportInvalidLink)
     }
 
@@ -1640,6 +2241,14 @@ struct ContentView: View {
                 template: template,
                 source: source,
                 createsNewBoard: shouldImportTemplateAsNewBoard
+            )
+            DiagnosticLogStore.recordStateChange(
+                "template.import_preview_presented",
+                details: [
+                    "source": source,
+                    "grid_size": "\(template.gridSize)",
+                    "creates_new_board": "\(shouldImportTemplateAsNewBoard)"
+                ]
             )
         }
     }
@@ -1673,11 +2282,18 @@ struct ContentView: View {
             savedBoard: savedBoard,
             createsNewBoard: createsNewBoard
         ) else {
+            DiagnosticLogStore.recordWarning(
+                "template.import_failed",
+                details: [
+                    "grid_size": "\(template.gridSize)",
+                    "creates_new_board": "\(createsNewBoard)"
+                ]
+            )
             return
         }
 
         applyImportedTemplateBoard(
-            importedResult.board,
+            importedResult.mutationResult,
             template: template,
             createsNewBoard: createsNewBoard,
             successMessage: importedResult.successMessage
@@ -1689,6 +2305,13 @@ struct ContentView: View {
     }
 
     private func handleBlockedTemplateImport(_ template: BoardTemplatePayload) {
+        DiagnosticLogStore.recordWarning(
+            "template.import_blocked_premium",
+            details: [
+                "grid_size": "\(template.gridSize)",
+                "has_premium": "\(subscriptionManager.hasPremiumAccess)"
+            ]
+        )
         AnalyticsService.logPremiumGrid5x5LimitHit(
             currentGridSize: viewModel.gridSize,
             source: "template_import"
@@ -1705,19 +2328,19 @@ struct ContentView: View {
         createsNewBoard: Bool
     ) -> TemplateImportResult? {
         if createsNewBoard {
-            let importedBoard = boardManagementStore.importTemplateAsNewBoard(
+            let importedResult = boardManagementStore.importTemplateAsNewBoard(
                 nameDraft: template.normalizedTitle,
                 savedBoard: savedBoard,
                 currentBoard: viewModel.makeSavedBoardSnapshot(),
                 currentCountdownEndsAt: viewModel.boardCountdownEndsAt
             )
             return TemplateImportResult(
-                board: importedBoard,
+                mutationResult: importedResult,
                 successMessage: L10n.templateImportSuccessCreated
             )
         }
 
-        guard let importedBoard = boardManagementStore.replaceSelectedBoardWithTemplate(
+        guard let importedResult = boardManagementStore.replaceSelectedBoardWithTemplate(
             nameDraft: template.normalizedTitle,
             savedBoard: savedBoard
         ) else {
@@ -1725,23 +2348,23 @@ struct ContentView: View {
         }
 
         return TemplateImportResult(
-            board: importedBoard,
+            mutationResult: importedResult,
             successMessage: L10n.templateImportSuccessReplaced
         )
     }
 
     private func applyImportedTemplateBoard(
-        _ importedBoard: BingoBoardStore.NamedBoard,
+        _ importResult: BoardManagementMutationResult,
         template: BoardTemplatePayload,
         createsNewBoard: Bool,
         successMessage: String
     ) {
         viewModel.applySavedBoardSnapshot(
-            importedBoard.board,
-            countdownEndsAt: nil,
+            importResult.selectedBoard.board,
+            countdownEndsAt: importResult.selectedBoard.countdownEndsAt,
             referenceDate: .now
         )
-        syncTaskStartReminders()
+        applyBoardManagementMutationResult(importResult)
         finishTemplateImport(
             template: template,
             createsNewBoard: createsNewBoard,
@@ -1756,6 +2379,13 @@ struct ContentView: View {
     ) {
         dismissTemplateImportFlow()
         templateImportFlowStore.logImportSuccess(template: template, createsNewBoard: createsNewBoard)
+        DiagnosticLogStore.recordStateChange(
+            "template.import_success",
+            details: [
+                "grid_size": "\(template.gridSize)",
+                "creates_new_board": "\(createsNewBoard)"
+            ]
+        )
         showCommonTasksToast(successMessage)
     }
 
@@ -1765,14 +2395,36 @@ struct ContentView: View {
     }
 
     private func beginRenameSelectedBoard() {
-        guard let selectedNamedBoardIndex else { return }
+        guard let selectedNamedBoardIndex else {
+            DiagnosticLogStore.recordWarning(
+                "board.rename_selected_missing",
+                details: diagnosticHomeStateDetails(source: "board_panel")
+            )
+            return
+        }
         let board = namedBoards[selectedNamedBoardIndex]
+        DiagnosticLogStore.recordUserAction(
+            "board.rename_selected_begin",
+            details: diagnosticHomeStateDetails(source: "board_panel")
+                .merging(["board_id": shortDiagnosticID(board.id)]) { current, _ in current }
+        )
         markBoardPanelInteracted()
         boardActionPresentationStore.beginRename(board: board)
     }
 
     private func beginRenameBoard(_ boardID: UUID) {
-        guard let board = namedBoards.first(where: { $0.id == boardID }) else { return }
+        DiagnosticLogStore.recordUserAction(
+            "board.rename_begin",
+            details: diagnosticHomeStateDetails(source: "board_actions")
+                .merging(["board_id": shortDiagnosticID(boardID)]) { current, _ in current }
+        )
+        guard let board = namedBoards.first(where: { $0.id == boardID }) else {
+            DiagnosticLogStore.recordWarning(
+                "board.rename_missing_board",
+                details: ["board_id": shortDiagnosticID(boardID)]
+            )
+            return
+        }
         markBoardPanelInteracted()
         boardActionPresentationStore.beginRename(board: board)
     }
@@ -1783,6 +2435,10 @@ struct ContentView: View {
         }
 
         guard let boardPendingRenameID = boardActionPresentationStore.pendingRenameID else {
+            DiagnosticLogStore.recordWarning(
+                "board.rename_missing_pending_id",
+                details: diagnosticHomeStateDetails(source: "board_rename_alert")
+            )
             return
         }
 
@@ -1791,7 +2447,10 @@ struct ContentView: View {
             boardPendingRenameID,
             nameDraft: boardActionPresentationStore.renameNameDraft
         )
-        syncTaskStartReminders()
+        DiagnosticLogStore.recordStateChange(
+            "board.renamed",
+            details: ["board_id": shortDiagnosticID(boardPendingRenameID)]
+        )
     }
 
     private var boardCountdownText: String? {
@@ -1821,13 +2480,14 @@ struct ContentView: View {
         return "\(seconds)s"
     }
 
-    private func reconcileStickerOwnershipIfPointsInsufficient() {
-        guard pointsFeatureStore.reconcileStickerOwnershipIfPointsInsufficient(
+    private func reconcileRedemptionsIfPointsInsufficient() {
+        let result = pointsFeatureStore.reconcileRedemptionsIfPointsInsufficient(
             totalPoints: viewModel.totalPoints
-        ) else {
+        )
+        guard result.didChange else {
             return
         }
-        showCommonTasksToast(L10n.stickerRevokedDueToPoints)
+        showCommonTasksToast(L10n.pointRedemptionsRevokedDueToPoints)
 
         if let selectedStickerID, !pointsFeatureStore.containsPlacement(id: selectedStickerID) {
             self.selectedStickerID = nil

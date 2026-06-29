@@ -70,11 +70,10 @@ private struct PAGLoopView: View {
 
 struct HomeLimitedOfferBannerView: View {
     let isPadLayout: Bool
+    let offerDuration: TimeInterval
     let onTap: () -> Void
 
     @AppStorage(AppSettings.limitedTimeDiscountStartedAtKey) private var limitedTimeDiscountStartedAt = 0.0
-
-    private let offerDuration: TimeInterval = 48 * 60 * 60
 
     private var bannerWidth: CGFloat {
         isPadLayout ? 178 : 136
@@ -175,7 +174,8 @@ struct HomeLimitedOfferBannerView: View {
             return L10n.limitedOfferHomeTitle
         }
 
-        let target = Date(timeIntervalSince1970: limitedTimeDiscountStartedAt + offerDuration)
+        let effectiveStartedAt = min(limitedTimeDiscountStartedAt, now.timeIntervalSince1970)
+        let target = Date(timeIntervalSince1970: effectiveStartedAt + offerDuration)
         let totalSeconds = max(0, Int(ceil(target.timeIntervalSince(now))))
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60

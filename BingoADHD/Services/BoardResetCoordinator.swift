@@ -132,7 +132,7 @@ struct BoardResetCoordinator {
 
         for index in namedBoards.indices {
             let board = namedBoards[index].board
-            var fullBoard = Self.expandedBoardCache(from: board, maxGridSize: maxGridSize)
+            var fullBoard = BoardEngine.expandedBoardCache(from: board, maxSize: maxGridSize)
             var didUpdateBoard = false
 
             for row in fullBoard.indices {
@@ -185,50 +185,36 @@ struct BoardResetCoordinator {
 
         for index in namedBoards.indices {
             let board = namedBoards[index]
-            let usesCustomResetTime = boardUsesCustomResetTime(board)
-            let customResetDue = usesCustomResetTime
-                ? shouldApplyCustomReset(for: board, now: now, calendar: calendar)
-                : false
-            let alreadyAppliedToday: Bool = {
-                guard let lastApplied = board.lastTaskResetAppliedAt else { return false }
-                return calendar.isDate(lastApplied, inSameDayAs: now)
-            }()
-            let shouldApplyBySchedule: Bool = {
-                if usesCustomResetTime {
-                    return customResetDue
-                }
-                switch board.taskResetMode {
-                case .resetStatusNextDay, .clearTasksNextDay:
-                    return !alreadyAppliedToday
-                case .customResetStatusTime:
-                    return customResetDue
-                case .keepTaskStatus:
-                    return false
-                }
-            }()
-            let shouldForceApplyForStaleCompletion =
-                !usesCustomResetTime &&
-                board.taskResetMode == .resetStatusNextDay &&
-                Self.boardHasStaleCompletedTasks(board, referenceDate: now, calendar: calendar)
+            let resetEvaluation = BoardResetRuleEngine.pendingResetEvaluation(
+                for: board,
+                now: now,
+                calendar: calendar
+            )
+            showCustomResetDebugToastIfNeeded(
+                board: board,
+                now: now,
+                calendar: calendar,
+                didHit: resetEvaluation.customResetDue
+            )
             debugLog(
                 "apply.inspect source=\(source) board=\(index) mode=\(board.taskResetMode.rawValue) " +
                 "customMinutes=\(board.customResetMinutes?.description ?? "nil") " +
-                "usesCustomResetTime=\(usesCustomResetTime) customResetDue=\(customResetDue) " +
-                "alreadyAppliedToday=\(alreadyAppliedToday) shouldApplyBySchedule=\(shouldApplyBySchedule) " +
-                "staleForce=\(shouldForceApplyForStaleCompletion) " +
-                "completedCount=\(Self.completedTaskCount(in: board)) lastApplied=\(board.lastTaskResetAppliedAt?.description ?? "nil")"
+                "usesCustomResetTime=\(resetEvaluation.usesCustomResetTime) customResetDue=\(resetEvaluation.customResetDue) " +
+                "alreadyAppliedToday=\(resetEvaluation.alreadyAppliedToday) shouldApplyBySchedule=\(resetEvaluation.shouldApplyBySchedule) " +
+                "staleForce=\(resetEvaluation.shouldForceApplyForStaleCompletion) " +
+                "completedCount=\(BoardResetRuleEngine.completedTaskCount(in: board)) lastApplied=\(board.lastTaskResetAppliedAt?.description ?? "nil")"
             )
 
-            if !shouldApplyBySchedule && !shouldForceApplyForStaleCompletion {
+            if !resetEvaluation.shouldApply {
                 skippedCount += 1
                 continue
             }
-            if shouldForceApplyForStaleCompletion {
+            if resetEvaluation.shouldForceApplyForStaleCompletion {
                 staleForceCount += 1
             }
 
-            let clearedCompletedCount = Self.completedTaskCount(in: board)
-            let transformedBoard = Self.transformedBoardSnapshotForResetMode(
+            let clearedCompletedCount = BoardResetRuleEngine.completedTaskCount(in: board)
+            let transformedBoard = BoardResetRuleEngine.transformedBoardSnapshotForResetMode(
                 board.board,
                 mode: board.taskResetMode,
                 referenceDate: now
@@ -258,48 +244,11 @@ struct BoardResetCoordinator {
 
     private mutating func hasPendingCustomTimeReset(at now: Date, calendar: Calendar = .current) -> Bool {
         for board in namedBoards {
-            if shouldApplyCustomReset(for: board, now: now, calendar: calendar) {
+            if BoardResetRuleEngine.pendingResetEvaluation(for: board, now: now, calendar: calendar).customResetDue {
                 return true
             }
         }
         return false
-    }
-
-    private func boardUsesCustomResetTime(_ board: BingoBoardStore.NamedBoard) -> Bool {
-        board.customResetMinutes != nil &&
-        (board.taskResetMode == .resetStatusNextDay || board.taskResetMode == .customResetStatusTime)
-    }
-
-    private mutating func shouldApplyCustomReset(
-        for board: BingoBoardStore.NamedBoard,
-        now: Date,
-        calendar: Calendar = .current
-    ) -> Bool {
-        guard boardUsesCustomResetTime(board) else { return false }
-        let clampedMinutes = min(max(board.customResetMinutes ?? 0, 0), 23 * 60 + 59)
-        let startOfDay = calendar.startOfDay(for: now)
-        guard let triggerTime = calendar.date(byAdding: .minute, value: clampedMinutes, to: startOfDay) else {
-            return false
-        }
-        let didHitByTime = now >= triggerTime
-        let didHitByLastApplied: Bool = {
-            guard let lastApplied = board.lastTaskResetAppliedAt else { return true }
-            return lastApplied < triggerTime
-        }()
-        let shouldApply = didHitByTime && didHitByLastApplied
-
-        #if DEBUG
-        if debugConfiguration.showCustomResetToast {
-            showCustomResetDebugToast(
-                boardName: board.name,
-                triggerTime: triggerTime,
-                didHit: shouldApply,
-                now: now
-            )
-        }
-        #endif
-
-        return shouldApply
     }
 
     private mutating func debugLog(_ message: String) {
@@ -307,6 +256,33 @@ struct BoardResetCoordinator {
         debugLogs.append(message)
         #else
         _ = message
+        #endif
+    }
+
+    private mutating func showCustomResetDebugToastIfNeeded(
+        board: BingoBoardStore.NamedBoard,
+        now: Date,
+        calendar: Calendar,
+        didHit: Bool
+    ) {
+        #if DEBUG
+        guard debugConfiguration.showCustomResetToast else { return }
+        guard let triggerTime = BoardResetRuleEngine.customResetTriggerTime(
+            for: board,
+            now: now,
+            calendar: calendar
+        ) else { return }
+        showCustomResetDebugToast(
+            boardName: board.name,
+            triggerTime: triggerTime,
+            didHit: didHit,
+            now: now
+        )
+        #else
+        _ = board
+        _ = now
+        _ = calendar
+        _ = didHit
         #endif
     }
 
@@ -347,174 +323,4 @@ struct BoardResetCoordinator {
         #endif
     }
 
-    private static func completedTaskCount(in board: BingoBoardStore.NamedBoard) -> Int {
-        let fullBoard = expandedBoardCache(from: board.board, maxGridSize: BingoViewModel.maxGridSize)
-        return fullBoard.flatMap(\.self).filter { $0.isCompleted && $0.hasStoredTask }.count
-    }
-
-    private static func boardHasStaleCompletedTasks(
-        _ board: BingoBoardStore.NamedBoard,
-        referenceDate: Date,
-        calendar: Calendar = .current
-    ) -> Bool {
-        let fullBoard = expandedBoardCache(from: board.board, maxGridSize: BingoViewModel.maxGridSize)
-
-        for row in fullBoard {
-            for cell in row {
-                guard cell.isCompleted, cell.hasStoredTask else { continue }
-
-                if let lastCompletedAt = cell.lastCompletedAt {
-                    if !calendar.isDate(lastCompletedAt, inSameDayAs: referenceDate) {
-                        return true
-                    }
-                } else if !calendar.isDate(board.updatedAt, inSameDayAs: referenceDate) {
-                    return true
-                }
-            }
-        }
-
-        return false
-    }
-
-    private static func transformedBoardSnapshotForResetMode(
-        _ board: SavedBoard,
-        mode: BoardTaskResetMode,
-        referenceDate: Date
-    ) -> SavedBoard {
-        let maxGridSize = BingoViewModel.maxGridSize
-        var fullBoard: [[BingoCell]]
-
-        switch mode {
-        case .resetStatusNextDay, .customResetStatusTime:
-            fullBoard = expandedBoardCache(from: board, maxGridSize: maxGridSize)
-            let calendar = Calendar.current
-            for row in fullBoard.indices {
-                for col in fullBoard[row].indices {
-                    fullBoard[row][col] = normalizedBoardCellForNextDay(
-                        fullBoard[row][col],
-                        referenceDate: referenceDate,
-                        calendar: calendar
-                    )
-                }
-            }
-            for row in fullBoard.indices {
-                for col in fullBoard[row].indices {
-                    guard !fullBoard[row][col].isEmpty else { continue }
-                    fullBoard[row][col].isCompleted = false
-                    fullBoard[row][col].isTaskHidden = false
-                    fullBoard[row][col].countdownEndsAt = nil
-                    fullBoard[row][col].countdownPausedRemainingSeconds = nil
-                    fullBoard[row][col].estimatedDurationMinutes = nil
-                }
-            }
-            normalizeForceFlagsForBoardReset(&fullBoard, referenceDate: referenceDate)
-        case .clearTasksNextDay:
-            fullBoard = uniqueEmptyGrid(size: maxGridSize)
-        case .keepTaskStatus:
-            fullBoard = expandedBoardCache(from: board, maxGridSize: maxGridSize)
-        }
-
-        let gridSize = min(max(board.gridSize, 2), maxGridSize)
-        let visibleCells: [[BingoCell]] = (0..<gridSize).map { row in
-            (0..<gridSize).map { col in
-                fullBoard[row][col].projectedForDisplay(on: referenceDate)
-            }
-        }
-
-        return SavedBoard(
-            gridSize: gridSize,
-            cells: visibleCells,
-            completedLines: [],
-            fullBoardCells: fullBoard
-        )
-    }
-
-    private static func normalizedBoardCellForNextDay(
-        _ cell: BingoCell,
-        referenceDate: Date,
-        calendar: Calendar = .current
-    ) -> BingoCell {
-        var updated = cell
-
-        if updated.isForced, updated.isCompleted {
-            updated.isForced = false
-        }
-
-        if updated.isOneTimeTask,
-           let oneTimeVisibleDate = updated.oneTimeVisibleDate,
-           !calendar.isDate(oneTimeVisibleDate, inSameDayAs: referenceDate) {
-            updated.text = ""
-            updated.residentTaskText = nil
-            updated.residentWeekdays = []
-            updated.oneTimeVisibleDate = nil
-            updated.isTaskHidden = false
-            updated.isForced = false
-            updated.countdownEndsAt = nil
-            updated.countdownPausedRemainingSeconds = nil
-            updated.estimatedDurationMinutes = nil
-            updated.completionStreakCount = 0
-            updated.lastCompletedAt = nil
-            updated.isCompleted = false
-        }
-
-        return updated
-    }
-
-    private static func normalizeForceFlagsForBoardReset(
-        _ fullBoard: inout [[BingoCell]],
-        referenceDate: Date
-    ) {
-        var forcedPositions: [(row: Int, col: Int)] = []
-
-        for row in fullBoard.indices {
-            for col in fullBoard[row].indices {
-                guard fullBoard[row][col].isForced else { continue }
-
-                if !fullBoard[row][col].hasStoredTask || fullBoard[row][col].isCompleted {
-                    fullBoard[row][col].isForced = false
-                    continue
-                }
-
-                forcedPositions.append((row, col))
-            }
-        }
-
-        guard forcedPositions.count > 1 else { return }
-
-        let keepPosition = forcedPositions.first {
-            let projected = fullBoard[$0.row][$0.col].projectedForDisplay(on: referenceDate)
-            return !projected.isEmpty
-        } ?? forcedPositions[0]
-
-        for position in forcedPositions where !(position.row == keepPosition.row && position.col == keepPosition.col) {
-            fullBoard[position.row][position.col].isForced = false
-        }
-    }
-
-    private static func expandedBoardCache(from board: SavedBoard, maxGridSize: Int) -> [[BingoCell]] {
-        var expanded = uniqueEmptyGrid(size: maxGridSize)
-
-        if let fullBoardCells = board.fullBoardCells, !fullBoardCells.isEmpty {
-            for row in 0..<min(fullBoardCells.count, maxGridSize) {
-                for col in 0..<min(fullBoardCells[row].count, maxGridSize) {
-                    expanded[row][col] = fullBoardCells[row][col]
-                }
-            }
-            return expanded
-        }
-
-        for row in 0..<min(board.cells.count, maxGridSize) {
-            for col in 0..<min(board.cells[row].count, maxGridSize) {
-                expanded[row][col] = board.cells[row][col]
-            }
-        }
-
-        return expanded
-    }
-
-    private static func uniqueEmptyGrid(size: Int) -> [[BingoCell]] {
-        (0..<size).map { _ in
-            (0..<size).map { _ in BingoCell() }
-        }
-    }
 }

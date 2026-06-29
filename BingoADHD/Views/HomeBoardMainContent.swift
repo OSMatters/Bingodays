@@ -12,6 +12,7 @@ struct HomeBoardMainContent: View {
     let currentTime: Date
     let shouldShowCenterLongPressHint: Bool
     let shouldShowBoardEditHint: Bool
+    let shouldReserveBoardEditHintSpace: Bool
     let countdownText: String?
     let isTemplateShareDisabled: Bool
     let isEditActionsExpanded: Bool
@@ -37,6 +38,7 @@ struct HomeBoardMainContent: View {
                 contentWidth: contentWidth,
                 isPadLayout: isPadLayout,
                 shouldShowBoardEditHint: shouldShowBoardEditHint,
+                shouldReserveBoardEditHintSpace: shouldReserveBoardEditHintSpace,
                 onSelectBoard: onSelectBoard,
                 onBoardLongPress: onBoardLongPress,
                 onCreateBoard: onCreateBoard,

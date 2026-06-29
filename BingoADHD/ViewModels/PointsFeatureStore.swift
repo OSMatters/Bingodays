@@ -51,41 +51,25 @@ final class PointsFeatureStore: ObservableObject {
     }
 
     @discardableResult
+    func reconcileRedemptionsIfPointsInsufficient(totalPoints: Int) -> PointRedemptionReconciliationResult {
+        let result = PointRedemptionReconciler.reconcileRedemptionsIfNeeded(
+            totalPoints: totalPoints,
+            stickerInventoryCounts: stickerInventoryCounts,
+            homeStickerPlacements: homeStickerPlacements,
+            customRewards: customRewards
+        )
+        guard result.didChange else { return result }
+
+        stickerInventoryCounts = result.stickerInventoryCounts
+        homeStickerPlacements = result.homeStickerPlacements
+        customRewards = result.customRewards
+        PointRedemptionReconciler.persist(result)
+        return result
+    }
+
+    @discardableResult
     func reconcileStickerOwnershipIfPointsInsufficient(totalPoints: Int) -> Bool {
-        let stickerBudget = max(totalPoints - spentRewardPoints, 0)
-        var updatedInventory = stickerInventoryCounts
-        var updatedPlacements = homeStickerPlacements
-
-        var currentStickerCost = updatedInventory.reduce(0) { partial, entry in
-            partial + (entry.key.requiredPoints * entry.value)
-        }
-        guard currentStickerCost > stickerBudget else { return false }
-
-        let ownedKinds = updatedInventory
-            .filter { $0.value > 0 }
-            .map(\.key)
-            .sorted { lhs, rhs in
-                if lhs.requiredPoints == rhs.requiredPoints {
-                    return lhs.rawValue < rhs.rawValue
-                }
-                return lhs.requiredPoints > rhs.requiredPoints
-            }
-
-        var didChange = false
-        for kind in ownedKinds where currentStickerCost > stickerBudget {
-            guard updatedInventory[kind, default: 0] > 0 else { continue }
-            updatedInventory[kind] = 0
-            updatedPlacements.removeAll { $0.kind == kind }
-            currentStickerCost -= kind.requiredPoints
-            didChange = true
-        }
-
-        guard didChange else { return false }
-        stickerInventoryCounts = updatedInventory
-        homeStickerPlacements = updatedPlacements
-        StickerStore.saveInventoryCounts(updatedInventory)
-        StickerStore.savePlacements(updatedPlacements)
-        return true
+        reconcileRedemptionsIfPointsInsufficient(totalPoints: totalPoints).didChange
     }
 
     func containsPlacement(id: UUID) -> Bool {

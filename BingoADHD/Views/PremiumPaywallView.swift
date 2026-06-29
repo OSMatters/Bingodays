@@ -95,7 +95,11 @@ struct PremiumPaywallView: View {
     @State private var didLogPaywallView = false
     @State private var selectedFeatureIndex = 0
     @State private var didSetInitialFeature = false
+    @State private var didCompletePremiumPurchase = false
     @AppStorage(AppSettings.hasVisitedPremiumPaywallWithoutPurchaseKey) private var hasVisitedPremiumPaywallWithoutPurchase = false
+    @AppStorage(AppSettings.hasLegacyLimitedTimeDiscountExposureKey) private var hasLegacyLimitedTimeDiscountExposure = false
+    @AppStorage(AppSettings.limitedTimeDiscountStartedAtKey) private var limitedTimeDiscountStartedAt = 0.0
+    @AppStorage(AppSettings.limitedTimeDiscountCampaignIDKey) private var limitedTimeDiscountCampaignID = ""
 
     private let designWidth: CGFloat = 393
     private let designHeight: CGFloat = 852
@@ -364,7 +368,7 @@ struct PremiumPaywallView: View {
         }
         .onChange(of: subscriptionManager.hasPremiumAccess) { _, hasPremiumAccess in
             if hasPremiumAccess {
-                hasVisitedPremiumPaywallWithoutPurchase = false
+                clearLimitedOfferStateAfterPurchase()
             }
         }
         .onAppear {
@@ -372,7 +376,6 @@ struct PremiumPaywallView: View {
                 selectedFeatureIndex = initialFeatureIndexForEntrySource
                 didSetInitialFeature = true
             }
-            markLimitedOfferEligibleAfterPaywallVisit()
             AppHaptics.prepareForInteraction()
             guard !didLogPaywallView else { return }
             didLogPaywallView = true
@@ -380,6 +383,9 @@ struct PremiumPaywallView: View {
                 source: entrySource,
                 isMemberCenter: isMemberCenter
             )
+        }
+        .onDisappear {
+            markLimitedOfferEligibleAfterPaywallExit()
         }
         .alert(L10n.subscription, isPresented: feedbackAlertBinding) {
             Button(L10n.ok) {
@@ -780,13 +786,26 @@ struct PremiumPaywallView: View {
 
     private func updateLimitedOfferEligibility(afterPurchaseMessage message: String) {
         if shouldTrackPremiumPurchaseSuccess(for: message) || subscriptionManager.hasPremiumAccess {
-            hasVisitedPremiumPaywallWithoutPurchase = false
+            clearLimitedOfferStateAfterPurchase()
         }
     }
 
-    private func markLimitedOfferEligibleAfterPaywallVisit() {
-        if !subscriptionManager.hasPremiumAccess {
+    private func clearLimitedOfferStateAfterPurchase() {
+        didCompletePremiumPurchase = true
+        hasVisitedPremiumPaywallWithoutPurchase = false
+        hasLegacyLimitedTimeDiscountExposure = false
+        limitedTimeDiscountStartedAt = 0
+        limitedTimeDiscountCampaignID = ""
+        NotificationCenter.default.post(name: .limitedOfferEligibilityDidChange, object: nil)
+    }
+
+    private func markLimitedOfferEligibleAfterPaywallExit() {
+        if !subscriptionManager.hasPremiumAccess && !didCompletePremiumPurchase {
             hasVisitedPremiumPaywallWithoutPurchase = true
+            NotificationCenter.default.post(name: .limitedOfferEligibilityDidChange, object: nil)
+#if DEBUG
+            print("[LimitedOffer] Marked eligible after paywall exit")
+#endif
         }
     }
 
@@ -1061,6 +1080,12 @@ struct PremiumPaywallView: View {
     private var subscribeButton: some View {
         Button {
             Task {
+                await subscriptionManager.refreshEntitlements()
+                if subscriptionManager.hasPremiumAccess {
+                    clearLimitedOfferStateAfterPurchase()
+                    dismiss()
+                    return
+                }
                 let message = await subscriptionManager.purchase(
                     productID: selectedPlan.productID,
                     analyticsSource: entrySource,
@@ -1128,7 +1153,7 @@ struct PremiumPaywallView: View {
             Task {
                 let message = await subscriptionManager.restorePurchases()
                 if subscriptionManager.hasPremiumAccess {
-                    hasVisitedPremiumPaywallWithoutPurchase = false
+                    clearLimitedOfferStateAfterPurchase()
                     dismiss()
                 } else {
                     feedbackMessage = message

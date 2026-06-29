@@ -13,7 +13,6 @@ struct BingoRewardSettlementInput {
     var totalPoints: Int
     var lifetimePoints: Int
     var dailyRewardState: DailyRewardState
-    var nonRevocableConsumedPoints: Int
 }
 
 struct BingoRewardSettlementOutput {
@@ -62,22 +61,6 @@ enum BingoRewardSettlement {
         dailyRewardState.peakCompletedLineCount = newLineCount
         dailyRewardState.fullBoardRewardGranted = newFullBoardRewardGranted
 
-        let earnedTodayPoints = currentBoardPoints
-
-        if totalPoints < earnedTodayPoints {
-            let correction = earnedTodayPoints - totalPoints
-            totalPoints = earnedTodayPoints
-            lifetimePoints += correction
-        }
-
-        // Spent rewards are non-revocable, so point repair never lets the available total drop below consumed + earned.
-        let minimumExpectedTotalPoints = input.nonRevocableConsumedPoints + earnedTodayPoints
-        if totalPoints < minimumExpectedTotalPoints {
-            let correction = minimumExpectedTotalPoints - totalPoints
-            totalPoints = minimumExpectedTotalPoints
-            lifetimePoints += correction
-        }
-
         return BingoRewardSettlementOutput(
             totalPoints: totalPoints,
             lifetimePoints: lifetimePoints,
@@ -95,7 +78,8 @@ enum BingoRewardSettlement {
     ) -> DailyRewardState {
         let todayKey = PointsStore.dateKey(for: referenceDate)
         if let savedState = savedDailyRewardState,
-           savedState.dateKey == todayKey {
+           savedState.dateKey == todayKey,
+           isRewardState(savedState, compatibleWith: currentCells) {
             return savedState
         }
 
@@ -144,10 +128,13 @@ enum BingoRewardSettlement {
         DailyRewardState(dateKey: PointsStore.dateKey(for: date))
     }
 
-    static func nonRevocableConsumedPointsTotal() -> Int {
-        RewardStore.loadRewards().reduce(0) { partial, reward in
-            partial + reward.totalSpentPoints
-        }
+    private static func isRewardState(
+        _ state: DailyRewardState,
+        compatibleWith cells: [[BingoCell]]
+    ) -> Bool {
+        guard !state.rewardedCellIDs.isEmpty else { return true }
+        let currentCellIDs = Set(cells.flatMap { $0 }.map(\.id))
+        return state.rewardedCellIDs.isSubset(of: currentCellIDs)
     }
 
     private static func rewardStateResetIfNeeded(

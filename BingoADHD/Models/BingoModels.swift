@@ -3,19 +3,184 @@ import Foundation
 import UIKit
 import Compression
 
+struct TaskRecurrenceRule: Codable, Equatable {
+    enum Kind: String, Codable, Equatable, CaseIterable {
+        case none
+        case daily
+        case weekly
+        case monthlyDay
+        case everyNDays
+    }
+
+    static let defaultDayInterval = 2
+    static let maxDayInterval = 30
+
+    var kind: Kind
+    var interval: Int
+    var weekdays: Set<Int>
+    var monthDay: Int?
+    var anchorDate: Date?
+
+    init(
+        kind: Kind,
+        interval: Int = 1,
+        weekdays: Set<Int> = [],
+        monthDay: Int? = nil,
+        anchorDate: Date? = nil
+    ) {
+        self.kind = kind
+        self.interval = Self.normalizedInterval(interval, kind: kind)
+        self.weekdays = Set(weekdays.filter { (1...7).contains($0) })
+        self.monthDay = Self.normalizedMonthDay(monthDay)
+        self.anchorDate = anchorDate
+    }
+
+    static func normalizedInterval(_ value: Int, kind: Kind) -> Int {
+        switch kind {
+        case .everyNDays:
+            return min(max(value, 2), maxDayInterval)
+        default:
+            return max(value, 1)
+        }
+    }
+
+    static func normalizedMonthDay(_ value: Int?) -> Int? {
+        guard let value else { return nil }
+        return min(max(value, 1), 31)
+    }
+
+    func normalized(defaultWeekday: Int, defaultMonthDay: Int, defaultAnchorDate: Date) -> TaskRecurrenceRule {
+        switch kind {
+        case .none:
+            return TaskRecurrenceRule(kind: .none, anchorDate: anchorDate ?? defaultAnchorDate)
+        case .daily:
+            return TaskRecurrenceRule(kind: .daily, anchorDate: anchorDate)
+        case .weekly:
+            let resolvedWeekdays = weekdays.isEmpty ? [defaultWeekday] : weekdays
+            return TaskRecurrenceRule(kind: .weekly, weekdays: resolvedWeekdays, anchorDate: anchorDate)
+        case .monthlyDay:
+            return TaskRecurrenceRule(
+                kind: .monthlyDay,
+                monthDay: monthDay ?? defaultMonthDay,
+                anchorDate: anchorDate
+            )
+        case .everyNDays:
+            return TaskRecurrenceRule(
+                kind: .everyNDays,
+                interval: interval,
+                anchorDate: anchorDate ?? defaultAnchorDate
+            )
+        }
+    }
+
+    func isActive(on date: Date, calendar: Calendar = .current) -> Bool {
+        if kind != .none,
+           let anchorDate,
+           calendar.startOfDay(for: date) < calendar.startOfDay(for: anchorDate) {
+            return false
+        }
+
+        switch kind {
+        case .none:
+            guard let anchorDate else { return true }
+            return calendar.isDate(anchorDate, inSameDayAs: date)
+        case .daily:
+            return true
+        case .weekly:
+            let weekday = calendar.component(.weekday, from: date)
+            return weekdays.contains(weekday)
+        case .monthlyDay:
+            guard let monthDay else { return true }
+            return calendar.component(.day, from: date) == monthDay
+        case .everyNDays:
+            guard let anchorDate else { return true }
+            let start = calendar.startOfDay(for: anchorDate)
+            let current = calendar.startOfDay(for: date)
+            guard let dayDelta = calendar.dateComponents([.day], from: start, to: current).day,
+                  dayDelta >= 0 else {
+                return false
+            }
+            return dayDelta % interval == 0
+        }
+    }
+
+    func nextActiveDate(onOrAfter date: Date, calendar: Calendar = .current) -> Date? {
+        var startOfReferenceDay = calendar.startOfDay(for: date)
+        if kind != .none,
+           let anchorDate {
+            startOfReferenceDay = max(startOfReferenceDay, calendar.startOfDay(for: anchorDate))
+        }
+
+        switch kind {
+        case .none:
+            guard let anchorDate else { return startOfReferenceDay }
+            let anchorDay = calendar.startOfDay(for: anchorDate)
+            return anchorDay >= startOfReferenceDay ? anchorDay : nil
+
+        case .daily:
+            return startOfReferenceDay
+
+        case .weekly:
+            guard !weekdays.isEmpty else { return nil }
+            for offset in 0...7 {
+                guard let candidate = calendar.date(byAdding: .day, value: offset, to: startOfReferenceDay) else {
+                    continue
+                }
+                if weekdays.contains(calendar.component(.weekday, from: candidate)) {
+                    return candidate
+                }
+            }
+            return nil
+
+        case .monthlyDay:
+            guard let monthDay else { return nil }
+            let baseComponents = calendar.dateComponents([.year, .month], from: startOfReferenceDay)
+            for monthOffset in 0...24 {
+                guard let monthStart = calendar.date(from: baseComponents),
+                      let candidateMonth = calendar.date(byAdding: .month, value: monthOffset, to: monthStart) else {
+                    continue
+                }
+                var candidateComponents = calendar.dateComponents([.year, .month], from: candidateMonth)
+                candidateComponents.day = monthDay
+                guard let candidate = calendar.date(from: candidateComponents),
+                      calendar.component(.day, from: candidate) == monthDay,
+                      candidate >= startOfReferenceDay else {
+                    continue
+                }
+                return candidate
+            }
+            return nil
+
+        case .everyNDays:
+            guard let anchorDate else { return startOfReferenceDay }
+            let anchorDay = calendar.startOfDay(for: anchorDate)
+            guard startOfReferenceDay >= anchorDay else { return anchorDay }
+            guard let dayDelta = calendar.dateComponents([.day], from: anchorDay, to: startOfReferenceDay).day else {
+                return nil
+            }
+            let remainder = dayDelta % interval
+            let daysUntilNext = remainder == 0 ? 0 : interval - remainder
+            return calendar.date(byAdding: .day, value: daysUntilNext, to: startOfReferenceDay)
+        }
+    }
+}
+
 struct BingoCell: Identifiable, Codable, Equatable {
     let id: UUID
     var text: String
     var residentTaskText: String?
     var residentWeekdays: Set<Int>
     var oneTimeVisibleDate: Date?
+    var recurrenceRule: TaskRecurrenceRule?
     var startVisibleAt: Date?
     var endVisibleAt: Date?
+    var usesRecurringTimeWindow: Bool
     var startReminderEnabled: Bool
     var startReminderOffsetMinutes: Int
     var startVisibleMonth: Int?
     var startVisibleDay: Int?
     var isTaskHidden: Bool
+    var isDisplayOnlyInactive: Bool
     var isCompleted: Bool
     var isForced: Bool
     var countdownEndsAt: Date?
@@ -31,8 +196,10 @@ struct BingoCell: Identifiable, Codable, Equatable {
         case residentTaskText
         case residentWeekdays
         case oneTimeVisibleDate
+        case recurrenceRule
         case startVisibleAt
         case endVisibleAt
+        case usesRecurringTimeWindow
         case startReminderEnabled
         case startReminderOffsetMinutes
         case startVisibleMonth
@@ -54,13 +221,16 @@ struct BingoCell: Identifiable, Codable, Equatable {
         residentTaskText: String? = nil,
         residentWeekdays: Set<Int> = [],
         oneTimeVisibleDate: Date? = nil,
+        recurrenceRule: TaskRecurrenceRule? = nil,
         startVisibleAt: Date? = nil,
         endVisibleAt: Date? = nil,
+        usesRecurringTimeWindow: Bool = false,
         startReminderEnabled: Bool = false,
         startReminderOffsetMinutes: Int = Self.defaultStartReminderOffsetMinutes,
         startVisibleMonth: Int? = nil,
         startVisibleDay: Int? = nil,
         isTaskHidden: Bool = false,
+        isDisplayOnlyInactive: Bool = false,
         isCompleted: Bool = false,
         isForced: Bool = false,
         countdownEndsAt: Date? = nil,
@@ -75,13 +245,16 @@ struct BingoCell: Identifiable, Codable, Equatable {
         self.residentTaskText = residentTaskText
         self.residentWeekdays = residentWeekdays
         self.oneTimeVisibleDate = oneTimeVisibleDate
+        self.recurrenceRule = recurrenceRule
         self.startVisibleAt = startVisibleAt
         self.endVisibleAt = endVisibleAt
+        self.usesRecurringTimeWindow = usesRecurringTimeWindow
         self.startReminderEnabled = startReminderEnabled
         self.startReminderOffsetMinutes = Self.normalizedStartReminderOffsetMinutes(startReminderOffsetMinutes)
         self.startVisibleMonth = startVisibleMonth
         self.startVisibleDay = startVisibleDay
         self.isTaskHidden = isTaskHidden
+        self.isDisplayOnlyInactive = isDisplayOnlyInactive
         self.isCompleted = isCompleted
         self.isForced = isForced
         self.countdownEndsAt = countdownEndsAt
@@ -99,8 +272,10 @@ struct BingoCell: Identifiable, Codable, Equatable {
         residentTaskText = try container.decodeIfPresent(String.self, forKey: .residentTaskText)
         residentWeekdays = try container.decodeIfPresent(Set<Int>.self, forKey: .residentWeekdays) ?? []
         oneTimeVisibleDate = try container.decodeIfPresent(Date.self, forKey: .oneTimeVisibleDate)
+        recurrenceRule = try container.decodeIfPresent(TaskRecurrenceRule.self, forKey: .recurrenceRule)
         startVisibleAt = try container.decodeIfPresent(Date.self, forKey: .startVisibleAt)
         endVisibleAt = try container.decodeIfPresent(Date.self, forKey: .endVisibleAt)
+        usesRecurringTimeWindow = try container.decodeIfPresent(Bool.self, forKey: .usesRecurringTimeWindow) ?? false
         startReminderEnabled = try container.decodeIfPresent(Bool.self, forKey: .startReminderEnabled) ?? false
         startReminderOffsetMinutes = Self.normalizedStartReminderOffsetMinutes(
             try container.decodeIfPresent(Int.self, forKey: .startReminderOffsetMinutes)
@@ -108,6 +283,7 @@ struct BingoCell: Identifiable, Codable, Equatable {
         startVisibleMonth = try container.decodeIfPresent(Int.self, forKey: .startVisibleMonth)
         startVisibleDay = try container.decodeIfPresent(Int.self, forKey: .startVisibleDay)
         isTaskHidden = try container.decodeIfPresent(Bool.self, forKey: .isTaskHidden) ?? false
+        isDisplayOnlyInactive = false
         isCompleted = try container.decode(Bool.self, forKey: .isCompleted)
         isForced = try container.decodeIfPresent(Bool.self, forKey: .isForced) ?? false
         countdownEndsAt = try container.decodeIfPresent(Date.self, forKey: .countdownEndsAt)
@@ -157,11 +333,54 @@ struct BingoCell: Identifiable, Codable, Equatable {
     }
 
     var hasResidentSchedule: Bool {
-        !residentWeekdays.isEmpty && !(residentTaskText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        guard let recurrenceRule = effectiveRecurrenceRule else { return false }
+        switch recurrenceRule.kind {
+        case .weekly:
+            return !recurrenceRule.weekdays.isEmpty
+        case .monthlyDay, .everyNDays:
+            return true
+        case .none, .daily:
+            return false
+        }
+    }
+
+    var hasPlannedSchedule: Bool {
+        hasStoredTask && (effectiveRecurrenceRule != nil || hasStartVisibilityDate || hasEndVisibilityDate)
+    }
+
+    var hasRepeatingSchedule: Bool {
+        guard let recurrenceRule = effectiveRecurrenceRule else { return false }
+        return recurrenceRule.kind != .none
     }
 
     var isOneTimeTask: Bool {
-        oneTimeVisibleDate != nil && !(residentTaskText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        if let recurrenceRule {
+            return recurrenceRule.kind == .none && hasStoredTask
+        }
+        return oneTimeVisibleDate != nil && !(residentTaskText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
+    var effectiveRecurrenceRule: TaskRecurrenceRule? {
+        guard hasStoredTask else { return nil }
+        if let recurrenceRule {
+            return recurrenceRule.normalized(
+                defaultWeekday: Calendar.current.component(.weekday, from: startVisibleAt ?? Date()),
+                defaultMonthDay: Calendar.current.component(.day, from: startVisibleAt ?? Date()),
+                defaultAnchorDate: startVisibleAt ?? Date()
+            )
+        }
+
+        if let oneTimeVisibleDate,
+           !(residentTaskText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
+            return TaskRecurrenceRule(kind: .none, anchorDate: oneTimeVisibleDate)
+        }
+
+        let residentText = residentTaskText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !residentText.isEmpty, !residentWeekdays.isEmpty {
+            return TaskRecurrenceRule(kind: .weekly, weekdays: residentWeekdays)
+        }
+
+        return nil
     }
 
     var hasStartVisibilityDate: Bool {
@@ -169,6 +388,17 @@ struct BingoCell: Identifiable, Codable, Equatable {
     }
 
     func isStartVisibilityReached(on date: Date, calendar: Calendar = .current) -> Bool {
+        if hasRepeatingSchedule && usesRecurringTimeWindow {
+            guard isResidentActive(on: date, calendar: calendar) else {
+                return true
+            }
+            guard let startVisibleAt,
+                  let occurrenceStart = occurrenceDate(on: date, matchingTimeOf: startVisibleAt, calendar: calendar) else {
+                return true
+            }
+            return date >= occurrenceStart
+        }
+
         if let startVisibleAt {
             return date >= startVisibleAt
         }
@@ -189,15 +419,126 @@ struct BingoCell: Identifiable, Codable, Equatable {
         endVisibleAt != nil
     }
 
-    func isEndVisibilityReached(on date: Date) -> Bool {
+    func isEndVisibilityReached(on date: Date, calendar: Calendar = .current) -> Bool {
+        if hasRepeatingSchedule && usesRecurringTimeWindow {
+            guard isResidentActive(on: date, calendar: calendar) else {
+                return false
+            }
+            guard let endVisibleAt,
+                  let occurrenceEnd = occurrenceDate(on: date, matchingTimeOf: endVisibleAt, calendar: calendar) else {
+                return false
+            }
+            return date >= occurrenceEnd
+        }
+
         guard let endVisibleAt else { return false }
         return date >= endVisibleAt
     }
 
+    func occurrenceStartVisibleAt(on date: Date, calendar: Calendar = .current) -> Date? {
+        guard hasRepeatingSchedule,
+              usesRecurringTimeWindow,
+              let startVisibleAt else {
+            return startVisibleAt
+        }
+        return occurrenceDate(on: date, matchingTimeOf: startVisibleAt, calendar: calendar)
+    }
+
+    func occurrenceEndVisibleAt(on date: Date, calendar: Calendar = .current) -> Date? {
+        guard hasRepeatingSchedule,
+              usesRecurringTimeWindow,
+              let endVisibleAt else {
+            return endVisibleAt
+        }
+        return occurrenceDate(on: date, matchingTimeOf: endVisibleAt, calendar: calendar)
+    }
+
+    private func occurrenceDate(on date: Date, matchingTimeOf templateDate: Date, calendar: Calendar = .current) -> Date? {
+        var dayComponents = calendar.dateComponents([.year, .month, .day], from: date)
+        let timeComponents = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: templateDate)
+        dayComponents.hour = timeComponents.hour
+        dayComponents.minute = timeComponents.minute
+        dayComponents.second = timeComponents.second
+        dayComponents.nanosecond = timeComponents.nanosecond
+        return calendar.date(from: dayComponents)
+    }
+
     func isResidentActive(on date: Date, calendar: Calendar = .current) -> Bool {
-        guard hasResidentSchedule else { return true }
-        let weekday = calendar.component(.weekday, from: date)
-        return residentWeekdays.contains(weekday)
+        guard let recurrenceRule = effectiveRecurrenceRule else { return true }
+        return recurrenceRule.isActive(on: date, calendar: calendar)
+    }
+
+    func isCurrentlyTappable(on date: Date, calendar: Calendar = .current) -> Bool {
+        guard hasStoredTask else { return false }
+        guard !isVisibilityWindowInactive(on: date, calendar: calendar) else { return false }
+        guard !isEndVisibilityReached(on: date) else { return false }
+        guard isResidentActive(on: date, calendar: calendar) else { return false }
+        return true
+    }
+
+    func completionApplies(on date: Date, calendar: Calendar = .current) -> Bool {
+        guard isCompleted else { return false }
+        guard let recurrenceRule = effectiveRecurrenceRule,
+              recurrenceRule.kind != .none else {
+            return true
+        }
+        guard let lastCompletedAt else { return false }
+        return calendar.isDate(lastCompletedAt, inSameDayAs: date)
+    }
+
+    func countdownAppliesToCurrentOccurrence(on date: Date, calendar: Calendar = .current) -> Bool {
+        guard canUseTaskCountdown else { return false }
+        guard let countdownEndsAt else { return false }
+        guard let recurrenceRule = effectiveRecurrenceRule,
+              recurrenceRule.kind != .none else {
+            return true
+        }
+        guard let estimatedDurationMinutes, estimatedDurationMinutes > 0 else { return false }
+        let countdownStartedAt = countdownEndsAt.addingTimeInterval(Double(-estimatedDurationMinutes * 60))
+        return calendar.isDate(countdownStartedAt, inSameDayAs: date)
+    }
+
+    func shouldStartCountdownForCurrentOccurrence(on date: Date, calendar: Calendar = .current) -> Bool {
+        guard canUseTaskCountdown else { return false }
+        guard hasStoredTask else { return false }
+        guard let estimatedDurationMinutes, estimatedDurationMinutes > 0 else { return false }
+        guard (countdownPausedRemainingSeconds ?? 0) <= 0 else { return false }
+        guard isResidentActive(on: date, calendar: calendar) else { return false }
+        guard isVisibilityWindowActive(on: date, calendar: calendar) else { return false }
+        guard !completionApplies(on: date, calendar: calendar) else { return false }
+        guard countdownEndsAt == nil || !countdownAppliesToCurrentOccurrence(on: date, calendar: calendar) else {
+            return false
+        }
+        return true
+    }
+
+    func countdownDeadlineForCurrentOccurrence(
+        startingAt date: Date,
+        maxCountdownMinutes: Int,
+        calendar: Calendar = .current
+    ) -> Date? {
+        guard canUseTaskCountdown else { return nil }
+        guard let estimatedDurationMinutes, estimatedDurationMinutes > 0 else { return nil }
+        let clampedMinutes = min(max(estimatedDurationMinutes, 1), maxCountdownMinutes)
+        let countdownDeadline = date.addingTimeInterval(Double(clampedMinutes * 60))
+        guard let endDeadline = occurrenceEndVisibleAt(on: date, calendar: calendar),
+              endDeadline > date else {
+            return countdownDeadline
+        }
+        return min(countdownDeadline, endDeadline)
+    }
+
+    var canUseTaskCountdown: Bool {
+        hasStoredTask && !hasRepeatingSchedule
+    }
+
+    var canManuallySetTaskCountdown: Bool {
+        canUseTaskCountdown && startVisibleAt == nil && endVisibleAt == nil
+    }
+
+    func nextResidentActiveDate(onOrAfter date: Date, calendar: Calendar = .current) -> Date? {
+        guard let recurrenceRule = effectiveRecurrenceRule else { return nil }
+        return recurrenceRule.nextActiveDate(onOrAfter: date, calendar: calendar)
     }
 
     func projectedForDisplay(on date: Date, calendar: Calendar = .current) -> BingoCell {
@@ -206,30 +547,30 @@ struct BingoCell: Identifiable, Codable, Equatable {
             projected.text = storedTaskText
             projected.isCompleted = false
             projected.isTaskHidden = false
+            projected.isDisplayOnlyInactive = true
             projected.isForced = false
             projected.countdownEndsAt = nil
             return projected
         }
 
         let activeToday: Bool
-        if isOneTimeTask, let oneTimeVisibleDate {
-            activeToday = calendar.isDate(oneTimeVisibleDate, inSameDayAs: date)
-        } else if hasResidentSchedule {
+        if effectiveRecurrenceRule != nil {
             activeToday = isResidentActive(on: date, calendar: calendar)
+            let completionAppliesToday = completionApplies(on: date, calendar: calendar)
+            projected.text = storedTaskText
+            projected.isCompleted = activeToday ? completionAppliesToday : false
+            projected.isTaskHidden = activeToday && completionAppliesToday ? isTaskHidden : false
+            projected.isDisplayOnlyInactive = !activeToday
+            projected.countdownEndsAt = activeToday && countdownAppliesToCurrentOccurrence(on: date, calendar: calendar) ? countdownEndsAt : nil
+            return projected
         } else {
             projected.text = storedTaskText
+            projected.isDisplayOnlyInactive = false
             // Keep countdown visible/active for regular tasks.
             return projected
         }
-        projected.text = activeToday ? storedTaskText : ""
-        projected.isCompleted = activeToday ? isCompleted : false
-        projected.isTaskHidden = activeToday ? isTaskHidden : false
-        // Only hide countdown when this task is not active today.
-        projected.countdownEndsAt = activeToday ? countdownEndsAt : nil
-        return projected
     }
 }
-
 enum BingoLine: Hashable, Codable {
     case row(Int)
     case column(Int)
@@ -254,6 +595,7 @@ struct SavedBoard: Codable, Equatable {
 struct BoardTemplateTile: Codable, Equatable {
     var text: String
     var residentWeekdays: [Int]
+    var recurrenceRule: TaskRecurrenceRule?
     var startVisibleMonth: Int?
     var startVisibleDay: Int?
     var isForced: Bool
@@ -261,12 +603,14 @@ struct BoardTemplateTile: Codable, Equatable {
     init(
         text: String,
         residentWeekdays: [Int] = [],
+        recurrenceRule: TaskRecurrenceRule? = nil,
         startVisibleMonth: Int? = nil,
         startVisibleDay: Int? = nil,
         isForced: Bool = false
     ) {
         self.text = String(text.prefix(AppSettings.maxTaskLength))
         self.residentWeekdays = residentWeekdays.sorted()
+        self.recurrenceRule = recurrenceRule
         self.startVisibleMonth = startVisibleMonth
         self.startVisibleDay = startVisibleDay
         self.isForced = isForced
@@ -276,6 +620,7 @@ struct BoardTemplateTile: Codable, Equatable {
         self.init(
             text: cell.storedTaskText,
             residentWeekdays: Array(cell.residentWeekdays),
+            recurrenceRule: cell.recurrenceRule,
             startVisibleMonth: cell.startVisibleMonth,
             startVisibleDay: cell.startVisibleDay,
             // Template sharing/import should not implicitly carry force flag.
@@ -402,11 +747,13 @@ struct BoardTemplatePayload: Codable, Equatable, Identifiable {
             }
 
             let weekdaySet = Set(tile.residentWeekdays.filter { (1...7).contains($0) })
+            let hasRecurrenceRule = tile.recurrenceRule != nil
             var cell = BingoCell(
                 text: trimmedText,
-                residentTaskText: weekdaySet.isEmpty ? nil : trimmedText,
+                residentTaskText: weekdaySet.isEmpty && !hasRecurrenceRule ? nil : trimmedText,
                 residentWeekdays: weekdaySet,
-                oneTimeVisibleDate: nil,
+                oneTimeVisibleDate: tile.recurrenceRule?.kind == TaskRecurrenceRule.Kind.none ? (tile.recurrenceRule?.anchorDate ?? referenceDate) : nil,
+                recurrenceRule: tile.recurrenceRule,
                 startVisibleMonth: tile.startVisibleMonth,
                 startVisibleDay: tile.startVisibleDay,
                 isTaskHidden: false,
@@ -1127,6 +1474,7 @@ enum AppSettings {
     static let hasAcknowledgedBoardEditHintKey = "has_acknowledged_board_edit_hint_v1"
     static let hasInteractedWithBoardPanelKey = "has_interacted_with_board_panel_v1"
     static let hasVisitedPremiumPaywallWithoutPurchaseKey = "has_visited_premium_paywall_without_purchase_v1"
+    static let hasLegacyLimitedTimeDiscountExposureKey = "has_legacy_limited_time_discount_exposure_v1"
     static let limitedTimeDiscountStartedAtKey = "limited_time_discount_started_at_v1"
     static let limitedTimeDiscountCampaignIDKey = "limited_time_discount_campaign_id_v1"
     static let maxCommonTasks = 8
@@ -1195,504 +1543,6 @@ enum AppHaptics {
             emphasisGenerator.impactOccurred(intensity: 1.0)
             emphasisGenerator.prepare()
         }
-    }
-}
-
-enum BingoDiaryStore {
-    private static let key = "bingo_diary_v1"
-
-    static func save(board: SavedBoard, on date: Date = .now) {
-        var entries = loadEntriesDictionary()
-        let entryID = dateKey(for: date)
-        let existingEntry = entries[entryID]
-        let completionIncrements = completedTaskIncrements(
-            previousBoard: existingEntry?.board,
-            currentBoard: board
-        )
-        let completionDecrements = completedTaskDecrements(
-            previousBoard: existingEntry?.board,
-            currentBoard: board
-        )
-        let mergedCounts = applyTaskCountDelta(
-            base: existingTaskCounts(from: existingEntry),
-            increments: completionIncrements,
-            decrements: completionDecrements
-        )
-        let entry = BingoDiaryEntry(
-            id: entryID,
-            date: Calendar.current.startOfDay(for: date),
-            board: board,
-            allTasksCompleted: (existingEntry?.allTasksCompleted ?? false) || boardHasAllTasksCompleted(board),
-            completedTaskCounts: mergedCounts
-        )
-        entries[entry.id] = entry
-        persist(entries)
-    }
-
-    static func applyExplicitTaskDelta(
-        task: String,
-        delta: Int,
-        board: SavedBoard,
-        on date: Date = .now
-    ) {
-        let normalizedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedTask.isEmpty else {
-            syncBoardSnapshotWithoutCounting(board: board, on: date)
-            return
-        }
-
-        var entries = loadEntriesDictionary()
-        let entryID = dateKey(for: date)
-        let existingEntry = entries[entryID]
-        var mergedCounts = existingTaskCounts(from: existingEntry)
-
-        if delta > 0 {
-            mergedCounts[normalizedTask, default: 0] += delta
-        } else if delta < 0 {
-            let current = mergedCounts[normalizedTask, default: 0]
-            let next = max(0, current + delta)
-            if next == 0 {
-                mergedCounts.removeValue(forKey: normalizedTask)
-            } else {
-                mergedCounts[normalizedTask] = next
-            }
-        }
-
-        let entry = BingoDiaryEntry(
-            id: entryID,
-            date: Calendar.current.startOfDay(for: date),
-            board: board,
-            allTasksCompleted: (existingEntry?.allTasksCompleted ?? false) || boardHasAllTasksCompleted(board),
-            completedTaskCounts: mergedCounts
-        )
-        entries[entry.id] = entry
-        persist(entries)
-    }
-
-    // Keep today's baseline board snapshot in sync even when diary counting is skipped.
-    // This prevents stale snapshot diffs from causing large decrement/increment jumps later.
-    static func syncBoardSnapshotWithoutCounting(board: SavedBoard, on date: Date = .now) {
-        var entries = loadEntriesDictionary()
-        let entryID = dateKey(for: date)
-        guard let existingEntry = entries[entryID] else { return }
-
-        let updatedEntry = BingoDiaryEntry(
-            id: existingEntry.id,
-            date: existingEntry.date,
-            board: board,
-            allTasksCompleted: existingEntry.allTasksCompleted || boardHasAllTasksCompleted(board),
-            completedTaskCounts: existingEntry.completedTaskCounts
-        )
-        entries[entryID] = updatedEntry
-        persist(entries)
-    }
-
-    static func entry(for date: Date) -> BingoDiaryEntry? {
-        loadEntriesDictionary()[dateKey(for: date)]
-    }
-
-    static func entries(inMonthContaining date: Date) -> [BingoDiaryEntry] {
-        let calendar = Calendar.current
-        let monthInterval = calendar.dateInterval(of: .month, for: date)
-
-        return loadEntriesDictionary().values
-            .filter { entry in
-                guard let interval = monthInterval else { return false }
-                return interval.contains(entry.date)
-            }
-            .sorted { $0.date < $1.date }
-    }
-
-    static func consecutiveBingoDays(referenceDate: Date = .now) -> Int {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: referenceDate)
-        let entries = loadEntriesDictionary()
-
-        var streak = 0
-        var cursor = today
-
-        while let entry = entries[dateKey(for: cursor)], entry.allTasksCompleted {
-            streak += 1
-            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
-            cursor = previousDay
-        }
-
-        return streak
-    }
-
-    static func consecutiveTaskCompletionDays(referenceDate: Date = .now) -> Int {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: referenceDate)
-        let entries = loadEntriesDictionary()
-
-        var streak = 0
-        var cursor = today
-
-        while let entry = entries[dateKey(for: cursor)],
-              existingTaskCounts(from: entry).values.contains(where: { $0 > 0 }) {
-            streak += 1
-            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
-            cursor = previousDay
-        }
-
-        return streak
-    }
-
-    static func totalCompletedTasks() -> Int {
-        allTimeCompletedTaskCounts().reduce(0) { $0 + $1.count }
-    }
-
-    static func allTimeCompletedTaskCounts() -> [(task: String, count: Int)] {
-        let stats = allTimeCompletedTaskStats()
-
-        return stats.map { (task: $0.task, count: $0.count) }
-    }
-
-    static func allTimeCompletedTaskStats() -> [(task: String, count: Int, firstCompletedAt: Date)] {
-        struct TaskAggregate {
-            var count: Int
-            var firstCompletedAt: Date
-        }
-
-        let entries = loadEntriesDictionary()
-
-        let stats = entries.values.reduce(into: [String: TaskAggregate]()) { partial, entry in
-            let day = Calendar.current.startOfDay(for: entry.date)
-            for (task, count) in existingTaskCounts(from: entry) {
-                guard !task.isEmpty, count > 0 else { continue }
-                if let existing = partial[task] {
-                    partial[task] = TaskAggregate(
-                        count: existing.count + count,
-                        firstCompletedAt: min(existing.firstCompletedAt, day)
-                    )
-                } else {
-                    partial[task] = TaskAggregate(count: count, firstCompletedAt: day)
-                }
-            }
-        }
-
-        return stats
-            .map { (task: $0.key, count: $0.value.count, firstCompletedAt: $0.value.firstCompletedAt) }
-            .sorted { lhs, rhs in
-                if lhs.count == rhs.count {
-                    if lhs.firstCompletedAt == rhs.firstCompletedAt {
-                        return lhs.task.localizedCaseInsensitiveCompare(rhs.task) == .orderedAscending
-                    }
-                    return lhs.firstCompletedAt < rhs.firstCompletedAt
-                }
-                return lhs.count > rhs.count
-            }
-    }
-
-    static func taskDailyCompletions(
-        task: String,
-        limit: Int = 30,
-        referenceDate: Date = .now
-    ) -> [(date: Date, count: Int)] {
-        let normalizedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedTask.isEmpty else { return [] }
-
-        let calendar = Calendar.current
-        let endDate = calendar.startOfDay(for: referenceDate)
-        let rows = loadEntriesDictionary().values.compactMap { entry -> (date: Date, count: Int)? in
-            let day = calendar.startOfDay(for: entry.date)
-            guard day <= endDate else { return nil }
-            let count = existingTaskCounts(from: entry)[normalizedTask] ?? 0
-            guard count > 0 else { return nil }
-            return (date: day, count: count)
-        }
-        .sorted { $0.date > $1.date }
-
-        guard limit > 0 else { return rows }
-        return Array(rows.prefix(limit))
-    }
-
-    static func taskCompletionsThisWeek(
-        task: String,
-        referenceDate: Date = .now
-    ) -> Int {
-        let normalizedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedTask.isEmpty else { return 0 }
-        let calendar = Calendar.current
-        guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: referenceDate) else { return 0 }
-
-        return loadEntriesDictionary().values.reduce(0) { partial, entry in
-            let day = calendar.startOfDay(for: entry.date)
-            guard weekInterval.contains(day) else { return partial }
-            return partial + (existingTaskCounts(from: entry)[normalizedTask] ?? 0)
-        }
-    }
-
-    static func completedTaskCounts(lastDays: Int, referenceDate: Date = .now) -> [(task: String, count: Int)] {
-        let calendar = Calendar.current
-        let endDate = calendar.startOfDay(for: referenceDate)
-        guard let startDate = calendar.date(byAdding: .day, value: -(max(lastDays, 1) - 1), to: endDate) else {
-            return []
-        }
-
-        let counts = loadEntriesDictionary().values.reduce(into: [String: Int]()) { partial, entry in
-            let day = calendar.startOfDay(for: entry.date)
-            guard day >= startDate && day <= endDate else { return }
-
-            for (task, count) in existingTaskCounts(from: entry) {
-                guard !task.isEmpty, count > 0 else { continue }
-                partial[task, default: 0] += count
-            }
-        }
-
-        return counts
-            .sorted { lhs, rhs in
-                if lhs.value == rhs.value {
-                    return lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending
-                }
-                return lhs.value > rhs.value
-            }
-            .map { (task: $0.key, count: $0.value) }
-    }
-
-    static func taskCompletionStats(
-        lastDays: Int,
-        referenceDate: Date = .now
-    ) -> [(task: String, totalCount: Int, activeDays: Int, completionRate: Double, dailyCounts: [Int])] {
-        let calendar = Calendar.current
-        let days = max(lastDays, 1)
-        let endDate = calendar.startOfDay(for: referenceDate)
-        guard let startDate = calendar.date(byAdding: .day, value: -(days - 1), to: endDate) else {
-            return []
-        }
-
-        var dayIndexByKey: [String: Int] = [:]
-        for offset in 0..<days {
-            guard let day = calendar.date(byAdding: .day, value: offset, to: startDate) else { continue }
-            dayIndexByKey[dateKey(for: day)] = offset
-        }
-
-        let emptyDailyCounts = Array(repeating: 0, count: days)
-        var taskDailyCounts: [String: [Int]] = [:]
-
-        for entry in loadEntriesDictionary().values {
-            let entryKey = dateKey(for: entry.date)
-            guard let dayIndex = dayIndexByKey[entryKey] else { continue }
-
-            for (task, count) in existingTaskCounts(from: entry) {
-                guard !task.isEmpty, count > 0 else { continue }
-                var counts = taskDailyCounts[task] ?? emptyDailyCounts
-                counts[dayIndex] += count
-                taskDailyCounts[task] = counts
-            }
-        }
-
-        return taskDailyCounts
-            .map { task, dailyCounts in
-                let totalCount = dailyCounts.reduce(0, +)
-                let activeDays = dailyCounts.reduce(0) { $0 + ($1 > 0 ? 1 : 0) }
-                let completionRate = Double(activeDays) / Double(days)
-                return (task: task, totalCount: totalCount, activeDays: activeDays, completionRate: completionRate, dailyCounts: dailyCounts)
-            }
-            .sorted { lhs, rhs in
-                if lhs.totalCount == rhs.totalCount {
-                    return lhs.task.localizedCaseInsensitiveCompare(rhs.task) == .orderedAscending
-                }
-                return lhs.totalCount > rhs.totalCount
-            }
-    }
-
-    static func loadAllEntriesDictionary() -> [String: BingoDiaryEntry] {
-        loadEntriesDictionary()
-    }
-
-    static func replaceAllEntriesDictionary(_ entries: [String: BingoDiaryEntry]) {
-        persist(entries)
-    }
-
-    private static func loadEntriesDictionary() -> [String: BingoDiaryEntry] {
-        if let data = sharedDefaults.data(forKey: key),
-           let entries = try? JSONDecoder().decode([String: BingoDiaryEntry].self, from: data) {
-            return entries
-        }
-
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let entries = try? JSONDecoder().decode([String: BingoDiaryEntry].self, from: data) else {
-            return [:]
-        }
-        sharedDefaults.set(data, forKey: key)
-        return entries
-    }
-
-    private static func persist(_ entries: [String: BingoDiaryEntry]) {
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        sharedDefaults.set(data, forKey: key)
-        UserDefaults.standard.set(data, forKey: key)
-    }
-
-    private static var sharedDefaults: UserDefaults {
-        UserDefaults(suiteName: BingoBoardStore.appGroupID) ?? .standard
-    }
-
-    private static func boardHasAllTasksCompleted(_ board: SavedBoard) -> Bool {
-        let taskCells = board.cells.flatMap { $0 }.filter { !$0.isEmpty }
-        guard !taskCells.isEmpty else { return false }
-        return taskCells.allSatisfy(\.isCompleted)
-    }
-
-    private static func completedTaskCounts(from board: SavedBoard) -> [String: Int] {
-        board.cells
-            .flatMap { $0 }
-            .reduce(into: [String: Int]()) { partial, cell in
-                guard cell.isCompleted, !cell.isEmpty else { return }
-                let task = cell.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !task.isEmpty else { return }
-                partial[task, default: 0] += 1
-            }
-    }
-
-    // Count only completion transitions from previous snapshot -> current snapshot.
-    // This avoids undercounting repeated completions (old max-merge logic) and
-    // avoids double counting on frequent saves when no state changed.
-    private static func completedTaskIncrements(previousBoard: SavedBoard?, currentBoard: SavedBoard) -> [String: Int] {
-        let previousCells = flattenedVisibleCells(from: previousBoard)
-        let currentCells = flattenedVisibleCells(from: currentBoard)
-        let previousByID = Dictionary(uniqueKeysWithValues: previousCells.map { ($0.id, $0) })
-
-        return currentCells.reduce(into: [String: Int]()) { partial, cell in
-            guard !cell.isEmpty, cell.isCompleted else { return }
-            let task = cell.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !task.isEmpty else { return }
-
-            // First save of the day: existing entry may not exist yet.
-            let wasCompleted = previousByID[cell.id]?.isCompleted ?? false
-            guard !wasCompleted else { return }
-
-            partial[task, default: 0] += 1
-        }
-    }
-
-    // Count un-completion transitions from previous snapshot -> current snapshot.
-    // This keeps same-day diary counts accurate when users cancel completed tasks.
-    private static func completedTaskDecrements(previousBoard: SavedBoard?, currentBoard: SavedBoard) -> [String: Int] {
-        let previousCells = flattenedVisibleCells(from: previousBoard)
-        let currentCells = flattenedVisibleCells(from: currentBoard)
-        let currentByID = Dictionary(uniqueKeysWithValues: currentCells.map { ($0.id, $0) })
-
-        return previousCells.reduce(into: [String: Int]()) { partial, previousCell in
-            guard !previousCell.isEmpty, previousCell.isCompleted else { return }
-            let task = previousCell.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !task.isEmpty else { return }
-
-            // Only explicit same-cell uncheck should decrement diary count.
-            // If a cell was replaced/rebuilt (ID missing), do not treat it as a cancel.
-            guard let currentCell = currentByID[previousCell.id] else { return }
-            guard !currentCell.isCompleted else { return }
-
-            partial[task, default: 0] += 1
-        }
-    }
-
-    private static func flattenedVisibleCells(from board: SavedBoard?) -> [BingoCell] {
-        guard let board else { return [] }
-
-        let resolvedGridSize = max(0, min(board.gridSize, 5))
-        if let fullBoardCells = board.fullBoardCells, !fullBoardCells.isEmpty, resolvedGridSize > 0 {
-            var flattened: [BingoCell] = []
-            flattened.reserveCapacity(resolvedGridSize * resolvedGridSize)
-
-            let rowUpperBound = min(resolvedGridSize, fullBoardCells.count)
-            for row in 0..<rowUpperBound {
-                let colUpperBound = min(resolvedGridSize, fullBoardCells[row].count)
-                guard colUpperBound > 0 else { continue }
-                flattened.append(contentsOf: fullBoardCells[row].prefix(colUpperBound))
-            }
-
-            if !flattened.isEmpty {
-                return flattened
-            }
-        }
-        return board.cells.flatMap { $0 }
-    }
-
-    private static func existingTaskCounts(from entry: BingoDiaryEntry?) -> [String: Int] {
-        guard let entry else { return [:] }
-        if !entry.completedTaskCounts.isEmpty {
-            return entry.completedTaskCounts
-        }
-        return completedTaskCounts(from: entry.board)
-    }
-
-    private static func applyTaskCountDelta(
-        base: [String: Int],
-        increments: [String: Int],
-        decrements: [String: Int]
-    ) -> [String: Int] {
-        var merged = base
-
-        for (task, count) in increments where count > 0 {
-            merged[task, default: 0] += count
-        }
-
-        for (task, count) in decrements where count > 0 {
-            let current = merged[task, default: 0]
-            let next = max(0, current - count)
-            if next == 0 {
-                merged.removeValue(forKey: task)
-            } else {
-                merged[task] = next
-            }
-        }
-
-        return merged
-    }
-
-    private struct TaskStreakBound {
-        var maxStreak: Int
-        var firstCompletedAt: Date
-    }
-
-    private static func completionStreakLowerBounds(
-        from entries: [String: BingoDiaryEntry],
-        calendar: Calendar
-    ) -> [String: TaskStreakBound] {
-        var result: [String: TaskStreakBound] = [:]
-
-        for entry in entries.values {
-            let sourceCells: [[BingoCell]] = {
-                if let fullBoard = entry.board.fullBoardCells, !fullBoard.isEmpty {
-                    return fullBoard
-                }
-                return entry.board.cells
-            }()
-
-            for cell in sourceCells.flatMap({ $0 }) {
-                let task = cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Keep same-day complete -> cancel reversible, while preserving
-                // historical fallback for previous-day completions.
-                guard !task.isEmpty, cell.completionStreakCount > 0 else { continue }
-                let completionDate = calendar.startOfDay(for: cell.lastCompletedAt ?? entry.date)
-                let isHistoricalCompletion = completionDate < calendar.startOfDay(for: Date())
-                guard cell.isCompleted || isHistoricalCompletion else { continue }
-
-                if let existing = result[task] {
-                    result[task] = TaskStreakBound(
-                        maxStreak: max(existing.maxStreak, cell.completionStreakCount),
-                        firstCompletedAt: min(existing.firstCompletedAt, completionDate)
-                    )
-                } else {
-                    result[task] = TaskStreakBound(
-                        maxStreak: cell.completionStreakCount,
-                        firstCompletedAt: completionDate
-                    )
-                }
-            }
-        }
-
-        return result
-    }
-
-    private static func dateKey(for date: Date) -> String {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
-        let year = components.year ?? 0
-        let month = components.month ?? 0
-        let day = components.day ?? 0
-        return String(format: "%04d-%02d-%02d", year, month, day)
     }
 }
 
@@ -1780,134 +1630,5 @@ private extension Data {
                 stream.dst_size = destinationCapacity
             }
         }
-    }
-}
-
-enum BingoTimeoutStore {
-    private static let key = "bingo_timeout_unfinished_stats_v1"
-
-    static func recordUnfinishedTimeout(task: String, on date: Date = .now) {
-        let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTask.isEmpty else { return }
-
-        var payload = loadPayload()
-        let dayKey = dateKey(for: date)
-        var dayStats = payload[dayKey] ?? [:]
-        dayStats[trimmedTask, default: 0] += 1
-        payload[dayKey] = dayStats
-        persist(payload)
-    }
-
-    static func taskTimeoutStats(
-        lastDays: Int,
-        referenceDate: Date = .now
-    ) -> [(task: String, totalCount: Int, activeDays: Int, completionRate: Double, dailyCounts: [Int])] {
-        let calendar = Calendar.current
-        let days = max(lastDays, 1)
-        let endDate = calendar.startOfDay(for: referenceDate)
-        guard let startDate = calendar.date(byAdding: .day, value: -(days - 1), to: endDate) else {
-            return []
-        }
-
-        var dayIndexByKey: [String: Int] = [:]
-        for offset in 0..<days {
-            guard let day = calendar.date(byAdding: .day, value: offset, to: startDate) else { continue }
-            dayIndexByKey[dateKey(for: day)] = offset
-        }
-
-        let emptyDailyCounts = Array(repeating: 0, count: days)
-        var taskDailyCounts: [String: [Int]] = [:]
-
-        for (dayKey, taskCounts) in loadPayload() {
-            guard let dayIndex = dayIndexByKey[dayKey] else { continue }
-            for (task, count) in taskCounts where count > 0 {
-                let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedTask.isEmpty else { continue }
-
-                var counts = taskDailyCounts[trimmedTask] ?? emptyDailyCounts
-                counts[dayIndex] += count
-                taskDailyCounts[trimmedTask] = counts
-            }
-        }
-
-        return taskDailyCounts
-            .map { task, dailyCounts in
-                let totalCount = dailyCounts.reduce(0, +)
-                let activeDays = dailyCounts.reduce(0) { $0 + ($1 > 0 ? 1 : 0) }
-                let completionRate = Double(activeDays) / Double(days)
-                return (task: task, totalCount: totalCount, activeDays: activeDays, completionRate: completionRate, dailyCounts: dailyCounts)
-            }
-            .sorted { lhs, rhs in
-                if lhs.totalCount == rhs.totalCount {
-                    return lhs.task.localizedCaseInsensitiveCompare(rhs.task) == .orderedAscending
-                }
-                return lhs.totalCount > rhs.totalCount
-            }
-    }
-
-    static func loadAllPayload() -> [String: [String: Int]] {
-        loadPayload()
-    }
-
-    static func totalTimedOutTasks() -> Int {
-        loadPayload().values.reduce(0) { partialResult, taskCounts in
-            partialResult + taskCounts.values.reduce(0, +)
-        }
-    }
-
-    static func allTimeTimeoutTaskCounts() -> [(task: String, count: Int)] {
-        let counts = loadPayload().reduce(into: [String: Int]()) { partial, entry in
-            for (task, count) in entry.value where count > 0 {
-                let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedTask.isEmpty else { continue }
-                partial[trimmedTask, default: 0] += count
-            }
-        }
-
-        return counts
-            .sorted { lhs, rhs in
-                if lhs.value == rhs.value {
-                    return lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending
-                }
-                return lhs.value > rhs.value
-            }
-            .map { (task: $0.key, count: $0.value) }
-    }
-
-    static func replacePayload(_ payload: [String: [String: Int]]) {
-        persist(payload)
-    }
-
-    private static func loadPayload() -> [String: [String: Int]] {
-        if let data = sharedDefaults.data(forKey: key),
-           let payload = try? JSONDecoder().decode([String: [String: Int]].self, from: data) {
-            return payload
-        }
-
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let payload = try? JSONDecoder().decode([String: [String: Int]].self, from: data) else {
-            return [:]
-        }
-
-        sharedDefaults.set(data, forKey: key)
-        return payload
-    }
-
-    private static func persist(_ payload: [String: [String: Int]]) {
-        guard let data = try? JSONEncoder().encode(payload) else { return }
-        sharedDefaults.set(data, forKey: key)
-        UserDefaults.standard.set(data, forKey: key)
-    }
-
-    private static var sharedDefaults: UserDefaults {
-        UserDefaults(suiteName: BingoBoardStore.appGroupID) ?? .standard
-    }
-
-    private static func dateKey(for date: Date) -> String {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
-        let year = components.year ?? 0
-        let month = components.month ?? 0
-        let day = components.day ?? 0
-        return String(format: "%04d-%02d-%02d", year, month, day)
     }
 }

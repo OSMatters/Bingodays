@@ -6,7 +6,8 @@ struct ContactUsSheet: View {
     let isPadLayout: Bool
     let isCopyToastVisible: Bool
     let onCopyEmail: () -> Void
-    let onOpenFeedbackEmail: () -> Void
+    let onOpenBugReportEmail: () -> Void
+    let onOpenFeatureSuggestionEmail: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -18,7 +19,7 @@ struct ContactUsSheet: View {
 
                 emailCard
 
-                feedbackButton
+                actionButtons
 
                 Spacer(minLength: 0)
             }
@@ -50,7 +51,7 @@ struct ContactUsSheet: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isCopyToastVisible)
-        .presentationDetents([.height(isPadLayout ? 410 : 360)])
+        .presentationDetents([.height(isPadLayout ? 470 : 420)])
         .presentationDragIndicator(.visible)
         .presentationBackground(NeumorphicColors.background)
     }
@@ -98,28 +99,52 @@ struct ContactUsSheet: View {
         )
     }
 
-    private var feedbackButton: some View {
-        Button(action: onOpenFeedbackEmail) {
+    private var actionButtons: some View {
+        VStack(spacing: 12) {
+            contactActionButton(
+                title: L10n.contactUsBugReportAction,
+                systemImage: "exclamationmark.bubble",
+                isPrimary: true,
+                action: onOpenBugReportEmail
+            )
+
+            contactActionButton(
+                title: L10n.contactUsFeatureSuggestionAction,
+                systemImage: "lightbulb",
+                isPrimary: false,
+                action: onOpenFeatureSuggestionEmail
+            )
+        }
+    }
+
+    private func contactActionButton(
+        title: String,
+        systemImage: String,
+        isPrimary: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: "envelope.open")
+                Image(systemName: systemImage)
                     .font(.appSystem(size: 17, weight: .semibold, design: .rounded))
 
-                Text(L10n.contactUsFeedbackAction)
+                Text(title)
                     .font(.appSystem(size: 17, weight: .bold, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
             }
-            .foregroundColor(.white)
+            .foregroundColor(isPrimary ? .white : NeumorphicColors.accent)
             .frame(maxWidth: .infinity)
             .frame(height: 52)
             .background(
                 Capsule(style: .continuous)
-                    .fill(NeumorphicColors.accent)
-                    .shadow(color: NeumorphicColors.darkShadow.opacity(0.24), radius: 8, x: 4, y: 4)
+                    .fill(isPrimary ? NeumorphicColors.accent : NeumorphicColors.background)
+                    .shadow(color: NeumorphicColors.lightShadow.opacity(isPrimary ? 0 : 0.8), radius: 6, x: -3, y: -3)
+                    .shadow(color: NeumorphicColors.darkShadow.opacity(isPrimary ? 0.24 : 0.34), radius: 8, x: 4, y: 4)
             )
             .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(L10n.contactUsFeedbackAction)
+        .accessibilityLabel(title)
     }
 }

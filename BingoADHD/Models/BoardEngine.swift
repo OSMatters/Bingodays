@@ -9,6 +9,9 @@ enum BoardEngine {
         let col: Int
         let taskText: String
         let expiredAt: Date
+        let expiredByCountdown: Bool
+        let expiredByVisibilityWindow: Bool
+        let allowsPostpone: Bool
     }
 
     struct ScheduledTaskReplacementCandidate: Equatable {
@@ -79,12 +82,60 @@ enum BoardEngine {
         }
     }
 
+    static func hasActiveCountdownDisplay(
+        in cells: [[BingoCell]],
+        size: Int,
+        now: Date
+    ) -> Bool {
+        for row in 0..<min(size, cells.count) {
+            for col in 0..<min(size, cells[row].count) {
+                let cell = cells[row][col]
+                guard !cell.isEmpty, !cell.isCompleted else { continue }
+                if let countdownEndsAt = cell.countdownEndsAt, countdownEndsAt > now {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    static func nextTimeSensitiveUpdateDate(
+        in board: SavedBoard,
+        now: Date,
+        calendar: Calendar = .current
+    ) -> Date? {
+        nextTimeSensitiveUpdateDate(
+            in: expandedBoardCache(from: board),
+            size: min(max(board.gridSize, 2), maxGridSize),
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    static func nextTimeSensitiveUpdateDate(
+        in cells: [[BingoCell]],
+        size: Int,
+        now: Date,
+        calendar: Calendar = .current
+    ) -> Date? {
+        var nextDate: Date?
+        for row in 0..<min(size, cells.count) {
+            for col in 0..<min(size, cells[row].count) {
+                guard let candidate = nextTimeSensitiveUpdateDate(for: cells[row][col], now: now, calendar: calendar) else {
+                    continue
+                }
+                nextDate = earliestDate(nextDate, candidate)
+            }
+        }
+        return nextDate
+    }
+
     static func completedLines(in cells: [[BingoCell]], size: Int) -> Set<BingoLine> {
         var currentLines: Set<BingoLine> = []
 
         for row in 0..<size where row < cells.count {
             let rowCells = Array(cells[row].prefix(size))
-            if rowCells.count == size && rowCells.allSatisfy({ $0.isCompleted && !$0.isEmpty }) {
+            if rowCells.count == size && rowCells.allSatisfy({ $0.isCompleted && !$0.isEmpty && !$0.isDisplayOnlyInactive }) {
                 currentLines.insert(.row(row))
             }
         }
@@ -93,7 +144,7 @@ enum BoardEngine {
             var allCompleted = true
             for row in 0..<size {
                 guard row < cells.count, col < cells[row].count,
-                      cells[row][col].isCompleted, !cells[row][col].isEmpty else {
+                      cells[row][col].isCompleted, !cells[row][col].isEmpty, !cells[row][col].isDisplayOnlyInactive else {
                     allCompleted = false
                     break
                 }
@@ -106,7 +157,7 @@ enum BoardEngine {
         var mainDiagonalCompleted = true
         for index in 0..<size {
             guard index < cells.count, index < cells[index].count,
-                  cells[index][index].isCompleted, !cells[index][index].isEmpty else {
+                  cells[index][index].isCompleted, !cells[index][index].isEmpty, !cells[index][index].isDisplayOnlyInactive else {
                 mainDiagonalCompleted = false
                 break
             }
@@ -119,7 +170,7 @@ enum BoardEngine {
         for index in 0..<size {
             let col = size - 1 - index
             guard index < cells.count, col < cells[index].count,
-                  cells[index][col].isCompleted, !cells[index][col].isEmpty else {
+                  cells[index][col].isCompleted, !cells[index][col].isEmpty, !cells[index][col].isDisplayOnlyInactive else {
                 antiDiagonalCompleted = false
                 break
             }
@@ -131,10 +182,78 @@ enum BoardEngine {
         return currentLines
     }
 
+    private static func nextTimeSensitiveUpdateDate(
+        for cell: BingoCell,
+        now: Date,
+        calendar: Calendar
+    ) -> Date? {
+        guard cell.hasStoredTask else { return nil }
+        if cell.shouldStartCountdownForCurrentOccurrence(on: now, calendar: calendar) {
+            return now
+        }
+
+        var nextDate: Date?
+        if let countdownEndsAt = cell.countdownEndsAt {
+            nextDate = earliestDate(nextDate, normalizedCandidateDate(countdownEndsAt, now: now))
+        }
+
+        if cell.hasRepeatingSchedule, !cell.isResidentActive(on: now, calendar: calendar) {
+            if let nextActiveDate = cell.nextResidentActiveDate(onOrAfter: now, calendar: calendar) {
+                nextDate = earliestDate(nextDate, normalizedCandidateDate(nextActiveDate, now: now))
+            }
+            return nextDate
+        }
+
+        if let startVisibleAt = cell.occurrenceStartVisibleAt(on: now, calendar: calendar),
+           startVisibleAt > now {
+            nextDate = earliestDate(nextDate, startVisibleAt)
+        } else if let legacyStartDate = legacyStartVisibilityDate(for: cell, now: now, calendar: calendar) {
+            if legacyStartDate > now {
+                nextDate = earliestDate(nextDate, legacyStartDate)
+            }
+        }
+
+        if let endVisibleAt = cell.occurrenceEndVisibleAt(on: now, calendar: calendar) {
+            nextDate = earliestDate(nextDate, normalizedCandidateDate(endVisibleAt, now: now))
+        }
+
+        return nextDate
+    }
+
+    private static func legacyStartVisibilityDate(
+        for cell: BingoCell,
+        now: Date,
+        calendar: Calendar
+    ) -> Date? {
+        guard cell.startVisibleAt == nil,
+              let startVisibleMonth = cell.startVisibleMonth,
+              let startVisibleDay = cell.startVisibleDay,
+              (1...12).contains(startVisibleMonth),
+              (1...31).contains(startVisibleDay) else {
+            return nil
+        }
+
+        var components = DateComponents()
+        components.year = calendar.component(.year, from: now)
+        components.month = startVisibleMonth
+        components.day = startVisibleDay
+        guard let threshold = calendar.date(from: components) else { return nil }
+        return calendar.startOfDay(for: threshold)
+    }
+
+    private static func normalizedCandidateDate(_ date: Date, now: Date) -> Date {
+        date <= now ? now : date
+    }
+
+    private static func earliestDate(_ current: Date?, _ candidate: Date) -> Date {
+        guard let current else { return candidate }
+        return min(current, candidate)
+    }
+
     static func boardScore(cells: [[BingoCell]], completedLines: Set<BingoLine>) -> Int {
         let completedTaskCount = cells
             .flatMap { $0 }
-            .filter { $0.isCompleted && !$0.isEmpty }
+            .filter { $0.isCompleted && !$0.isEmpty && !$0.isDisplayOnlyInactive }
             .count
         let allTasksCompletedBonus = isBoardFullyCompleted(cells) ? 10 : 0
         return completedTaskCount + (completedLines.count * 5) + allTasksCompletedBonus
@@ -142,7 +261,10 @@ enum BoardEngine {
 
     static func isBoardFullyCompleted(_ cells: [[BingoCell]]) -> Bool {
         let allCells = cells.flatMap { $0 }
-        return !allCells.isEmpty && allCells.allSatisfy { !$0.isEmpty && $0.isCompleted }
+        guard !allCells.isEmpty else { return false }
+        return allCells.allSatisfy { cell in
+            !cell.isEmpty && !cell.isDisplayOnlyInactive && cell.isCompleted
+        }
     }
 
     static func expiredBoardCountdownDeadline(_ deadline: Date?, now: Date) -> Date? {
@@ -173,7 +295,10 @@ enum BoardEngine {
                     row: row,
                     col: col,
                     taskText: cell.storedTaskText,
-                    expiredAt: deadline
+                    expiredAt: deadline.date,
+                    expiredByCountdown: deadline.expiredByCountdown,
+                    expiredByVisibilityWindow: deadline.expiredByVisibilityWindow,
+                    allowsPostpone: !cell.hasRepeatingSchedule
                 )
             }
         }
@@ -202,6 +327,7 @@ enum BoardEngine {
                 let cell = fullBoardCells[row][col]
                 guard cell.hasStartVisibilityDate else { continue }
                 guard cell.isStartVisibilityReached(on: now) else { continue }
+                guard cell.recurrenceRule == nil else { continue }
                 guard !cell.hasResidentSchedule, !cell.isOneTimeTask else { continue }
                 guard !ignoredCellIDs.contains(cell.id) else { continue }
 
@@ -240,15 +366,19 @@ enum BoardEngine {
         switch resolution {
         case .markAsCompleted:
             let visibilityWindowExpired =
-                cell.countdownEndsAt == nil &&
-                cell.startVisibleAt != nil &&
-                cell.endVisibleAt != nil &&
-                cell.isEndVisibilityReached(on: now)
+                candidate.expiredByVisibilityWindow ||
+                (
+                    cell.occurrenceStartVisibleAt(on: now, calendar: calendar) != nil &&
+                    cell.occurrenceEndVisibleAt(on: now, calendar: calendar) != nil &&
+                    cell.isEndVisibilityReached(on: now, calendar: calendar)
+                )
 
             cell.isCompleted = true
             registerCompletionIfNeeded(on: &cell, now: now, calendar: calendar)
             cell.countdownEndsAt = nil
-            if visibilityWindowExpired {
+            cell.countdownPausedRemainingSeconds = nil
+            cell.estimatedDurationMinutes = nil
+            if visibilityWindowExpired && !cell.hasRepeatingSchedule {
                 cell.startVisibleAt = nil
                 cell.endVisibleAt = nil
                 cell.lastVisibilityWindowTimeoutAt = nil
@@ -270,11 +400,23 @@ enum BoardEngine {
             )
 
         case .postpone(let minutes):
+            guard !cell.hasRepeatingSchedule else { return nil }
             let clampedMinutes = min(max(minutes, 1), maxCountdownMinutes)
-            cell.startVisibleAt = nil
-            cell.endVisibleAt = nil
+            let postponedUntil = now.addingTimeInterval(Double(clampedMinutes * 60))
+
+            if candidate.expiredByVisibilityWindow {
+                cell.endVisibleAt = postponedUntil
+            }
+            if candidate.expiredByCountdown || !candidate.expiredByVisibilityWindow {
+                cell.countdownEndsAt = postponedUntil
+            } else {
+                cell.countdownEndsAt = nil
+            }
+            if let endVisibleAt = cell.endVisibleAt, endVisibleAt <= now {
+                cell.endVisibleAt = postponedUntil
+            }
             cell.lastVisibilityWindowTimeoutAt = nil
-            cell.countdownEndsAt = now.addingTimeInterval(Double(clampedMinutes * 60))
+            cell.countdownPausedRemainingSeconds = nil
             updatedCells[position.row][position.col] = cell
             return ExpiredTaskResolutionResult(
                 cells: updatedCells,
@@ -301,6 +443,8 @@ enum BoardEngine {
                     updatedCells[row][col].isCompleted = true
                     registerCompletionIfNeeded(on: &updatedCells[row][col], now: now, calendar: calendar)
                     updatedCells[row][col].countdownEndsAt = nil
+                    updatedCells[row][col].countdownPausedRemainingSeconds = nil
+                    updatedCells[row][col].estimatedDurationMinutes = nil
                 }
             }
             return ExpiredBoardCountdownResolutionResult(
@@ -326,22 +470,44 @@ enum BoardEngine {
         }
     }
 
-    private static func expiredTaskDeadline(for cell: BingoCell, now: Date) -> Date? {
-        guard !cell.isEmpty, !cell.isCompleted else { return nil }
+    private struct ExpiredTaskDeadline: Equatable {
+        let date: Date
+        let expiredByCountdown: Bool
+        let expiredByVisibilityWindow: Bool
+    }
+
+    private static func expiredTaskDeadline(for cell: BingoCell, now: Date) -> ExpiredTaskDeadline? {
+        guard !cell.isEmpty, !cell.isDisplayOnlyInactive, !cell.isCompleted else { return nil }
 
         let executionDeadline = cell.countdownEndsAt
         let visibilityWindowDeadline: Date? = {
-            guard executionDeadline == nil else { return nil }
-            guard let start = cell.startVisibleAt, let end = cell.endVisibleAt else { return nil }
+            guard let start = cell.occurrenceStartVisibleAt(on: now),
+                  let end = cell.occurrenceEndVisibleAt(on: now) else { return nil }
             guard now >= start, now >= end else { return nil }
             return end
         }()
 
-        guard let deadline = executionDeadline ?? visibilityWindowDeadline,
+        let deadline: Date?
+        switch (executionDeadline, visibilityWindowDeadline) {
+        case let (execution?, visibility?):
+            deadline = min(execution, visibility)
+        case let (execution?, nil):
+            deadline = execution
+        case let (nil, visibility?):
+            deadline = visibility
+        case (nil, nil):
+            deadline = nil
+        }
+
+        guard let deadline,
               deadline <= now else {
             return nil
         }
-        return deadline
+        return ExpiredTaskDeadline(
+            date: deadline,
+            expiredByCountdown: executionDeadline.map { $0 == deadline } ?? false,
+            expiredByVisibilityWindow: visibilityWindowDeadline.map { $0 == deadline } ?? false
+        )
     }
 
     private struct Position: Equatable {

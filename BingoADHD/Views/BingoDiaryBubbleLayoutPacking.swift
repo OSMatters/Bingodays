@@ -14,8 +14,8 @@ extension BingoDiaryBubbleLayout {
         let pageHeight = max(560, baseHeight + 140)
         let availableTop = topInset + initialTopGap
         let availableBottom = pageHeight - topInset
-        let edgeOverflowX: CGFloat = 26
-        let edgeOverflowY: CGFloat = 0
+        let horizontalEdgeInset = sideInset + 16
+        let verticalEdgeInset = sideInset
 
         let sortedDescriptors = descriptors.sorted { lhs, rhs in
             if lhs.radius != rhs.radius { return lhs.radius > rhs.radius }
@@ -32,10 +32,12 @@ extension BingoDiaryBubbleLayout {
 
             while placement == nil && pageIndex < 120 {
                 let pageStartX = CGFloat(pageIndex) * canvasWidth
-                let minX = pageStartX + descriptor.radius - edgeOverflowX
-                let maxX = pageStartX + canvasWidth - descriptor.radius + edgeOverflowX
-                let minY = availableTop + descriptor.radius - edgeOverflowY
-                let maxY = availableBottom - descriptor.radius + edgeOverflowY
+                let minX = pageStartX + descriptor.radius + horizontalEdgeInset
+                let maxX = pageStartX + canvasWidth - descriptor.radius - horizontalEdgeInset
+                let minY = availableTop + descriptor.radius + verticalEdgeInset
+                let maxY = availableBottom - descriptor.radius - verticalEdgeInset
+                let isXRangeValid = minX <= maxX
+                let isYRangeValid = minY <= maxY
 
                 var generator = SeededGenerator(
                     state: seed(for: descriptor.taskCount.task)
@@ -44,8 +46,8 @@ extension BingoDiaryBubbleLayout {
                     &+ 1
                 )
                 let pagePlaced = placed.filter { placement in
-                    placement.center.x >= pageStartX - edgeOverflowX &&
-                    placement.center.x <= pageStartX + canvasWidth + edgeOverflowX
+                    placement.center.x >= pageStartX &&
+                    placement.center.x <= pageStartX + canvasWidth
                 }
                 var bestPlacementForPage: (placement: Placement, score: CGFloat)?
 
@@ -63,14 +65,24 @@ extension BingoDiaryBubbleLayout {
                             y: base.center.y + sin(angle) * targetDistance
                         )
                     } else {
+                        let xRange = safeRange(
+                            lowerBound: minX,
+                            upperBound: maxX,
+                            fallback: pageStartX + canvasWidth * 0.5
+                        )
+                        let yRange = safeRange(
+                            lowerBound: minY,
+                            upperBound: maxY,
+                            fallback: (availableTop + availableBottom) * 0.5
+                        )
                         candidate = CGPoint(
-                            x: CGFloat.random(in: minX...maxX, using: &generator),
-                            y: CGFloat.random(in: minY...maxY, using: &generator)
+                            x: CGFloat.random(in: xRange, using: &generator),
+                            y: CGFloat.random(in: yRange, using: &generator)
                         )
                     }
 
-                    guard candidate.x >= minX, candidate.x <= maxX,
-                          candidate.y >= minY, candidate.y <= maxY else {
+                    guard (!isXRangeValid || (candidate.x >= minX && candidate.x <= maxX)),
+                          (!isYRangeValid || (candidate.y >= minY && candidate.y <= maxY)) else {
                         continue
                     }
                     if fits(candidate, radius: descriptor.radius, among: placed) {
@@ -148,6 +160,15 @@ extension BingoDiaryBubbleLayout {
             }
         }
         return true
+    }
+
+    private static func safeRange(
+        lowerBound: CGFloat,
+        upperBound: CGFloat,
+        fallback: CGFloat
+    ) -> ClosedRange<CGFloat> {
+        guard lowerBound <= upperBound else { return fallback...fallback }
+        return lowerBound...upperBound
     }
 
     static func makeBubble(from descriptor: Descriptor, at center: CGPoint) -> BingoDiaryBubble {

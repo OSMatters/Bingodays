@@ -21,6 +21,14 @@ struct EditableHomeStickerView: View {
         baseStickerWidth * CGFloat(normalizedScale)
     }
 
+    private var interactionSideLength: CGFloat {
+        max(stickerWidth + 44, 112)
+    }
+
+    private var stickerFrameOffset: CGFloat {
+        (interactionSideLength - stickerWidth) / 2
+    }
+
     private var normalizedXRatio: Double {
         normalized(placement.xRatio, min: 0.02, max: 0.98, fallback: 0.5)
     }
@@ -53,19 +61,11 @@ struct EditableHomeStickerView: View {
             y: canvasSize.height * normalizedYRatio
         )
 
-        ZStack(alignment: .topTrailing) {
-            Image(placement.kind.unlockedImageName)
-                .resizable()
-                .scaledToFit()
-                .frame(width: stickerWidth)
-                .shadow(color: NeumorphicColors.darkShadow.opacity(0.16), radius: 6, x: 3, y: 4)
-                .overlay {
-                    if isEditing {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(NeumorphicColors.accent.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
-                            .padding(2)
-                    }
-                }
+        ZStack {
+            Color.clear
+                .frame(width: interactionSideLength, height: interactionSideLength)
+
+            stickerImage
 
             if isEditing {
                 Button(action: onDelete) {
@@ -76,9 +76,13 @@ struct EditableHomeStickerView: View {
                         .background(Circle().fill(NeumorphicColors.accent))
                 }
                 .buttonStyle(.plain)
-                .offset(x: 6, y: -6)
+                .position(
+                    x: stickerFrameOffset + stickerWidth + 6,
+                    y: stickerFrameOffset - 6
+                )
             }
         }
+        .frame(width: interactionSideLength, height: interactionSideLength)
         .contentShape(Rectangle())
         .position(position)
         .onTapGesture {
@@ -152,6 +156,21 @@ struct EditableHomeStickerView: View {
                     isMagnifying = false
                 }
         )
+    }
+
+    private var stickerImage: some View {
+        Image(placement.kind.unlockedImageName)
+            .resizable()
+            .scaledToFit()
+            .frame(width: stickerWidth)
+            .shadow(color: NeumorphicColors.darkShadow.opacity(0.16), radius: 6, x: 3, y: 4)
+            .overlay {
+                if isEditing {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(NeumorphicColors.accent.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                        .padding(2)
+                }
+            }
     }
 
     private func clamp(_ value: Double, min lowerBound: Double, max upperBound: Double) -> Double {

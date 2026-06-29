@@ -1,0 +1,22 @@
+{
+  "latestVersion": "2.4.0",
+  "trackViewURL": "https://apps.apple.com/app/id6760203837",
+  "notes": {
+    "zh-Hans": [
+      "现在可以在【更多】→【设置】中，自由切换 App 使用语言啦，不用跟着系统语言跑啦～",
+      "根据大家的反馈，优化了一些使用体验，修复了一些小问题，让打卡更顺手！"
+    ],
+    "zh-Hant": [
+      "現在可以到【更多】→【設定】中，自由切換 App 使用語言啦，不用再跟著系統語言跑囉～",
+      "根據大家的回饋，優化了一些使用體驗，也修復了一些小問題，讓打卡更順手！"
+    ],
+    "en": [
+      "You can now choose your preferred app language in More → Settings — no more being tied to your system language!",
+      "We’ve polished a few things and fixed some issues based on your feedback, making your daily check-ins even smoother."
+    ],
+    "ja": [
+      "「その他」→「設定」から、アプリの表示言語を自由に変更できるようになりました！システム言語に合わせる必要はありません♪",
+      "みなさんからいただいたフィードバックをもとに、使い心地を改善し、いくつかの不具合も修正しました。毎日のチェックインがさらに快適になります！"
+    ]
+  }
+}

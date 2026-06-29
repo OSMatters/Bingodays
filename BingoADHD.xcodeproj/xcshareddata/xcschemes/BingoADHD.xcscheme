@@ -21,6 +21,20 @@
                ReferencedContainer = "container:BingoADHD.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "B0A1D2E3F4A5061728394D03"
+               BuildableName = "BingoADHDTests.xctest"
+               BlueprintName = "BingoADHDTests"
+               ReferencedContainer = "container:BingoADHD.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -29,6 +43,19 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
       shouldAutocreateTestPlan = "YES">
+      <Testables>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "B0A1D2E3F4A5061728394D03"
+               BuildableName = "BingoADHDTests.xctest"
+               BlueprintName = "BingoADHDTests"
+               ReferencedContainer = "container:BingoADHD.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+      </Testables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
@@ -56,6 +83,26 @@
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
+            argument = "-DebugLimitedOfferEnabled"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-DebugLimitedOfferCampaignID=debug_paywall_exit_v1"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-DebugLimitedOfferDurationHours=48"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-DebugLimitedOfferMinAppVersion=0.0.0"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-DebugResetLimitedOfferState"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
             argument = "-DebugAppReviewPrompt"
             isEnabled = "YES">
          </CommandLineArgument>
@@ -65,7 +112,7 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-DebugForceNoPremium"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-DebugCustomResetToast"

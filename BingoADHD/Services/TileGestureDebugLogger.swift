@@ -36,9 +36,18 @@ enum TileGestureDebugLogger {
     }
 
     static func logOverlayBlockers(source: String, state: OverlayState) {
+        let blockers = state.blockers
+        if !blockers.isEmpty {
+            DiagnosticLogStore.recordWarning(
+                "tile_gesture.overlay_blockers",
+                details: [
+                    "source": source,
+                    "blockers": blockers.joined(separator: ",")
+                ]
+            )
+        }
 #if DEBUG
         guard AppDebugFlags.tileGestureDebugEnabled else { return }
-        let blockers = state.blockers
         let summary = blockers.isEmpty ? "none" : blockers.joined(separator: ",")
         print("[TileGestureDebug][Overlay][\(source)] \(summary)")
 #else

@@ -47,5 +47,6 @@ struct HomeFeedbackLayer: View {
                     .allowsHitTesting(false)
             }
         }
+        .allowsHitTesting(false)
     }
 }

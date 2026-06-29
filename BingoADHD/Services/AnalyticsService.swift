@@ -35,9 +35,10 @@ enum AnalyticsService {
         syncThemeUserProperty(theme)
     }
 
-    static func logPremiumBoardsLimitHit(currentBoardCount: Int) {
+    static func logPremiumBoardsLimitHit(currentBoardCount: Int, source: String) {
         Analytics.logEvent("premium_limit_boards_hit", parameters: [
-            "current_board_count": currentBoardCount
+            "current_board_count": currentBoardCount,
+            "source": source
         ])
     }
 
@@ -88,6 +89,8 @@ enum AnalyticsService {
         plan: String,
         productID: String,
         transactionID: String? = nil,
+        purchaseAttemptID: String? = nil,
+        attributionAgeSeconds: Int? = nil,
         value: Double? = nil,
         currency: String? = nil
     ) {
@@ -98,6 +101,12 @@ enum AnalyticsService {
         ]
         if let transactionID {
             parameters["transaction_id"] = transactionID
+        }
+        if let purchaseAttemptID {
+            parameters["purchase_attempt_id"] = purchaseAttemptID
+        }
+        if let attributionAgeSeconds {
+            parameters["attribution_age_seconds"] = attributionAgeSeconds
         }
         if let value {
             parameters["value"] = value
@@ -112,7 +121,9 @@ enum AnalyticsService {
         source: String,
         plan: String,
         product: Product,
-        transaction: StoreKit.Transaction
+        transaction: StoreKit.Transaction,
+        purchaseAttemptID: String? = nil,
+        attributionAgeSeconds: Int? = nil
     ) {
         guard logStoreKitTransactionIfNeeded(transaction) else { return }
         logPremiumFeaturePurchaseSuccess(
@@ -120,18 +131,28 @@ enum AnalyticsService {
             plan: plan,
             productID: transaction.productID,
             transactionID: String(transaction.id),
+            purchaseAttemptID: purchaseAttemptID,
+            attributionAgeSeconds: attributionAgeSeconds,
             value: NSDecimalNumber(decimal: product.price).doubleValue,
             currency: product.priceFormatStyle.currencyCode
         )
     }
 
-    static func logPremiumTransactionUpdate(source: String, plan: String, transaction: StoreKit.Transaction) {
+    static func logPremiumTransactionUpdate(
+        source: String,
+        plan: String,
+        transaction: StoreKit.Transaction,
+        purchaseAttemptID: String? = nil,
+        attributionAgeSeconds: Int? = nil
+    ) {
         guard logStoreKitTransactionIfNeeded(transaction) else { return }
         logPremiumFeaturePurchaseSuccess(
             source: source,
             plan: plan,
             productID: transaction.productID,
-            transactionID: String(transaction.id)
+            transactionID: String(transaction.id),
+            purchaseAttemptID: purchaseAttemptID,
+            attributionAgeSeconds: attributionAgeSeconds
         )
     }
 
@@ -146,21 +167,44 @@ enum AnalyticsService {
         ])
     }
 
-    static func logPremiumPurchaseAttempt(source: String, plan: String, productID: String) {
-        Analytics.logEvent("premium_purchase_attempt", parameters: [
+    static func logPremiumPurchaseAttempt(
+        source: String,
+        plan: String,
+        productID: String,
+        purchaseAttemptID: String? = nil
+    ) {
+        var parameters: [String: Any] = [
             "source": source,
             "plan": plan,
             "product_id": productID
-        ])
+        ]
+        if let purchaseAttemptID {
+            parameters["purchase_attempt_id"] = purchaseAttemptID
+        }
+        Analytics.logEvent("premium_purchase_attempt", parameters: parameters)
     }
 
-    static func logPremiumPurchaseResult(source: String, plan: String, productID: String, result: String) {
-        Analytics.logEvent("premium_purchase_result", parameters: [
+    static func logPremiumPurchaseResult(
+        source: String,
+        plan: String,
+        productID: String,
+        result: String,
+        purchaseAttemptID: String? = nil,
+        attributionAgeSeconds: Int? = nil
+    ) {
+        var parameters: [String: Any] = [
             "source": source,
             "plan": plan,
             "product_id": productID,
             "result": result
-        ])
+        ]
+        if let purchaseAttemptID {
+            parameters["purchase_attempt_id"] = purchaseAttemptID
+        }
+        if let attributionAgeSeconds {
+            parameters["attribution_age_seconds"] = attributionAgeSeconds
+        }
+        Analytics.logEvent("premium_purchase_result", parameters: parameters)
     }
 
     static func logTemplateShareOpen(source: String, gridSize: Int, isPremium: Bool) {

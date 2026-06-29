@@ -192,16 +192,18 @@ enum BingoBoardStore {
         return NamedBoardsSnapshot(selectedBoardID: nil, boards: [])
     }
 
+    @discardableResult
     static func saveNamedBoardsSnapshot(
         _ snapshot: NamedBoardsSnapshot,
         reloadWidgets: Bool = true
-    ) {
+    ) -> Bool {
         let sanitized = sanitizeNamedBoardsSnapshot(snapshot)
         #if DEBUG
         let previousSnapshot = loadPersistedNamedBoardsSnapshotForIntegrityCheck()
         debugValidateNamedBoardsTransition(from: previousSnapshot, to: sanitized)
         #endif
-        guard let data = try? JSONEncoder().encode(sanitized) else { return }
+        guard let data = try? JSONEncoder().encode(sanitized) else { return false }
+        guard !isNamedBoardsPersistenceCurrent(data) else { return false }
 
         persistNamedBoardsFile(data)
         sharedDefaults.set(data, forKey: boardsSaveKey)
@@ -210,6 +212,8 @@ enum BingoBoardStore {
         if reloadWidgets {
             reloadWidgetTimelines()
         }
+
+        return true
     }
 
     static func reloadWidgetTimelines() {
@@ -431,8 +435,10 @@ enum BingoBoardStore {
             residentTaskText: cell.residentTaskText,
             residentWeekdays: cell.residentWeekdays,
             oneTimeVisibleDate: cell.oneTimeVisibleDate,
+            recurrenceRule: cell.recurrenceRule,
             startVisibleAt: cell.startVisibleAt,
             endVisibleAt: cell.endVisibleAt,
+            usesRecurringTimeWindow: cell.usesRecurringTimeWindow,
             startReminderEnabled: cell.startReminderEnabled,
             startReminderOffsetMinutes: cell.startReminderOffsetMinutes,
             startVisibleMonth: cell.startVisibleMonth,
@@ -590,12 +596,14 @@ enum BingoBoardStore {
         let startVisibleDay = cell.startVisibleDay.map { String($0) } ?? "nil"
         let countdownPausedRemainingSeconds = cell.countdownPausedRemainingSeconds.map { String($0) } ?? "nil"
         let estimatedDurationMinutes = cell.estimatedDurationMinutes.map { String($0) } ?? "nil"
+        let recurrenceRule = debugRecurrenceRuleSignature(cell.recurrenceRule)
 
         let parts: [String] = [
             cell.id.uuidString,
             cell.text,
             residentTaskText,
             residentWeekdays,
+            recurrenceRule,
             debugDateSignature(cell.oneTimeVisibleDate),
             debugDateSignature(cell.startVisibleAt),
             debugDateSignature(cell.endVisibleAt),
@@ -612,6 +620,19 @@ enum BingoBoardStore {
             debugDateSignature(cell.lastVisibilityWindowTimeoutAt)
         ]
         return parts.joined(separator: "|")
+    }
+
+    private static func debugRecurrenceRuleSignature(_ rule: TaskRecurrenceRule?) -> String {
+        guard let rule else { return "nil" }
+        let weekdays = rule.weekdays.sorted().map { String($0) }.joined(separator: ",")
+        let monthDay = rule.monthDay.map { String($0) } ?? "nil"
+        return [
+            rule.kind.rawValue,
+            String(rule.interval),
+            weekdays,
+            monthDay,
+            debugDateSignature(rule.anchorDate)
+        ].joined(separator: ":")
     }
 
     private static func debugDateSignature(_ date: Date?) -> String {
@@ -651,6 +672,19 @@ enum BingoBoardStore {
 
     private static func persistNamedBoardsFile(_ data: Data) {
         try? data.write(to: namedBoardsFileURL, options: .atomic)
+    }
+
+    private static func isNamedBoardsPersistenceCurrent(_ data: Data) -> Bool {
+        guard (try? Data(contentsOf: namedBoardsFileURL)) == data else {
+            return false
+        }
+        guard sharedDefaults.data(forKey: boardsSaveKey) == data else {
+            return false
+        }
+        guard UserDefaults.standard.data(forKey: boardsSaveKey) == data else {
+            return false
+        }
+        return true
     }
 
     private static var metricsFileURL: URL {

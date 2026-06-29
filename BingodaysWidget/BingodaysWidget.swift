@@ -59,26 +59,15 @@ private struct BingodaysWidgetProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<BingodaysWidgetEntry>) -> Void) {
-        let entry = makeEntry(at: .now)
-        let nextRefresh: Date
-        if let countdownEndsAt = entry.boardCountdownEndsAt, countdownEndsAt > .now {
-            nextRefresh = .now.addingTimeInterval(1)
-        } else {
-            nextRefresh = Calendar.current.date(byAdding: .minute, value: 30, to: .now) ?? .now.addingTimeInterval(1800)
-        }
+        let now = Date()
+        let entry = makeEntry(at: now)
+        let nextRefresh = nextRefreshDate(for: entry, at: now)
         completion(Timeline(entries: [entry], policy: .after(nextRefresh)))
     }
 
     private func makeEntry(at date: Date) -> BingodaysWidgetEntry {
         let snapshot = BingoBoardStore.loadNamedBoardsSnapshot()
-        let panels = snapshot.boards.map { board in
-            WidgetBoardPanel(
-                id: board.id,
-                name: board.name,
-                board: board.board,
-                countdownEndsAt: board.countdownEndsAt
-            )
-        }
+        let panels = snapshot.boards.map { makePanel(from: $0, at: date) }
 
         let resolvedPanels: [WidgetBoardPanel]
         let selectedPanelID: UUID?
@@ -87,7 +76,7 @@ private struct BingodaysWidgetProvider: TimelineProvider {
                 WidgetBoardPanel(
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000001") ?? UUID(),
                     name: L10n.boardDefaultName(1),
-                    board: BingoBoardStore.loadBoard() ?? .sample,
+                    board: projectedBoard(BingoBoardStore.loadBoard() ?? .sample, at: date),
                     countdownEndsAt: BingoBoardStore.loadBoardCountdownEndsAt()
                 )
             ]
@@ -110,6 +99,78 @@ private struct BingodaysWidgetProvider: TimelineProvider {
             selectedPanelID: selectedPanelID,
             usageDays: BingoDiaryStore.consecutiveBingoDays()
         )
+    }
+
+    private func makePanel(from namedBoard: BingoBoardStore.NamedBoard, at date: Date) -> WidgetBoardPanel {
+        let preparedBoard = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(namedBoard, now: date)
+
+        return WidgetBoardPanel(
+            id: preparedBoard.id,
+            name: preparedBoard.name,
+            board: projectedBoard(preparedBoard.board, at: date),
+            countdownEndsAt: preparedBoard.countdownEndsAt
+        )
+    }
+
+    private func projectedBoard(_ board: SavedBoard, at date: Date) -> SavedBoard {
+        let gridSize = min(max(board.gridSize, 2), BoardEngine.maxGridSize)
+        let fullBoard = BoardEngine.expandedBoardCache(from: board)
+        let visibleCells = BoardEngine.projectVisibleCells(
+            from: fullBoard,
+            size: gridSize,
+            referenceDate: date
+        )
+        let completedLines = BoardEngine.completedLines(in: visibleCells, size: gridSize)
+
+        return SavedBoard(
+            gridSize: gridSize,
+            cells: visibleCells,
+            completedLines: completedLines,
+            fullBoardCells: fullBoard
+        )
+    }
+
+    private func nextRefreshDate(for entry: BingodaysWidgetEntry, at date: Date) -> Date {
+        var candidates: [Date] = [
+            Calendar.current.date(byAdding: .minute, value: 30, to: date) ?? date.addingTimeInterval(1800)
+        ]
+
+        if let countdownEndsAt = entry.boardCountdownEndsAt, countdownEndsAt > date {
+            candidates.append(countdownEndsAt)
+        }
+
+        if let contentRefresh = nextBoardContentRefreshDate(in: entry.panels.map(\.board), after: date) {
+            candidates.append(contentRefresh)
+        }
+
+        return candidates.min() ?? date.addingTimeInterval(1800)
+    }
+
+    private func nextBoardContentRefreshDate(in boards: [SavedBoard], after date: Date) -> Date? {
+        var candidates: [Date] = []
+
+        for board in boards {
+            let cells = board.fullBoardCells ?? board.cells
+            for row in cells {
+                for cell in row where cell.hasStoredTask {
+                    if let countdownEndsAt = cell.countdownEndsAt, countdownEndsAt > date {
+                        candidates.append(countdownEndsAt)
+                    }
+
+                    if let start = cell.occurrenceStartVisibleAt(on: date), start > date {
+                        candidates.append(start)
+                    }
+
+                    if let end = cell.occurrenceEndVisibleAt(on: date),
+                       end > date,
+                       cell.isCurrentlyTappable(on: date) {
+                        candidates.append(end)
+                    }
+                }
+            }
+        }
+
+        return candidates.min()
     }
 }
 
@@ -155,14 +216,14 @@ private struct BingodaysCountdownWidgetView: View {
             NeumorphicColors.background
 
             VStack(spacing: 14) {
-                if let countdownText = countdownText {
+                if let countdownRange = countdownRange {
                     Text(L10n.dontForget)
                         .font(.system(size: 11, weight: .heavy, design: .rounded))
                         .foregroundColor(NeumorphicColors.text.opacity(0.44))
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
 
-                    Text(countdownText)
+                    Text(timerInterval: countdownRange, countsDown: true, showsHours: true)
                         .font(.system(size: 26, weight: .black, design: .rounded))
                         .monospacedDigit()
                         .foregroundColor(NeumorphicColors.accent)
@@ -212,16 +273,11 @@ private struct BingodaysCountdownWidgetView: View {
         }
     }
 
-    private var countdownText: String? {
+    private var countdownRange: ClosedRange<Date>? {
         guard let endsAt = entry.boardCountdownEndsAt, endsAt > entry.date else {
             return nil
         }
-
-        let remainingSeconds = max(Int(endsAt.timeIntervalSince(entry.date)), 0)
-        let hours = min(remainingSeconds / 3600, 99)
-        let minutes = (remainingSeconds % 3600) / 60
-        let seconds = remainingSeconds % 60
-        return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        return entry.date...endsAt
     }
 }
 
@@ -241,7 +297,11 @@ private struct BingodaysLargeWidgetView: View {
         return entry.panels[panelIndex].name
     }
     private var totalTasks: Int { board.cells.flatMap(\.self).filter { !$0.isEmpty }.count }
-    private var completedTasks: Int { board.cells.flatMap(\.self).filter(\.isCompleted).count }
+    private var completedTasks: Int {
+        board.cells.flatMap(\.self).filter {
+            $0.isCompleted && !$0.isEmpty && !$0.isDisplayOnlyInactive
+        }.count
+    }
     private var mediumItems: [MediumDisplayItem] {
         let candidates = board.cells.enumerated().flatMap { boardRow in
             let (row, rowCells) = boardRow
@@ -427,15 +487,20 @@ private struct BingodaysLargeWidgetView: View {
         cellSize: CGFloat,
         isFirstCell: Bool
     ) -> some View {
+        let isToggleable = isToggleable(cell: cell, isLocked: isLocked)
+        let isScheduledInactive = !isToggleable && !cell.isEmpty
         let cellView = WidgetBingoCellView(
             cell: cell,
+            currentTime: entry.date,
+            isScheduledInactive: isScheduledInactive,
+            scheduleStatusText: scheduleStatusText(for: cell, isScheduledInactive: isScheduledInactive),
             isInBingoLine: isInBingoLine,
             isLocked: isLocked,
             cellSize: cellSize,
             isFirstCell: isFirstCell
         )
 
-        guard isActive, let activePanelID else {
+        guard isActive, let activePanelID, isToggleable else {
             return AnyView(cellView)
         }
 
@@ -504,18 +569,132 @@ private struct BingodaysLargeWidgetView: View {
 
     private func isLocked(row: Int, col: Int, in board: SavedBoard) -> Bool {
         let activeForced = board.cells.flatMap(\.self).filter {
-            $0.isForced && !$0.isCompleted && !$0.isEmpty && !$0.isVisibilityWindowInactive(on: entry.date)
+            $0.isForced && !$0.isCompleted && !$0.isEmpty && $0.isCurrentlyTappable(on: entry.date)
         }
         guard !activeForced.isEmpty else {
             return false
         }
 
         let cell = cellAt(row: row, col: col, in: board)
-        return !(cell.isForced && !cell.isCompleted && !cell.isEmpty && !cell.isVisibilityWindowInactive(on: entry.date))
+        return !(cell.isForced && !cell.isCompleted && !cell.isEmpty && cell.isCurrentlyTappable(on: entry.date))
     }
 
     private func isToggleable(cell: BingoCell, isLocked: Bool) -> Bool {
-        !cell.isEmpty && !isLocked && !cell.isVisibilityWindowInactive(on: entry.date)
+        !cell.isEmpty && !isLocked && (cell.isCompleted || cell.isCurrentlyTappable(on: entry.date))
+    }
+
+    private func scheduleStatusText(for cell: BingoCell, isScheduledInactive: Bool) -> String? {
+        guard cell.hasStoredTask else { return nil }
+
+        if isScheduledInactive {
+            if cell.isEndVisibilityReached(on: entry.date) {
+                return L10n.tr("Ended", zhHans: "已结束", zhHant: "已結束", ja: "終了")
+            }
+
+            if cell.isVisibilityWindowInactive(on: entry.date) {
+                return startStatusText(for: cell.occurrenceStartVisibleAt(on: entry.date))
+            }
+
+            if let nextActiveDate = cell.nextResidentActiveDate(onOrAfter: entry.date),
+               !Calendar.current.isDate(nextActiveDate, inSameDayAs: entry.date) {
+                return L10n.tr(
+                    "Next \(shortDateLabel(nextActiveDate))",
+                    zhHans: "下次 \(shortDateLabel(nextActiveDate))",
+                    zhHant: "下次 \(shortDateLabel(nextActiveDate))",
+                    ja: "次回 \(shortDateLabel(nextActiveDate))"
+                )
+            }
+            return nil
+        }
+
+        guard let rule = cell.effectiveRecurrenceRule,
+              rule.kind != .none else {
+            return nil
+        }
+        return activeRecurrenceLabel(for: rule)
+    }
+
+    private func startStatusText(for startDate: Date?) -> String? {
+        guard let startDate else { return nil }
+        if Calendar.current.isDate(startDate, inSameDayAs: entry.date) {
+            return L10n.tr(
+                "\(timeLabel(startDate)) start",
+                zhHans: "\(timeLabel(startDate)) 开始",
+                zhHant: "\(timeLabel(startDate)) 開始",
+                ja: "\(timeLabel(startDate)) 開始"
+            )
+        }
+        return L10n.tr(
+            "\(shortDateLabel(startDate)) start",
+            zhHans: "\(shortDateLabel(startDate)) 开始",
+            zhHant: "\(shortDateLabel(startDate)) 開始",
+            ja: "\(shortDateLabel(startDate)) 開始"
+        )
+    }
+
+    private func activeRecurrenceLabel(for rule: TaskRecurrenceRule) -> String? {
+        switch rule.kind {
+        case .daily:
+            return L10n.tr("Daily", zhHans: "每天", zhHant: "每天", ja: "毎日")
+        case .weekly:
+            let orderedWeekdays = [2, 3, 4, 5, 6, 7, 1]
+            let labels = orderedWeekdays
+                .filter { rule.weekdays.contains($0) }
+                .map(weekdayLabel(for:))
+            guard !labels.isEmpty else { return nil }
+            return L10n.tr(
+                "Every \(labels.joined(separator: ", "))",
+                zhHans: "每周\(labels.joined(separator: "、"))",
+                zhHant: "每週\(labels.joined(separator: "、"))",
+                ja: "毎週\(labels.joined(separator: "・"))"
+            )
+        case .monthlyDay:
+            let day = rule.monthDay ?? Calendar.current.component(.day, from: entry.date)
+            return L10n.tr(
+                "Monthly on day \(day)",
+                zhHans: "每月 \(day) 日",
+                zhHant: "每月 \(day) 日",
+                ja: "毎月\(day)日"
+            )
+        case .everyNDays:
+            return L10n.tr(
+                "Every \(rule.interval) days",
+                zhHans: "每隔 \(rule.interval) 天",
+                zhHant: "每隔 \(rule.interval) 天",
+                ja: "\(rule.interval)日ごと"
+            )
+        case .none:
+            return nil
+        }
+    }
+
+    private func weekdayLabel(for weekday: Int) -> String {
+        switch weekday {
+        case 1: return L10n.tr("Sun", zhHans: "周日", zhHant: "週日", ja: "日")
+        case 2: return L10n.tr("Mon", zhHans: "周一", zhHant: "週一", ja: "月")
+        case 3: return L10n.tr("Tue", zhHans: "周二", zhHant: "週二", ja: "火")
+        case 4: return L10n.tr("Wed", zhHans: "周三", zhHant: "週三", ja: "水")
+        case 5: return L10n.tr("Thu", zhHans: "周四", zhHant: "週四", ja: "木")
+        case 6: return L10n.tr("Fri", zhHans: "周五", zhHant: "週五", ja: "金")
+        case 7: return L10n.tr("Sat", zhHans: "周六", zhHant: "週六", ja: "土")
+        default: return ""
+        }
+    }
+
+    private func shortDateLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = AppLanguage.displayLocale
+        formatter.calendar = Calendar.current
+        formatter.setLocalizedDateFormatFromTemplate("Md")
+        return formatter.string(from: date)
+    }
+
+    private func timeLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = AppLanguage.displayLocale
+        formatter.calendar = Calendar.current
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
     }
 
     private func stableMediumOrder(for item: MediumDisplayItem) -> Int {
@@ -544,10 +723,21 @@ private struct MediumDisplayItem {
 
 private struct WidgetBingoCellView: View {
     let cell: BingoCell
+    let currentTime: Date
+    let isScheduledInactive: Bool
+    let scheduleStatusText: String?
     let isInBingoLine: Bool
     let isLocked: Bool
     let cellSize: CGFloat
     let isFirstCell: Bool
+
+    private static let scheduleDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.calendar = Calendar.current
+        formatter.dateFormat = "M/d HH:mm"
+        return formatter
+    }()
 
     private var activeTheme: AppTheme { AppTheme.current }
     private var bingoLineColor: Color { activeTheme.color }
@@ -557,33 +747,45 @@ private struct WidgetBingoCellView: View {
     private var cellCornerRadius: CGFloat { min(max(cellSize * 0.25, 12), 22) }
     private var footerSlotHeight: CGFloat { min(max(cellSize * 0.2, 14), 24) }
     private var footerBottomInset: CGFloat { min(max(cellSize * 0.08, 4), 8) }
+    private var isTaskHiddenFaceVisible: Bool { cell.isCompleted && cell.isTaskHidden && !cell.isEmpty && !isLocked }
 
     var body: some View {
         ZStack {
             backgroundSurface
 
             if !cell.isEmpty {
-                ZStack(alignment: .bottom) {
-                    Text(cell.text)
-                        .font(.system(size: dynamicFontSize, weight: .medium, design: .rounded))
-                        .foregroundColor(cellTextColor)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                        .minimumScaleFactor(0.5)
-                        .padding(.horizontal, max(cellSize * 0.1, 6))
-                        .padding(.top, max(cellSize * 0.12, 7))
-                        .padding(
-                            .bottom,
-                            cell.isCompleted && !isLocked
-                                ? footerSlotHeight + footerBottomInset + 2
-                                : max(cellSize * 0.1, 7)
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                if isTaskHiddenFaceVisible {
+                    largeCompletionIcon
+                } else {
+                    ZStack(alignment: .bottom) {
+                        Text(cell.text)
+                            .font(.system(size: dynamicFontSize, weight: .medium, design: .rounded))
+                            .foregroundColor(cellTextColor)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                            .minimumScaleFactor(0.5)
+                            .padding(.horizontal, max(cellSize * 0.1, 6))
+                            .padding(.top, max(cellSize * 0.12, 7))
+                            .padding(.bottom, textBottomPadding)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
-                    if cell.isCompleted && !isLocked {
-                        completionIcon
-                            .frame(height: footerSlotHeight)
-                            .padding(.bottom, footerBottomInset)
+                        if hasFooterContent {
+                            footerContent
+                                .font(.system(size: max(dynamicFontSize * 0.34, 7), weight: .semibold, design: .rounded))
+                                .foregroundColor(primaryTextColor.opacity(isScheduledInactive ? 0.45 : 0.58))
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.65)
+                                .padding(.horizontal, max(cellSize * 0.06, 4))
+                                .frame(height: footerSlotHeight)
+                                .padding(.bottom, footerBottomInset)
+                        }
+
+                        if cell.isCompleted && !isLocked {
+                            completionIcon
+                                .frame(height: footerSlotHeight)
+                                .padding(.bottom, footerBottomInset)
+                        }
                     }
                 }
             }
@@ -593,6 +795,13 @@ private struct WidgetBingoCellView: View {
             }
         }
         .frame(width: cellSize, height: cellSize)
+    }
+
+    private var textBottomPadding: CGFloat {
+        if hasFooterContent || (cell.isCompleted && !isLocked) {
+            return footerSlotHeight + footerBottomInset + 2
+        }
+        return max(cellSize * 0.1, 7)
     }
 
     private var dynamicFontSize: CGFloat {
@@ -636,7 +845,67 @@ private struct WidgetBingoCellView: View {
         if cell.isCompleted {
             return primaryTextColor
         }
+        if isScheduledInactive {
+            return primaryTextColor.opacity(0.38)
+        }
         return isLocked ? primaryTextColor.opacity(0.35) : primaryTextColor
+    }
+
+    private var hasFooterContent: Bool {
+        guard !cell.isCompleted, !isLocked else { return false }
+        return displayCountdownDeadline != nil || staticFooterText != nil
+    }
+
+    @ViewBuilder
+    private var footerContent: some View {
+        if let deadline = displayCountdownDeadline {
+            Text(timerInterval: currentTime...deadline, countsDown: true, showsHours: true)
+        } else if let staticFooterText {
+            Text(staticFooterText)
+        }
+    }
+
+    private var staticFooterText: String? {
+        if (cell.countdownPausedRemainingSeconds ?? 0) > 0 {
+            return L10n.tr("Paused", zhHans: "已暂停", zhHant: "已暫停", ja: "一時停止中")
+        }
+        return scheduleStatusText ?? scheduleWindowText
+    }
+
+    private var scheduleWindowText: String? {
+        guard cell.startVisibleAt != nil || cell.endVisibleAt != nil else { return nil }
+
+        if let start = cell.occurrenceStartVisibleAt(on: currentTime) {
+            return Self.scheduleDateFormatter.string(from: start)
+        }
+        if let end = cell.occurrenceEndVisibleAt(on: currentTime) {
+            return Self.scheduleDateFormatter.string(from: end)
+        }
+        return nil
+    }
+
+    private var taskCountdownDeadline: Date? {
+        guard (cell.countdownPausedRemainingSeconds ?? 0) <= 0,
+              let deadline = cell.countdownEndsAt,
+              deadline > currentTime else {
+            return nil
+        }
+        return deadline
+    }
+
+    private var windowCountdownDeadline: Date? {
+        guard !isScheduledInactive,
+              let start = cell.occurrenceStartVisibleAt(on: currentTime),
+              let end = cell.occurrenceEndVisibleAt(on: currentTime),
+              currentTime >= start,
+              currentTime < end else {
+            return nil
+        }
+        return end
+    }
+
+    private var displayCountdownDeadline: Date? {
+        windowCountdownDeadline ?? taskCountdownDeadline
     }
 
     private var backgroundSurface: some View {
@@ -654,6 +923,11 @@ private struct WidgetBingoCellView: View {
                 if isLocked && !isInBingoLine {
                     baseShape
                         .fill(boardSurfaceColor.opacity(0.62))
+                }
+
+                if isScheduledInactive && !isInBingoLine {
+                    baseShape
+                        .fill(Color.white.opacity(0.2))
                 }
 
                 if cell.isCompleted && !isInBingoLine {
@@ -681,6 +955,20 @@ private struct WidgetBingoCellView: View {
 
     private var completionIcon: some View {
         let size = min(max(cellSize * 0.16, 14), 22)
+
+        return ZStack {
+            Circle()
+                .fill(Color.white.opacity(0.96))
+
+            Image(systemName: "checkmark")
+                .font(.system(size: size * 0.5, weight: .bold))
+                .foregroundColor(isInBingoLine ? bingoLineColor : selectedColor)
+        }
+        .frame(width: size, height: size)
+    }
+
+    private var largeCompletionIcon: some View {
+        let size = min(max(cellSize * 0.42, 28), 48)
 
         return ZStack {
             Circle()

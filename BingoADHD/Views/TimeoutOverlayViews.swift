@@ -14,10 +14,36 @@ struct TimeoutDialogBackdrop: View {
 
 struct TimeoutDialogCard: View {
     let headline: String
+    let ruleReason: String?
     let boardNameLabel: String?
     let isPadLayout: Bool
+    let showsSecondaryAction: Bool
+    let bottomActionTitle: String?
     let onPrimaryAction: () -> Void
     let onSecondaryAction: () -> Void
+    let onBottomAction: (() -> Void)?
+
+    init(
+        headline: String,
+        ruleReason: String? = nil,
+        boardNameLabel: String?,
+        isPadLayout: Bool,
+        showsSecondaryAction: Bool = true,
+        bottomActionTitle: String? = nil,
+        onPrimaryAction: @escaping () -> Void,
+        onSecondaryAction: @escaping () -> Void,
+        onBottomAction: (() -> Void)? = nil
+    ) {
+        self.headline = headline
+        self.ruleReason = ruleReason
+        self.boardNameLabel = boardNameLabel
+        self.isPadLayout = isPadLayout
+        self.showsSecondaryAction = showsSecondaryAction
+        self.bottomActionTitle = bottomActionTitle
+        self.onPrimaryAction = onPrimaryAction
+        self.onSecondaryAction = onSecondaryAction
+        self.onBottomAction = onBottomAction
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,6 +61,17 @@ struct TimeoutDialogCard: View {
                 .minimumScaleFactor(0.75)
                 .padding(.top, 8)
                 .padding(.horizontal, 14)
+
+            if let ruleReason, !ruleReason.isEmpty {
+                Text(ruleReason)
+                    .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+                    .foregroundColor(Color(red: 0.20, green: 0.14, blue: 0.09).opacity(0.72))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.78)
+                    .padding(.top, 10)
+                    .padding(.horizontal, 18)
+            }
 
             if let boardNameLabel, !boardNameLabel.isEmpty {
                 Text(boardNameLabel)
@@ -61,18 +98,32 @@ struct TimeoutDialogCard: View {
             .buttonStyle(.plain)
             .padding(.top, 36)
 
-            Button(action: onSecondaryAction) {
-                Text(L10n.tr("Task postpone", zhHans: "任务延期", zhHant: "任務延期"))
-                    .font(.appSystem(size: scaled(18, pad: 21), weight: .semibold, design: .rounded))
-                    .foregroundColor(Color(red: 0.20, green: 0.14, blue: 0.09))
-                    .padding(.vertical, 26)
-                    .frame(maxWidth: .infinity)
+            if showsSecondaryAction {
+                Button(action: onSecondaryAction) {
+                    Text(L10n.tr("Task postpone", zhHans: "任务延期", zhHant: "任務延期"))
+                        .font(.appSystem(size: scaled(18, pad: 21), weight: .semibold, design: .rounded))
+                        .foregroundColor(Color(red: 0.20, green: 0.14, blue: 0.09))
+                        .padding(.vertical, 26)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+
+            if let bottomActionTitle, let onBottomAction {
+                Button(action: onBottomAction) {
+                    Text(bottomActionTitle)
+                        .font(.appSystem(size: scaled(17, pad: 20), weight: .semibold, design: .rounded))
+                        .foregroundColor(Color.black.opacity(0.46))
+                        .padding(.vertical, 18)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, showsSecondaryAction ? -4 : 14)
+            }
         }
         .padding(.horizontal, 22)
         .padding(.top, 16)
-        .padding(.bottom, 8)
+        .padding(.bottom, 10)
         .frame(maxWidth: isPadLayout ? 460 : 420)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)

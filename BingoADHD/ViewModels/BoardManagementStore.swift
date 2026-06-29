@@ -3,14 +3,20 @@ import Foundation
 
 protocol BoardManagementRepository: BoardStateCommitRepository, WidgetPanelSelectionRepository {
     func loadNamedBoardsSnapshot() -> BingoBoardStore.NamedBoardsSnapshot
-    func saveNamedBoardsSnapshot(_ snapshot: BingoBoardStore.NamedBoardsSnapshot, reloadWidgets: Bool)
-    func loadBoard() -> SavedBoard?
+    @discardableResult
+    func saveNamedBoardsSnapshot(_ snapshot: BingoBoardStore.NamedBoardsSnapshot, reloadWidgets: Bool) -> Bool
     func loadBoardLastSavedAt() -> Date?
-    func loadBoardCountdownEndsAt() -> Date?
-    func loadActiveNamedBoardID() -> UUID?
 
     func loadWidgetTaskSyncEvent() -> WidgetTaskSyncStore.Event?
     func clearWidgetTaskSyncEvent()
+}
+
+struct BoardManagementMutationResult: Equatable {
+    let selectedBoard: BingoBoardStore.NamedBoard
+    let didChangeSelection: Bool
+    let commitResult: BoardStateCommitResult
+    let shouldInvalidateCountdownTickSchedule: Bool
+    let shouldSyncTaskReminders: Bool
 }
 
 struct LiveBoardManagementRepository: BoardManagementRepository {
@@ -18,7 +24,7 @@ struct LiveBoardManagementRepository: BoardManagementRepository {
         BingoBoardStore.loadNamedBoardsSnapshot()
     }
 
-    func saveNamedBoardsSnapshot(_ snapshot: BingoBoardStore.NamedBoardsSnapshot, reloadWidgets: Bool) {
+    func saveNamedBoardsSnapshot(_ snapshot: BingoBoardStore.NamedBoardsSnapshot, reloadWidgets: Bool) -> Bool {
         BingoBoardStore.saveNamedBoardsSnapshot(snapshot, reloadWidgets: reloadWidgets)
     }
 
@@ -57,6 +63,10 @@ struct LiveBoardManagementRepository: BoardManagementRepository {
 
     func clearWidgetTaskSyncEvent() {
         WidgetTaskSyncStore.clear()
+    }
+
+    func loadSelectedWidgetPanelID() -> UUID? {
+        WidgetPanelSelectionStore.loadSelectedPanelID()
     }
 
     func saveSelectedWidgetPanelID(_ boardID: UUID?) {
@@ -115,7 +125,7 @@ final class BoardManagementStore: ObservableObject {
                 selectedBoardID: initialBoard.id,
                 boards: [initialBoard]
             )
-            repository.saveNamedBoardsSnapshot(snapshot, reloadWidgets: true)
+            saveNamedBoardsSnapshotIfChanged(snapshot, reloadWidgets: true)
         }
 
         namedBoards = snapshot.boards
@@ -155,12 +165,13 @@ final class BoardManagementStore: ObservableObject {
         return selectedBoard
     }
 
-    func persistSnapshot(reloadWidgets: Bool = true) {
+    @discardableResult
+    func persistSnapshot(reloadWidgets: Bool = true) -> Bool {
         let snapshot = BingoBoardStore.NamedBoardsSnapshot(
             selectedBoardID: selectedBoardID,
             boards: namedBoards
         )
-        repository.saveNamedBoardsSnapshot(snapshot, reloadWidgets: reloadWidgets)
+        return saveNamedBoardsSnapshotIfChanged(snapshot, reloadWidgets: reloadWidgets)
     }
 
     func replaceBoards(
@@ -175,13 +186,19 @@ final class BoardManagementStore: ObservableObject {
         }
     }
 
+    @discardableResult
     func persistBoardState(
         for boardID: UUID,
         board: SavedBoard,
         countdownEndsAt: Date?,
         save: Bool = true
-    ) {
-        guard let boardIndex = namedBoards.firstIndex(where: { $0.id == boardID }) else { return }
+    ) -> Bool {
+        guard let boardIndex = namedBoards.firstIndex(where: { $0.id == boardID }) else { return false }
+        guard namedBoards[boardIndex].board != board ||
+                namedBoards[boardIndex].countdownEndsAt != countdownEndsAt else {
+            return false
+        }
+
         namedBoards[boardIndex].board = board
         namedBoards[boardIndex].countdownEndsAt = countdownEndsAt
         namedBoards[boardIndex].updatedAt = .now
@@ -190,14 +207,16 @@ final class BoardManagementStore: ObservableObject {
             let activeMirror = shouldMirrorActiveBoard ? namedBoards[boardIndex] : nil
             commitNamedBoardsSnapshot(activeMirror: activeMirror)
         }
+        return true
     }
 
+    @discardableResult
     func syncSelectedBoard(
         board: SavedBoard,
         countdownEndsAt: Date?
-    ) {
-        guard hasLoadedBoardSwitcherState, let selectedBoardID else { return }
-        persistBoardState(
+    ) -> Bool {
+        guard hasLoadedBoardSwitcherState, let selectedBoardID else { return false }
+        return persistBoardState(
             for: selectedBoardID,
             board: board,
             countdownEndsAt: countdownEndsAt
@@ -208,8 +227,18 @@ final class BoardManagementStore: ObservableObject {
         _ boardID: UUID,
         currentBoard: SavedBoard,
         currentCountdownEndsAt: Date?
-    ) -> BingoBoardStore.NamedBoard? {
-        guard selectedBoardID != boardID else { return selectedBoard }
+    ) -> BoardManagementMutationResult? {
+        if selectedBoardID == boardID {
+            guard let selectedBoard else { return nil }
+            return BoardManagementMutationResult(
+                selectedBoard: selectedBoard,
+                didChangeSelection: false,
+                commitResult: BoardStateCommitResult(),
+                shouldInvalidateCountdownTickSchedule: false,
+                shouldSyncTaskReminders: false
+            )
+        }
+        guard namedBoards.contains(where: { $0.id == boardID }) else { return nil }
 
         if let previousBoardID = selectedBoardID {
             persistBoardState(
@@ -222,15 +251,22 @@ final class BoardManagementStore: ObservableObject {
 
         selectedBoardID = boardID
         let selected = selectedBoard
-        commitNamedBoardsSnapshot(activeMirror: selected)
-        return selected
+        guard let selected else { return nil }
+        let commitResult = commitNamedBoardsSnapshot(activeMirror: selected)
+        return BoardManagementMutationResult(
+            selectedBoard: selected,
+            didChangeSelection: true,
+            commitResult: commitResult,
+            shouldInvalidateCountdownTickSchedule: true,
+            shouldSyncTaskReminders: true
+        )
     }
 
     func createBoard(
         nameDraft: String,
         currentBoard: SavedBoard?,
         currentCountdownEndsAt: Date?
-    ) -> BingoBoardStore.NamedBoard {
+    ) -> BoardManagementMutationResult {
         if let selectedBoardID, let currentBoard {
             persistBoardState(
                 for: selectedBoardID,
@@ -251,19 +287,26 @@ final class BoardManagementStore: ObservableObject {
 
         namedBoards.append(newBoard)
         selectedBoardID = newBoard.id
-        commitNamedBoardsSnapshot(activeMirror: newBoard)
-        return newBoard
+        let commitResult = commitNamedBoardsSnapshot(activeMirror: newBoard)
+        return BoardManagementMutationResult(
+            selectedBoard: newBoard,
+            didChangeSelection: true,
+            commitResult: commitResult,
+            shouldInvalidateCountdownTickSchedule: true,
+            shouldSyncTaskReminders: true
+        )
     }
 
     func deleteBoard(
         _ boardID: UUID,
         allowsDeletingFirstBoard: Bool
-    ) -> BingoBoardStore.NamedBoard? {
+    ) -> BoardManagementMutationResult? {
         guard canDeleteBoard(boardID, allowsDeletingFirstBoard: allowsDeletingFirstBoard),
               let removeIndex = namedBoards.firstIndex(where: { $0.id == boardID }) else {
-            return selectedBoard
+            return nil
         }
 
+        let previousSelectedID = selectedBoardID
         var nextSelectedID = selectedBoardID
         if selectedBoardID == boardID {
             let fallbackIndex = removeIndex == 0 ? 1 : removeIndex - 1
@@ -279,9 +322,15 @@ final class BoardManagementStore: ObservableObject {
             selectedBoardID = namedBoards.first?.id
         }
 
-        let selectedAfterDelete = selectedBoard
-        commitNamedBoardsSnapshot(activeMirror: selectedAfterDelete)
-        return selectedAfterDelete
+        guard let selectedAfterDelete = selectedBoard else { return nil }
+        let commitResult = commitNamedBoardsSnapshot(activeMirror: selectedAfterDelete)
+        return BoardManagementMutationResult(
+            selectedBoard: selectedAfterDelete,
+            didChangeSelection: previousSelectedID != selectedBoardID,
+            commitResult: commitResult,
+            shouldInvalidateCountdownTickSchedule: true,
+            shouldSyncTaskReminders: true
+        )
     }
 
     func canDeleteBoard(_ boardID: UUID, allowsDeletingFirstBoard: Bool) -> Bool {
@@ -296,12 +345,16 @@ final class BoardManagementStore: ObservableObject {
         return true
     }
 
-    func renameBoard(_ boardID: UUID, nameDraft: String) {
-        guard let boardIndex = namedBoards.firstIndex(where: { $0.id == boardID }) else { return }
+    @discardableResult
+    func renameBoard(_ boardID: UUID, nameDraft: String) -> Bool {
+        guard let boardIndex = namedBoards.firstIndex(where: { $0.id == boardID }) else { return false }
         let fallbackName = L10n.boardDefaultName(boardIndex + 1)
-        namedBoards[boardIndex].name = Self.sanitizedBoardName(nameDraft, fallback: fallbackName)
+        let boardName = Self.sanitizedBoardName(nameDraft, fallback: fallbackName)
+        guard namedBoards[boardIndex].name != boardName else { return false }
+
+        namedBoards[boardIndex].name = boardName
         namedBoards[boardIndex].updatedAt = .now
-        persistSnapshot()
+        return persistSnapshot()
     }
 
     func importTemplateAsNewBoard(
@@ -309,7 +362,7 @@ final class BoardManagementStore: ObservableObject {
         savedBoard: SavedBoard,
         currentBoard: SavedBoard?,
         currentCountdownEndsAt: Date?
-    ) -> BingoBoardStore.NamedBoard {
+    ) -> BoardManagementMutationResult {
         if let selectedBoardID, let currentBoard {
             persistBoardState(
                 for: selectedBoardID,
@@ -329,14 +382,20 @@ final class BoardManagementStore: ObservableObject {
         )
         namedBoards.append(importedBoard)
         selectedBoardID = importedBoard.id
-        commitNamedBoardsSnapshot(activeMirror: importedBoard)
-        return importedBoard
+        let commitResult = commitNamedBoardsSnapshot(activeMirror: importedBoard)
+        return BoardManagementMutationResult(
+            selectedBoard: importedBoard,
+            didChangeSelection: true,
+            commitResult: commitResult,
+            shouldInvalidateCountdownTickSchedule: true,
+            shouldSyncTaskReminders: true
+        )
     }
 
     func replaceSelectedBoardWithTemplate(
         nameDraft: String,
         savedBoard: SavedBoard
-    ) -> BingoBoardStore.NamedBoard? {
+    ) -> BoardManagementMutationResult? {
         guard let targetBoardID = selectedBoardID ?? namedBoards.first?.id,
               let boardIndex = namedBoards.firstIndex(where: { $0.id == targetBoardID }) else {
             return nil
@@ -348,8 +407,15 @@ final class BoardManagementStore: ObservableObject {
         namedBoards[boardIndex].countdownEndsAt = nil
         namedBoards[boardIndex].updatedAt = .now
         selectedBoardID = targetBoardID
-        commitNamedBoardsSnapshot(activeMirror: namedBoards[boardIndex])
-        return namedBoards[boardIndex]
+        let updatedBoard = namedBoards[boardIndex]
+        let commitResult = commitNamedBoardsSnapshot(activeMirror: updatedBoard)
+        return BoardManagementMutationResult(
+            selectedBoard: updatedBoard,
+            didChangeSelection: false,
+            commitResult: commitResult,
+            shouldInvalidateCountdownTickSchedule: true,
+            shouldSyncTaskReminders: true
+        )
     }
 
     func boardName(for boardID: UUID) -> String {
@@ -397,7 +463,7 @@ final class BoardManagementStore: ObservableObject {
         snapshot.boards[targetIndex].board = currentBoard
         snapshot.boards[targetIndex].countdownEndsAt = repository.loadBoardCountdownEndsAt()
         snapshot.boards[targetIndex].updatedAt = currentBoardSavedAt
-        repository.saveNamedBoardsSnapshot(snapshot, reloadWidgets: true)
+        saveNamedBoardsSnapshotIfChanged(snapshot, reloadWidgets: true)
         return snapshot
     }
 
@@ -422,8 +488,8 @@ final class BoardManagementStore: ObservableObject {
         }
 
         updatedSnapshot.selectedBoardID = event.boardID
-        repository.saveNamedBoardsSnapshot(updatedSnapshot, reloadWidgets: false)
-        BoardStateCommitter.saveActiveBoardState(
+        let savedNamedBoards = saveNamedBoardsSnapshotIfChanged(updatedSnapshot, reloadWidgets: false)
+        var result = BoardStateCommitter.saveActiveBoardState(
             board: event.board.board,
             countdownEndsAt: event.board.countdownEndsAt,
             savedAt: event.savedAt,
@@ -431,28 +497,39 @@ final class BoardManagementStore: ObservableObject {
             repository: repository,
             widgetPanelRepository: repository,
             selectedWidgetPanelID: event.boardID,
-            reloadWidgets: true
+            reloadWidgets: false
         )
+        result.savedNamedBoards = savedNamedBoards
+        BoardStateCommitter.reloadWidgetsIfNeeded(&result, repository: repository)
         return updatedSnapshot
     }
 
-    private func commitNamedBoardsSnapshot(activeMirror: BingoBoardStore.NamedBoard?) {
-        persistSnapshot(reloadWidgets: activeMirror == nil)
-        guard let activeMirror else { return }
-        persistActiveBoardMirror(
+    @discardableResult
+    private func commitNamedBoardsSnapshot(activeMirror: BingoBoardStore.NamedBoard?) -> BoardStateCommitResult {
+        let savedNamedBoards = persistSnapshot(reloadWidgets: false)
+        guard let activeMirror else {
+            var result = BoardStateCommitResult(savedNamedBoards: savedNamedBoards)
+            BoardStateCommitter.reloadWidgetsIfNeeded(&result, repository: repository)
+            return result
+        }
+        var result = persistActiveBoardMirror(
             boardID: activeMirror.id,
             board: activeMirror.board,
             countdownEndsAt: activeMirror.countdownEndsAt,
             savedAt: activeMirror.updatedAt
         )
+        result.savedNamedBoards = savedNamedBoards
+        BoardStateCommitter.reloadWidgetsIfNeeded(&result, repository: repository)
+        return result
     }
 
+    @discardableResult
     private func persistActiveBoardMirror(
         boardID: UUID,
         board: SavedBoard,
         countdownEndsAt: Date?,
         savedAt: Date
-    ) {
+    ) -> BoardStateCommitResult {
         BoardStateCommitter.saveActiveBoardState(
             board: board,
             countdownEndsAt: countdownEndsAt,
@@ -461,7 +538,15 @@ final class BoardManagementStore: ObservableObject {
             repository: repository,
             widgetPanelRepository: repository,
             selectedWidgetPanelID: boardID,
-            reloadWidgets: true
+            reloadWidgets: false
         )
+    }
+
+    @discardableResult
+    private func saveNamedBoardsSnapshotIfChanged(
+        _ snapshot: BingoBoardStore.NamedBoardsSnapshot,
+        reloadWidgets: Bool
+    ) -> Bool {
+        repository.saveNamedBoardsSnapshot(snapshot, reloadWidgets: reloadWidgets)
     }
 }

@@ -200,6 +200,7 @@ func quickEditMakePreviewCell(from task: MyTaskItem, preserving existingCell: Bi
             oneTimeVisibleDate: nil,
             startVisibleAt: taskCopy.startAt,
             endVisibleAt: taskCopy.endAt,
+            usesRecurringTimeWindow: false,
             startVisibleMonth: taskCopy.startMonth,
             startVisibleDay: taskCopy.startDay,
             isTaskHidden: false,
@@ -219,6 +220,7 @@ func quickEditMakePreviewCell(from task: MyTaskItem, preserving existingCell: Bi
     }
     cell.startVisibleAt = taskCopy.startAt
     cell.endVisibleAt = taskCopy.endAt
+    cell.usesRecurringTimeWindow = false
     cell.startReminderEnabled = false
     cell.startReminderOffsetMinutes = BingoCell.defaultStartReminderOffsetMinutes
     cell.startVisibleMonth = taskCopy.startMonth
@@ -235,6 +237,7 @@ func quickEditMakePreviewCellFromEdit(
     isForcedTask: Bool,
     residentWeekdays: Set<Int>,
     isOneTimeTask: Bool,
+    recurrenceRule: TaskRecurrenceRule? = nil,
     estimatedDurationMinutes: Int?,
     startVisibleAt: Date?,
     endVisibleAt: Date?,
@@ -245,8 +248,6 @@ func quickEditMakePreviewCellFromEdit(
     let trimmedText = limitedText.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedText.isEmpty else { return nil }
 
-    let normalizedWeekdays = Set(residentWeekdays.filter { (1...7).contains($0) })
-    let normalizedOneTimeTask = isOneTimeTask
     let normalizedStartVisibleAt = startVisibleAt
     let normalizedEndVisibleAt = {
         guard let endVisibleAt else { return nil as Date? }
@@ -255,18 +256,58 @@ func quickEditMakePreviewCellFromEdit(
         }
         return endVisibleAt
     }()
+    let recurrenceDefaultDate = normalizedStartVisibleAt ?? Date()
+    let normalizedRecurrenceRule = recurrenceRule?.normalized(
+        defaultWeekday: Calendar.current.component(.weekday, from: recurrenceDefaultDate),
+        defaultMonthDay: Calendar.current.component(.day, from: recurrenceDefaultDate),
+        defaultAnchorDate: recurrenceDefaultDate
+    )
+    let normalizedWeekdays: Set<Int>
+    if normalizedRecurrenceRule?.kind == .weekly {
+        normalizedWeekdays = normalizedRecurrenceRule?.weekdays ?? []
+    } else {
+        normalizedWeekdays = normalizedRecurrenceRule == nil ? Set(residentWeekdays.filter { (1...7).contains($0) }) : []
+    }
+    let hasRepeatingSchedule = normalizedRecurrenceRule.map { $0.kind != .none } ?? !normalizedWeekdays.isEmpty
+    let allowsTaskCountdown = !hasRepeatingSchedule
+    let normalizedEstimatedDurationMinutes = allowsTaskCountdown
+        ? estimatedDurationMinutes.map { min(max($0, 1), BingoViewModel.maxCountdownMinutes) }
+        : nil
+    let normalizedOneTimeTask = normalizedRecurrenceRule?.kind == TaskRecurrenceRule.Kind.none || (normalizedRecurrenceRule == nil && isOneTimeTask)
+    let normalizedOneTimeVisibleDate = normalizedOneTimeTask
+        ? (normalizedRecurrenceRule?.anchorDate ?? normalizedStartVisibleAt ?? Date())
+        : nil
     let normalizedReminderEnabled = normalizedStartVisibleAt != nil && normalizedEndVisibleAt != nil && startReminderEnabled
     let normalizedReminderOffset = BingoCell.normalizedStartReminderOffsetMinutes(startReminderOffsetMinutes)
-    let usesStoredSchedule = !normalizedWeekdays.isEmpty || normalizedOneTimeTask || normalizedStartVisibleAt != nil || normalizedEndVisibleAt != nil
+    let normalizedUsesRecurringTimeWindow: Bool
+    if let recurrenceKind = normalizedRecurrenceRule?.kind {
+        normalizedUsesRecurringTimeWindow = recurrenceKind != .none &&
+            (normalizedStartVisibleAt != nil || normalizedEndVisibleAt != nil)
+    } else {
+        normalizedUsesRecurringTimeWindow = false
+    }
+    let usesStoredSchedule = normalizedRecurrenceRule != nil || !normalizedWeekdays.isEmpty || normalizedOneTimeTask || normalizedStartVisibleAt != nil || normalizedEndVisibleAt != nil
 
     var cell = existingCell ?? BingoCell()
-    let previousStoredTaskText = cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
-    let isReplacingTaskIdentity = previousStoredTaskText != trimmedText
+    let wasCompleted = cell.isCompleted
+    let previousTaskIdentity = quickEditTaskIdentity(for: cell)
+    let updatedTaskIdentity = QuickEditTaskIdentity(
+        text: trimmedText,
+        residentWeekdays: normalizedWeekdays,
+        oneTimeVisibleDate: normalizedOneTimeVisibleDate,
+        recurrenceRule: normalizedRecurrenceRule,
+        startVisibleAt: normalizedStartVisibleAt,
+        endVisibleAt: normalizedEndVisibleAt,
+        usesRecurringTimeWindow: normalizedUsesRecurringTimeWindow
+    )
+    let didChangeTaskIdentity = previousTaskIdentity != updatedTaskIdentity
 
     cell.residentWeekdays = normalizedWeekdays
-    cell.oneTimeVisibleDate = normalizedOneTimeTask ? .now : nil
+    cell.oneTimeVisibleDate = normalizedOneTimeVisibleDate
+    cell.recurrenceRule = normalizedRecurrenceRule
     cell.startVisibleAt = normalizedStartVisibleAt
     cell.endVisibleAt = normalizedEndVisibleAt
+    cell.usesRecurringTimeWindow = normalizedUsesRecurringTimeWindow
     cell.startReminderEnabled = normalizedReminderEnabled
     cell.startReminderOffsetMinutes = normalizedReminderOffset
     cell.startVisibleMonth = nil
@@ -277,23 +318,49 @@ func quickEditMakePreviewCellFromEdit(
     cell.isTaskHidden = false
     cell.isForced = isForcedTask
     cell.countdownEndsAt = nil
-    cell.estimatedDurationMinutes = estimatedDurationMinutes.map { min(max($0, 1), BingoViewModel.maxCountdownMinutes) }
+    cell.countdownPausedRemainingSeconds = nil
+    cell.estimatedDurationMinutes = normalizedEstimatedDurationMinutes
 
-    if let estimatedDurationMinutes {
-        let totalMinutes = min(max(estimatedDurationMinutes, 1), BingoViewModel.maxCountdownMinutes)
-        if let normalizedStartVisibleAt, normalizedStartVisibleAt > .now {
-            cell.countdownEndsAt = nil
-        } else {
-            cell.countdownEndsAt = Date().addingTimeInterval(Double(totalMinutes * 60))
-        }
+    if cell.shouldStartCountdownForCurrentOccurrence(on: .now) {
+        cell.countdownEndsAt = cell.countdownDeadlineForCurrentOccurrence(
+            startingAt: .now,
+            maxCountdownMinutes: BingoViewModel.maxCountdownMinutes
+        )
     }
 
-    if isReplacingTaskIdentity {
+    if didChangeTaskIdentity {
         cell.completionStreakCount = 0
+        cell.lastCompletedAt = nil
+    }
+    if wasCompleted && didChangeTaskIdentity {
+        cell.isCompleted = false
+        cell.isTaskHidden = false
         cell.lastCompletedAt = nil
     }
 
     return cell
+}
+
+private struct QuickEditTaskIdentity: Equatable {
+    let text: String
+    let residentWeekdays: Set<Int>
+    let oneTimeVisibleDate: Date?
+    let recurrenceRule: TaskRecurrenceRule?
+    let startVisibleAt: Date?
+    let endVisibleAt: Date?
+    let usesRecurringTimeWindow: Bool
+}
+
+private func quickEditTaskIdentity(for cell: BingoCell) -> QuickEditTaskIdentity {
+    QuickEditTaskIdentity(
+        text: cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines),
+        residentWeekdays: cell.residentWeekdays,
+        oneTimeVisibleDate: cell.oneTimeVisibleDate,
+        recurrenceRule: cell.recurrenceRule,
+        startVisibleAt: cell.startVisibleAt,
+        endVisibleAt: cell.endVisibleAt,
+        usesRecurringTimeWindow: cell.usesRecurringTimeWindow
+    )
 }
 
 func quickEditRemainingMinutes(from countdownEndsAt: Date?) -> Int? {

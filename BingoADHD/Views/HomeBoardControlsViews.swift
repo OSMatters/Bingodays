@@ -6,6 +6,7 @@ struct BoardSwitcherControlsView: View {
     let contentWidth: CGFloat
     let isPadLayout: Bool
     let shouldShowBoardEditHint: Bool
+    let shouldReserveBoardEditHintSpace: Bool
     let onSelectBoard: (UUID) -> Void
     let onBoardLongPress: (UUID) -> Void
     let onCreateBoard: () -> Void
@@ -14,7 +15,7 @@ struct BoardSwitcherControlsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if shouldShowBoardEditHint || hasReservedBoardEditHintSpace {
+            if shouldShowBoardEditHint || shouldReserveBoardEditHintSpace || hasReservedBoardEditHintSpace {
                 ZStack(alignment: .topLeading) {
                     if shouldShowBoardEditHint {
                         BoardEditHintBubbleView(
@@ -25,6 +26,7 @@ struct BoardSwitcherControlsView: View {
                     }
                 }
                 .frame(height: isPadLayout ? 56 : 51, alignment: .topLeading)
+                .allowsHitTesting(shouldShowBoardEditHint)
             }
 
             HStack(spacing: 10) {
@@ -84,11 +86,16 @@ struct BoardSwitcherControlsView: View {
         .frame(width: contentWidth, alignment: .leading)
         .animation(.spring(response: 0.28, dampingFraction: 0.86), value: shouldShowBoardEditHint)
         .onAppear {
-            if shouldShowBoardEditHint {
+            if shouldShowBoardEditHint || shouldReserveBoardEditHintSpace {
                 hasReservedBoardEditHintSpace = true
             }
         }
         .onChange(of: shouldShowBoardEditHint) { _, newValue in
+            if newValue {
+                hasReservedBoardEditHintSpace = true
+            }
+        }
+        .onChange(of: shouldReserveBoardEditHintSpace) { _, newValue in
             if newValue {
                 hasReservedBoardEditHintSpace = true
             }
@@ -280,7 +287,12 @@ struct BoardTemplateShareTriggerView: View {
                     .font(.appSystem(size: isPadLayout ? 22 : 20, weight: .bold))
                     .foregroundColor(NeumorphicColors.accent)
                     .frame(width: buttonSize, height: buttonSize)
+                    .background {
+                        Circle()
+                            .fill(Color.white.opacity(0.64))
+                    }
                     .appLiquidGlass(in: Circle(), interactive: true)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .disabled(isDisabled)
@@ -305,7 +317,12 @@ struct BoardEditActionsTriggerView: View {
                 .font(.appSystem(size: isPadLayout ? 28 : 26, weight: .bold))
                 .foregroundColor(NeumorphicColors.accent)
                 .frame(width: buttonSize, height: buttonSize)
+                .background {
+                    Circle()
+                        .fill(Color.white.opacity(0.64))
+                }
                 .appLiquidGlass(in: Circle(), interactive: true)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .frame(width: buttonSize, height: buttonSize, alignment: .bottomTrailing)

@@ -2,6 +2,41 @@ import SwiftUI
 import Combine
 
 // These modifiers own SwiftUI lifecycle/onChange wiring only; business mutations stay in ContentView callbacks.
+struct HomeBoardStateChange: Equatable {
+    let didChangeCells: Bool
+    let didChangeGridSize: Bool
+    let didChangeCompletedLines: Bool
+    let didChangeBoardCountdown: Bool
+
+    var affectsTaskReminders: Bool {
+        didChangeCells || didChangeGridSize
+    }
+
+    init(
+        didChangeCells: Bool,
+        didChangeGridSize: Bool,
+        didChangeCompletedLines: Bool,
+        didChangeBoardCountdown: Bool
+    ) {
+        self.didChangeCells = didChangeCells
+        self.didChangeGridSize = didChangeGridSize
+        self.didChangeCompletedLines = didChangeCompletedLines
+        self.didChangeBoardCountdown = didChangeBoardCountdown
+    }
+
+    fileprivate init(
+        oldSignature: HomeBoardStateObserversModifier.BoardSignature,
+        newSignature: HomeBoardStateObserversModifier.BoardSignature
+    ) {
+        self.init(
+            didChangeCells: oldSignature.cells != newSignature.cells,
+            didChangeGridSize: oldSignature.gridSize != newSignature.gridSize,
+            didChangeCompletedLines: oldSignature.completedLines != newSignature.completedLines,
+            didChangeBoardCountdown: oldSignature.boardCountdownEndsAt != newSignature.boardCountdownEndsAt
+        )
+    }
+}
+
 struct HomeLifecycleObserversModifier: ViewModifier {
     @Binding var boardTemplateShareDraft: BoardTemplatePayload?
     @Binding var isTemplateShareComposerPresented: Bool
@@ -161,37 +196,51 @@ struct HomePresentationStateObserversModifier: ViewModifier {
 }
 
 struct HomeBoardStateObserversModifier: ViewModifier {
+    fileprivate struct BoardSignature: Equatable {
+        let cells: [[BingoCell]]
+        let gridSize: Int
+        let completedLines: Set<BingoLine>
+        let boardCountdownEndsAt: Date?
+    }
+
     let cells: [[BingoCell]]
     let gridSize: Int
     let completedLines: Set<BingoLine>
     let boardCountdownEndsAt: Date?
     let hasCompletedEntitlementRefresh: Bool
     let hasPremiumAccess: Bool
-    let onSyncSelectedBoardSnapshot: () -> Void
+    let onSyncSelectedBoardSnapshot: (HomeBoardStateChange) -> Void
     let onEvaluateFirstStepGuideProgress: () -> Void
     let onEvaluateAppReviewTaskCompletionOpportunity: () -> Void
     let onEvaluateAppReviewLineCompletionOpportunity: () -> Void
     let onReconcileStickerOwnership: () -> Void
     let onEnforceCustomResetAccess: () -> Void
 
+    private var boardSignature: BoardSignature {
+        BoardSignature(
+            cells: cells,
+            gridSize: gridSize,
+            completedLines: completedLines,
+            boardCountdownEndsAt: boardCountdownEndsAt
+        )
+    }
+
     func body(content: Content) -> some View {
         content
             // Board mutations are mirrored into the selected-board snapshot for switcher persistence.
-            .onChange(of: cells) { _, _ in
-                onSyncSelectedBoardSnapshot()
-                onEvaluateFirstStepGuideProgress()
-                onEvaluateAppReviewTaskCompletionOpportunity()
-                onReconcileStickerOwnership()
-            }
-            .onChange(of: gridSize) { _, _ in
-                onSyncSelectedBoardSnapshot()
-            }
-            .onChange(of: completedLines) { _, _ in
-                onSyncSelectedBoardSnapshot()
-                onEvaluateAppReviewLineCompletionOpportunity()
-            }
-            .onChange(of: boardCountdownEndsAt) { _, _ in
-                onSyncSelectedBoardSnapshot()
+            .onChange(of: boardSignature) { oldSignature, newSignature in
+                let change = HomeBoardStateChange(oldSignature: oldSignature, newSignature: newSignature)
+                onSyncSelectedBoardSnapshot(change)
+
+                if change.didChangeCells {
+                    onEvaluateFirstStepGuideProgress()
+                    onEvaluateAppReviewTaskCompletionOpportunity()
+                    onReconcileStickerOwnership()
+                }
+
+                if change.didChangeCompletedLines {
+                    onEvaluateAppReviewLineCompletionOpportunity()
+                }
             }
             .onChange(of: hasCompletedEntitlementRefresh) { _, hasCompleted in
                 guard hasCompleted else { return }

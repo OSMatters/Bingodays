@@ -224,14 +224,11 @@ struct BoardCountdownSheet: View {
     }
 
     private var countdownSummaryText: String {
-        let summaryDays = totalMinutes / (24 * 60)
-        let summaryHours = (totalMinutes % (24 * 60)) / 60
-        let summaryMinutes = totalMinutes % 60
         return L10n.tr(
-            "Board clears in \(summaryDays)d \(summaryHours)h \(summaryMinutes)m.",
-            zhHans: "面板将在 \(summaryDays)天 \(summaryHours)小时 \(summaryMinutes)分钟后清空任务。",
-            zhHant: "面板將在 \(summaryDays)天 \(summaryHours)小時 \(summaryMinutes)分鐘後清空任務。",
-            ja: "ボードは \(summaryDays)日 \(summaryHours)時間 \(summaryMinutes)分後にクリアされます。"
+            "When the countdown ends, you can choose to complete, abandon, or postpone.",
+            zhHans: "倒计时结束后，你可以选择完成、放弃或延后。",
+            zhHant: "倒計時結束後，你可以選擇完成、放棄或延後。",
+            ja: "カウントダウン終了後、完了・放棄・延期を選べます。"
         )
     }
 
@@ -405,8 +402,18 @@ struct BoardRulesSheet: View {
 
                             resetOptionRow(
                                 mode: .resetStatusNextDay,
-                                title: L10n.tr("Auto reset task status every other day", zhHans: "隔天自动重置任务状态", zhHant: "隔天自動重置任務狀態"),
-                                hint: L10n.tr("Task status will reset to incomplete at 24:00.", zhHans: "将在24:00自动将任务状态重置为未完成", zhHant: "將在24:00自動將任務狀態重置為未完成")
+                                title: L10n.tr(
+                                    "Auto reset task status every other day",
+                                    zhHans: "隔天自动重置任务状态",
+                                    zhHant: "隔天自動重置任務狀態",
+                                    ja: "翌日にタスク状態を自動リセット"
+                                ),
+                                hint: L10n.tr(
+                                    "Regular tasks reset to incomplete the next day. Repeating tasks start fresh each time they appear.",
+                                    zhHans: "普通任务会在第二天变回未完成，重复任务会在每次显示时重新开始。",
+                                    zhHant: "普通任務會在第二天變回未完成，重複任務會在每次顯示時重新開始。",
+                                    ja: "通常タスクは翌日に未完了へ戻り、繰り返しタスクは表示されるたびに新しく始まります。"
+                                )
                             )
 
                             if selectedResetMode == .resetStatusNextDay {
@@ -415,14 +422,34 @@ struct BoardRulesSheet: View {
 
                             resetOptionRow(
                                 mode: .clearTasksNextDay,
-                                title: L10n.tr("Auto clear all tiles every other day", zhHans: "隔天自动清空格子任务", zhHant: "隔天自動清空格子任務"),
-                                hint: L10n.tr("All tile tasks will be cleared on the next day.", zhHans: "将在第二天自动清空所有格子任务", zhHant: "將在第二天自動清空所有格子任務")
+                                title: L10n.tr(
+                                    "Auto clear regular tasks every other day",
+                                    zhHans: "隔天自动清空普通任务",
+                                    zhHant: "隔天自動清空普通任務",
+                                    ja: "翌日に通常タスクを自動クリア"
+                                ),
+                                hint: L10n.tr(
+                                    "Regular tile tasks clear the next day. Tasks with a time or repeat rule keep their plan and appear on schedule.",
+                                    zhHans: "普通格子任务会在第二天清空，已设置时间或重复规则的任务会保留计划并按时显示。",
+                                    zhHant: "普通格子任務會在第二天清空，已設定時間或重複規則的任務會保留計劃並按時顯示。",
+                                    ja: "通常の格子タスクは翌日にクリアされます。時刻または繰り返しを設定したタスクは計画を保ち、予定どおり表示されます。"
+                                )
                             )
 
                             resetOptionRow(
                                 mode: .keepTaskStatus,
-                                title: L10n.tr("Keep task status unchanged", zhHans: "保持任务状态不自动重置", zhHant: "保持任務狀態不自動重置"),
-                                hint: L10n.tr("Tasks remain in their current state until you update them manually.", zhHans: "任务会保持当前状态，直到你手动修改。", zhHant: "任務會保持目前狀態，直到你手動修改。")
+                                title: L10n.tr(
+                                    "Keep regular task status",
+                                    zhHans: "保持普通任务状态",
+                                    zhHant: "保持普通任務狀態",
+                                    ja: "通常タスクの状態を保持"
+                                ),
+                                hint: L10n.tr(
+                                    "Regular tile tasks keep their current status. Repeating tasks start fresh each time they appear.",
+                                    zhHans: "普通格子任务会保持当前状态，重复任务会在每次显示时重新开始。",
+                                    zhHant: "普通格子任務會保持目前狀態，重複任務會在每次顯示時重新開始。",
+                                    ja: "通常の格子タスクは現在の状態を保持します。繰り返しタスクは表示されるたびに新しく始まります。"
+                                )
                             )
                         }
                     }
@@ -572,14 +599,11 @@ struct BoardRulesSheet: View {
     }
 
     private var countdownSummaryText: String {
-        let summaryDays = totalMinutes / (24 * 60)
-        let summaryHours = (totalMinutes % (24 * 60)) / 60
-        let summaryMinutes = totalMinutes % 60
         return L10n.tr(
-            "Board clears in \(summaryDays)d \(summaryHours)h \(summaryMinutes)m.",
-            zhHans: "面板将在 \(summaryDays)天 \(summaryHours)小时 \(summaryMinutes)分钟后清空任务。",
-            zhHant: "面板將在 \(summaryDays)天 \(summaryHours)小時 \(summaryMinutes)分鐘後清空任務。",
-            ja: "ボードは \(summaryDays)日 \(summaryHours)時間 \(summaryMinutes)分後にクリアされます。"
+            "When the countdown ends, you can choose to complete, abandon, or postpone.",
+            zhHans: "倒计时结束后，你可以选择完成、放弃或延后。",
+            zhHant: "倒計時結束後，你可以選擇完成、放棄或延後。",
+            ja: "カウントダウン終了後、完了・放棄・延期を選べます。"
         )
     }
 

@@ -1,5 +1,26 @@
 import AVFoundation
 
+enum AppAudioSessionConfigurator {
+    static func configureForSoundEffects() {
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+        } catch {
+            // Sound effects are non-critical; never block app flow on audio session setup.
+        }
+    }
+
+    static func deactivateRecordingSession() {
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            configureForSoundEffects()
+        } catch {
+            configureForSoundEffects()
+        }
+    }
+}
+
 final class PointsSoundPlayer {
     static let shared = PointsSoundPlayer()
 
@@ -16,6 +37,7 @@ final class PointsSoundPlayer {
               let url = Bundle.main.url(forResource: resourceName, withExtension: fileExtension) else { return }
 
         do {
+            AppAudioSessionConfigurator.configureForSoundEffects()
             let audioPlayer = try AVAudioPlayer(contentsOf: url)
             audioPlayer.prepareToPlay()
             players[resourceName] = audioPlayer
@@ -38,6 +60,7 @@ final class PointsSoundPlayer {
             preload(resourceName: resourceName)
         }
         guard let player = players[resourceName] else { return }
+        AppAudioSessionConfigurator.configureForSoundEffects()
         player.currentTime = 0
         player.play()
     }

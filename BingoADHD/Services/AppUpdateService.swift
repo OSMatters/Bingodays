@@ -4,40 +4,172 @@ import Foundation
 import FirebaseRemoteConfig
 #endif
 
+extension Notification.Name {
+    static let limitedOfferEligibilityDidChange = Notification.Name("limitedOfferEligibilityDidChange")
+}
+
 struct LimitedTimeOfferConfig: Equatable {
     static let defaultCampaignID = "lifetime_early_supporter_early20_relaunch_v1"
     static let defaultOfferDurationHours = 48.0
+    static let defaultMinimumAppVersion = "2.3.0"
     static let disabled = LimitedTimeOfferConfig(
         isEnabled: false,
         campaignID: defaultCampaignID,
-        offerDuration: defaultOfferDurationHours * 60 * 60
+        offerDuration: defaultOfferDurationHours * 60 * 60,
+        minimumAppVersion: defaultMinimumAppVersion
     )
 
     let isEnabled: Bool
     let campaignID: String
     let offerDuration: TimeInterval
+    let minimumAppVersion: String
+
+    func isEnabled(forAppVersion appVersion: String) -> Bool {
+        isEnabled && AppVersionComparator.isVersion(appVersion, atLeast: minimumAppVersion)
+    }
+}
+
+enum LimitedOfferEntryEligibility {
+    static func shouldShowEntry(
+        config: LimitedTimeOfferConfig,
+        appVersion: String,
+        hasPremiumAccess: Bool,
+        hasCompletedEntitlementRefresh: Bool = true,
+        hasVisitedPaywallWithoutPurchase: Bool,
+        hasLegacyExposure: Bool,
+        startedAt: Double,
+        campaignID: String,
+        now: Date
+    ) -> Bool {
+        config.isEnabled(forAppVersion: appVersion)
+            && hasCompletedEntitlementRefresh
+            && !hasPremiumAccess
+            && (hasVisitedPaywallWithoutPurchase || hasLegacyExposure)
+            && !hasCountdownExpired(
+                config: config,
+                startedAt: startedAt,
+                campaignID: campaignID,
+                now: now
+            )
+    }
+
+    static func hasCountdownExpired(
+        config: LimitedTimeOfferConfig,
+        startedAt: Double,
+        campaignID: String,
+        now: Date
+    ) -> Bool {
+        guard startedAt > 0 else { return false }
+        return now.timeIntervalSince1970 >= startedAt + config.offerDuration
+    }
+}
+
+struct LimitedOfferHomeState: Equatable {
+    var hasVisitedPaywallWithoutPurchase: Bool
+    var hasLegacyExposure: Bool
+    var startedAt: Double
+    var campaignID: String
+    var isPresented: Bool
+}
+
+enum LimitedOfferHomeRules {
+    static func hasUnlockedEntry(
+        hasVisitedPaywallWithoutPurchase: Bool,
+        hasLegacyExposure: Bool,
+        forceEligible: Bool
+    ) -> Bool {
+        hasVisitedPaywallWithoutPurchase || hasLegacyExposure || forceEligible
+    }
+
+    static func applyingPremiumAccess(
+        to state: LimitedOfferHomeState,
+        hasPremiumAccess: Bool
+    ) -> LimitedOfferHomeState {
+        guard hasPremiumAccess else { return state }
+        return LimitedOfferHomeState(
+            hasVisitedPaywallWithoutPurchase: false,
+            hasLegacyExposure: false,
+            startedAt: 0,
+            campaignID: "",
+            isPresented: false
+        )
+    }
+
+    static func applyingDebugReset(
+        to state: LimitedOfferHomeState,
+        shouldReset: Bool
+    ) -> LimitedOfferHomeState {
+        guard shouldReset else { return state }
+        return LimitedOfferHomeState(
+            hasVisitedPaywallWithoutPurchase: false,
+            hasLegacyExposure: false,
+            startedAt: 0,
+            campaignID: "",
+            isPresented: state.isPresented
+        )
+    }
+
+    static func applyingLegacyExposureMigration(to state: LimitedOfferHomeState) -> LimitedOfferHomeState {
+        guard !state.hasLegacyExposure,
+              state.startedAt > 0 || !state.campaignID.isEmpty else {
+            return state
+        }
+
+        var updatedState = state
+        updatedState.hasLegacyExposure = true
+        return updatedState
+    }
+
+    static func applyingCampaignSync(
+        to state: LimitedOfferHomeState,
+        config: LimitedTimeOfferConfig
+    ) -> LimitedOfferHomeState {
+        guard state.campaignID.isEmpty, state.startedAt <= 0 else {
+            return state
+        }
+
+        var updatedState = state
+        updatedState.campaignID = config.campaignID
+        return updatedState
+    }
+
+    static func shouldDismissPresentedOffer(
+        config: LimitedTimeOfferConfig,
+        appVersion: String,
+        hasPremiumAccess: Bool
+    ) -> Bool {
+        hasPremiumAccess || !config.isEnabled(forAppVersion: appVersion)
+    }
 }
 
 enum LimitedTimeOfferRemoteConfigService {
     private static let isEnabledKey = "ios_lifetime_early_supporter_offer_enabled"
     private static let campaignIDKey = "ios_lifetime_early_supporter_offer_campaign_id"
     private static let durationHoursKey = "ios_lifetime_early_supporter_offer_duration_hours"
+    private static let minimumAppVersionKey = "ios_lifetime_early_supporter_offer_min_app_version"
+#if DEBUG
+    private static let debugIsEnabledKey = "debug_limited_offer_enabled"
+    private static let debugCampaignIDKey = "debug_limited_offer_campaign_id"
+    private static let debugDurationHoursKey = "debug_limited_offer_duration_hours"
+    private static let debugMinimumAppVersionKey = "debug_limited_offer_min_app_version"
+#endif
 
     static func fetchOfferConfig() async -> LimitedTimeOfferConfig {
+#if DEBUG
+        return debugOfferConfig(overriding: .disabled)
+#else
+        var config = LimitedTimeOfferConfig.disabled
 #if canImport(FirebaseRemoteConfig)
         let remoteConfig = RemoteConfig.remoteConfig()
         let settings = RemoteConfigSettings()
-#if DEBUG
-        settings.minimumFetchInterval = 0
-#else
         settings.minimumFetchInterval = 60 * 60
-#endif
         settings.fetchTimeout = 10
         remoteConfig.configSettings = settings
         remoteConfig.setDefaults([
             isEnabledKey: NSNumber(value: false),
             campaignIDKey: LimitedTimeOfferConfig.defaultCampaignID as NSObject,
-            durationHoursKey: NSNumber(value: LimitedTimeOfferConfig.defaultOfferDurationHours)
+            durationHoursKey: NSNumber(value: LimitedTimeOfferConfig.defaultOfferDurationHours),
+            minimumAppVersionKey: LimitedTimeOfferConfig.defaultMinimumAppVersion as NSObject
         ])
 
         do {
@@ -52,14 +184,19 @@ enum LimitedTimeOfferRemoteConfigService {
         let durationHours = sanitizedDurationHours(
             remoteConfig.configValue(forKey: durationHoursKey).numberValue.doubleValue
         )
+        let minimumAppVersion = sanitizedMinimumAppVersion(
+            remoteConfig.configValue(forKey: minimumAppVersionKey).stringValue
+        )
 
-        return LimitedTimeOfferConfig(
+        config = LimitedTimeOfferConfig(
             isEnabled: remoteConfig.configValue(forKey: isEnabledKey).boolValue,
             campaignID: campaignID,
-            offerDuration: durationHours * 60 * 60
+            offerDuration: durationHours * 60 * 60,
+            minimumAppVersion: minimumAppVersion
         )
-#else
-        return .disabled
+#endif
+
+        return config
 #endif
     }
 
@@ -72,7 +209,112 @@ enum LimitedTimeOfferRemoteConfigService {
         guard rawValue.isFinite, rawValue > 0 else {
             return LimitedTimeOfferConfig.defaultOfferDurationHours
         }
-        return min(rawValue, 24 * 14)
+        return min(rawValue, LimitedTimeOfferConfig.defaultOfferDurationHours)
+    }
+
+    private static func sanitizedMinimumAppVersion(_ rawValue: String) -> String {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? LimitedTimeOfferConfig.defaultMinimumAppVersion : value
+    }
+
+#if DEBUG
+    private static func debugOfferConfig(overriding base: LimitedTimeOfferConfig) -> LimitedTimeOfferConfig {
+        let arguments = ProcessInfo.processInfo.arguments
+        let defaults = UserDefaults.standard
+
+        let isEnabled: Bool
+        if arguments.contains("-DebugLimitedOfferEnabled") {
+            isEnabled = true
+        } else if arguments.contains("-DebugLimitedOfferDisabled") {
+            isEnabled = false
+        } else if defaults.object(forKey: debugIsEnabledKey) != nil {
+            isEnabled = defaults.bool(forKey: debugIsEnabledKey)
+        } else {
+            isEnabled = true
+        }
+        let rawDebugDurationHours = debugArgumentValue(for: "-DebugLimitedOfferDurationHours", in: arguments)
+            .flatMap(Double.init)
+            ?? (defaults.object(forKey: debugDurationHoursKey) != nil
+            ? defaults.double(forKey: debugDurationHoursKey)
+            : LimitedTimeOfferConfig.defaultOfferDurationHours)
+        let debugDurationHours = sanitizedDurationHours(rawDebugDurationHours)
+        let debugCampaignID = sanitizedCampaignID(
+            debugArgumentValue(for: "-DebugLimitedOfferCampaignID", in: arguments)
+                ?? defaults.string(forKey: debugCampaignIDKey)
+                ?? "debug_paywall_exit_v1"
+        )
+        let debugMinimumAppVersion = sanitizedMinimumAppVersion(
+            debugArgumentValue(for: "-DebugLimitedOfferMinAppVersion", in: arguments)
+                ?? defaults.string(forKey: debugMinimumAppVersionKey)
+                ?? "0.0.0"
+        )
+
+        let config = LimitedTimeOfferConfig(
+            isEnabled: isEnabled,
+            campaignID: debugCampaignID,
+            offerDuration: debugDurationHours * 60 * 60,
+            minimumAppVersion: debugMinimumAppVersion
+        )
+#if DEBUG
+        print(
+            "[LimitedOffer] Using debug config",
+            "enabled=\(config.isEnabled)",
+            "campaign=\(config.campaignID)",
+            "hours=\(debugDurationHours)",
+            "minVersion=\(config.minimumAppVersion)"
+        )
+#endif
+        return config
+    }
+
+    private static func hasDebugOfferOverride(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        arguments.contains("-DebugLimitedOfferEnabled")
+            || arguments.contains("-DebugLimitedOfferDisabled")
+            || defaults.object(forKey: debugIsEnabledKey) != nil
+    }
+
+    private static func debugArgumentValue(for key: String, in arguments: [String]) -> String? {
+        let prefix = key + "="
+        guard let argument = arguments.first(where: { $0.hasPrefix(prefix) }) else {
+            return nil
+        }
+        return String(argument.dropFirst(prefix.count))
+    }
+#endif
+}
+
+enum AppVersionComparator {
+    static func isVersion(_ lhs: String, greaterThan rhs: String) -> Bool {
+        compare(lhs, rhs) == .orderedDescending
+    }
+
+    static func isVersion(_ lhs: String, atLeast rhs: String) -> Bool {
+        compare(lhs, rhs) != .orderedAscending
+    }
+
+    private static func compare(_ lhs: String, _ rhs: String) -> ComparisonResult {
+        let lhsParts = lhs.split(separator: ".").map(versionPartValue)
+        let rhsParts = rhs.split(separator: ".").map(versionPartValue)
+        let maxCount = max(lhsParts.count, rhsParts.count)
+
+        for index in 0..<maxCount {
+            let left = index < lhsParts.count ? lhsParts[index] : 0
+            let right = index < rhsParts.count ? rhsParts[index] : 0
+
+            if left != right {
+                return left > right ? .orderedDescending : .orderedAscending
+            }
+        }
+
+        return .orderedSame
+    }
+
+    private static func versionPartValue(_ part: Substring) -> Int {
+        let digits = part.prefix { $0.isNumber }
+        return Int(digits) ?? 0
     }
 }
 
@@ -90,7 +332,7 @@ enum AppUpdateService {
         let defaults = UserDefaults.standard
         guard let cachedData = defaults.data(forKey: AppSettings.cachedUpdateInfoKey),
               let cached = try? JSONDecoder().decode(CachedUpdateRecord.self, from: cachedData),
-              isVersion(cached.latestVersion, greaterThan: currentVersion),
+              AppVersionComparator.isVersion(cached.latestVersion, greaterThan: currentVersion),
               let trackViewURL = URL(string: cached.trackViewURL) else {
             return nil
         }
@@ -162,7 +404,7 @@ enum AppUpdateService {
             return nil
         }
 
-        guard isVersion(config.latestVersion, greaterThan: currentVersion) else {
+        guard AppVersionComparator.isVersion(config.latestVersion, greaterThan: currentVersion) else {
 #if DEBUG
             print("[AppUpdate] No update needed. current:", currentVersion, "latest:", config.latestVersion)
 #endif
@@ -207,7 +449,7 @@ enum AppUpdateService {
                     continue
                 }
 
-                guard isVersion(latestVersion, greaterThan: currentVersion) else {
+                guard AppVersionComparator.isVersion(latestVersion, greaterThan: currentVersion) else {
                     return nil
                 }
 
@@ -238,28 +480,6 @@ enum AppUpdateService {
         )
     }
 #endif
-
-    private static func isVersion(_ lhs: String, greaterThan rhs: String) -> Bool {
-        let lhsParts = lhs.split(separator: ".").map(versionPartValue)
-        let rhsParts = rhs.split(separator: ".").map(versionPartValue)
-        let maxCount = max(lhsParts.count, rhsParts.count)
-
-        for index in 0..<maxCount {
-            let left = index < lhsParts.count ? lhsParts[index] : 0
-            let right = index < rhsParts.count ? rhsParts[index] : 0
-
-            if left != right {
-                return left > right
-            }
-        }
-
-        return false
-    }
-
-    private static func versionPartValue(_ part: Substring) -> Int {
-        let digits = part.prefix { $0.isNumber }
-        return Int(digits) ?? 0
-    }
 
     private static func decodeUpdateConfig(from payload: String) -> RemoteUpdateConfig? {
         let sanitized = payload.trimmingCharacters(in: .whitespacesAndNewlines)

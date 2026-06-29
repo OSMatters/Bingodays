@@ -56,6 +56,27 @@ final class SubscriptionManager: ObservableObject {
     private var updatesTask: Task<Void, Never>?
     private var cachedDisplayPrices: [String: String] = [:]
     private static let cachedDisplayPricesKey = "subscription.cached_display_prices"
+    private static let pendingPurchaseAttributionKey = "subscription.pending_purchase_attribution"
+    private static let purchaseAttributionTTL: TimeInterval = 30 * 60
+
+    private struct PurchaseAttribution: Codable {
+        let source: String
+        let plan: String
+        let productID: String
+        let attemptID: String
+        let startedAt: Date
+
+        var ageSeconds: Int {
+            max(Int(Date().timeIntervalSince(startedAt)), 0)
+        }
+    }
+
+    private struct OptimisticEntitlement {
+        let productID: String
+        let expirationDate: Date?
+    }
+
+    private var optimisticEntitlementsByProductID: [String: OptimisticEntitlement] = [:]
 
     init() {
         if let cached = UserDefaults.standard.dictionary(forKey: Self.cachedDisplayPricesKey) as? [String: String] {
@@ -85,15 +106,16 @@ final class SubscriptionManager: ObservableObject {
             guard let transaction = verified(result) else { continue }
             if transaction.revocationDate != nil { continue }
             if let expirationDate = transaction.expirationDate, expirationDate <= now { continue }
-            collected.insert(transaction.productID)
+            guard let activatedProductID = activatedProductID(from: transaction) else { continue }
+            collected.insert(activatedProductID)
 
-            if Self.isLifetimeProductID(transaction.productID) {
+            if Self.isLifetimeProductID(activatedProductID) {
                 resolvedLifetime = true
                 continue
             }
 
             guard let expirationDate = transaction.expirationDate,
-                  let plan = planKind(for: transaction.productID) else {
+                  let plan = planKind(for: activatedProductID) else {
                 continue
             }
 
@@ -112,13 +134,24 @@ final class SubscriptionManager: ObservableObject {
             resolvedAutoRenewablePlan: &resolvedAutoRenewablePlan,
             resolvedAutoRenewableExpirationDate: &resolvedAutoRenewableExpirationDate
         )
+        mergeOptimisticEntitlementsIntoResolvedState(
+            now: now,
+            collected: &collected,
+            resolvedLifetime: &resolvedLifetime,
+            resolvedAutoRenewablePlan: &resolvedAutoRenewablePlan,
+            resolvedAutoRenewableExpirationDate: &resolvedAutoRenewableExpirationDate
+        )
 
 #if DEBUG
         if AppDebugFlags.forceNoPremiumAccess {
-            collected = []
-            resolvedLifetime = false
-            resolvedAutoRenewablePlan = nil
-            resolvedAutoRenewableExpirationDate = nil
+            if optimisticEntitlementsByProductID.isEmpty {
+                collected = []
+                resolvedLifetime = false
+                resolvedAutoRenewablePlan = nil
+                resolvedAutoRenewableExpirationDate = nil
+            } else {
+                print("[Subscription] Keeping verified purchase activation despite DebugForceNoPremium.")
+            }
         }
 #endif
 
@@ -130,6 +163,17 @@ final class SubscriptionManager: ObservableObject {
         currentPlanKind = resolvedLifetime ? .lifetime : resolvedAutoRenewablePlan
         currentPlanExpirationDate = resolvedLifetime ? nil : resolvedAutoRenewableExpirationDate
         hasCompletedEntitlementRefresh = true
+#if DEBUG
+        print(
+            "[Subscription] refresh resolved",
+            "active=\(activeProductIDs.sorted())",
+            "hasPremium=\(hasPremiumAccess)",
+            "lifetime=\(hasLifetimeAccess)",
+            "autoRenewable=\(hasActiveAutoRenewable)",
+            "optimistic=\(optimisticEntitlementsByProductID.keys.sorted())",
+            "forceNoPremium=\(AppDebugFlags.forceNoPremiumAccess)"
+        )
+#endif
     }
 
     func refreshStorefront() async {
@@ -201,12 +245,22 @@ final class SubscriptionManager: ObservableObject {
             await loadProducts()
         }
 
+        let purchaseAttribution: PurchaseAttribution?
         if let analyticsSource, let analyticsPlan {
-            AnalyticsService.logPremiumPurchaseAttempt(
+            let attribution = beginPurchaseAttribution(
                 source: analyticsSource,
                 plan: analyticsPlan,
                 productID: productID
             )
+            purchaseAttribution = attribution
+            AnalyticsService.logPremiumPurchaseAttempt(
+                source: analyticsSource,
+                plan: analyticsPlan,
+                productID: productID,
+                purchaseAttemptID: attribution.attemptID
+            )
+        } else {
+            purchaseAttribution = nil
         }
 
         guard let product = productsByID[productID] else {
@@ -215,9 +269,12 @@ final class SubscriptionManager: ObservableObject {
                     source: analyticsSource,
                     plan: analyticsPlan,
                     productID: productID,
-                    result: "product_unavailable"
+                    result: "product_unavailable",
+                    purchaseAttemptID: purchaseAttribution?.attemptID,
+                    attributionAgeSeconds: purchaseAttribution?.ageSeconds
                 )
             }
+            clearPurchaseAttribution(purchaseAttribution)
             return L10n.subscriptionProductUnavailable
         }
 
@@ -231,30 +288,68 @@ final class SubscriptionManager: ObservableObject {
                             source: analyticsSource,
                             plan: analyticsPlan,
                             productID: productID,
-                            result: "verification_failed"
+                            result: "verification_failed",
+                            purchaseAttemptID: purchaseAttribution?.attemptID,
+                            attributionAgeSeconds: purchaseAttribution?.ageSeconds
                         )
                     }
+                    clearPurchaseAttribution(purchaseAttribution)
                     return L10n.subscriptionVerificationFailed
                 }
-                applyImmediateActivation(from: transaction)
+                let didApplyImmediateActivation = applyVerifiedPurchaseActivation(from: transaction)
+#if DEBUG
+                print(
+                    "[Subscription] purchase verified",
+                    "requested=\(productID)",
+                    "transaction=\(transaction.productID)",
+                    "activated=\(didApplyImmediateActivation)",
+                    "hasPremium=\(hasPremiumAccess)",
+                    "forceNoPremium=\(AppDebugFlags.forceNoPremiumAccess)"
+                )
+#endif
                 if let analyticsSource, let analyticsPlan {
                     AnalyticsService.logPremiumPurchaseSuccess(
                         source: analyticsSource,
                         plan: analyticsPlan,
                         product: product,
-                        transaction: transaction
+                        transaction: transaction,
+                        purchaseAttemptID: purchaseAttribution?.attemptID,
+                        attributionAgeSeconds: purchaseAttribution?.ageSeconds
                     )
                 }
                 await transaction.finish()
+                if didApplyImmediateActivation {
+                    // Treat the verified transaction as the source of truth for the
+                    // immediate UI state; entitlement streams can lag in sandbox.
+                    applyVerifiedPurchaseActivation(from: transaction)
+                    if let analyticsSource, let analyticsPlan {
+                        AnalyticsService.logPremiumPurchaseResult(
+                            source: analyticsSource,
+                            plan: analyticsPlan,
+                            productID: activatedProductID(from: transaction) ?? transaction.productID,
+                            result: "activated",
+                            purchaseAttemptID: purchaseAttribution?.attemptID,
+                            attributionAgeSeconds: purchaseAttribution?.ageSeconds
+                        )
+                    }
+                    clearPurchaseAttribution(purchaseAttribution)
+                    Task { [weak self] in
+                        await self?.refreshEntitlements()
+                    }
+                    return L10n.subscriptionPurchaseSucceeded
+                }
                 let activated = await confirmPremiumActivationAfterPurchase()
                 if let analyticsSource, let analyticsPlan {
                     AnalyticsService.logPremiumPurchaseResult(
                         source: analyticsSource,
                         plan: analyticsPlan,
-                        productID: transaction.productID,
-                        result: activated ? "activated" : "activation_pending"
+                        productID: activatedProductID(from: transaction) ?? transaction.productID,
+                        result: activated ? "activated" : "activation_pending",
+                        purchaseAttemptID: purchaseAttribution?.attemptID,
+                        attributionAgeSeconds: purchaseAttribution?.ageSeconds
                     )
                 }
+                clearPurchaseAttribution(purchaseAttribution)
                 return activated ? L10n.subscriptionPurchaseSucceeded : L10n.subscriptionActivationPending
             case .pending:
                 if let analyticsSource, let analyticsPlan {
@@ -262,7 +357,9 @@ final class SubscriptionManager: ObservableObject {
                         source: analyticsSource,
                         plan: analyticsPlan,
                         productID: productID,
-                        result: "pending"
+                        result: "pending",
+                        purchaseAttemptID: purchaseAttribution?.attemptID,
+                        attributionAgeSeconds: purchaseAttribution?.ageSeconds
                     )
                 }
                 return L10n.subscriptionPurchasePending
@@ -272,9 +369,12 @@ final class SubscriptionManager: ObservableObject {
                         source: analyticsSource,
                         plan: analyticsPlan,
                         productID: productID,
-                        result: "cancelled"
+                        result: "cancelled",
+                        purchaseAttemptID: purchaseAttribution?.attemptID,
+                        attributionAgeSeconds: purchaseAttribution?.ageSeconds
                     )
                 }
+                clearPurchaseAttribution(purchaseAttribution)
                 return L10n.subscriptionPurchaseCancelled
             @unknown default:
                 if let analyticsSource, let analyticsPlan {
@@ -282,9 +382,12 @@ final class SubscriptionManager: ObservableObject {
                         source: analyticsSource,
                         plan: analyticsPlan,
                         productID: productID,
-                        result: "unknown"
+                        result: "unknown",
+                        purchaseAttemptID: purchaseAttribution?.attemptID,
+                        attributionAgeSeconds: purchaseAttribution?.ageSeconds
                     )
                 }
+                clearPurchaseAttribution(purchaseAttribution)
                 return L10n.subscriptionUnknownResult
             }
         } catch {
@@ -293,9 +396,12 @@ final class SubscriptionManager: ObservableObject {
                     source: analyticsSource,
                     plan: analyticsPlan,
                     productID: productID,
-                    result: "failed"
+                    result: "failed",
+                    purchaseAttemptID: purchaseAttribution?.attemptID,
+                    attributionAgeSeconds: purchaseAttribution?.ageSeconds
                 )
             }
+            clearPurchaseAttribution(purchaseAttribution)
             return L10n.subscriptionPurchaseFailed
         }
     }
@@ -344,21 +450,29 @@ final class SubscriptionManager: ObservableObject {
             for await update in Transaction.updates {
                 if case .verified(let transaction) = update {
                     applyImmediateActivation(from: transaction)
+                    let attribution = activePurchaseAttribution(for: transaction.productID)
                     let plan = analyticsPlan(for: transaction.productID)
+                    let source = attribution?.source ?? "storekit_transaction_update"
+                    let analyticsPlan = attribution?.plan ?? plan
                     if let product = productsByID[transaction.productID] {
                         AnalyticsService.logPremiumPurchaseSuccess(
-                            source: "storekit_transaction_update",
-                            plan: plan,
+                            source: source,
+                            plan: analyticsPlan,
                             product: product,
-                            transaction: transaction
+                            transaction: transaction,
+                            purchaseAttemptID: attribution?.attemptID,
+                            attributionAgeSeconds: attribution?.ageSeconds
                         )
                     } else {
                         AnalyticsService.logPremiumTransactionUpdate(
-                            source: "storekit_transaction_update",
-                            plan: plan,
-                            transaction: transaction
+                            source: source,
+                            plan: analyticsPlan,
+                            transaction: transaction,
+                            purchaseAttemptID: attribution?.attemptID,
+                            attributionAgeSeconds: attribution?.ageSeconds
                         )
                     }
+                    clearPurchaseAttribution(attribution)
                     await transaction.finish()
                 }
                 await refreshEntitlements()
@@ -403,32 +517,160 @@ final class SubscriptionManager: ObservableObject {
         }
     }
 
-    private func applyImmediateActivation(from transaction: StoreKit.Transaction) {
+    private func beginPurchaseAttribution(source: String, plan: String, productID: String) -> PurchaseAttribution {
+        let attribution = PurchaseAttribution(
+            source: source,
+            plan: plan,
+            productID: productID,
+            attemptID: UUID().uuidString,
+            startedAt: Date()
+        )
+        if let data = try? JSONEncoder().encode(attribution) {
+            UserDefaults.standard.set(data, forKey: Self.pendingPurchaseAttributionKey)
+        }
+        return attribution
+    }
+
+    private func activePurchaseAttribution(for productID: String) -> PurchaseAttribution? {
+        guard let data = UserDefaults.standard.data(forKey: Self.pendingPurchaseAttributionKey),
+              let attribution = try? JSONDecoder().decode(PurchaseAttribution.self, from: data) else {
+            return nil
+        }
+        guard Date().timeIntervalSince(attribution.startedAt) <= Self.purchaseAttributionTTL else {
+            UserDefaults.standard.removeObject(forKey: Self.pendingPurchaseAttributionKey)
+            return nil
+        }
+        guard attribution.productID == productID else { return nil }
+        return attribution
+    }
+
+    private func clearPurchaseAttribution(_ attribution: PurchaseAttribution?) {
+        guard let attribution,
+              let data = UserDefaults.standard.data(forKey: Self.pendingPurchaseAttributionKey),
+              let stored = try? JSONDecoder().decode(PurchaseAttribution.self, from: data),
+              stored.attemptID == attribution.attemptID else {
+            return
+        }
+        UserDefaults.standard.removeObject(forKey: Self.pendingPurchaseAttributionKey)
+    }
+
+    @discardableResult
+    private func applyVerifiedPurchaseActivation(from transaction: StoreKit.Transaction) -> Bool {
+        guard let productID = activatedProductID(from: transaction) else { return false }
+        guard transaction.revocationDate == nil else { return false }
+        if let expirationDate = transaction.expirationDate, expirationDate <= Date() { return false }
+
+        return activatePremiumAccess(
+            productID: productID,
+            expirationDate: transaction.expirationDate
+        )
+    }
+
+    @discardableResult
+    private func applyImmediateActivation(
+        from transaction: StoreKit.Transaction
+    ) -> Bool {
 #if DEBUG
-        guard !AppDebugFlags.forceNoPremiumAccess else { return }
+        guard !AppDebugFlags.forceNoPremiumAccess else { return false }
 #endif
 
         let now = Date()
-        guard transaction.revocationDate == nil else { return }
-        if let expirationDate = transaction.expirationDate, expirationDate <= now { return }
+        guard transactionCanActivatePremium(transaction, now: now),
+              let productID = activatedProductID(from: transaction) else {
+            return false
+        }
 
-        activeProductIDs.insert(transaction.productID)
+        return activatePremiumAccess(
+            productID: productID,
+            expirationDate: transaction.expirationDate
+        )
+    }
 
-        if Self.isLifetimeProductID(transaction.productID) {
+    @discardableResult
+    private func activatePremiumAccess(productID: String, expirationDate: Date?) -> Bool {
+        activeProductIDs.insert(productID)
+        optimisticEntitlementsByProductID[productID] = OptimisticEntitlement(
+            productID: productID,
+            expirationDate: expirationDate
+        )
+        hasCompletedEntitlementRefresh = true
+
+        if Self.isLifetimeProductID(productID) {
             hasLifetimeAccess = true
             hasPremiumAccess = true
             currentPlanKind = .lifetime
             currentPlanExpirationDate = nil
-            return
+#if DEBUG
+            print("[Subscription] activated lifetime access", "productID=\(productID)", "hasPremium=\(hasPremiumAccess)")
+#endif
+            return true
         }
 
-        guard let plan = planKind(for: transaction.productID) else { return }
+        guard let plan = planKind(for: productID) else { return false }
         hasActiveAutoRenewable = true
         hasPremiumAccess = true
         autoRenewablePlanKind = plan
         if !hasLifetimeAccess {
             currentPlanKind = plan
-            currentPlanExpirationDate = transaction.expirationDate
+            currentPlanExpirationDate = expirationDate
+        }
+#if DEBUG
+        print("[Subscription] activated subscription access", "productID=\(productID)", "hasPremium=\(hasPremiumAccess)")
+#endif
+        return true
+    }
+
+    private func transactionCanActivatePremium(
+        _ transaction: StoreKit.Transaction,
+        now: Date = Date()
+    ) -> Bool {
+        guard transaction.revocationDate == nil else { return false }
+        if let expirationDate = transaction.expirationDate, expirationDate <= now { return false }
+        return true
+    }
+
+    private func activatedProductID(
+        from transaction: StoreKit.Transaction
+    ) -> String? {
+        if Self.allProductIDs.contains(transaction.productID) {
+            return transaction.productID
+        }
+        return nil
+    }
+
+    private func mergeOptimisticEntitlementsIntoResolvedState(
+        now: Date,
+        collected: inout Set<String>,
+        resolvedLifetime: inout Bool,
+        resolvedAutoRenewablePlan: inout PremiumPlanKind?,
+        resolvedAutoRenewableExpirationDate: inout Date?
+    ) {
+        var expiredProductIDs: [String] = []
+        for (productID, entitlement) in optimisticEntitlementsByProductID {
+            if let expirationDate = entitlement.expirationDate, expirationDate <= now {
+                expiredProductIDs.append(productID)
+                continue
+            }
+
+            collected.insert(entitlement.productID)
+
+            if Self.isLifetimeProductID(entitlement.productID) {
+                resolvedLifetime = true
+                continue
+            }
+
+            guard let expirationDate = entitlement.expirationDate,
+                  let plan = planKind(for: entitlement.productID) else {
+                continue
+            }
+
+            if resolvedAutoRenewableExpirationDate == nil || expirationDate > resolvedAutoRenewableExpirationDate! {
+                resolvedAutoRenewablePlan = plan
+                resolvedAutoRenewableExpirationDate = expirationDate
+            }
+        }
+        for productID in expiredProductIDs {
+            optimisticEntitlementsByProductID.removeValue(forKey: productID)
         }
     }
 
@@ -447,16 +689,20 @@ final class SubscriptionManager: ObservableObject {
 
             if transaction.revocationDate != nil { continue }
             if let expirationDate = transaction.expirationDate, expirationDate <= now { continue }
+            guard let activatedProductID = activatedProductID(from: transaction),
+                  activatedProductID == productID else {
+                continue
+            }
 
-            collected.insert(transaction.productID)
+            collected.insert(activatedProductID)
 
-            if Self.isLifetimeProductID(transaction.productID) {
+            if Self.isLifetimeProductID(activatedProductID) {
                 resolvedLifetime = true
                 continue
             }
 
             guard let expirationDate = transaction.expirationDate,
-                  let plan = planKind(for: transaction.productID) else {
+                  let plan = planKind(for: activatedProductID) else {
                 continue
             }
 

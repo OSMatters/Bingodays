@@ -82,6 +82,7 @@ struct LimitedTimeDiscountView: View {
     let offerDuration: TimeInterval
 
     @AppStorage(AppSettings.hasVisitedPremiumPaywallWithoutPurchaseKey) private var hasVisitedPremiumPaywallWithoutPurchase = false
+    @AppStorage(AppSettings.hasLegacyLimitedTimeDiscountExposureKey) private var hasLegacyLimitedTimeDiscountExposure = false
     @AppStorage(AppSettings.limitedTimeDiscountStartedAtKey) private var limitedTimeDiscountStartedAt = 0.0
     @AppStorage(AppSettings.limitedTimeDiscountCampaignIDKey) private var limitedTimeDiscountCampaignID = ""
     @State private var feedbackMessage: String?
@@ -113,15 +114,18 @@ struct LimitedTimeDiscountView: View {
         }
         .ignoresSafeArea()
         .onAppear {
+            if closeIfPremium() { return }
             startCountdownIfNeeded()
             logPaywallViewIfNeeded()
         }
         .task {
+            if await refreshAndCloseIfPremium() { return }
             await subscriptionManager.warmupProductsForPaywall()
+            _ = closeIfPremium()
         }
         .onChange(of: subscriptionManager.hasPremiumAccess) { _, hasPremiumAccess in
             if hasPremiumAccess {
-                hasVisitedPremiumPaywallWithoutPurchase = false
+                _ = closeIfPremium()
             }
         }
     }
@@ -412,17 +416,20 @@ struct LimitedTimeDiscountView: View {
     private var purchaseButton: some View {
         Button {
             Task {
+                if await refreshAndCloseIfPremium() { return }
                 let message = await subscriptionManager.purchase(
                     productID: SubscriptionManager.lifetimeEarlySupporterProductID,
                     analyticsSource: entrySource,
                     analyticsPlan: "limited_time_lifetime"
                 )
                 if isPurchaseSuccess(message) || subscriptionManager.hasPremiumAccess {
-                    hasVisitedPremiumPaywallWithoutPurchase = false
-                }
-
-                if isPurchaseSuccess(message), subscriptionManager.hasPremiumAccess {
-                    dismiss()
+                    clearLimitedOfferStateAfterPurchase()
+                    NotificationCenter.default.post(name: .limitedOfferEligibilityDidChange, object: nil)
+                    if subscriptionManager.hasPremiumAccess {
+                        dismiss()
+                    } else {
+                        feedbackMessage = message
+                    }
                 } else {
                     feedbackMessage = message
                 }
@@ -471,16 +478,21 @@ struct LimitedTimeDiscountView: View {
     }
 
     private func startCountdownIfNeeded() {
-        if limitedTimeDiscountCampaignID != campaignID {
+        if limitedTimeDiscountCampaignID.isEmpty {
             limitedTimeDiscountCampaignID = campaignID
-            limitedTimeDiscountStartedAt = 0
+        }
+        let now = Date().timeIntervalSince1970
+        if limitedTimeDiscountStartedAt > now {
+            limitedTimeDiscountStartedAt = now
+            return
         }
         guard limitedTimeDiscountStartedAt <= 0 else { return }
-        limitedTimeDiscountStartedAt = Date().timeIntervalSince1970
+        limitedTimeDiscountStartedAt = now
     }
 
     private func countdownComponents(now: Date) -> (hours: String, minutes: String, seconds: String) {
-        let startedAt = limitedTimeDiscountStartedAt > 0 ? limitedTimeDiscountStartedAt : now.timeIntervalSince1970
+        let storedStartedAt = limitedTimeDiscountStartedAt > 0 ? limitedTimeDiscountStartedAt : now.timeIntervalSince1970
+        let startedAt = min(storedStartedAt, now.timeIntervalSince1970)
         let target = Date(timeIntervalSince1970: startedAt + offerDuration)
         let totalSeconds = max(0, Int(ceil(target.timeIntervalSince(now))))
         let hours = totalSeconds / 3600
@@ -503,6 +515,29 @@ struct LimitedTimeDiscountView: View {
 
     private func isPurchaseSuccess(_ message: String) -> Bool {
         message == L10n.subscriptionPurchaseSucceeded || message == L10n.subscriptionActivationPending
+    }
+
+    private func clearLimitedOfferStateAfterPurchase() {
+        hasVisitedPremiumPaywallWithoutPurchase = false
+        hasLegacyLimitedTimeDiscountExposure = false
+        limitedTimeDiscountStartedAt = 0
+        limitedTimeDiscountCampaignID = ""
+    }
+
+    @MainActor
+    private func refreshAndCloseIfPremium() async -> Bool {
+        if closeIfPremium() { return true }
+        await subscriptionManager.refreshEntitlements()
+        return closeIfPremium()
+    }
+
+    @MainActor
+    private func closeIfPremium() -> Bool {
+        guard subscriptionManager.hasPremiumAccess else { return false }
+        clearLimitedOfferStateAfterPurchase()
+        NotificationCenter.default.post(name: .limitedOfferEligibilityDidChange, object: nil)
+        dismiss()
+        return true
     }
 
     private func spacedPrice(_ displayPrice: String) -> String {

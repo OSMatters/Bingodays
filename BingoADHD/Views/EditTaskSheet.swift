@@ -3,17 +3,21 @@ import Speech
 
 struct EditTaskSheet: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dismiss) private var dismissSheet
     @State var text: String
     @State var isForcedTask: Bool
     @State var residentWeekdays: Set<Int>
     @State var isOneTimeTask: Bool
+    @State private var scheduleMode: TaskScheduleMode
+    @State private var recurrenceKind: TaskRecurrenceRule.Kind
+    @State private var recurrenceMonthDay: Int
+    @State private var recurrenceDayInterval: Int
     @State var startVisibleAt: Date?
     @State var endVisibleAt: Date?
     @State var startReminderEnabled: Bool
     @State var startReminderOffsetMinutes: Int
     let isCompletedTask: Bool
-    let autoFocusTaskField: Bool
-    let onSave: (String, Bool, Set<Int>, Bool, Int?, Date?, Date?, Bool, Int) -> Void
+    let onSave: (String, Bool, Set<Int>, Bool, TaskRecurrenceRule?, Int?, Date?, Date?, Bool, Int) -> Void
     let onDelete: () -> Void
     let onCancel: () -> Void
 
@@ -22,11 +26,18 @@ struct EditTaskSheet: View {
     @AppStorage(AppSettings.hapticsEnabledKey) private var isHapticsEnabled = true
     @State private var isDatePickerPresented = false
     @State private var pickerSelectionDate = Date()
+    @State private var pickerMinimumDate = Date()
     @State private var isDeleteConfirmationPresented = false
     @State private var blockedSaveToastMessage: String?
     @State private var hideBlockedSaveToastWorkItem: DispatchWorkItem?
     @State private var activeDatePickerField: ActiveDatePickerField = .start
+    @State private var isRecurrencePickerPresented = false
+    @State private var activeRecurrencePickerField: ActiveRecurrencePickerField = .monthlyDay
+    @State private var isTimeWindowExpanded: Bool
+    @State private var activeSpeechInputSessionID: UUID?
+    @State private var isApplyingSpeechTranscript = false
     @State private var didRequestInitialTaskFocus = false
+    @State private var isClosingSheet = false
     @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
 
     private var isPadLayout: Bool {
@@ -39,7 +50,6 @@ struct EditTaskSheet: View {
 
     private enum FocusField: Hashable {
         case task
-        case timerCustom
     }
 
     private enum ActiveDatePickerField {
@@ -47,37 +57,67 @@ struct EditTaskSheet: View {
         case end
     }
 
+    private enum ActiveRecurrencePickerField {
+        case monthlyDay
+        case everyNDays
+    }
+
+    private enum TaskScheduleMode: Equatable {
+        case single
+        case repeating
+    }
+
     init(
         text: String,
         isForcedTask: Bool,
         residentWeekdays: Set<Int>,
         isOneTimeTask: Bool,
+        recurrenceRule: TaskRecurrenceRule? = nil,
         startVisibleAt: Date?,
         endVisibleAt: Date?,
         startReminderEnabled: Bool = false,
         startReminderOffsetMinutes: Int = BingoCell.defaultStartReminderOffsetMinutes,
         isCompletedTask: Bool,
         estimatedDurationMinutes: Int?,
-        autoFocusTaskField: Bool = false,
-        onSave: @escaping (String, Bool, Set<Int>, Bool, Int?, Date?, Date?, Bool, Int) -> Void,
+        onSave: @escaping (String, Bool, Set<Int>, Bool, TaskRecurrenceRule?, Int?, Date?, Date?, Bool, Int) -> Void,
         onDelete: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
+        let recurrenceDefaultDate = startVisibleAt ?? Date()
+        let normalizedRecurrenceRule = recurrenceRule?.normalized(
+            defaultWeekday: Calendar.current.component(.weekday, from: recurrenceDefaultDate),
+            defaultMonthDay: Calendar.current.component(.day, from: recurrenceDefaultDate),
+            defaultAnchorDate: recurrenceDefaultDate
+        )
+        let hasRepeatingSchedule = normalizedRecurrenceRule.map { $0.kind != .none } ?? !residentWeekdays.isEmpty
+        let resolvedKind: TaskRecurrenceRule.Kind
+        if hasRepeatingSchedule, let normalizedRecurrenceRule {
+            resolvedKind = normalizedRecurrenceRule.kind
+        } else if hasRepeatingSchedule {
+            resolvedKind = .weekly
+        } else {
+            resolvedKind = .none
+        }
+
         _text = State(initialValue: text)
         _isForcedTask = State(initialValue: isForcedTask)
-        _residentWeekdays = State(initialValue: residentWeekdays)
-        _isOneTimeTask = State(initialValue: isOneTimeTask)
-        _startVisibleAt = State(initialValue: startVisibleAt)
+        _residentWeekdays = State(initialValue: normalizedRecurrenceRule?.kind == .weekly ? normalizedRecurrenceRule?.weekdays ?? residentWeekdays : residentWeekdays)
+        _isOneTimeTask = State(initialValue: resolvedKind == .none)
+        _scheduleMode = State(initialValue: hasRepeatingSchedule ? .repeating : .single)
+        _recurrenceKind = State(initialValue: resolvedKind)
+        _recurrenceMonthDay = State(initialValue: normalizedRecurrenceRule?.monthDay ?? Calendar.current.component(.day, from: recurrenceDefaultDate))
+        _recurrenceDayInterval = State(initialValue: normalizedRecurrenceRule?.interval ?? TaskRecurrenceRule.defaultDayInterval)
+        let resolvedStartVisibleAt = startVisibleAt ?? (resolvedKind == .everyNDays ? normalizedRecurrenceRule?.anchorDate : nil)
+        _startVisibleAt = State(initialValue: resolvedStartVisibleAt)
         _endVisibleAt = State(initialValue: endVisibleAt)
-        _startReminderEnabled = State(initialValue: startReminderEnabled && startVisibleAt != nil && endVisibleAt != nil && !isCompletedTask)
+        _startReminderEnabled = State(initialValue: startReminderEnabled && resolvedStartVisibleAt != nil && endVisibleAt != nil && !isCompletedTask)
         _startReminderOffsetMinutes = State(initialValue: TaskStartReminderService.normalizedOffsetMinutes(startReminderOffsetMinutes))
+        _isTimeWindowExpanded = State(initialValue: resolvedStartVisibleAt != nil || endVisibleAt != nil)
         self.isCompletedTask = isCompletedTask
-        self.autoFocusTaskField = autoFocusTaskField
         self.onSave = onSave
         self.onDelete = onDelete
         self.onCancel = onCancel
         let normalizedDuration = estimatedDurationMinutes.map { min(max($0, 1), BingoViewModel.maxCountdownMinutes) }
-        self.initialEstimatedDurationMinutes = normalizedDuration
         self.initialStartVisibleAt = startVisibleAt
         self.initialEndVisibleAt = endVisibleAt
         let presetCandidates = [15, 30, 45, 60]
@@ -92,30 +132,29 @@ struct EditTaskSheet: View {
 
     @State private var timerPresetMinutes: Int?
     @State private var timerCustomMinutesText: String
-    private let initialEstimatedDurationMinutes: Int?
     private let initialStartVisibleAt: Date?
     private let initialEndVisibleAt: Date?
 
-    private let screenOverlayColor = Color.black.opacity(0.80)
+    private let sheetBackgroundColor = Color(hex: "202020")
     private let fieldColor = Color(hex: "3F3F3F")
     private let fieldBorderColor = Color.clear
     private let primaryTextColor = Color.white
     private let secondaryTextColor = Color(hex: "828282")
     private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
     private var accentColor: Color { activeTheme.color }
-    private let baseVerticalOffset: CGFloat = 60
-    private let collapsedExtraOffset: CGFloat = 30
-    private let expandedCustomLiftOffset: CGFloat = -20
     private var contentColumnWidth: CGFloat { isPadLayout ? 420 : 313 }
+    private var voiceInputButtonWidth: CGFloat {
+        speechRecognizer.isRecording ? scaled(108, pad: 132) : scaled(36, pad: 44)
+    }
+    private var taskInputTrailingInset: CGFloat {
+        voiceInputButtonWidth + scaled(22, pad: 26)
+    }
     private var actionTitleFont: Font { .custom("Outfit", size: scaled(24, pad: 28)) }
     private var bodySFont: Font { .custom("Outfit", size: scaled(14, pad: 16)) }
     private var bodyLRegularFont: Font { .custom("Outfit", size: scaled(16, pad: 18)) }
     private var bodySLetterSpacing: CGFloat { -0.15 }
     private var bodyLLetterSpacing: CGFloat { -0.31 }
-    private var sheetVerticalOffset: CGFloat {
-        guard !isPadLayout else { return 0 }
-        return baseVerticalOffset + (repeatMode == .custom ? expandedCustomLiftOffset : collapsedExtraOffset)
-    }
+    private var fieldTitleLeadingInset: CGFloat { 26 }
     private var normalizedTaskText: String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -125,71 +164,89 @@ struct EditTaskSheet: View {
     private var hasValidTaskLength: Bool {
         !normalizedTaskText.isEmpty
     }
-    private var shouldShowCountdownCancelInline: Bool {
-        normalizedEstimatedDurationMinutes != nil
+    private var taskTimeWindowTitle: String {
+        L10n.tr(
+            "Task start/end time",
+            zhHans: "任务起止时间",
+            zhHant: "任務起止時間",
+            ja: "タスク開始/終了時刻"
+        )
+    }
+
+    private var repeatingRuleNeedsAnchorDate: Bool {
+        scheduleMode == .repeating && recurrenceKind == .everyNDays
+    }
+    private var activeDatePickerIncludesDate: Bool {
+        scheduleMode == .single || (activeDatePickerField == .start && repeatingRuleNeedsAnchorDate)
+    }
+    private var activeStartFieldUsesDate: Bool {
+        scheduleMode == .single || repeatingRuleNeedsAnchorDate
+    }
+    private var shouldValidateStartDateAgainstNow: Bool {
+        scheduleMode == .single || repeatingRuleNeedsAnchorDate
+    }
+    private var shouldValidateEndDateAgainstNow: Bool {
+        scheduleMode == .single
+    }
+    private var canConfigureCountdown: Bool {
+        scheduleMode == .single && !hasConfiguredTimeWindow
+    }
+    private var countdownMinutesForSave: Int? {
+        canConfigureCountdown ? normalizedEstimatedDurationMinutes : nil
+    }
+    private var hasConfiguredTimeWindow: Bool {
+        startVisibleAt != nil || endVisibleAt != nil
+    }
+    private var shouldShowRepeatPreviewUnderTimeWindow: Bool {
+        scheduleMode == .repeating && hasConfiguredTimeWindow
     }
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .blur(radius: 10)
-                    .ignoresSafeArea()
+        VStack(spacing: 0) {
+            headerBar
 
-                screenOverlayColor
-                    .ignoresSafeArea()
+            ScrollView(showsIndicators: false) {
+                formSections
+                    .padding(.top, 8)
+                    .padding(.bottom, scaled(22, pad: 28))
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .background(
+                sheetBackgroundColor
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        handleBackgroundTap()
+                        dismissKeyboard()
                     }
-
-                VStack(spacing: 0) {
-                    headerBar
-
-                    ScrollView(showsIndicators: false) {
-                        VStack(spacing: 24) {
-                            taskInputSection
-                            timeWindowSection
-                            forceCompletionSection
-                            repeatSection
-                            timerSection
-                        }
-                        .frame(width: contentColumnWidth, alignment: .leading)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 8)
-                        .padding(.bottom, scrollBottomPadding(safeAreaBottom: geo.safeAreaInsets.bottom))
-                    }
-                    .frame(maxHeight: .infinity)
-                    .scrollDismissesKeyboard(.interactively)
-
-                    Color.clear
-                        .frame(height: scrollViewportBottomReservedHeight(safeAreaBottom: geo.safeAreaInsets.bottom))
-                        .allowsHitTesting(false)
+            )
+        }
+        .background(
+            sheetBackgroundColor
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    dismissKeyboard()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.top, isPadLayout ? geo.safeAreaInsets.top : 0)
-                .offset(y: sheetVerticalOffset)
-                .animation(.easeInOut(duration: 0.22), value: repeatMode)
-
-                floatingSaveButton(safeAreaBottom: geo.safeAreaInsets.bottom)
-
-                if let blockedSaveToastMessage {
-                    IOSNativeToastView(
-                        blockedSaveToastMessage,
-                        isPadLayout: isPadLayout
-                    )
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, blockedSaveToastBottomPadding(safeAreaBottom: geo.safeAreaInsets.bottom))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .allowsHitTesting(false)
-                }
+        )
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            saveButtonDock
+        }
+        .overlay(alignment: .bottom) {
+            if let blockedSaveToastMessage {
+                IOSNativeToastView(
+                    blockedSaveToastMessage,
+                    isPadLayout: isPadLayout
+                )
+                .padding(.horizontal, 18)
+                .padding(.bottom, blockedSaveToastBottomPadding)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .allowsHitTesting(false)
             }
         }
-        .ignoresSafeArea()
         .sheet(isPresented: $isDatePickerPresented) {
             datePickerSheet
+        }
+        .sheet(isPresented: $isRecurrencePickerPresented) {
+            recurrencePickerSheet
         }
         .alert(L10n.deleteConfirmationTitle, isPresented: $isDeleteConfirmationPresented) {
             Button(L10n.cancel, role: .cancel) {}
@@ -200,26 +257,53 @@ struct EditTaskSheet: View {
             Text(L10n.deleteTaskConfirmationMessage)
         }
         .preferredColorScheme(.dark)
-        .presentationBackground(.clear)
-        .onAppear {
-            focusTaskFieldIfNeeded()
+        .presentationBackground(sheetBackgroundColor)
+        .onChange(of: speechRecognizer.isRecording) { _, isRecording in
+            if !isRecording {
+                activeSpeechInputSessionID = nil
+            }
         }
         .onChange(of: startVisibleAt) { _, newValue in
             if newValue == nil {
                 startReminderEnabled = false
             }
+            reconcileCountdownAvailability()
         }
         .onChange(of: endVisibleAt) { _, newValue in
             if newValue == nil {
                 startReminderEnabled = false
             }
         }
+        .onChange(of: scheduleMode) { _, _ in
+            reconcileCountdownAvailability()
+        }
+        .onAppear {
+            requestInitialTaskFocusIfNeeded()
+        }
+    }
+
+    private var formSections: some View {
+        VStack(spacing: 24) {
+            taskInputSection
+            scheduleModeSection
+            if scheduleMode == .repeating {
+                VStack(spacing: 14) {
+                    repeatSection
+                    timeWindowSection
+                }
+            } else {
+                timeWindowSection
+            }
+            forceCompletionSection
+        }
+        .frame(width: contentColumnWidth, alignment: .leading)
+        .frame(maxWidth: .infinity)
     }
 
     private var headerBar: some View {
         HStack {
             Button(role: .destructive) {
-                focusedField = nil
+                dismissKeyboard()
                 isDeleteConfirmationPresented = true
             } label: {
                 Image(systemName: "trash")
@@ -235,24 +319,30 @@ struct EditTaskSheet: View {
             Spacer(minLength: 12)
 
             Button {
-                onCancel()
+                closeSheet()
             } label: {
                 Image(systemName: "xmark")
                     .font(.appSystem(size: scaled(18, pad: 20), weight: .semibold))
                     .foregroundColor(Color.white.opacity(0.88))
-                    .frame(width: scaled(24, pad: 26), height: scaled(24, pad: 26))
+                    .frame(width: scaled(44, pad: 48), height: scaled(44, pad: 48))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.trailing, 10)
         }
         .frame(width: contentColumnWidth, alignment: .leading)
         .frame(maxWidth: .infinity)
         .padding(.top, isPadLayout ? 20 : 14)
-        .padding(.bottom, 12)
+        .padding(.bottom, isPadLayout ? 28 : 24)
     }
 
     private var taskInputSection: some View {
         sectionSurface {
+            fieldHeader(
+                icon: "square.and.pencil",
+                title: L10n.tr("Task", zhHans: "任务", zhHant: "任務", ja: "タスク"),
+                isRequired: true
+            )
+
             ZStack(alignment: .trailing) {
                 ZStack(alignment: .leading) {
                     if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -271,12 +361,22 @@ struct EditTaskSheet: View {
                         .submitLabel(.done)
                         .padding(.leading, 12)
                         .padding(.trailing, 12)
-                        .padding(.trailing, isPadLayout ? 66 : 58)
+                        .padding(.trailing, taskInputTrailingInset)
                         .focused($focusedField, equals: .task)
                         .lineLimit(1)
                         .onChange(of: text) { _, newValue in
                             if newValue.count > BingoViewModel.maxTaskLength {
                                 text = String(newValue.prefix(BingoViewModel.maxTaskLength))
+                                if speechRecognizer.isRecording && !isApplyingSpeechTranscript {
+                                    activeSpeechInputSessionID = nil
+                                    speechRecognizer.stopRecording()
+                                }
+                                return
+                            }
+
+                            if speechRecognizer.isRecording && !isApplyingSpeechTranscript {
+                                activeSpeechInputSessionID = nil
+                                speechRecognizer.stopRecording()
                             }
                         }
                 }
@@ -306,81 +406,132 @@ struct EditTaskSheet: View {
 
     private var voiceInputButton: some View {
         Button {
+            dismissKeyboard()
             if isHapticsEnabled {
                 AppHaptics.control()
             }
             if speechRecognizer.isRecording {
+                activeSpeechInputSessionID = nil
                 speechRecognizer.stopRecording()
             } else {
+                let sessionID = UUID()
+                activeSpeechInputSessionID = sessionID
                 speechRecognizer.startRecording { result in
-                    text = result
+                    applySpeechTranscript(result, sessionID: sessionID)
                 }
             }
         } label: {
-            Image(systemName: speechRecognizer.isRecording ? "mic.fill" : "mic")
-                .font(.appSystem(size: scaled(20, pad: 24), weight: .semibold))
-                .foregroundColor(.white)
-                .frame(width: scaled(36, pad: 44), height: scaled(36, pad: 44))
-                .background(
-                    Circle()
-                        .fill(accentColor)
-                )
+            HStack(spacing: 6) {
+                Image(systemName: speechRecognizer.isRecording ? "stop.fill" : "mic")
+                    .font(.appSystem(size: scaled(20, pad: 24), weight: .semibold))
+
+                if speechRecognizer.isRecording {
+                    Text(L10n.stopRecording)
+                        .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                }
+            }
+            .foregroundColor(.white)
+            .frame(width: voiceInputButtonWidth, height: scaled(36, pad: 44))
+            .background(
+                Capsule(style: .continuous)
+                    .fill(accentColor)
+            )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(speechRecognizer.isRecording ? L10n.stopRecording : L10n.voiceInput)
+    }
+
+    private func applySpeechTranscript(_ transcript: String, sessionID: UUID) {
+        guard activeSpeechInputSessionID == sessionID else { return }
+        let normalizedTranscript = String(transcript.prefix(BingoViewModel.maxTaskLength))
+        guard !normalizedTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        isApplyingSpeechTranscript = true
+        text = normalizedTranscript
+        DispatchQueue.main.async {
+            isApplyingSpeechTranscript = false
+        }
+    }
+
+    private var scheduleModeSection: some View {
+        sectionSurface {
+            fieldHeader(
+                icon: "calendar.badge.clock",
+                title: L10n.tr(
+                    "Task rule",
+                    zhHans: "任务规则",
+                    zhHant: "任務規則",
+                    ja: "タスクルール"
+                ),
+                isRequired: true
+            )
+
+            HStack(spacing: 8) {
+                selectionButton(
+                    title: L10n.tr("Single", zhHans: "单次", zhHant: "單次", ja: "単発"),
+                    isSelected: scheduleMode == .single
+                ) {
+                    selectScheduleMode(.single)
+                }
+
+                selectionButton(
+                    title: L10n.tr("Repeat", zhHans: "重复", zhHant: "重複", ja: "繰り返し"),
+                    isSelected: scheduleMode == .repeating
+                ) {
+                    selectScheduleMode(.repeating)
+                }
+            }
+        }
     }
 
     private var timeWindowSection: some View {
         sectionSurface {
-            HStack(alignment: .top, spacing: 12) {
-                timeFieldColumn(
-                    icon: "calendar",
-                    title: L10n.tr(
-                        "Start time",
-                        zhHans: "开始时间",
-                        zhHant: "開始時間"
-                    ),
-                    text: startDateDisplayText,
-                    isConfigured: hasStartDate,
-                    inputTopInset: 4
-                ) {
-                    focusedField = nil
-                    activeDatePickerField = .start
-                    pickerSelectionDate = max(startVisibleAt ?? Date(), minimumSelectableDate)
-                    isDatePickerPresented = true
-                }
-
-                timeFieldColumn(
-                    icon: "calendar.badge.clock",
-                    title: L10n.tr(
-                        "End time",
-                        zhHans: "结束时间",
-                        zhHant: "結束時間"
-                    ),
-                    text: endDateDisplayText,
-                    isConfigured: endVisibleAt != nil
-                ) {
-                    focusedField = nil
-                    activeDatePickerField = .end
-                    pickerSelectionDate = max(endVisibleAt ?? startVisibleAt ?? Date(), minimumSelectableDateForActiveField(.end))
-                    isDatePickerPresented = true
-                }
+            expandableOptionHeader(
+                icon: "calendar",
+                title: taskTimeWindowTitle,
+                isSelected: isTimeWindowExpanded,
+                isRequired: false
+            ) {
+                toggleTimeWindowExpansion()
             }
 
-            Text(
-                L10n.tr(
-                    "Tasks show at the start time and end at the end time.",
-                    zhHans: "任务会在开始时间显示，在结束时间结束。",
-                    zhHant: "任務會在開始時間顯示，在結束時間結束。",
-                    ja: "タスクは開始時刻に表示され、終了時刻に終了します。"
-                )
-            )
-            .font(bodySFont.weight(.medium))
-            .foregroundColor(secondaryTextColor)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            if isTimeWindowExpanded {
+                HStack(alignment: .top, spacing: 12) {
+                    timeValueButton(
+                        text: startDateDisplayText,
+                        isConfigured: hasStartDate
+                    ) {
+                        dismissKeyboard()
+                        activeDatePickerField = .start
+                        prepareDatePicker(for: .start, preferredDate: startVisibleAt ?? Date())
+                        isDatePickerPresented = true
+                    }
 
-            if canUseStartReminder {
-                startReminderControls
-                    .transition(.opacity)
+                    timeValueButton(
+                        text: endDateDisplayText,
+                        isConfigured: endVisibleAt != nil
+                    ) {
+                        dismissKeyboard()
+                        activeDatePickerField = .end
+                        prepareDatePicker(for: .end, preferredDate: endVisibleAt ?? startVisibleAt ?? Date())
+                        isDatePickerPresented = true
+                    }
+                }
+
+                if let timeWindowSupportingText {
+                    Text(timeWindowSupportingText)
+                        .font(bodySFont.weight(.medium))
+                        .foregroundColor(secondaryTextColor)
+                        .padding(.leading, fieldTitleLeadingInset)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if canUseStartReminder {
+                    startReminderControls
+                        .transition(.opacity)
+                }
             }
         }
     }
@@ -421,9 +572,6 @@ struct EditTaskSheet: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(inputBackground(cornerRadius: 14))
         .animation(.easeInOut(duration: 0.18), value: startReminderEnabled)
     }
 
@@ -433,6 +581,7 @@ struct EditTaskSheet: View {
                 Image(systemName: "checkmark.circle")
                     .font(.appSystem(size: scaled(18, pad: 20), weight: .semibold))
                     .foregroundColor(Color.white.opacity(0.88))
+                    .frame(width: 16)
 
                 Text(L10n.forceCompletion)
                     .font(bodySFont.weight(.medium))
@@ -442,12 +591,13 @@ struct EditTaskSheet: View {
                 Spacer(minLength: 0)
 
                 Toggle("", isOn: $isForcedTask)
+                    .onChange(of: isForcedTask) { _, _ in
+                        dismissKeyboard()
+                    }
                     .labelsHidden()
                     .toggleStyle(DarkSheetToggleStyle(onTint: accentColor))
             }
-            .padding(.horizontal, 16)
             .frame(height: scaled(36, pad: 44))
-            .background(inputBackground(cornerRadius: 14))
 
             if isForcedTask {
                 Text(
@@ -459,6 +609,7 @@ struct EditTaskSheet: View {
                 )
                 .font(bodySFont.weight(.medium))
                 .foregroundColor(secondaryTextColor)
+                .padding(.leading, fieldTitleLeadingInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .transition(.opacity)
             }
@@ -467,40 +618,21 @@ struct EditTaskSheet: View {
 
     private var repeatSection: some View {
         sectionSurface {
-            fieldHeader(icon: "repeat", title: L10n.residentDays)
+            fieldHeader(icon: "repeat", title: repeatRuleTitle, isRequired: true)
 
-            HStack(spacing: 8) {
-                repeatModeButton(
-                    title: L10n.tr("Always", zhHans: "始终", zhHant: "始終"),
-                    isSelected: repeatMode == .always
-                ) {
-                    isOneTimeTask = false
-                    residentWeekdays.removeAll()
-                }
-
-                repeatModeButton(
-                    title: L10n.tr("Custom", zhHans: "自定义", zhHant: "自訂"),
-                    isSelected: repeatMode == .custom
-                ) {
-                    if repeatMode == .always {
-                        isOneTimeTask = false
-                        residentWeekdays = [Calendar.current.component(.weekday, from: Date())]
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                ForEach(recurrenceKindOptions, id: \.kind) { option in
+                    selectionButton(
+                        title: option.title,
+                        isSelected: recurrenceKind == option.kind
+                    ) {
+                        selectRecurrenceKind(option.kind)
                     }
                 }
             }
 
-            if repeatMode == .custom {
+            if recurrenceKind == .weekly {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                    selectionButton(
-                        title: L10n.tr("Today", zhHans: "仅当天", zhHant: "僅當天"),
-                        isSelected: isOneTimeTask
-                    ) {
-                        isOneTimeTask.toggle()
-                        if isOneTimeTask {
-                            residentWeekdays.removeAll()
-                        }
-                    }
-
                     ForEach(weekdayOptions, id: \.value) { option in
                         selectionButton(
                             title: option.label,
@@ -510,74 +642,50 @@ struct EditTaskSheet: View {
                                 residentWeekdays.remove(option.value)
                             } else {
                                 residentWeekdays.insert(option.value)
-                                isOneTimeTask = false
                             }
+                            ensureWeeklyRecurrenceHasAWeekday()
                         }
                     }
                 }
                 .padding(.top, 2)
-            }
-        }
-    }
-
-    private var timerSection: some View {
-        sectionSurface {
-            HStack(spacing: 12) {
-                fieldHeader(
-                    icon: "clock",
-                    title: L10n.tr("Set countdown (minutes)", zhHans: "设置倒计时（分钟）", zhHant: "設置倒計時（分鐘）")
-                )
-
-                if shouldShowCountdownCancelInline {
-                    Button {
-                        focusedField = nil
-                        clearCountdownSelection()
-                    } label: {
-                        Text(L10n.cancel)
-                            .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                            .foregroundColor(Color.white.opacity(0.72))
+            } else if recurrenceKind == .monthlyDay {
+                HStack(spacing: 8) {
+                    recurrenceValueButton(
+                        title: L10n.tr("Monthly day", zhHans: "每月日期", zhHant: "每月日期", ja: "毎月の日付"),
+                        valueText: monthlyDayValueText
+                    ) {
+                        activeRecurrencePickerField = .monthlyDay
+                        isRecurrencePickerPresented = true
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding(.top, 2)
+            } else if recurrenceKind == .everyNDays {
+                HStack(spacing: 8) {
+                    recurrenceValueButton(
+                        title: L10n.tr("Interval", zhHans: "间隔", zhHant: "間隔", ja: "間隔"),
+                        valueText: everyNDaysValueText
+                    ) {
+                        activeRecurrencePickerField = .everyNDays
+                        isRecurrencePickerPresented = true
+                    }
+                }
+                .padding(.top, 2)
             }
 
-            HStack(spacing: 8) {
-                ForEach([15, 30, 45, 60], id: \.self) { minute in
-                    presetMinuteButton(minute)
-                }
-            }
-
-            TextField(
-                L10n.tr(
-                    "Custom input",
-                    zhHans: "自定义输入",
-                    zhHant: "自訂輸入",
-                    ja: "カスタム入力"
-                ),
-                text: $timerCustomMinutesText
-            )
-            .keyboardType(.numberPad)
-            .submitLabel(.done)
-            .focused($focusedField, equals: .timerCustom)
-            .font(bodyLRegularFont)
-            .kerning(bodyLLetterSpacing)
-            .foregroundColor(primaryTextColor)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
-            .frame(height: scaled(48, pad: 56))
-            .background(inputBackground(cornerRadius: 14))
-            .onChange(of: timerCustomMinutesText) { _, newValue in
-                timerCustomMinutesText = String(newValue.filter(\.isNumber))
-                if !timerCustomMinutesText.isEmpty {
-                    timerPresetMinutes = nil
-                }
+            if let repeatPreviewBelowRepeatRuleText {
+                Text(repeatPreviewBelowRepeatRuleText)
+                    .font(bodySFont.weight(.medium))
+                    .foregroundColor(secondaryTextColor)
+                    .padding(.leading, fieldTitleLeadingInset)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
             }
         }
     }
 
     private var saveButton: some View {
         Button {
-            focusedField = nil
+            dismissKeyboard()
             DispatchQueue.main.async {
                 saveTask()
             }
@@ -602,109 +710,119 @@ struct EditTaskSheet: View {
         scaled(60, pad: 68)
     }
 
-    private func floatingSaveButton(safeAreaBottom: CGFloat) -> some View {
+    private var saveButtonDock: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 0)
-
             saveButton
                 .frame(width: contentColumnWidth)
                 .frame(maxWidth: .infinity)
-                .padding(.bottom, floatingSaveButtonBottomPadding(safeAreaBottom: safeAreaBottom))
+                .padding(.top, scaled(10, pad: 12))
+                .padding(.bottom, scaled(12, pad: 16))
         }
+        .background(sheetBackgroundColor.ignoresSafeArea(edges: .bottom))
     }
 
-    private func floatingSaveButtonBottomPadding(safeAreaBottom: CGFloat) -> CGFloat {
-        max(safeAreaBottom, isPadLayout ? 16 : 12) + (isPadLayout ? 22 : 14)
-    }
-
-    private func scrollBottomPadding(safeAreaBottom: CGFloat) -> CGFloat {
-        scaled(18, pad: 24)
-    }
-
-    private func scrollViewportBottomReservedHeight(safeAreaBottom: CGFloat) -> CGFloat {
-        saveButtonHeight + floatingSaveButtonBottomPadding(safeAreaBottom: safeAreaBottom) + max(sheetVerticalOffset, 0) + scaled(10, pad: 14)
-    }
-
-    private func blockedSaveToastBottomPadding(safeAreaBottom: CGFloat) -> CGFloat {
-        saveButtonHeight + floatingSaveButtonBottomPadding(safeAreaBottom: safeAreaBottom) + scaled(14, pad: 18)
+    private var blockedSaveToastBottomPadding: CGFloat {
+        saveButtonHeight + scaled(34, pad: 42)
     }
 
     private func saveTask() {
         guard hasValidTaskLength else { return }
-        if isCompletedTask, normalizedEstimatedDurationMinutes != nil {
+        let saveStartVisibleAt = startVisibleAt
+        let saveEndVisibleAt = endVisibleAtForSave()
+        let saveEstimatedDurationMinutes = countdownMinutesForSave
+        if isCompletedTask, saveEstimatedDurationMinutes != nil {
             showBlockedSaveToast(L10n.completedTaskCountdownBlocked)
             return
         }
         if isCompletedTask,
-           startVisibleAt != initialStartVisibleAt || endVisibleAt != initialEndVisibleAt {
+           saveStartVisibleAt != initialStartVisibleAt || saveEndVisibleAt != initialEndVisibleAt {
             showBlockedSaveToast(
                 L10n.tr(
                     "Completed tasks can't change start or end time.",
                     zhHans: "已完成任务不可修改开始或结束时间。",
-                    zhHant: "已完成任務不可修改開始或結束時間。"
+                    zhHant: "已完成任務不可修改開始或結束時間。",
+                    ja: "完了済みタスクの開始時刻や終了時刻は変更できません。"
                 )
             )
             return
         }
-        if let startVisibleAt, startVisibleAt < minimumSelectableDate {
+        if shouldValidateStartDateAgainstNow, let saveStartVisibleAt, saveStartVisibleAt < minimumSelectableDate {
             showBlockedSaveToast(
                 L10n.tr(
                     "Start time can't be in the past.",
                     zhHans: "开始时间不能早于当前时间。",
-                    zhHant: "開始時間不能早於目前時間。"
+                    zhHant: "開始時間不能早於目前時間。",
+                    ja: "開始時刻は現在時刻より前にできません。"
                 )
             )
             return
         }
-        if let startVisibleAt, let endVisibleAt, endVisibleAt <= startVisibleAt {
+        if let saveStartVisibleAt, let saveEndVisibleAt, saveEndVisibleAt <= saveStartVisibleAt {
             showBlockedSaveToast(
                 L10n.tr(
                     "End time must be later than start time.",
                     zhHans: "结束时间必须晚于开始时间。",
-                    zhHant: "結束時間必須晚於開始時間。"
+                    zhHant: "結束時間必須晚於開始時間。",
+                    ja: "終了時刻は開始時刻より後にしてください。"
                 )
             )
             return
         }
-        if let endVisibleAt, endVisibleAt < minimumSelectableDateForActiveField(.end) {
+        if let saveEstimatedDurationMinutes,
+           let saveStartVisibleAt,
+           let saveEndVisibleAt,
+           Double(saveEstimatedDurationMinutes * 60) > saveEndVisibleAt.timeIntervalSince(saveStartVisibleAt) {
+            showBlockedSaveToast(
+                L10n.tr(
+                    "Countdown is longer than the task time window. Shorten the countdown or extend the end time.",
+                    zhHans: "倒计时时长超过任务起止时间，请缩短倒计时或延长结束时间。",
+                    zhHant: "倒計時長度超過任務起止時間，請縮短倒計時或延長結束時間。",
+                    ja: "カウントダウンがタスク時間を超えています。短くするか終了時刻を延ばしてください。"
+                )
+            )
+            return
+        }
+        if shouldValidateEndDateAgainstNow, let saveEndVisibleAt, saveEndVisibleAt < minimumSelectableDateForActiveField(.end) {
             showBlockedSaveToast(
                 L10n.tr(
                     "End time can't be in the past.",
                     zhHans: "结束时间不能早于当前时间。",
-                    zhHant: "結束時間不能早於目前時間。"
+                    zhHant: "結束時間不能早於目前時間。",
+                    ja: "終了時刻は現在時刻より前にできません。"
                 )
             )
             return
         }
         let resolvedStartReminderEnabled = canUseStartReminder && startReminderEnabled
-        if resolvedStartReminderEnabled, let startVisibleAt {
-            let reminderDate = startVisibleAt.addingTimeInterval(Double(-startReminderOffsetMinutes * 60))
+        if resolvedStartReminderEnabled, shouldValidateStartDateAgainstNow, let saveStartVisibleAt {
+            let reminderDate = saveStartVisibleAt.addingTimeInterval(Double(-startReminderOffsetMinutes * 60))
             if reminderDate <= Date() {
                 showBlockedSaveToast(
                     L10n.tr(
                         "Reminder time has already passed.",
                         zhHans: "提醒时间已过，请选择更短的提前时间。",
-                        zhHant: "提醒時間已過，請選擇更短的提前時間。"
+                        zhHant: "提醒時間已過，請選擇更短的提前時間。",
+                        ja: "通知時刻はすでに過ぎています。もっと短い事前通知を選んでください。"
                     )
                 )
                 return
             }
         }
+        let recurrenceRule = recurrenceRuleForSave()
+        let legacyResidentWeekdays = recurrenceRule?.kind == .weekly ? recurrenceRule?.weekdays ?? [] : []
+        let legacyIsOneTimeTask = recurrenceRule == nil && (saveStartVisibleAt != nil || saveEndVisibleAt != nil)
         onSave(
             text,
             isForcedTask,
-            residentWeekdays,
-            isOneTimeTask,
-            normalizedEstimatedDurationMinutes,
-            startVisibleAt,
-            endVisibleAt,
+            legacyResidentWeekdays,
+            legacyIsOneTimeTask,
+            recurrenceRule,
+            saveEstimatedDurationMinutes,
+            saveStartVisibleAt,
+            saveEndVisibleAt,
             resolvedStartReminderEnabled,
             startReminderOffsetMinutes
         )
-    }
-
-    private var hasPendingCountdownChange: Bool {
-        normalizedEstimatedDurationMinutes != initialEstimatedDurationMinutes
     }
 
     private func clearCountdownSelection() {
@@ -712,21 +830,45 @@ struct EditTaskSheet: View {
         timerCustomMinutesText = ""
     }
 
-    private func handleBackgroundTap() {
-        focusedField = nil
-        if hasPendingCountdownChange, normalizedEstimatedDurationMinutes != nil {
-            clearCountdownSelection()
-            return
-        }
-        onCancel()
+    private func reconcileCountdownAvailability() {
+        guard !canConfigureCountdown else { return }
+        clearCountdownSelection()
     }
 
-    private func focusTaskFieldIfNeeded() {
-        guard autoFocusTaskField, !didRequestInitialTaskFocus else { return }
+    private func toggleTimeWindowExpansion() {
+        dismissKeyboard()
+        guard !repeatingRuleNeedsAnchorDate else {
+            isTimeWindowExpanded = true
+            return
+        }
+        if isTimeWindowExpanded {
+            startVisibleAt = nil
+            endVisibleAt = nil
+            startReminderEnabled = false
+            isTimeWindowExpanded = false
+        } else {
+            isTimeWindowExpanded = true
+        }
+    }
+
+    private func requestInitialTaskFocusIfNeeded() {
+        guard !didRequestInitialTaskFocus else { return }
         didRequestInitialTaskFocus = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+            guard !isClosingSheet else { return }
             focusedField = .task
         }
+    }
+
+    private func closeSheet() {
+        isClosingSheet = true
+        dismissKeyboard()
+        onCancel()
+        dismissSheet()
+    }
+
+    private func dismissKeyboard() {
+        focusedField = nil
     }
 
     private func showBlockedSaveToast(_ message: String) {
@@ -758,7 +900,12 @@ struct EditTaskSheet: View {
             )
     }
 
-    private func fieldHeader(icon: String, title: String) -> some View {
+    private func lightOptionBackground(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(Color.white.opacity(0.08))
+    }
+
+    private func fieldHeader(icon: String, title: String, isRequired: Bool = false) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.appSystem(size: scaled(16, pad: 18), weight: .medium))
@@ -769,8 +916,63 @@ struct EditTaskSheet: View {
                 .font(bodySFont.weight(.medium))
                 .kerning(bodySLetterSpacing)
                 .foregroundColor(Color.white.opacity(0.96))
+
+            if isRequired {
+                requiredBadge
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var requiredBadge: some View {
+        Text(L10n.tr("Required", zhHans: "必填", zhHant: "必填", ja: "必須"))
+            .font(.appSystem(size: scaled(10, pad: 11), weight: .bold, design: .rounded))
+            .foregroundColor(accentColor)
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule()
+                    .fill(accentColor.opacity(0.14))
+            )
+    }
+
+    private func expandableOptionHeader(
+        icon: String,
+        title: String,
+        isSelected: Bool,
+        isRequired: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.appSystem(size: scaled(16, pad: 18), weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.88))
+                    .frame(width: 16)
+
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(bodySFont.weight(.medium))
+                        .kerning(bodySLetterSpacing)
+                        .foregroundColor(Color.white.opacity(0.96))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+
+                    if isRequired {
+                        requiredBadge
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: isSelected ? "chevron.up" : "chevron.down")
+                    .font(.appSystem(size: scaled(12, pad: 14), weight: .bold))
+                    .foregroundColor(secondaryTextColor)
+            }
+            .frame(minHeight: scaled(44, pad: 52), alignment: .center)
+        }
+        .buttonStyle(.plain)
     }
 
     private func timeFieldColumn(
@@ -778,11 +980,12 @@ struct EditTaskSheet: View {
         title: String,
         text: String,
         isConfigured: Bool,
+        isRequired: Bool = false,
         inputTopInset: CGFloat = 0,
         action: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            fieldHeader(icon: icon, title: title)
+            fieldHeader(icon: icon, title: title, isRequired: isRequired)
 
             Button(action: action) {
                 HStack {
@@ -795,7 +998,7 @@ struct EditTaskSheet: View {
                         .foregroundColor(isConfigured ? Color.white : secondaryTextColor)
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .frame(height: scaled(56, pad: 64), alignment: .leading)
                 .background(inputBackground(cornerRadius: 14))
@@ -806,35 +1009,35 @@ struct EditTaskSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func presetMinuteButton(_ minute: Int) -> some View {
-        Button {
-            timerPresetMinutes = minute
-            timerCustomMinutesText = ""
-            focusedField = nil
-        } label: {
-            Text("\(minute)")
-                .font(bodySFont.weight(.medium))
-                .kerning(bodySLetterSpacing)
-                .foregroundColor(timerPresetMinutes == minute ? Color.white : Color.white.opacity(0.9))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .frame(height: scaled(36, pad: 44))
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(timerPresetMinutes == minute ? accentColor : fieldColor)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(fieldBorderColor, lineWidth: 1)
-                        )
-                )
+    private func timeValueButton(
+        text: String,
+        isConfigured: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(text)
+                    .font(bodySFont.weight(.medium))
+                    .kerning(bodySLetterSpacing)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .multilineTextAlignment(.leading)
+                    .foregroundColor(isConfigured ? Color.white : secondaryTextColor)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .frame(height: scaled(56, pad: 64), alignment: .leading)
+            .background(lightOptionBackground(cornerRadius: 12))
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func reminderOffsetButton(_ minutes: Int) -> some View {
         Button {
+            dismissKeyboard()
             startReminderOffsetMinutes = TaskStartReminderService.normalizedOffsetMinutes(minutes)
-            focusedField = nil
         } label: {
             Text(TaskStartReminderService.offsetTitle(minutes: minutes))
                 .font(.appSystem(size: scaled(11, pad: 13), weight: .semibold, design: .rounded))
@@ -852,7 +1055,7 @@ struct EditTaskSheet: View {
     }
 
     private func handleStartReminderToggle(_ enabled: Bool) {
-        focusedField = nil
+        dismissKeyboard()
         guard enabled else {
             startReminderEnabled = false
             return
@@ -900,13 +1103,136 @@ struct EditTaskSheet: View {
         ]
     }
 
-    private enum RepeatMode {
-        case always
-        case custom
+    private var recurrenceKindOptions: [(kind: TaskRecurrenceRule.Kind, title: String)] {
+        [
+            (.daily, L10n.tr("Daily", zhHans: "每天", zhHant: "每天", ja: "毎日")),
+            (.weekly, L10n.tr("Weekly", zhHans: "每周", zhHant: "每週", ja: "毎週")),
+            (.monthlyDay, L10n.tr("Monthly", zhHans: "每月", zhHant: "每月", ja: "毎月")),
+            (.everyNDays, L10n.tr("Every few days", zhHans: "每隔几天", zhHant: "每隔幾天", ja: "数日ごと"))
+        ]
     }
 
-    private var repeatMode: RepeatMode {
-        (!isOneTimeTask && residentWeekdays.isEmpty) ? .always : .custom
+    private var repeatRuleTitle: String {
+        L10n.tr(
+            "Repeat rule",
+            zhHans: "重复规则",
+            zhHant: "重複規則",
+            ja: "繰り返しルール"
+        )
+    }
+
+    private var monthlyDayValueText: String {
+        L10n.tr(
+            "Day \(recurrenceMonthDay) each month",
+            zhHans: "每月第 \(recurrenceMonthDay) 天",
+            zhHant: "每月第 \(recurrenceMonthDay) 天",
+            ja: "毎月\(recurrenceMonthDay)日"
+        )
+    }
+
+    private var everyNDaysValueText: String {
+        L10n.tr(
+            "Every \(recurrenceDayInterval) days",
+            zhHans: "每隔 \(recurrenceDayInterval) 天",
+            zhHant: "每隔 \(recurrenceDayInterval) 天",
+            ja: "\(recurrenceDayInterval)日ごと"
+        )
+    }
+
+    private func monthlyDayMenuTitle(_ day: Int) -> String {
+        L10n.tr("Day \(day)", zhHans: "第 \(day) 天", zhHant: "第 \(day) 天", ja: "\(day)日")
+    }
+
+    private func everyNDaysMenuTitle(_ interval: Int) -> String {
+        L10n.tr("Every \(interval) days", zhHans: "每隔 \(interval) 天", zhHant: "每隔 \(interval) 天", ja: "\(interval)日ごと")
+    }
+
+    private func selectScheduleMode(_ mode: TaskScheduleMode) {
+        dismissKeyboard()
+        scheduleMode = mode
+        switch mode {
+        case .single:
+            recurrenceKind = .none
+            isOneTimeTask = startVisibleAt != nil || endVisibleAt != nil
+            residentWeekdays.removeAll()
+        case .repeating:
+            isOneTimeTask = false
+            if recurrenceKind == .none {
+                recurrenceKind = .daily
+            }
+            if recurrenceKind == .weekly {
+                ensureWeeklyRecurrenceHasAWeekday()
+            }
+            if recurrenceKind == .everyNDays {
+                isTimeWindowExpanded = true
+            }
+        }
+    }
+
+    private func selectRecurrenceKind(_ kind: TaskRecurrenceRule.Kind) {
+        dismissKeyboard()
+        scheduleMode = .repeating
+        recurrenceKind = kind
+        switch kind {
+        case .none:
+            isOneTimeTask = true
+            residentWeekdays.removeAll()
+        case .daily:
+            isOneTimeTask = false
+            residentWeekdays.removeAll()
+        case .weekly:
+            isOneTimeTask = false
+            ensureWeeklyRecurrenceHasAWeekday()
+        case .monthlyDay:
+            isOneTimeTask = false
+            residentWeekdays.removeAll()
+            recurrenceMonthDay = min(max(recurrenceMonthDay, 1), 31)
+        case .everyNDays:
+            isOneTimeTask = false
+            residentWeekdays.removeAll()
+            recurrenceDayInterval = min(max(recurrenceDayInterval, 2), TaskRecurrenceRule.maxDayInterval)
+            isTimeWindowExpanded = true
+        }
+    }
+
+    private func ensureWeeklyRecurrenceHasAWeekday() {
+        let normalizedWeekdays = Set(residentWeekdays.filter { (1...7).contains($0) })
+        if normalizedWeekdays.isEmpty {
+            residentWeekdays = [Calendar.current.component(.weekday, from: Date())]
+        } else {
+            residentWeekdays = normalizedWeekdays
+        }
+    }
+
+    private func recurrenceRuleForSave() -> TaskRecurrenceRule? {
+        guard scheduleMode == .repeating else { return nil }
+        return recurrenceRuleForCurrentRepeatingDraft(defaultDate: startVisibleAt ?? Date())
+    }
+
+    private func recurrenceRuleForCurrentRepeatingDraft(defaultDate: Date) -> TaskRecurrenceRule {
+        let defaultWeekday = Calendar.current.component(.weekday, from: defaultDate)
+        let defaultMonthDay = Calendar.current.component(.day, from: defaultDate)
+        let normalizedKind = recurrenceKind == .none ? TaskRecurrenceRule.Kind.daily : recurrenceKind
+
+        let rule: TaskRecurrenceRule
+        switch normalizedKind {
+        case .daily:
+            rule = TaskRecurrenceRule(kind: .daily)
+        case .weekly:
+            rule = TaskRecurrenceRule(kind: .weekly, weekdays: residentWeekdays)
+        case .monthlyDay:
+            rule = TaskRecurrenceRule(kind: .monthlyDay, monthDay: recurrenceMonthDay)
+        case .everyNDays:
+            rule = TaskRecurrenceRule(kind: .everyNDays, interval: recurrenceDayInterval, anchorDate: defaultDate)
+        case .none:
+            rule = TaskRecurrenceRule(kind: .daily)
+        }
+
+        return rule.normalized(
+            defaultWeekday: defaultWeekday,
+            defaultMonthDay: defaultMonthDay,
+            defaultAnchorDate: defaultDate
+        )
     }
 
     private var hasStartDate: Bool {
@@ -921,28 +1247,239 @@ struct EditTaskSheet: View {
         endVisibleAt != nil
     }
 
+    private var startTimeFieldTitle: String {
+        L10n.tr("Start time", zhHans: "开始时间", zhHant: "開始時間", ja: "開始時刻")
+    }
+
+    private var endTimeFieldTitle: String {
+        switch scheduleMode {
+        case .single:
+            return L10n.tr("End time", zhHans: "结束时间", zhHant: "結束時間", ja: "終了時刻")
+        case .repeating:
+            return L10n.tr(
+                "End time",
+                zhHans: "结束时间",
+                zhHant: "結束時間",
+                ja: "終了時刻"
+            )
+        }
+    }
+
+    private var timeWindowHintText: String {
+        if let concreteHint = concreteTimeWindowHintText {
+            return concreteHint
+        }
+        switch scheduleMode {
+        case .single:
+            return L10n.tr(
+                "Tasks show at the start time and end at the end time.",
+                zhHans: "任务会在开始时间显示，在结束时间结束。",
+                zhHant: "任務會在開始時間顯示，在結束時間結束。",
+                ja: "タスクは開始時刻に表示され、終了時刻に終了します。"
+            )
+        case .repeating:
+            if repeatingRuleNeedsAnchorDate {
+                return L10n.tr(
+                    "The start date is when the interval begins. The task appears every N days and can be completed during this time window.",
+                    zhHans: "起算日期用于计算间隔；任务会每隔 N 天出现一次，并在所选时段内可完成。",
+                    zhHant: "起算日期用於計算間隔；任務會每隔 N 天出現一次，並在所選時段內可完成。",
+                    ja: "開始日は間隔計算の基準です。タスクはN日ごとに表示され、この時間帯に完了できます。"
+                )
+            }
+            return L10n.tr(
+                "The repeat rule chooses the dates. Set the time window for each occurrence here.",
+                zhHans: "重复规则决定显示日期，这里只设置每次可完成的时间段。",
+                zhHant: "重複規則決定顯示日期，這裡只設定每次可完成的時間段。",
+                ja: "表示日は繰り返しルールで決まります。ここでは各回で完了できる時間帯だけを設定します。"
+            )
+        }
+    }
+
+    private var timeWindowSupportingText: String? {
+        if shouldShowRepeatPreviewUnderTimeWindow {
+            return repeatPreviewText
+        }
+        guard scheduleMode == .single else {
+            return nil
+        }
+        return timeWindowHintText
+    }
+
+    private var repeatPreviewBelowRepeatRuleText: String? {
+        guard !shouldShowRepeatPreviewUnderTimeWindow else {
+            return nil
+        }
+        return repeatPreviewText
+    }
+
+    private var concreteTimeWindowHintText: String? {
+        switch (startVisibleAt, endVisibleAt) {
+        case let (start?, end?):
+            return L10n.tr(
+                "The task shows at \(timeSummaryText(start, isStart: true)) and ends at \(timeSummaryText(end, isStart: false)).",
+                zhHans: "任务会在 \(timeSummaryText(start, isStart: true)) 显示，在 \(timeSummaryText(end, isStart: false)) 结束。",
+                zhHant: "任務會在 \(timeSummaryText(start, isStart: true)) 顯示，在 \(timeSummaryText(end, isStart: false)) 結束。",
+                ja: "タスクは\(timeSummaryText(start, isStart: true))に表示され、\(timeSummaryText(end, isStart: false))に終了します。"
+            )
+        case let (start?, nil):
+            return L10n.tr(
+                "The task shows from \(timeSummaryText(start, isStart: true)).",
+                zhHans: "任务会从 \(timeSummaryText(start, isStart: true)) 开始显示。",
+                zhHant: "任務會從 \(timeSummaryText(start, isStart: true)) 開始顯示。",
+                ja: "タスクは\(timeSummaryText(start, isStart: true))から表示されます。"
+            )
+        case let (nil, end?):
+            return L10n.tr(
+                "The task ends at \(timeSummaryText(end, isStart: false)).",
+                zhHans: "任务会在 \(timeSummaryText(end, isStart: false)) 结束。",
+                zhHant: "任務會在 \(timeSummaryText(end, isStart: false)) 結束。",
+                ja: "タスクは\(timeSummaryText(end, isStart: false))に終了します。"
+            )
+        case (nil, nil):
+            return nil
+        }
+    }
+
     private var startDateDisplayText: String {
         if let startVisibleAt {
-            return formattedDateTime(startVisibleAt)
+            return activeStartFieldUsesDate ? formattedDateTime(startVisibleAt) : formattedTime(startVisibleAt)
         }
-        return L10n.tr(
-            "Select start time",
-            zhHans: "选择开始时间",
-            zhHant: "選擇開始時間",
-            ja: "開始時刻を選択"
-        )
+        switch scheduleMode {
+        case .single:
+            return L10n.tr(
+                "Start time",
+                zhHans: "开始时间",
+                zhHant: "開始時間",
+                ja: "開始時刻"
+            )
+        case .repeating:
+            guard repeatingRuleNeedsAnchorDate else {
+                return L10n.tr(
+                    "Start time",
+                    zhHans: "开始时间",
+                    zhHant: "開始時間",
+                    ja: "開始時刻"
+                )
+            }
+            return L10n.tr(
+                "Start time",
+                zhHans: "开始时间",
+                zhHant: "開始時間",
+                ja: "開始時刻"
+            )
+        }
     }
 
     private var endDateDisplayText: String {
         if let endVisibleAt {
-            return formattedDateTime(endVisibleAt)
+            return scheduleMode == .repeating ? formattedTime(endVisibleAt) : formattedDateTime(endVisibleAt)
         }
         return L10n.tr(
-            "Add end time",
-            zhHans: "添加结束时间",
-            zhHant: "添加結束時間",
-            ja: "終了時刻を追加"
+            "End time",
+            zhHans: "结束时间",
+            zhHant: "結束時間",
+            ja: "終了時刻"
         )
+    }
+
+    private func timeSummaryText(_ date: Date, isStart: Bool) -> String {
+        if isStart {
+            return activeStartFieldUsesDate ? formattedDateTime(date) : formattedTime(date)
+        }
+        return scheduleMode == .single ? formattedDateTime(date) : formattedTime(date)
+    }
+
+    private var repeatPreviewText: String? {
+        guard scheduleMode == .repeating else { return nil }
+        let defaultDate = startVisibleAt ?? Date()
+        let rule = recurrenceRuleForCurrentRepeatingDraft(defaultDate: defaultDate)
+        let separator = AppLanguage.current == .english ? ", " : "、"
+
+        switch rule.kind {
+        case .daily:
+            return repeatPreviewWithTime(
+                L10n.tr(
+                "Repeats every day.",
+                zhHans: "每天显示。",
+                zhHant: "每天顯示。",
+                ja: "毎日表示されます。"
+                )
+            )
+        case .weekly:
+            let weekdayText = weekdayOptions
+                .filter { rule.weekdays.contains($0.value) }
+                .map(\.label)
+                .joined(separator: separator)
+            guard !weekdayText.isEmpty else { return nil }
+            return repeatPreviewWithTime(
+                L10n.tr(
+                "Repeats weekly on \(weekdayText).",
+                zhHans: "每周在\(weekdayText)显示。",
+                zhHant: "每週在\(weekdayText)顯示。",
+                ja: "毎週\(weekdayText)に表示されます。"
+                )
+            )
+        case .monthlyDay:
+            let day = rule.monthDay ?? recurrenceMonthDay
+            return repeatPreviewWithTime(
+                L10n.tr(
+                "Repeats on day \(day) each month.",
+                zhHans: "每月 \(day) 日显示。",
+                zhHant: "每月 \(day) 日顯示。",
+                ja: "毎月\(day)日に表示されます。"
+                )
+            )
+        case .everyNDays:
+            let dates = nextOccurrenceDates(for: rule, from: Date(), count: 3)
+            guard !dates.isEmpty else { return nil }
+            let dateText = dates.map(shortPreviewDate).joined(separator: separator)
+            return repeatPreviewWithTime(
+                L10n.tr(
+                "Every \(rule.interval) days means once every \(rule.interval) days from the start date. Next: \(dateText)",
+                zhHans: "每隔 \(rule.interval) 天表示从起算日期开始，每 \(rule.interval) 天出现一次。接下来：\(dateText)",
+                zhHant: "每隔 \(rule.interval) 天表示從起算日期開始，每 \(rule.interval) 天出現一次。接下來：\(dateText)",
+                ja: "\(rule.interval)日ごとは、開始日から\(rule.interval)日ごとに1回表示されます。次回：\(dateText)"
+                )
+            )
+        case .none:
+            return nil
+        }
+    }
+
+    private func repeatPreviewWithTime(_ ruleText: String) -> String {
+        guard let timeText = repeatTimeWindowPreviewText else {
+            return ruleText
+        }
+        let separator = AppLanguage.current == .english ? " " : ""
+        return "\(ruleText)\(separator)\(timeText)"
+    }
+
+    private var repeatTimeWindowPreviewText: String? {
+        switch (startVisibleAt, endVisibleAt) {
+        case let (start?, end?):
+            return L10n.tr(
+                "Completion window: \(formattedTime(start))-\(formattedTime(end)).",
+                zhHans: "可完成时间：\(formattedTime(start))-\(formattedTime(end))。",
+                zhHant: "可完成時間：\(formattedTime(start))-\(formattedTime(end))。",
+                ja: "完了できる時間：\(formattedTime(start))〜\(formattedTime(end))。"
+            )
+        case let (start?, nil):
+            return L10n.tr(
+                "Can be completed from \(formattedTime(start)).",
+                zhHans: "可从 \(formattedTime(start)) 开始完成。",
+                zhHant: "可從 \(formattedTime(start)) 開始完成。",
+                ja: "\(formattedTime(start))から完了できます。"
+            )
+        case let (nil, end?):
+            return L10n.tr(
+                "Can be completed until \(formattedTime(end)).",
+                zhHans: "可在 \(formattedTime(end)) 前完成。",
+                zhHant: "可在 \(formattedTime(end)) 前完成。",
+                ja: "\(formattedTime(end))まで完了できます。"
+            )
+        case (nil, nil):
+            return nil
+        }
     }
 
     private var normalizedEstimatedDurationMinutes: Int? {
@@ -959,15 +1496,95 @@ struct EditTaskSheet: View {
         Date()
     }
 
+    private var isPickerSelectionValid: Bool {
+        if activeDatePickerIncludesDate {
+            return normalizedPickerSelectionDate >= pickerMinimumDate
+        }
+        if scheduleMode == .repeating,
+           activeDatePickerField == .end,
+           let startVisibleAt {
+            return normalizedPickerSelectionDate > startVisibleAt
+        }
+        return true
+    }
+
+    private var datePickerInvalidSelectionMessage: String {
+        switch activeDatePickerField {
+        case .start:
+            return L10n.tr(
+                "Start time can't be in the past.",
+                zhHans: "开始时间不能早于当前时间。",
+                zhHant: "開始時間不能早於目前時間。",
+                ja: "開始時刻は現在時刻より前にできません。"
+            )
+        case .end:
+            return L10n.tr(
+                "End time must be later than start time.",
+                zhHans: "结束时间必须晚于开始时间。",
+                zhHant: "結束時間必須晚於開始時間。",
+                ja: "終了時刻は開始時刻より後にしてください。"
+            )
+        }
+    }
+
+    private var normalizedPickerSelectionDate: Date {
+        guard scheduleMode == .repeating else {
+            return pickerSelectionDate
+        }
+        switch activeDatePickerField {
+        case .start:
+            guard !repeatingRuleNeedsAnchorDate else { return pickerSelectionDate }
+            return dateByCombiningDay(
+                of: startVisibleAt ?? Date(),
+                timeOf: pickerSelectionDate
+            )
+        case .end:
+            return dateByCombiningDay(
+                of: startVisibleAt ?? Date(),
+                timeOf: pickerSelectionDate
+            )
+        }
+    }
+
+    private var datePickerDisplayedComponents: DatePickerComponents {
+        activeDatePickerIncludesDate ? [.date, .hourAndMinute] : [.hourAndMinute]
+    }
+
+    private var datePickerTitle: String {
+        activeDatePickerField == .start ? startTimeFieldTitle : endTimeFieldTitle
+    }
+
+    private func prepareDatePicker(for field: ActiveDatePickerField, preferredDate: Date) {
+        let minimumDate = minimumSelectableDateForActiveField(field, now: Date())
+        pickerMinimumDate = minimumDate
+        if scheduleMode == .repeating, field == .end {
+            pickerSelectionDate = dateByCombiningDay(of: startVisibleAt ?? Date(), timeOf: preferredDate)
+        } else if scheduleMode == .repeating, field == .start, !repeatingRuleNeedsAnchorDate {
+            pickerSelectionDate = dateByCombiningDay(of: startVisibleAt ?? Date(), timeOf: preferredDate)
+        } else {
+            pickerSelectionDate = max(preferredDate, minimumDate)
+        }
+    }
+
     private func minimumSelectableDateForActiveField(_ field: ActiveDatePickerField) -> Date {
+        minimumSelectableDateForActiveField(field, now: Date())
+    }
+
+    private func minimumSelectableDateForActiveField(_ field: ActiveDatePickerField, now: Date) -> Date {
         switch field {
         case .start:
-            return minimumSelectableDate
-        case .end:
-            if let startVisibleAt {
-                return max(startVisibleAt, minimumSelectableDate)
+            if scheduleMode == .repeating, !repeatingRuleNeedsAnchorDate {
+                return now
             }
-            return minimumSelectableDate
+            return now
+        case .end:
+            if scheduleMode == .repeating {
+                return startVisibleAt ?? now
+            }
+            if let startVisibleAt {
+                return max(startVisibleAt, now)
+            }
+            return now
         }
     }
 
@@ -978,60 +1595,56 @@ struct EditTaskSheet: View {
 
             VStack(spacing: 18) {
                 HStack {
-                    Text(
-                        activeDatePickerField == .start
-                        ? L10n.tr("Start time", zhHans: "开始时间", zhHant: "開始時間")
-                        : L10n.tr("End time", zhHans: "结束时间", zhHant: "結束時間")
-                    )
+                    Text(datePickerTitle)
                     .font(.appSystem(size: 17, weight: .semibold, design: .rounded))
                     .foregroundColor(.white.opacity(0.92))
 
                     Spacer()
                     Button(L10n.done) {
+                        guard isPickerSelectionValid else {
+                            showBlockedSaveToast(datePickerInvalidSelectionMessage)
+                            return
+                        }
                         switch activeDatePickerField {
                         case .start:
-                            guard pickerSelectionDate >= minimumSelectableDate else {
-                                showBlockedSaveToast(
-                                    L10n.tr(
-                                        "Start time can't be in the past.",
-                                        zhHans: "开始时间不能早于当前时间。",
-                                        zhHant: "開始時間不能早於目前時間。"
-                                    )
-                                )
-                                return
-                            }
-                            startVisibleAt = pickerSelectionDate
-                            if let endVisibleAt, endVisibleAt <= pickerSelectionDate {
+                            startVisibleAt = normalizedPickerSelectionDate
+                            if scheduleMode == .repeating {
+                                if let endVisibleAt {
+                                    let normalizedEnd = dateByCombiningDay(of: normalizedPickerSelectionDate, timeOf: endVisibleAt)
+                                    self.endVisibleAt = normalizedEnd > normalizedPickerSelectionDate ? normalizedEnd : nil
+                                }
+                            } else if let endVisibleAt, endVisibleAt <= normalizedPickerSelectionDate {
                                 self.endVisibleAt = nil
                             }
                         case .end:
-                            guard pickerSelectionDate >= minimumSelectableDateForActiveField(.end) else {
-                                showBlockedSaveToast(
-                                    L10n.tr(
-                                        "End time must be later than start time.",
-                                        zhHans: "结束时间必须晚于开始时间。",
-                                        zhHant: "結束時間必須晚於開始時間。"
-                                    )
-                                )
-                                return
-                            }
-                            endVisibleAt = pickerSelectionDate
+                            endVisibleAt = normalizedPickerSelectionDate
                         }
                         isDatePickerPresented = false
                     }
                     .buttonStyle(.plain)
                     .font(.appSystem(size: 17, weight: .semibold, design: .rounded))
-                    .foregroundColor(accentColor)
+                    .foregroundColor(isPickerSelectionValid ? accentColor : secondaryTextColor)
+                    .disabled(!isPickerSelectionValid)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 23)
 
-                DatePicker(
-                    "",
-                    selection: $pickerSelectionDate,
-                    in: minimumSelectableDateForActiveField(activeDatePickerField)...,
-                    displayedComponents: [.date, .hourAndMinute]
-                )
+                Group {
+                    if activeDatePickerIncludesDate {
+                        DatePicker(
+                            "",
+                            selection: $pickerSelectionDate,
+                            in: pickerMinimumDate...,
+                            displayedComponents: datePickerDisplayedComponents
+                        )
+                    } else {
+                        DatePicker(
+                            "",
+                            selection: $pickerSelectionDate,
+                            displayedComponents: datePickerDisplayedComponents
+                        )
+                    }
+                }
                 .datePickerStyle(.wheel)
                 .labelsHidden()
                 .frame(height: 216)
@@ -1076,24 +1689,166 @@ struct EditTaskSheet: View {
         .preferredColorScheme(.dark)
     }
 
-    private func formattedDateTime(_ date: Date) -> String {
+    private var recurrencePickerSheet: some View {
+        ZStack {
+            Color.black
+                .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                HStack {
+                    Text(recurrencePickerTitle)
+                        .font(.appSystem(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white.opacity(0.92))
+
+                    Spacer()
+
+                    Button(L10n.done) {
+                        isRecurrencePickerPresented = false
+                    }
+                    .buttonStyle(.plain)
+                    .font(.appSystem(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundColor(accentColor)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 23)
+
+                Group {
+                    switch activeRecurrencePickerField {
+                    case .monthlyDay:
+                        Picker("", selection: $recurrenceMonthDay) {
+                            ForEach(1...31, id: \.self) { day in
+                                Text(monthlyDayMenuTitle(day))
+                                    .tag(day)
+                            }
+                        }
+                    case .everyNDays:
+                        Picker("", selection: $recurrenceDayInterval) {
+                            ForEach(2...TaskRecurrenceRule.maxDayInterval, id: \.self) { interval in
+                                Text(everyNDaysMenuTitle(interval))
+                                    .tag(interval)
+                            }
+                        }
+                    }
+                }
+                .pickerStyle(.wheel)
+                .labelsHidden()
+                .frame(height: 216)
+                .clipped()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(red: 0.20, green: 0.20, blue: 0.20))
+                )
+                .environment(\.colorScheme, .dark)
+                .tint(accentColor)
+                .padding(.horizontal, 12)
+
+                Spacer(minLength: 0)
+            }
+        }
+        .presentationDetents([.height(360)])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(Color.black)
+        .preferredColorScheme(.dark)
+    }
+
+    private var recurrencePickerTitle: String {
+        switch activeRecurrencePickerField {
+        case .monthlyDay:
+            return L10n.tr("Monthly day", zhHans: "每月日期", zhHant: "每月日期", ja: "毎月の日付")
+        case .everyNDays:
+            return L10n.tr("Interval", zhHans: "间隔", zhHant: "間隔", ja: "間隔")
+        }
+    }
+
+    private func endVisibleAtForSave() -> Date? {
+        guard let endVisibleAt else { return nil }
+        guard scheduleMode == .repeating else { return endVisibleAt }
+        return dateByCombiningDay(of: startVisibleAt ?? Date(), timeOf: endVisibleAt)
+    }
+
+    private func dateByCombiningDay(of dayDate: Date, timeOf timeDate: Date) -> Date {
+        let calendar = Calendar.current
+        var components = calendar.dateComponents([.year, .month, .day], from: dayDate)
+        let timeComponents = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: timeDate)
+        components.hour = timeComponents.hour
+        components.minute = timeComponents.minute
+        components.second = timeComponents.second
+        components.nanosecond = timeComponents.nanosecond
+        return calendar.date(from: components) ?? timeDate
+    }
+
+    private func nextOccurrenceDates(
+        for rule: TaskRecurrenceRule,
+        from referenceDate: Date,
+        count: Int
+    ) -> [Date] {
+        var dates: [Date] = []
+        var cursor = referenceDate
+        let calendar = Calendar.current
+
+        while dates.count < count {
+            guard let nextDate = rule.nextActiveDate(onOrAfter: cursor, calendar: calendar) else {
+                break
+            }
+            dates.append(nextDate)
+            guard let followingDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: nextDate)) else {
+                break
+            }
+            cursor = followingDay
+        }
+
+        return dates
+    }
+
+    private func shortPreviewDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = AppLanguage.displayLocale
-        formatter.dateFormat = DateFormatter.dateFormat(
-            fromTemplate: "MdyHm",
-            options: 0,
-            locale: AppLanguage.displayLocale
-        ) ?? "M/d HH:mm"
+        formatter.calendar = Calendar.current
+        formatter.setLocalizedDateFormatFromTemplate("Md")
         return formatter.string(from: date)
     }
 
-    private func taskTimerValuePicker<Content: View>(
+    private func formattedDateTime(_ date: Date) -> String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = AppLanguage.displayLocale
+        dateFormatter.dateFormat = DateFormatter.dateFormat(
+            fromTemplate: "yMd",
+            options: 0,
+            locale: AppLanguage.displayLocale
+        ) ?? "M/d/y"
+
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale = AppLanguage.displayLocale
+        timeFormatter.dateFormat = DateFormatter.dateFormat(
+            fromTemplate: "Hm",
+            options: 0,
+            locale: AppLanguage.displayLocale
+        ) ?? "HH:mm"
+
+        return "\(dateFormatter.string(from: date)) \(timeFormatter.string(from: date))"
+    }
+
+    private func formattedTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = AppLanguage.displayLocale
+        formatter.dateFormat = DateFormatter.dateFormat(
+            fromTemplate: "Hm",
+            options: 0,
+            locale: AppLanguage.displayLocale
+        ) ?? "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private func recurrenceValueButton(
         title: String,
         valueText: String,
-        @ViewBuilder menuContent: () -> Content
+        action: @escaping () -> Void
     ) -> some View {
-        Menu {
-            menuContent()
+        Button {
+            dismissKeyboard()
+            action()
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
@@ -1118,12 +1873,16 @@ struct EditTaskSheet: View {
         isSelected: Bool,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button {
+            dismissKeyboard()
+            action()
+        } label: {
             Text(title)
                 .font(bodySFont.weight(.medium))
                 .kerning(bodySLetterSpacing)
                 .foregroundColor(isSelected ? Color.white : primaryTextColor)
                 .lineLimit(1)
+                .minimumScaleFactor(0.72)
                 .frame(maxWidth: .infinity)
                 .frame(height: scaled(36, pad: 44))
                 .background(
@@ -1138,30 +1897,6 @@ struct EditTaskSheet: View {
         .buttonStyle(.plain)
     }
 
-    private func repeatModeButton(
-        title: String,
-        isSelected: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(bodySFont.weight(.medium))
-                .kerning(bodySLetterSpacing)
-                .foregroundColor(isSelected ? Color.white : primaryTextColor)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .frame(height: scaled(36, pad: 44))
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(isSelected ? accentColor : fieldColor)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(fieldBorderColor, lineWidth: 1)
-                        )
-                )
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 struct NeumorphicSwitchToggleStyle: ToggleStyle {
@@ -1284,6 +2019,7 @@ class SpeechRecognizer: ObservableObject {
         recognitionRequest = nil
         recognitionTask?.cancel()
         recognitionTask = nil
+        AppAudioSessionConfigurator.deactivateRecordingSession()
         DispatchQueue.main.async { self.isRecording = false }
     }
 }

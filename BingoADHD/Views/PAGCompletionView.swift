@@ -16,6 +16,7 @@ final class PAGRewardSoundPlayer {
               let url = Bundle.main.url(forResource: resourceName, withExtension: fileExtension) else { return }
 
         do {
+            AppAudioSessionConfigurator.configureForSoundEffects()
             let player = try AVAudioPlayer(contentsOf: url)
             player.prepareToPlay()
             audioPlayers[resourceName] = player
@@ -27,6 +28,7 @@ final class PAGRewardSoundPlayer {
     func play(resourceName: String) {
         guard AppSettings.isSoundEffectsEnabled else { return }
         guard let audioPlayer = audioPlayers[resourceName] else { return }
+        AppAudioSessionConfigurator.configureForSoundEffects()
         audioPlayer.currentTime = 0
         audioPlayer.play()
     }

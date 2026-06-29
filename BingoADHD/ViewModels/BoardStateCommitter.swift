@@ -3,11 +3,20 @@ import Foundation
 struct BoardStateCommitResult: Equatable {
     var savedBoard = false
     var savedBoardCountdown = false
+    var savedNamedBoards = false
     var savedSelectedWidgetPanel = false
     var reloadedWidgets = false
+
+    var didChangeWidgetInputs: Bool {
+        savedBoard || savedBoardCountdown || savedNamedBoards || savedSelectedWidgetPanel
+    }
 }
 
 protocol BoardStateCommitRepository {
+    func loadBoard() -> SavedBoard?
+    func loadBoardCountdownEndsAt() -> Date?
+    func loadActiveNamedBoardID() -> UUID?
+
     @discardableResult
     func saveBoard(_ board: SavedBoard, savedAt: Date, associatedBoardID: UUID?, reloadWidgets: Bool) -> Bool
     func saveBoardCountdownEndsAt(_ endsAt: Date?)
@@ -15,6 +24,7 @@ protocol BoardStateCommitRepository {
 }
 
 protocol WidgetPanelSelectionRepository {
+    func loadSelectedWidgetPanelID() -> UUID?
     func saveSelectedWidgetPanelID(_ boardID: UUID?)
 }
 
@@ -31,18 +41,27 @@ enum BoardStateCommitter {
         reloadWidgets: Bool
     ) -> BoardStateCommitResult {
         var result = BoardStateCommitResult()
-        result.savedBoard = repository.saveBoard(
-            board,
-            savedAt: savedAt,
-            associatedBoardID: associatedBoardID,
-            reloadWidgets: false
-        )
-        repository.saveBoardCountdownEndsAt(countdownEndsAt)
-        result.savedBoardCountdown = true
+        let existingBoard = repository.loadBoard()
+        let existingAssociatedBoardID = repository.loadActiveNamedBoardID()
+        if existingBoard != board || existingAssociatedBoardID != associatedBoardID {
+            result.savedBoard = repository.saveBoard(
+                board,
+                savedAt: savedAt,
+                associatedBoardID: associatedBoardID,
+                reloadWidgets: false
+            )
+        }
+
+        if repository.loadBoardCountdownEndsAt() != countdownEndsAt {
+            repository.saveBoardCountdownEndsAt(countdownEndsAt)
+            result.savedBoardCountdown = true
+        }
 
         if let widgetPanelRepository {
-            widgetPanelRepository.saveSelectedWidgetPanelID(selectedWidgetPanelID)
-            result.savedSelectedWidgetPanel = true
+            if widgetPanelRepository.loadSelectedWidgetPanelID() != selectedWidgetPanelID {
+                widgetPanelRepository.saveSelectedWidgetPanelID(selectedWidgetPanelID)
+                result.savedSelectedWidgetPanel = true
+            }
         }
 
         if reloadWidgets {
@@ -56,7 +75,7 @@ enum BoardStateCommitter {
         _ result: inout BoardStateCommitResult,
         repository: any BoardStateCommitRepository
     ) {
-        guard result.savedBoard else { return }
+        guard !result.reloadedWidgets, result.didChangeWidgetInputs else { return }
         repository.reloadWidgetTimelines()
         result.reloadedWidgets = true
     }

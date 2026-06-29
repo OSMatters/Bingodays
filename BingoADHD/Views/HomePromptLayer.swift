@@ -20,6 +20,13 @@ struct HomePromptLayer: View {
     let onCustomResetDowngradeClose: () -> Void
     let onCustomResetDowngradeRestore: () -> Void
 
+    private var isShowingPrompt: Bool {
+        firstStepGuideOverlay != nil ||
+            isUpdatePromptPresented ||
+            isAppReviewPromptPresented ||
+            isCustomResetDowngradeAlertPresented
+    }
+
     var body: some View {
         Group {
             if let firstStepGuideOverlay {
@@ -68,6 +75,7 @@ struct HomePromptLayer: View {
                 .zIndex(90)
             }
         }
+        .allowsHitTesting(isShowingPrompt)
     }
 }
 

@@ -9,17 +9,6 @@ struct HomeStickerLayer: View {
 
     var body: some View {
         ZStack {
-            if selectedStickerID != nil {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                            selectedStickerID = nil
-                        }
-                    }
-            }
-
             ForEach(pointsFeatureStore.homeStickerPlacements) { placement in
                 EditableHomeStickerView(
                     placement: placement,
@@ -27,7 +16,7 @@ struct HomeStickerLayer: View {
                     isEditing: selectedStickerID == placement.id,
                     onSelect: {
                         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                            selectedStickerID = placement.id
+                            selectedStickerID = selectedStickerID == placement.id ? nil : placement.id
                         }
                     },
                     onUpdate: { updatedPlacement in

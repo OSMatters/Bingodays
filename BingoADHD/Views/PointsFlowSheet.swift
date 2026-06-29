@@ -82,6 +82,9 @@ struct PointsFlowSheet: View {
     @State private var selectedRewardForDetail: CustomReward?
     @State private var isPremiumPaywallPresented = false
     @State private var premiumPaywallSource = "custom_reward_limit_create"
+    @State private var isResolvingRewardCreateAccess = false
+    @State private var isSavingNewReward = false
+    @State private var rewardSaveFailureMessage: String?
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
 
     var body: some View {
@@ -92,14 +95,19 @@ struct PointsFlowSheet: View {
             case .rewardEditor(let reward):
                 RewardEditorSheet(
                     reward: reward,
+                    isSaving: reward == nil && isSavingNewReward,
                     onSave: { title, requiredPoints, emoji, themeImageName in
                         if let reward {
                             onUpdateReward(reward, title, requiredPoints, emoji, themeImageName)
                             detailsInitialTab = .rewards
                             screen = .details
-                        } else if onCreateReward(title, requiredPoints, emoji, themeImageName) {
-                            detailsInitialTab = .rewards
-                            screen = .details
+                        } else {
+                            saveNewRewardAfterEntitlementRefresh(
+                                title: title,
+                                requiredPoints: requiredPoints,
+                                emoji: emoji,
+                                themeImageName: themeImageName
+                            )
                         }
                     },
                     onDelete: reward.map { reward in
@@ -157,6 +165,27 @@ struct PointsFlowSheet: View {
         .fullScreenCover(isPresented: $isPremiumPaywallPresented) {
             PremiumPaywallView(entrySource: premiumPaywallSource)
         }
+        .alert(
+            L10n.tr("Unable to save reward", zhHans: "无法保存奖励", zhHant: "無法儲存獎勵", ja: "報酬を保存できません"),
+            isPresented: rewardSaveFailureBinding
+        ) {
+            Button(L10n.ok, role: .cancel) {
+                rewardSaveFailureMessage = nil
+            }
+        } message: {
+            Text(rewardSaveFailureMessage ?? "")
+        }
+    }
+
+    private var rewardSaveFailureBinding: Binding<Bool> {
+        Binding(
+            get: { rewardSaveFailureMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    rewardSaveFailureMessage = nil
+                }
+            }
+        )
     }
 
     private var canCreateAnotherReward: Bool {
@@ -164,12 +193,67 @@ struct PointsFlowSheet: View {
     }
 
     private func handleCreateRewardRequest(source: String = "custom_reward_limit_create") {
-        guard canCreateAnotherReward else {
-            presentCustomRewardPremiumPaywall(source: source)
+        guard rewards.count >= AppSettings.maxFreeCustomRewards else {
+            detailsInitialTab = .rewards
+            screen = .rewardEditor(nil)
             return
         }
-        detailsInitialTab = .rewards
-        screen = .rewardEditor(nil)
+
+        guard !isResolvingRewardCreateAccess else { return }
+        isResolvingRewardCreateAccess = true
+
+        Task { @MainActor in
+            defer { isResolvingRewardCreateAccess = false }
+            await subscriptionManager.refreshEntitlements()
+
+            guard canCreateAnotherReward else {
+                presentCustomRewardPremiumPaywall(source: source)
+                return
+            }
+
+            detailsInitialTab = .rewards
+            screen = .rewardEditor(nil)
+        }
+    }
+
+    private func saveNewRewardAfterEntitlementRefresh(
+        title: String,
+        requiredPoints: Int,
+        emoji: String,
+        themeImageName: String?
+    ) {
+        guard !isSavingNewReward else { return }
+        isSavingNewReward = true
+
+        Task { @MainActor in
+            defer { isSavingNewReward = false }
+
+            if rewards.count < AppSettings.maxFreeCustomRewards,
+               onCreateReward(title, requiredPoints, emoji, themeImageName) {
+                detailsInitialTab = .rewards
+                screen = .details
+                return
+            }
+
+            await subscriptionManager.refreshEntitlements()
+
+            guard canCreateAnotherReward else {
+                presentCustomRewardPremiumPaywall(source: "custom_reward_limit_save")
+                return
+            }
+
+            if onCreateReward(title, requiredPoints, emoji, themeImageName) {
+                detailsInitialTab = .rewards
+                screen = .details
+            } else {
+                rewardSaveFailureMessage = L10n.tr(
+                    "Please try again. If it still fails, restore your purchase and reopen this page.",
+                    zhHans: "请重试一次。如果仍然失败，请恢复购买后重新打开此页面。",
+                    zhHant: "請再試一次。如果仍然失敗，請恢復購買後重新開啟此頁面。",
+                    ja: "もう一度お試しください。失敗が続く場合は購入を復元してからこの画面を開き直してください。"
+                )
+            }
+        }
     }
 
     private func presentCustomRewardPremiumPaywall(source: String) {
@@ -179,6 +263,9 @@ struct PointsFlowSheet: View {
         )
         premiumPaywallSource = source
         Task { @MainActor in
+            guard !subscriptionManager.hasPremiumAccess else { return }
+            await subscriptionManager.refreshEntitlements()
+            guard !subscriptionManager.hasPremiumAccess else { return }
             isPremiumPaywallPresented = true
             await subscriptionManager.warmupProductsForPaywall()
         }
@@ -529,8 +616,11 @@ private struct PointsDetailSheet: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: scaled(36, pad: 44))
                 .background(tabBackground(isSelected: isSelected))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
     }
 
     private func tabBackground(isSelected: Bool) -> some View {
@@ -601,6 +691,7 @@ private struct PointsDetailSheet: View {
                     .foregroundColor(NeumorphicColors.text)
                     .frame(width: scaled(158, pad: 196), height: scaled(42, pad: 52))
                     .appLiquidGlass(in: Capsule(style: .continuous), interactive: true)
+                    .contentShape(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
         }
@@ -698,6 +789,7 @@ private struct PointsDetailSheet: View {
             .foregroundColor(NeumorphicColors.text)
             .frame(width: scaled(158, pad: 196), height: scaled(42, pad: 52))
             .appLiquidGlass(in: Capsule(style: .continuous), interactive: true)
+            .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -721,6 +813,7 @@ private struct PointsDetailSheet: View {
                                 .fill(themeColor)
                                 .shadow(color: themeShadowColor.opacity(0.22), radius: 6, x: 0, y: 3)
                         )
+                        .contentShape(Capsule(style: .continuous))
                 }
                 .buttonStyle(.plain)
 
@@ -742,6 +835,7 @@ private struct PointsDetailSheet: View {
                                         .stroke(Color(red: 0.82, green: 0.20, blue: 0.22), lineWidth: 1.25)
                                 )
                         )
+                        .contentShape(Capsule(style: .continuous))
                 }
                 .buttonStyle(.plain)
             }

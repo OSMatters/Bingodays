@@ -7,6 +7,7 @@ struct HomeHeaderView: View {
     let isPadLayout: Bool
     let availablePoints: Int
     let showsLimitedOffer: Bool
+    let limitedTimeOfferDuration: TimeInterval
     let onToggleSidebar: () -> Void
     let onOpenPointsFlow: () -> Void
     let onOpenLimitedOffer: () -> Void
@@ -75,6 +76,7 @@ struct HomeHeaderView: View {
                 ZStack {
                     HomeLimitedOfferBannerView(
                         isPadLayout: isPadLayout,
+                        offerDuration: limitedTimeOfferDuration,
                         onTap: onOpenLimitedOffer
                     )
 

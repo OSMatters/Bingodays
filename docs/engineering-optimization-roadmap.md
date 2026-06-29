@@ -101,3 +101,23 @@ Remaining optimization should be treated as targeted fixes only, unless a measur
 - `BoardManagementStore` now commits named-board snapshots and active-board mirrors through one private helper, reducing duplicated save-and-mirror combinations across select, create, delete, and template import flows.
 - Task-start reminder syncing now has an injectable scheduler boundary, moving reminder signatures and notification scheduling details out of `ContentView`.
 - `BoardStateCommitter` now lives in its own source file, keeping active-board commit orchestration separate from ViewModel persistence details.
+- `BoardResetRuleEngine` now centralizes cross-day/custom reset evaluation and reset snapshot transforms for both in-app resets and widget task toggles, removing duplicated reset rules from the app/widget boundary.
+- `BingoDiaryStore` and `BingoTimeoutStore` now live in dedicated model files, shrinking `BingoModels.swift` and isolating persistence helpers from shared domain model definitions.
+- Widget panel/task sync storage and widget task toggle mutation rules now live outside `WidgetBoardSwitchIntent.swift`, keeping AppIntent entrypoints separate from cross-process storage and board mutation side effects.
+- `BingoADHDTests` now builds the first guardrail tests for board reset rules and widget task toggles, giving future refactors behavior checks beyond compilation.
+- Named-board snapshot persistence now returns whether it actually wrote data and skips no-op writes, so board-management and widget-intent flows can avoid redundant WidgetKit reloads.
+- Task-start reminder sync now diffs pending notification requests before deleting or scheduling, avoiding full notification teardown when reminder inputs are unchanged.
+- `TaskStartReminderSyncStore` now owns reminder-sync signatures and debounce tasks, reducing `ContentView` state ownership while keeping the existing scheduler boundary intact.
+- Home board-state observers now pass precise change metadata, so countdown-only or completed-line-only updates can persist board mirrors without triggering task reminder sync.
+- `BoardManagementStore.persistBoardState` now skips unchanged board/countdown mirrors without touching `updatedAt`, preventing no-op snapshot writes from cascading into countdown schedule invalidation or reminder sync.
+- `HomeBoardSnapshotSyncStore` now owns selected-board snapshot sync results, keeping countdown schedule invalidation and task-reminder sync policy out of `ContentView` helpers.
+- `HomeLifecycleWorkStore` now owns the launch/foreground catch-up work plan, making lifecycle side-effect order explicit and testable before deeper timeout/reset extraction.
+- `HomeTimeoutWorkStore` now owns countdown ticker work planning, so idle ticks can remain no-ops while live countdown ticks and full maintenance ticks have explicit, tested step order.
+- Lifecycle catch-up and countdown ticker maintenance now share one timeout-processing executor in `ContentView`, reducing duplicate expired-countdown/task/replacement/other-board handling.
+- `HomeTimeoutWorkStore` now also owns countdown maintenance scheduling and other-board expired-timeout selection, moving more timer-driven pure logic out of `ContentView`.
+- `BoardManagementStore.selectBoard` now returns a structured selection result and rejects unknown board IDs, so `ContentView` only invalidates countdown scheduling or syncs task reminders after a real selection change.
+- Board create/delete/template import/template replace flows now return the same board-management mutation result, and board rename skips unchanged names without triggering task-reminder sync.
+- P2 cleanup narrowed board mutation results to non-optional selected boards, consolidated board side-effect application in `ContentView`, and removed an unused `WidgetKit` import from the home view.
+- App Review prompt candidate selection now lives in `HomeAppReviewPromptStore` with explicit evaluation state and guardrail tests, leaving `ContentView` responsible only for UI presentation.
+- App Review prompt presentation blocking now uses `AppReviewPromptPresentationState`, keeping overlay/timeout blocker rules testable while preserving debug bypass behavior.
+- Limited Offer home-state cleanup, legacy migration, campaign seeding, and unlock checks now live in `LimitedOfferHomeRules`, with no-op state writes skipped in `ContentView`.

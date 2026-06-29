@@ -30,6 +30,7 @@ struct BingoBoardView: View {
     var onCellReorderActiveChanged: ((Bool) -> Void)? = nil
     @State private var editingTarget: EditingTarget?
     @State private var actionTarget: EditingTarget?
+    @State private var countdownTarget: EditingTarget?
     @State private var dragState: DragState?
     @State private var residentScheduleNotice: String?
     @State private var deletedCellSnapshot: DeletedCellSnapshot?
@@ -80,16 +81,23 @@ struct BingoBoardView: View {
                                     let target = EditingTarget(row: row, col: col)
                                     let isDragSource = dragState?.source == target
                                     let isDropTarget = dragState?.destination == target && dragState?.source != target
-                                    let isScheduledInactive = !viewModel.isTaskCurrentlyTappable(
+                                    let canToggleComplete = viewModel.canToggleComplete(
                                         row: row,
                                         col: col,
                                         referenceDate: currentTime
-                                    ) && !viewModel.cells[row][col].isEmpty
+                                    )
+                                    let isScheduledInactive = !canToggleComplete && !viewModel.cells[row][col].isEmpty
+                                    let scheduleStatusText = scheduleStatusTextForCell(
+                                        row: row,
+                                        col: col,
+                                        isScheduledInactive: isScheduledInactive
+                                    )
 
                                     BingoCellView(
                                         cell: viewModel.cells[row][col],
                                         currentTime: currentTime,
                                         isScheduledInactive: isScheduledInactive,
+                                        scheduleStatusText: scheduleStatusText,
                                         debugIdentifier: "\(row)-\(col)",
                                         isInBingoLine: viewModel.isInCompletedLine(row: row, col: col),
                                         isLocked: viewModel.isLocked(row: row, col: col),
@@ -108,9 +116,9 @@ struct BingoBoardView: View {
                                             dismissActionMenu()
                                             if !viewModel.cells[row][col].isEmpty &&
                                                 !viewModel.isLocked(row: row, col: col) &&
-                                                viewModel.isTaskCurrentlyTappable(row: row, col: col) {
+                                                viewModel.canToggleComplete(row: row, col: col, referenceDate: currentTime) {
                                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                                                    viewModel.toggleComplete(row: row, col: col)
+                                                    viewModel.toggleComplete(row: row, col: col, referenceDate: currentTime)
                                                 }
                                                 DispatchQueue.main.async {
                                                     onCellCompletionToggled?()
@@ -207,20 +215,22 @@ struct BingoBoardView: View {
                     .zIndex(3)
             }
         }
-        .fullScreenCover(item: phoneEditingTargetBinding) { target in
+        .sheet(item: $editingTarget) { target in
             editTaskSheet(for: target)
-                .background(Color.clear)
-                .presentationBackground(.clear)
-        }
-        .fullScreenCover(item: padEditingTargetBinding) { target in
-            editTaskSheet(for: target)
-                .background(Color.clear)
-                .presentationBackground(.clear)
+                .presentationDetents([.fraction(isPadLayout ? 0.66 : 0.74), .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Color(hex: "202020"))
         }
         .fullScreenCover(item: $actionTarget) { target in
             taskActionsOverlay(for: target)
                 .background(Color.clear)
                 .presentationBackground(.clear)
+        }
+        .sheet(item: $countdownTarget) { target in
+            taskCountdownSheet(for: target)
+                .presentationDetents([.height(taskCountdownSheetHeight(for: target))])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(NeumorphicColors.background)
         }
         .alert(L10n.taskScheduledTitle, isPresented: Binding(
             get: { residentScheduleNotice != nil },
@@ -277,20 +287,6 @@ struct BingoBoardView: View {
         }
     }
 
-    private var phoneEditingTargetBinding: Binding<EditingTarget?> {
-        Binding(
-            get: { isPadLayout ? nil : editingTarget },
-            set: { editingTarget = $0 }
-        )
-    }
-
-    private var padEditingTargetBinding: Binding<EditingTarget?> {
-        Binding(
-            get: { isPadLayout ? editingTarget : nil },
-            set: { editingTarget = $0 }
-        )
-    }
-
     private func editTaskSheet(for target: EditingTarget) -> some View {
         let editingCell = viewModel.editingCell(row: target.row, col: target.col) ?? viewModel.cells[target.row][target.col]
         return EditTaskSheet(
@@ -298,18 +294,19 @@ struct BingoBoardView: View {
             isForcedTask: editingCell.isForced,
             residentWeekdays: editingCell.residentWeekdays,
             isOneTimeTask: editingCell.isOneTimeTask,
+            recurrenceRule: editingCell.recurrenceRule,
             startVisibleAt: editingCell.startVisibleAt,
             endVisibleAt: editingCell.endVisibleAt,
             startReminderEnabled: editingCell.startReminderEnabled,
             startReminderOffsetMinutes: editingCell.startReminderOffsetMinutes,
             isCompletedTask: editingCell.isCompleted,
             estimatedDurationMinutes: viewModel.remainingTaskCountdownMinutes(row: target.row, col: target.col),
-            autoFocusTaskField: true,
-            onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes in
+            onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, recurrenceRule, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes in
                 let scheduleNotice = residentVisibilityNotice(
                     text: newText,
                     residentWeekdays: residentWeekdays,
-                    isOneTimeTask: isOneTimeTask
+                    isOneTimeTask: isOneTimeTask,
+                    recurrenceRule: recurrenceRule
                 )
                 viewModel.updateTask(
                     row: target.row,
@@ -318,6 +315,7 @@ struct BingoBoardView: View {
                     isForced: isForcedTask,
                     residentWeekdays: residentWeekdays,
                     isOneTimeTask: isOneTimeTask,
+                    recurrenceRule: recurrenceRule,
                     estimatedDurationMinutes: estimatedDurationMinutes,
                     startVisibleAt: startVisibleAt,
                     endVisibleAt: endVisibleAt,
@@ -340,10 +338,14 @@ struct BingoBoardView: View {
         return TaskActionsOverlayView(
             showsHideAction: cell.isCompleted,
             hideActionTitle: cell.isTaskHidden ? L10n.showTask : L10n.hideTask,
+            showsCountdownAction: viewModel.canSetTaskCountdown(row: target.row, col: target.col, referenceDate: currentTime),
             isPadLayout: isPadLayout,
             onDismiss: dismissActionMenu,
             onEdit: {
                 presentEditor(for: target)
+            },
+            onSetCountdown: {
+                countdownTarget = target
             },
             onDelete: {
                 pendingDeleteTarget = target
@@ -356,18 +358,77 @@ struct BingoBoardView: View {
         )
     }
 
+    private func taskCountdownSheet(for target: EditingTarget) -> some View {
+        let editingCell = viewModel.editingCell(row: target.row, col: target.col)
+        let remainingMinutes = viewModel.remainingTaskCountdownMinutes(
+            row: target.row,
+            col: target.col,
+            referenceDate: currentTime
+        )
+        let isPaused = viewModel.isTaskCountdownPaused(row: target.row, col: target.col)
+        return TaskCountdownSheetView(
+            initialMinutes: remainingMinutes,
+            hasExistingCountdown: viewModel.hasTaskCountdown(row: target.row, col: target.col),
+            countdownEndsAt: editingCell?.countdownEndsAt,
+            pausedRemainingSeconds: editingCell?.countdownPausedRemainingSeconds,
+            isCountdownPaused: isPaused,
+            canPauseOrResumeCountdown: viewModel.canPauseOrResumeTaskCountdown(
+                row: target.row,
+                col: target.col,
+                referenceDate: currentTime
+            ),
+            isPadLayout: isPadLayout,
+            onSave: { minutes in
+                _ = viewModel.setTaskCountdown(row: target.row, col: target.col, minutes: minutes, referenceDate: currentTime)
+                countdownTarget = nil
+            },
+            onPauseToggle: {
+                if isPaused {
+                    _ = viewModel.resumeTaskCountdown(row: target.row, col: target.col, referenceDate: currentTime)
+                } else {
+                    _ = viewModel.pauseTaskCountdown(row: target.row, col: target.col, referenceDate: currentTime)
+                }
+                countdownTarget = nil
+            },
+            onCancelCountdown: {
+                _ = viewModel.cancelTaskCountdown(row: target.row, col: target.col, referenceDate: currentTime)
+                countdownTarget = nil
+            }
+        )
+    }
+
+    private func taskCountdownSheetHeight(for target: EditingTarget) -> CGFloat {
+        let hasExistingCountdown = viewModel.hasTaskCountdown(row: target.row, col: target.col)
+        switch (isPadLayout, hasExistingCountdown) {
+        case (true, true):
+            return 365
+        case (true, false):
+            return 340
+        case (false, true):
+            return 335
+        case (false, false):
+            return 315
+        }
+    }
+
     private func draggedCellOverlay(for dragState: DragState, cellSize: CGFloat) -> some View {
         let sourceCell = viewModel.cells[dragState.source.row][dragState.source.col]
         let startCenter = cellCenter(for: dragState.source, cellSize: cellSize)
+        let isScheduledInactive = !viewModel.canToggleComplete(
+            row: dragState.source.row,
+            col: dragState.source.col,
+            referenceDate: currentTime
+        ) && !sourceCell.isEmpty
 
         return BingoCellView(
             cell: sourceCell,
             currentTime: currentTime,
-            isScheduledInactive: !viewModel.isTaskCurrentlyTappable(
+            isScheduledInactive: isScheduledInactive,
+            scheduleStatusText: scheduleStatusTextForCell(
                 row: dragState.source.row,
                 col: dragState.source.col,
-                referenceDate: currentTime
-            ) && !sourceCell.isEmpty,
+                isScheduledInactive: isScheduledInactive
+            ),
             debugIdentifier: "drag-overlay-\(dragState.source.row)-\(dragState.source.col)",
             isInBingoLine: viewModel.isInCompletedLine(row: dragState.source.row, col: dragState.source.col),
             isLocked: false,
@@ -502,10 +563,28 @@ struct BingoBoardView: View {
         text: String,
         residentWeekdays: Set<Int>,
         isOneTimeTask: Bool,
+        recurrenceRule: TaskRecurrenceRule? = nil,
         referenceDate: Date = .now
     ) -> String? {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty, !isOneTimeTask, !residentWeekdays.isEmpty else { return nil }
+        guard !trimmedText.isEmpty, !isOneTimeTask else { return nil }
+
+        if let recurrenceRule {
+            let defaultDate = Date()
+            let normalizedRule = recurrenceRule.normalized(
+                defaultWeekday: Calendar.current.component(.weekday, from: defaultDate),
+                defaultMonthDay: Calendar.current.component(.day, from: defaultDate),
+                defaultAnchorDate: defaultDate
+            )
+            guard normalizedRule.kind != .daily,
+                  normalizedRule.kind != .none,
+                  !normalizedRule.isActive(on: referenceDate) else {
+                return nil
+            }
+            return L10n.taskScheduledMessage(recurrenceNoticeLabel(for: normalizedRule))
+        }
+
+        guard !residentWeekdays.isEmpty else { return nil }
 
         let today = Calendar.current.component(.weekday, from: referenceDate)
         guard !residentWeekdays.contains(today) else { return nil }
@@ -517,6 +596,139 @@ struct BingoBoardView: View {
 
         guard !labels.isEmpty else { return nil }
         return L10n.taskScheduledMessage(labels.joined(separator: AppLanguage.current == .english ? ", " : "、"))
+    }
+
+    private func recurrenceNoticeLabel(for rule: TaskRecurrenceRule) -> String {
+        switch rule.kind {
+        case .weekly:
+            let orderedWeekdays = [2, 3, 4, 5, 6, 7, 1]
+            let labels = orderedWeekdays
+                .filter { rule.weekdays.contains($0) }
+                .map(weekdayLabel(for:))
+            return labels.joined(separator: AppLanguage.current == .english ? ", " : "、")
+        case .monthlyDay:
+            let day = rule.monthDay ?? Calendar.current.component(.day, from: Date())
+            return L10n.tr(
+                "day \(day) each month",
+                zhHans: "每月第 \(day) 天",
+                zhHant: "每月第 \(day) 天",
+                ja: "毎月\(day)日"
+            )
+        case .everyNDays:
+            return L10n.tr(
+                "every \(rule.interval) days",
+                zhHans: "每隔 \(rule.interval) 天",
+                zhHant: "每隔 \(rule.interval) 天",
+                ja: "\(rule.interval)日ごと"
+            )
+        case .none, .daily:
+            return ""
+        }
+    }
+
+    private func scheduleStatusTextForCell(row: Int, col: Int, isScheduledInactive: Bool) -> String? {
+        guard let sourceCell = viewModel.editingCell(row: row, col: col),
+              sourceCell.hasStoredTask else {
+            return nil
+        }
+
+        if isScheduledInactive {
+            if sourceCell.isEndVisibilityReached(on: currentTime) {
+                return L10n.tr("Ended", zhHans: "已结束", zhHant: "已結束", ja: "終了")
+            }
+
+            if sourceCell.isVisibilityWindowInactive(on: currentTime) {
+                return startStatusText(for: sourceCell.occurrenceStartVisibleAt(on: currentTime))
+            }
+
+            if let nextActiveDate = sourceCell.nextResidentActiveDate(onOrAfter: currentTime),
+               !Calendar.current.isDate(nextActiveDate, inSameDayAs: currentTime) {
+                return L10n.tr(
+                    "Next \(shortDateLabel(nextActiveDate))",
+                    zhHans: "下次 \(shortDateLabel(nextActiveDate))",
+                    zhHant: "下次 \(shortDateLabel(nextActiveDate))",
+                    ja: "次回 \(shortDateLabel(nextActiveDate))"
+                )
+            }
+            return nil
+        }
+
+        guard let rule = sourceCell.effectiveRecurrenceRule,
+              rule.kind != .none else {
+            return nil
+        }
+        return activeRecurrenceLabel(for: rule)
+    }
+
+    private func startStatusText(for startDate: Date?) -> String? {
+        guard let startDate else { return nil }
+        let calendar = Calendar.current
+        if calendar.isDate(startDate, inSameDayAs: currentTime) {
+            return L10n.tr(
+                "\(timeLabel(startDate)) start",
+                zhHans: "\(timeLabel(startDate)) 开始",
+                zhHant: "\(timeLabel(startDate)) 開始",
+                ja: "\(timeLabel(startDate)) 開始"
+            )
+        }
+        return L10n.tr(
+            "\(shortDateLabel(startDate)) start",
+            zhHans: "\(shortDateLabel(startDate)) 开始",
+            zhHant: "\(shortDateLabel(startDate)) 開始",
+            ja: "\(shortDateLabel(startDate)) 開始"
+        )
+    }
+
+    private func activeRecurrenceLabel(for rule: TaskRecurrenceRule) -> String? {
+        switch rule.kind {
+        case .daily:
+            return L10n.tr("Daily", zhHans: "每天", zhHant: "每天", ja: "毎日")
+        case .weekly:
+            let orderedWeekdays = [2, 3, 4, 5, 6, 7, 1]
+            let labels = orderedWeekdays
+                .filter { rule.weekdays.contains($0) }
+                .map(weekdayLabel(for:))
+            guard !labels.isEmpty else { return nil }
+            return L10n.tr(
+                "Every \(labels.joined(separator: ", "))",
+                zhHans: "每周\(labels.joined(separator: "、"))",
+                zhHant: "每週\(labels.joined(separator: "、"))",
+                ja: "毎週\(labels.joined(separator: "・"))"
+            )
+        case .monthlyDay:
+            let day = rule.monthDay ?? Calendar.current.component(.day, from: currentTime)
+            return L10n.tr(
+                "Monthly on day \(day)",
+                zhHans: "每月 \(day) 日",
+                zhHant: "每月 \(day) 日",
+                ja: "毎月\(day)日"
+            )
+        case .everyNDays:
+            return L10n.tr(
+                "Every \(rule.interval) days",
+                zhHans: "每隔 \(rule.interval) 天",
+                zhHant: "每隔 \(rule.interval) 天",
+                ja: "\(rule.interval)日ごと"
+            )
+        case .none:
+            return nil
+        }
+    }
+
+    private func shortDateLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = AppLanguage.displayLocale
+        formatter.calendar = Calendar.current
+        formatter.setLocalizedDateFormatFromTemplate("Md")
+        return formatter.string(from: date)
+    }
+
+    private func timeLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = AppLanguage.displayLocale
+        formatter.calendar = Calendar.current
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
     }
 
     private func weekdayLabel(for weekday: Int) -> String {
@@ -535,9 +747,11 @@ struct BingoBoardView: View {
 private struct TaskActionsOverlayView: View {
     let showsHideAction: Bool
     let hideActionTitle: String
+    let showsCountdownAction: Bool
     let isPadLayout: Bool
     let onDismiss: () -> Void
     let onEdit: () -> Void
+    let onSetCountdown: () -> Void
     let onDelete: () -> Void
     let onToggleHidden: () -> Void
     @State private var isVisible = false
@@ -560,6 +774,16 @@ private struct TaskActionsOverlayView: View {
                             close(then: onEdit)
                         }
                     )
+
+                    if showsCountdownAction {
+                        actionButton(
+                            title: L10n.tr("Set countdown", zhHans: "设置倒计时", zhHant: "設定倒計時", ja: "カウントダウンを設定"),
+                            color: NeumorphicColors.text,
+                            action: {
+                                close(then: onSetCountdown)
+                            }
+                        )
+                    }
 
                     actionButton(
                         title: L10n.deleteTask,
@@ -622,5 +846,429 @@ private struct TaskActionsOverlayView: View {
             onDismiss()
             action?()
         }
+    }
+}
+
+private struct TaskCountdownSheetView: View {
+    private enum SheetMode {
+        case manage
+        case edit
+    }
+
+    private enum CountdownConfirmation: Identifiable, Equatable {
+        case pause
+        case cancel
+
+        var id: String {
+            switch self {
+            case .pause:
+                return "pause"
+            case .cancel:
+                return "cancel"
+            }
+        }
+    }
+
+    let initialMinutes: Int?
+    let hasExistingCountdown: Bool
+    let countdownEndsAt: Date?
+    let pausedRemainingSeconds: Int?
+    let isCountdownPaused: Bool
+    let canPauseOrResumeCountdown: Bool
+    let isPadLayout: Bool
+    let onSave: (Int) -> Void
+    let onPauseToggle: () -> Void
+    let onCancelCountdown: () -> Void
+
+    @State private var selectedPresetMinutes: Int?
+    @State private var customMinutesText: String
+    @State private var sheetMode: SheetMode
+    @State private var pendingConfirmation: CountdownConfirmation?
+    @FocusState private var isCustomFieldFocused: Bool
+
+    private let presetMinutes = [15, 30, 45, 60]
+
+    init(
+        initialMinutes: Int?,
+        hasExistingCountdown: Bool,
+        countdownEndsAt: Date?,
+        pausedRemainingSeconds: Int?,
+        isCountdownPaused: Bool,
+        canPauseOrResumeCountdown: Bool,
+        isPadLayout: Bool,
+        onSave: @escaping (Int) -> Void,
+        onPauseToggle: @escaping () -> Void,
+        onCancelCountdown: @escaping () -> Void
+    ) {
+        self.initialMinutes = initialMinutes
+        self.hasExistingCountdown = hasExistingCountdown
+        self.countdownEndsAt = countdownEndsAt
+        self.pausedRemainingSeconds = pausedRemainingSeconds
+        self.isCountdownPaused = isCountdownPaused
+        self.canPauseOrResumeCountdown = canPauseOrResumeCountdown
+        self.isPadLayout = isPadLayout
+        self.onSave = onSave
+        self.onPauseToggle = onPauseToggle
+        self.onCancelCountdown = onCancelCountdown
+
+        let presetCandidates = [15, 30, 45, 60]
+        let normalizedInitialMinutes = initialMinutes.map { min(max($0, 1), BingoViewModel.maxCountdownMinutes) }
+        if let normalizedInitialMinutes, presetCandidates.contains(normalizedInitialMinutes) {
+            _selectedPresetMinutes = State(initialValue: normalizedInitialMinutes)
+            _customMinutesText = State(initialValue: "")
+        } else if let normalizedInitialMinutes {
+            _selectedPresetMinutes = State(initialValue: nil)
+            _customMinutesText = State(initialValue: String(normalizedInitialMinutes))
+        } else {
+            _selectedPresetMinutes = State(initialValue: 15)
+            _customMinutesText = State(initialValue: "")
+        }
+        _sheetMode = State(initialValue: hasExistingCountdown ? .manage : .edit)
+    }
+
+    var body: some View {
+        VStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: sheetMode == .manage ? 16 : 14) {
+                if sheetMode == .manage, hasExistingCountdown {
+                    manageContent
+                } else {
+                    header
+                    editContent
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+        .frame(maxWidth: isPadLayout ? 460 : .infinity)
+        .frame(maxWidth: .infinity)
+        .padding(.top, sheetMode == .manage ? 28 : 48)
+        .padding(.bottom, 12)
+        .preferredColorScheme(.light)
+        .alert(
+            confirmationTitle,
+            isPresented: Binding(
+                get: { pendingConfirmation != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingConfirmation = nil
+                    }
+                }
+            ),
+            presenting: pendingConfirmation
+        ) { confirmation in
+            Button(
+                confirmationConfirmTitle(for: confirmation),
+                role: confirmation == .cancel ? .destructive : nil
+            ) {
+                switch confirmation {
+                case .pause:
+                    onPauseToggle()
+                case .cancel:
+                    onCancelCountdown()
+                }
+                pendingConfirmation = nil
+            }
+            Button(L10n.tr("Cancel", zhHans: "取消", zhHant: "取消", ja: "キャンセル"), role: .cancel) {
+                pendingConfirmation = nil
+            }
+        } message: { confirmation in
+            Text(confirmationMessage(for: confirmation))
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Spacer(minLength: 0)
+            saveButton
+        }
+    }
+
+    private var manageContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            TimelineView(.periodic(from: Date(), by: 1)) { context in
+                VStack(spacing: 8) {
+                    Text(formattedCountdownText(referenceDate: context.date))
+                        .font(.appSystem(size: scaled(48, pad: 58), weight: .bold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+                        .monospacedDigit()
+
+                    Text(countdownStatusText(referenceDate: context.date))
+                        .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text.opacity(0.62))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, scaled(18, pad: 22))
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.white.opacity(0.68))
+                )
+            }
+
+            HStack(spacing: 14) {
+                largeCountdownActionButton(
+                    systemName: isCountdownPaused ? "play.fill" : "pause.fill",
+                    accessibilityLabel: isCountdownPaused
+                        ? L10n.tr("Resume countdown", zhHans: "继续倒计时", zhHant: "繼續倒計時", ja: "カウントダウンを再開")
+                        : L10n.tr("Pause countdown", zhHans: "暂停倒计时", zhHant: "暫停倒計時", ja: "カウントダウンを一時停止"),
+                    foregroundColor: NeumorphicColors.text.opacity(canPauseOrResumeCountdown ? 0.86 : 0.34),
+                    backgroundColor: Color.white.opacity(canPauseOrResumeCountdown ? 0.76 : 0.46),
+                    isEnabled: canPauseOrResumeCountdown,
+                    action: {
+                        if isCountdownPaused {
+                            onPauseToggle()
+                        } else {
+                            pendingConfirmation = .pause
+                        }
+                    }
+                )
+
+                largeCountdownActionButton(
+                    systemName: "xmark",
+                    accessibilityLabel: L10n.tr("Cancel countdown", zhHans: "取消倒计时", zhHant: "取消倒計時", ja: "カウントダウンをキャンセル"),
+                    foregroundColor: Color.red.opacity(0.84),
+                    backgroundColor: Color.red.opacity(0.12),
+                    isEnabled: true,
+                    action: {
+                        pendingConfirmation = .cancel
+                    }
+                )
+            }
+
+            resetButton
+                .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
+    private var editContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(L10n.tr("Set countdown", zhHans: "设置倒计时", zhHant: "設定倒計時", ja: "カウントダウンを設定"))
+                .font(.appSystem(size: scaled(20, pad: 24), weight: .bold, design: .rounded))
+                .foregroundColor(NeumorphicColors.text)
+
+            Text(L10n.tr(
+                "Countdown starts when the task becomes clickable.",
+                zhHans: "倒计时会在任务到开始时间、可点击时开始。",
+                zhHant: "倒計時會在任務到開始時間、可點擊時開始。",
+                ja: "タスクが開始時刻になり、タップ可能になると開始します。"
+            ))
+            .font(.appSystem(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
+            .foregroundColor(NeumorphicColors.text.opacity(0.62))
+
+            HStack(spacing: 8) {
+                ForEach(presetMinutes, id: \.self) { minutes in
+                    presetButton(minutes)
+                }
+            }
+
+            customInput
+        }
+    }
+
+    private var customInput: some View {
+        HStack(spacing: 10) {
+            Text(L10n.tr("Custom", zhHans: "自定义", zhHant: "自訂", ja: "カスタム"))
+                .font(.appSystem(size: scaled(15, pad: 17), weight: .semibold, design: .rounded))
+                .foregroundColor(NeumorphicColors.text)
+
+            Spacer(minLength: 0)
+
+            TextField(
+                L10n.tr("Minutes", zhHans: "分钟", zhHant: "分鐘", ja: "分"),
+                text: $customMinutesText
+            )
+            .keyboardType(.numberPad)
+            .submitLabel(.done)
+            .focused($isCustomFieldFocused)
+            .font(.appSystem(size: scaled(15, pad: 17), weight: .semibold, design: .rounded))
+            .foregroundColor(NeumorphicColors.text)
+            .multilineTextAlignment(.trailing)
+            .frame(width: scaled(92, pad: 116))
+            .onTapGesture {
+                selectedPresetMinutes = nil
+            }
+            .onChange(of: customMinutesText) { _, newValue in
+                let filteredText = String(newValue.filter(\.isNumber))
+                if filteredText != newValue {
+                    customMinutesText = filteredText
+                }
+                if !filteredText.isEmpty {
+                    selectedPresetMinutes = nil
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(height: scaled(50, pad: 56))
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.78))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(NeumorphicColors.text.opacity(0.08), lineWidth: 1)
+                )
+        )
+    }
+
+    private var saveButton: some View {
+        Button {
+            guard let normalizedMinutes else { return }
+            isCustomFieldFocused = false
+            onSave(normalizedMinutes)
+        } label: {
+            Text(L10n.tr("Start", zhHans: "开始", zhHant: "開始", ja: "開始"))
+                .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
+                .foregroundColor(normalizedMinutes == nil ? NeumorphicColors.text.opacity(0.34) : AppTheme.concise.color)
+                .frame(height: scaled(38, pad: 44))
+                .padding(.horizontal, 2)
+        }
+        .buttonStyle(.plain)
+        .disabled(normalizedMinutes == nil)
+    }
+
+    private var resetButton: some View {
+        Button {
+            isCustomFieldFocused = false
+            withAnimation(.easeInOut(duration: 0.18)) {
+                sheetMode = .edit
+            }
+        } label: {
+            Text(L10n.tr("Reset", zhHans: "重新设定", zhHant: "重新設定", ja: "再設定"))
+                .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
+                .foregroundColor(AppTheme.concise.color)
+                .frame(height: scaled(38, pad: 44))
+                .padding(.horizontal, 2)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func largeCountdownActionButton(
+        systemName: String,
+        accessibilityLabel: String,
+        foregroundColor: Color,
+        backgroundColor: Color,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            guard isEnabled else { return }
+            isCustomFieldFocused = false
+            action()
+        } label: {
+            Image(systemName: systemName)
+                .font(.appSystem(size: scaled(22, pad: 26), weight: .bold))
+                .foregroundColor(foregroundColor)
+                .frame(maxWidth: .infinity)
+                .frame(height: scaled(58, pad: 66))
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(backgroundColor)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var normalizedMinutes: Int? {
+        if let selectedPresetMinutes {
+            return selectedPresetMinutes
+        }
+        guard let customMinutes = Int(customMinutesText), customMinutes > 0 else {
+            return nil
+        }
+        return min(max(customMinutes, 1), BingoViewModel.maxCountdownMinutes)
+    }
+
+    private var confirmationTitle: String {
+        guard let pendingConfirmation else { return "" }
+        switch pendingConfirmation {
+        case .pause:
+            return L10n.tr("Pause countdown?", zhHans: "暂停倒计时？", zhHant: "暫停倒計時？", ja: "カウントダウンを一時停止しますか？")
+        case .cancel:
+            return L10n.tr("Cancel countdown?", zhHans: "取消倒计时？", zhHant: "取消倒計時？", ja: "カウントダウンをキャンセルしますか？")
+        }
+    }
+
+    private func confirmationMessage(for confirmation: CountdownConfirmation) -> String {
+        switch confirmation {
+        case .pause:
+            return L10n.tr(
+                "You can resume it later.",
+                zhHans: "暂停后可以随时继续。",
+                zhHant: "暫停後可以隨時繼續。",
+                ja: "あとで再開できます。"
+            )
+        case .cancel:
+            return L10n.tr(
+                "The current countdown will be cleared.",
+                zhHans: "当前倒计时会被清除。",
+                zhHant: "目前倒計時會被清除。",
+                ja: "現在のカウントダウンが削除されます。"
+            )
+        }
+    }
+
+    private func confirmationConfirmTitle(for confirmation: CountdownConfirmation) -> String {
+        switch confirmation {
+        case .pause:
+            return L10n.tr("Pause", zhHans: "暂停", zhHant: "暫停", ja: "一時停止")
+        case .cancel:
+            return L10n.tr("Cancel countdown", zhHans: "取消倒计时", zhHant: "取消倒計時", ja: "キャンセル")
+        }
+    }
+
+    private func formattedCountdownText(referenceDate: Date) -> String {
+        let seconds = countdownRemainingSeconds(referenceDate: referenceDate)
+        let hours = seconds / 3600
+        let minutes = (seconds % 3600) / 60
+        let remainingSeconds = seconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
+        }
+        return String(format: "%02d:%02d", minutes, remainingSeconds)
+    }
+
+    private func countdownStatusText(referenceDate: Date) -> String {
+        if isCountdownPaused {
+            return L10n.tr("Paused", zhHans: "已暂停", zhHant: "已暫停", ja: "一時停止中")
+        }
+        if countdownRemainingSeconds(referenceDate: referenceDate) <= 0 {
+            return L10n.tr("Time is up", zhHans: "倒计时已结束", zhHant: "倒計時已結束", ja: "時間になりました")
+        }
+        return L10n.tr("Counting down", zhHans: "倒计时进行中", zhHant: "倒計時進行中", ja: "カウントダウン中")
+    }
+
+    private func countdownRemainingSeconds(referenceDate: Date) -> Int {
+        if let pausedRemainingSeconds, pausedRemainingSeconds > 0 {
+            return pausedRemainingSeconds
+        }
+        if let countdownEndsAt {
+            return max(Int(ceil(countdownEndsAt.timeIntervalSince(referenceDate))), 0)
+        }
+        if let initialMinutes {
+            return max(initialMinutes, 0) * 60
+        }
+        return 0
+    }
+
+    private func presetButton(_ minutes: Int) -> some View {
+        Button {
+            selectedPresetMinutes = minutes
+            customMinutesText = ""
+            isCustomFieldFocused = false
+        } label: {
+            Text("\(minutes)")
+                .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                .foregroundColor(selectedPresetMinutes == minutes ? .white : NeumorphicColors.text.opacity(0.88))
+                .frame(maxWidth: .infinity)
+                .frame(height: scaled(42, pad: 48))
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(selectedPresetMinutes == minutes ? AppTheme.concise.color : Color.white.opacity(0.78))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.18) : base
     }
 }

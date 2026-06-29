@@ -238,6 +238,7 @@ enum L10n {
     static var totalDays: String { tr("Total Days", zhHans: "使用天数", ja: "合計日数") }
     static var streakDays: String { tr("Streak Days", zhHans: "连胜天数", ja: "連続日数") }
     static var bingoCount: String { tr("Bingo Count", zhHans: "完成任务", ja: "Bingo数") }
+    static var language: String { tr("Language", zhHans: "语言", zhHant: "語言", ja: "言語") }
     static var countdownEndedTitle: String { tr("Task Countdown Ended", zhHans: "倒计时结束", ja: "タスクのカウントダウン終了") }
     static var newDayResetMessage: String {
         tr(
@@ -257,14 +258,17 @@ enum L10n {
     static var contactUsEmail: String { tr("Evalong9820@gmail.com", zhHans: "Evalong9820@gmail.com", zhHant: "Evalong9820@gmail.com", ja: "Evalong9820@gmail.com") }
     static var contactUsMessage: String {
         tr(
-            "Thank you for using Bingodays. If you run into any problems while using the app, please contact us by email. We will reply and help as soon as possible.",
-            zhHans: "感谢你使用Bingodays，如果使用过程中有任何的问题请通过邮件联系我们，我们会在第一时间回复并解决你的问题。",
-            zhHant: "感謝你使用 Bingodays，如果使用過程中有任何問題，請透過電子郵件聯絡我們，我們會在第一時間回覆並協助你解決問題。"
+            "Thank you for using Bingodays. You can report a problem or send us a feature suggestion by email.",
+            zhHans: "感谢你使用 Bingodays，你可以通过邮件反馈问题或提出功能建议。",
+            zhHant: "感謝你使用 Bingodays，你可以透過電子郵件回報問題或提出功能建議。",
+            ja: "Bingodaysをご利用いただきありがとうございます。問題の報告や機能の提案をメールで送れます。"
         )
     }
     static var contactUsEmailLabel: String { tr("Email", zhHans: "联系邮箱", zhHant: "聯絡信箱", ja: "メール") }
     static var contactUsEmailCopied: String { tr("Email copied", zhHans: "邮箱已复制", zhHant: "信箱已複製", ja: "メールアドレスをコピーしました") }
     static var contactUsFeedbackAction: String { tr("Report a problem", zhHans: "反馈问题", zhHant: "回報問題", ja: "問題を報告する") }
+    static var contactUsBugReportAction: String { tr("Report a bug", zhHans: "反馈 Bug", zhHant: "回報 Bug", ja: "不具合を報告する") }
+    static var contactUsFeatureSuggestionAction: String { tr("Suggest a feature", zhHans: "提功能建议", zhHant: "提出功能建議", ja: "機能を提案する") }
     static var contactUsCopyEmailAction: String { tr("Copy email", zhHans: "复制邮箱", zhHant: "複製信箱", ja: "メールをコピー") }
     static var appReviewPromptTitle: String { tr("Do you like Bingodays?", zhHans: "喜欢Bingodays吗？", zhHant: "喜歡 Bingodays 嗎？", ja: "Bingodaysは気に入りましたか？") }
     static var appReviewPromptSubtitle: String {
@@ -279,7 +283,8 @@ enum L10n {
     static var appReviewPromptFeedbackAction: String { tr("I have a problem to report", zhHans: "遇到问题，我要反馈", zhHant: "遇到問題，我要回報", ja: "問題をフィードバックする") }
     static var appReviewPromptDismissAction: String { tr("No, thanks", zhHans: "不，我拒绝", zhHant: "不，我拒絕", ja: "いいえ") }
     static var appReviewFeedbackEmailSubject: String { tr("Bingodays feedback", zhHans: "Bingodays 问题反馈", zhHant: "Bingodays 問題回報", ja: "Bingodays フィードバック") }
-    static func appReviewFeedbackEmailBody(appVersion: String, device: String, system: String) -> String {
+    static var featureSuggestionEmailSubject: String { tr("Bingodays feature suggestion", zhHans: "Bingodays 功能建议", zhHant: "Bingodays 功能建議", ja: "Bingodays 機能提案") }
+    static func appReviewFeedbackEmailBody(appVersion: String, device: String, system: String, diagnosticLog: String) -> String {
         tr(
             """
             Hi Bingodays team,
@@ -291,6 +296,9 @@ enum L10n {
             App version: \(appVersion)
             Device: \(device)
             System: \(system)
+
+            Diagnostic log:
+            \(diagnosticLog)
             """,
             zhHans:
             """
@@ -303,6 +311,9 @@ enum L10n {
             App 版本：\(appVersion)
             设备：\(device)
             系统：\(system)
+
+            诊断日志：
+            \(diagnosticLog)
             """,
             zhHant:
             """
@@ -315,12 +326,69 @@ enum L10n {
             App 版本：\(appVersion)
             裝置：\(device)
             系統：\(system)
+
+            診斷日誌：
+            \(diagnosticLog)
             """,
             ja:
             """
             Bingodaysチームへ
 
             次の問題が発生しました：
+
+
+
+            App version: \(appVersion)
+            Device: \(device)
+            System: \(system)
+
+            Diagnostic log:
+            \(diagnosticLog)
+            """
+        )
+    }
+    static func featureSuggestionEmailBody(appVersion: String, device: String, system: String) -> String {
+        tr(
+            """
+            Hi Bingodays team,
+
+            I have a feature suggestion:
+
+
+
+            App version: \(appVersion)
+            Device: \(device)
+            System: \(system)
+            """,
+            zhHans:
+            """
+            Bingodays 团队你好，
+
+            我有一个功能建议：
+
+
+
+            App 版本：\(appVersion)
+            设备：\(device)
+            系统：\(system)
+            """,
+            zhHant:
+            """
+            Bingodays 團隊你好，
+
+            我有一個功能建議：
+
+
+
+            App 版本：\(appVersion)
+            裝置：\(device)
+            系統：\(system)
+            """,
+            ja:
+            """
+            Bingodaysチームへ
+
+            機能について提案があります：
 
 
 
@@ -368,10 +436,10 @@ enum L10n {
     static var subscriptionPurchaseSucceeded: String { tr("Purchase successful.", zhHans: "购买成功。", zhHant: "購買成功。", ja: "購入が完了しました。") }
     static var subscriptionActivationPending: String {
         tr(
-            "Purchase completed, but Premium is not active yet. Please tap Restore Subscription.",
-            zhHans: "购买已完成，但会员尚未激活。请点击“恢复订阅”。",
-            zhHant: "購買已完成，但會員尚未啟用。請點擊「恢復訂閱」。",
-            ja: "購入は完了しましたが、Premiumはまだ有効ではありません。「サブスクリプションを復元」をタップしてください。"
+            "Purchase successful. Premium status is syncing.",
+            zhHans: "购买成功，会员状态正在同步。",
+            zhHant: "購買成功，會員狀態正在同步。",
+            ja: "購入が完了しました。Premium状態を同期しています。"
         )
     }
     static var subscriptionPurchasePending: String { tr("Purchase is pending approval.", zhHans: "购买待确认。", zhHant: "購買待確認。", ja: "購入の承認待ちです。") }
@@ -598,6 +666,13 @@ enum L10n {
             "Some stickers were removed because your available points decreased.",
             zhHans: "可用积分减少，部分贴纸已失效。",
             zhHant: "可用積分減少，部分貼紙已失效。"
+        )
+    }
+    static var pointRedemptionsRevokedDueToPoints: String {
+        tr(
+            "Some redeemed items were removed because your available points decreased.",
+            zhHans: "可用积分减少，部分已兑换项目已失效。",
+            zhHant: "可用積分減少，部分已兌換項目已失效。"
         )
     }
     static func ownedCount(_ count: Int) -> String {
@@ -865,7 +940,7 @@ enum L10n {
     static var minutes: String { tr("Minutes", zhHans: "分钟", ja: "分") }
     static var residentDays: String { tr("Repeat Days", zhHans: "重复天数", zhHant: "重複天數", ja: "繰り返し日") }
     static var alwaysVisible: String { tr("Always", zhHans: "每天", ja: "常に") }
-    static var todayOnly: String { tr("Today Only", zhHans: "仅当天", ja: "今日のみ") }
+    static var todayOnly: String { tr("Single", zhHans: "单次", zhHant: "單次", ja: "単発") }
     static var taskScheduledTitle: String { tr("Task Scheduled", zhHans: "任务已安排", ja: "タスクを予定しました") }
     static func taskScheduledMessage(_ days: String) -> String {
         tr("This task will appear on \(days).", zhHans: "此任务会在 \(days) 显示。", ja: "このタスクは\(days)に表示されます。")
@@ -874,18 +949,18 @@ enum L10n {
     static var save: String { tr("Save", zhHans: "保存", ja: "保存") }
     static func boardWillClearIn(hours: Int, minutes: Int) -> String {
         tr(
-            "All tasks on this board will be cleared in \(hours)h \(minutes)m.",
-            zhHans: "面板将在 \(hours) 小时 \(minutes) 分钟后清空所有任务。",
-            zhHant: "面板將在 \(hours) 小時 \(minutes) 分鐘後清空所有任務。",
-            ja: "このボードのすべてのタスクは\(hours)時間\(minutes)分後にクリアされます。"
+            "Countdown ends in \(hours)h \(minutes)m. You can then choose to complete, abandon, or postpone.",
+            zhHans: "倒计时将在 \(hours) 小时 \(minutes) 分钟后结束。之后你可以选择完成、放弃或延后。",
+            zhHant: "倒計時將在 \(hours) 小時 \(minutes) 分鐘後結束。之後你可以選擇完成、放棄或延後。",
+            ja: "カウントダウンは\(hours)時間\(minutes)分後に終了します。その後、完了・放棄・延期を選べます。"
         )
     }
     static var boardWillClearIn24Hours: String {
         tr(
-            "All tasks on this board will be cleared in 24 hours.",
-            zhHans: "面板将在 24 小时后清空所有任务。",
-            zhHant: "面板將在 24 小時後清空所有任務。",
-            ja: "このボードのすべてのタスクは24時間後にクリアされます。"
+            "Countdown ends in 24 hours. You can then choose to complete, abandon, or postpone.",
+            zhHans: "倒计时将在 24 小时后结束。之后你可以选择完成、放弃或延后。",
+            zhHant: "倒計時將在 24 小時後結束。之後你可以選擇完成、放棄或延後。",
+            ja: "カウントダウンは24時間後に終了します。その後、完了・放棄・延期を選べます。"
         )
     }
     static var boardCountdownMinimumOneMinute: String {
@@ -908,6 +983,46 @@ enum L10n {
     }
     static func timeoutBoardNameLabel(_ boardName: String) -> String {
         tr("Board: \(boardName)", zhHans: "面板：\(boardName)", zhHant: "面板：\(boardName)", ja: "ボード：\(boardName)")
+    }
+    static var timeoutRuleReasonTaskCountdown: String {
+        tr(
+            "Rule: tile countdown ended",
+            zhHans: "触发规则：格子倒计时已结束",
+            zhHant: "觸發規則：格子倒計時已結束",
+            ja: "トリガー：マスのカウントダウン終了"
+        )
+    }
+    static var timeoutRuleReasonTaskEndTime: String {
+        tr(
+            "Rule: task end time reached",
+            zhHans: "触发规则：任务结束时间已到",
+            zhHant: "觸發規則：任務結束時間已到",
+            ja: "トリガー：タスク終了時刻に到達"
+        )
+    }
+    static var timeoutRuleReasonTaskCountdownAndEndTime: String {
+        tr(
+            "Rule: tile countdown and task end time both ended",
+            zhHans: "触发规则：格子倒计时和任务结束时间都已到",
+            zhHant: "觸發規則：格子倒計時和任務結束時間都已到",
+            ja: "トリガー：マスのカウントダウンとタスク終了時刻"
+        )
+    }
+    static var timeoutRuleReasonTask: String {
+        tr(
+            "Rule: task timeout",
+            zhHans: "触发规则：任务超时",
+            zhHant: "觸發規則：任務超時",
+            ja: "トリガー：タスクのタイムアウト"
+        )
+    }
+    static var timeoutRuleReasonBoardCountdown: String {
+        tr(
+            "Rule: board countdown ended",
+            zhHans: "触发规则：面板倒计时已结束",
+            zhHant: "觸發規則：面板倒計時已結束",
+            ja: "トリガー：ボードのカウントダウン終了"
+        )
     }
     static func taskTimedOutMessage(task: String, overtime: String) -> String {
         tr("“\(task)” timed out (\(overtime)).", zhHans: "「\(task)」\(overtime)。", ja: "「\(task)」がタイムアウトしました（\(overtime)）。")
@@ -937,7 +1052,9 @@ enum L10n {
     static var enterTaskForDay: String { tr("Enter a task for your day...", zhHans: "输入今天要完成的任务...", ja: "今日のタスクを入力...") }
     static var emptyBoardLongPressHint: String { tr("Long press to edit tasks", zhHans: "长按编辑任务", ja: "長押しでタスクを編集") }
     static var forceCompletion: String { tr("Force Completion", zhHans: "强制完成", ja: "強制完了") }
+    static var voiceInput: String { tr("Voice input", zhHans: "语音输入", zhHant: "語音輸入", ja: "音声入力") }
     static var recording: String { tr("Recording...", zhHans: "正在录音...", ja: "録音中...") }
+    static var stopRecording: String { tr("Stop recording", zhHans: "结束录制", zhHant: "結束錄製", ja: "録音を終了") }
     static var quickAdd: String { tr("Quick Add", zhHans: "快速添加", ja: "クイック追加") }
     static var shareBoardTemplate: String { tr("Share Template", zhHans: "分享模板", zhHant: "分享模板", ja: "テンプレートを共有") }
     static var importBoardTemplate: String { tr("Import Template", zhHans: "导入模板", zhHant: "匯入模板", ja: "テンプレートをインポート") }
@@ -994,7 +1111,14 @@ enum L10n {
     static var undo: String { tr("Undo", zhHans: "撤销", ja: "元に戻す") }
     static var unableToApplyGroup: String { tr("Unable to Apply Group", zhHans: "无法应用分组", ja: "グループを適用できません") }
     static var applyGroupFailedMessage: String { tr("This group can't be applied because there aren't enough empty tiles.", zhHans: "空白格子数量不足，无法应用这个分组。", ja: "空きマスが足りないため、このグループを適用できません。") }
-    static var expiredCountdownMessage: String { tr("Your Bingo board was cleared because its countdown ended.", zhHans: "你的 Bingo 面板已因倒计时结束被清空。", ja: "カウントダウン終了によりBingoボードがクリアされました。") }
+    static var expiredCountdownMessage: String {
+        tr(
+            "Your Bingo board countdown ended. Choose to complete, abandon, or postpone.",
+            zhHans: "你的 Bingo 面板倒计时已结束。请选择完成、放弃或延后。",
+            zhHant: "你的 Bingo 面板倒計時已結束。請選擇完成、放棄或延後。",
+            ja: "Bingoボードのカウントダウンが終了しました。完了・放棄・延期を選んでください。"
+        )
+    }
     static var groupDefaultName: String { tr("Group", zhHans: "分组", ja: "グループ") }
     static var boardInteractionGuide: String {
         tr(

@@ -59,7 +59,9 @@ struct BingoDiaryScreen: View {
         NavigationStack {
             GeometryReader { geometry in
                 let contentWidth = geometry.size.width
+                let bottomSafeArea = max(geometry.safeAreaInsets.bottom, 0)
                 let statsToBubbleSpacing = scaled(10, pad: 10)
+                let bottomContentPadding = scaled(36, pad: 44) + bottomSafeArea
                 let resolvedStatsHeight = max(
                     statsSectionHeight,
                     scaled(132, pad: 150)
@@ -70,7 +72,7 @@ struct BingoDiaryScreen: View {
                     - resolvedStatsHeight
                     - statsToBubbleSpacing  // space between stats and bubble area
                     - scaled(16, pad: 24)   // top content padding
-                    - scaled(36, pad: 44)   // bottom content padding
+                    - bottomContentPadding
                     - geometry.safeAreaInsets.top
                     - scaled(56, pad: 68)   // header + safe margin
                 )
@@ -109,48 +111,11 @@ struct BingoDiaryScreen: View {
                                 emptyDiaryState
                                     .padding(.horizontal, scaled(20, pad: 28))
                             } else {
-                                let horizontalPanInset = scaled(22, pad: 28)
-                                let alwaysScrollableCanvasWidth = max(
-                                    bubbleLayout.width,
-                                    contentWidth + horizontalPanInset * 2
-                                )
-
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 0) {
-                                        BingoDiaryBubbleCloud(
-                                            bubbles: bubbleLayout.bubbles,
-                                            canvasWidth: bubbleLayout.width,
-                                            canvasHeight: bubbleLayout.height,
-                                            globalMotionOffset: gravityMonitor.offset,
-                                            isInteractionPaused: isBubbleCloudInteracting,
-                                            onBubbleTap: { bubble in
-                                                selectedTaskDetail = snapshot.completedTaskStats.first(where: { $0.id == bubble.id })
-                                                    ?? BingoDiaryTaskCount(task: bubble.task, count: bubble.count, firstCompletedAt: nil)
-                                            }
-                                        )
-                                        .padding(.horizontal, max((alwaysScrollableCanvasWidth - bubbleLayout.width) / 2, 0))
-                                    }
-                                    .frame(width: alwaysScrollableCanvasWidth, alignment: .leading)
-                                }
-                                .simultaneousGesture(
-                                    DragGesture(minimumDistance: 2)
-                                        .onChanged { _ in
-                                            if !isBubbleCloudInteracting {
-                                                isBubbleCloudInteracting = true
-                                            }
-                                        }
-                                        .onEnded { _ in
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                                                isBubbleCloudInteracting = false
-                                            }
-                                        }
-                                )
-                                .frame(height: bubbleLayout.height)
-                                .clipped()
+                                bubbleCloudSection(bubbleLayout)
                             }
                         }
                         .padding(.top, scaled(16, pad: 24))
-                        .padding(.bottom, scaled(36, pad: 44))
+                        .padding(.bottom, bottomContentPadding)
                     }
                 }
                 .onAppear {
@@ -307,6 +272,46 @@ struct BingoDiaryScreen: View {
             height: layout.height,
             isHorizontallyOverflowing: layout.isHorizontallyOverflowing
         )
+    }
+
+    @ViewBuilder
+    private func bubbleCloudSection(_ bubbleLayout: DiaryBubbleLayoutCache) -> some View {
+        let cloud = BingoDiaryBubbleCloud(
+            bubbles: bubbleLayout.bubbles,
+            canvasWidth: bubbleLayout.width,
+            canvasHeight: bubbleLayout.height,
+            globalMotionOffset: gravityMonitor.offset,
+            isInteractionPaused: isBubbleCloudInteracting,
+            onBubbleTap: { bubble in
+                selectedTaskDetail = snapshot.completedTaskStats.first(where: { $0.id == bubble.id })
+                    ?? BingoDiaryTaskCount(task: bubble.task, count: bubble.count, firstCompletedAt: nil)
+            }
+        )
+
+        if bubbleLayout.isHorizontallyOverflowing {
+            ScrollView(.horizontal, showsIndicators: false) {
+                cloud
+            }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 2)
+                    .onChanged { _ in
+                        if !isBubbleCloudInteracting {
+                            isBubbleCloudInteracting = true
+                        }
+                    }
+                    .onEnded { _ in
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                            isBubbleCloudInteracting = false
+                        }
+                    }
+            )
+            .frame(height: bubbleLayout.height)
+            .clipped()
+        } else {
+            cloud
+                .frame(maxWidth: .infinity)
+                .frame(height: bubbleLayout.height)
+        }
     }
 
     private func diarySummaryCard(value: Int, title: String) -> some View {

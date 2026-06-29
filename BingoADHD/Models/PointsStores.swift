@@ -194,6 +194,182 @@ enum RewardStore {
     }
 }
 
+struct PointRedemptionReconciliationResult {
+    var stickerInventoryCounts: [StickerKind: Int]
+    var homeStickerPlacements: [HomeStickerPlacement]
+    var customRewards: [CustomReward]
+    var didRevokeStickers: Bool
+    var didRevokeCustomRewards: Bool
+
+    var didChange: Bool {
+        didRevokeStickers || didRevokeCustomRewards
+    }
+}
+
+enum PointRedemptionReconciler {
+    @discardableResult
+    static func reconcilePersistedRedemptionsIfNeeded(totalPoints: Int) -> PointRedemptionReconciliationResult {
+        let result = reconcileRedemptionsIfNeeded(
+            totalPoints: totalPoints,
+            stickerInventoryCounts: StickerStore.loadInventoryCounts(),
+            homeStickerPlacements: StickerStore.loadPlacements(),
+            customRewards: RewardStore.loadRewards()
+        )
+        persist(result)
+        return result
+    }
+
+    static func reconcileRedemptionsIfNeeded(
+        totalPoints: Int,
+        stickerInventoryCounts: [StickerKind: Int],
+        homeStickerPlacements: [HomeStickerPlacement],
+        customRewards: [CustomReward]
+    ) -> PointRedemptionReconciliationResult {
+        var updatedInventory = stickerInventoryCounts
+        var updatedPlacements = homeStickerPlacements
+        var updatedRewards = customRewards
+        var didRevokeStickers = false
+        var didRevokeCustomRewards = false
+
+        let pointBudget = max(totalPoints, 0)
+        var currentSpent = spentStickerPoints(in: updatedInventory) + spentRewardPoints(in: updatedRewards)
+        guard currentSpent > pointBudget else {
+            return PointRedemptionReconciliationResult(
+                stickerInventoryCounts: updatedInventory,
+                homeStickerPlacements: updatedPlacements,
+                customRewards: updatedRewards,
+                didRevokeStickers: false,
+                didRevokeCustomRewards: false
+            )
+        }
+
+        while currentSpent > pointBudget {
+            let stickerCandidate = nextStickerCandidate(in: updatedInventory)
+            let rewardCandidate = nextRewardCandidate(in: updatedRewards)
+
+            if shouldRevokeReward(rewardCandidate: rewardCandidate, stickerCandidate: stickerCandidate),
+               let rewardCandidate {
+                let refundPoints = rewardCandidate.points
+                updatedRewards[rewardCandidate.index].redemptionCount = max(
+                    updatedRewards[rewardCandidate.index].redemptionCount - 1,
+                    0
+                )
+                updatedRewards[rewardCandidate.index].totalSpentPoints = max(
+                    updatedRewards[rewardCandidate.index].totalSpentPoints - refundPoints,
+                    0
+                )
+                if updatedRewards[rewardCandidate.index].totalSpentPoints == 0 {
+                    updatedRewards[rewardCandidate.index].redemptionCount = 0
+                }
+                currentSpent -= refundPoints
+                didRevokeCustomRewards = true
+                continue
+            }
+
+            if let stickerCandidate {
+                updatedInventory[stickerCandidate.kind] = 0
+                updatedPlacements.removeAll { $0.kind == stickerCandidate.kind }
+                currentSpent -= stickerCandidate.points
+                didRevokeStickers = true
+                continue
+            }
+
+            break
+        }
+
+        return PointRedemptionReconciliationResult(
+            stickerInventoryCounts: updatedInventory,
+            homeStickerPlacements: updatedPlacements,
+            customRewards: updatedRewards,
+            didRevokeStickers: didRevokeStickers,
+            didRevokeCustomRewards: didRevokeCustomRewards
+        )
+    }
+
+    static func persist(_ result: PointRedemptionReconciliationResult) {
+        if result.didRevokeStickers {
+            StickerStore.saveInventoryCounts(result.stickerInventoryCounts)
+            StickerStore.savePlacements(result.homeStickerPlacements)
+        }
+
+        if result.didRevokeCustomRewards {
+            RewardStore.saveRewards(result.customRewards)
+        }
+    }
+
+    private struct StickerCandidate {
+        let kind: StickerKind
+        let points: Int
+    }
+
+    private struct RewardCandidate {
+        let index: Int
+        let points: Int
+    }
+
+    private static func nextStickerCandidate(in inventory: [StickerKind: Int]) -> StickerCandidate? {
+        inventory
+            .filter { $0.value > 0 }
+            .map { StickerCandidate(kind: $0.key, points: $0.key.requiredPoints) }
+            .sorted { lhs, rhs in
+                if lhs.points == rhs.points {
+                    return lhs.kind.rawValue < rhs.kind.rawValue
+                }
+                return lhs.points > rhs.points
+            }
+            .first
+    }
+
+    private static func nextRewardCandidate(in rewards: [CustomReward]) -> RewardCandidate? {
+        rewards.indices
+            .compactMap { index -> RewardCandidate? in
+                let refundPoints = nextRewardRefundPoints(for: rewards[index])
+                guard refundPoints > 0 else { return nil }
+                return RewardCandidate(index: index, points: refundPoints)
+            }
+            .sorted { lhs, rhs in
+                if lhs.points == rhs.points {
+                    let lhsReward = rewards[lhs.index]
+                    let rhsReward = rewards[rhs.index]
+                    if lhsReward.title == rhsReward.title {
+                        return lhsReward.id.uuidString < rhsReward.id.uuidString
+                    }
+                    return lhsReward.title < rhsReward.title
+                }
+                return lhs.points > rhs.points
+            }
+            .first
+    }
+
+    private static func shouldRevokeReward(
+        rewardCandidate: RewardCandidate?,
+        stickerCandidate: StickerCandidate?
+    ) -> Bool {
+        guard let rewardCandidate else { return false }
+        guard let stickerCandidate else { return true }
+        guard rewardCandidate.points != stickerCandidate.points else { return false }
+        return rewardCandidate.points > stickerCandidate.points
+    }
+
+    private static func nextRewardRefundPoints(for reward: CustomReward) -> Int {
+        guard reward.redemptionCount > 0, reward.totalSpentPoints > 0 else { return 0 }
+        let averageSpent = Int(ceil(Double(reward.totalSpentPoints) / Double(reward.redemptionCount)))
+        return min(max(averageSpent, 1), reward.totalSpentPoints)
+    }
+
+    private static func spentStickerPoints(in inventory: [StickerKind: Int]) -> Int {
+        inventory.reduce(0) { partial, entry in
+            partial + (entry.key.requiredPoints * entry.value)
+        }
+    }
+
+    private static func spentRewardPoints(in rewards: [CustomReward]) -> Int {
+        rewards.reduce(0) { partial, reward in
+            partial + reward.totalSpentPoints
+        }
+    }
+}
+
 enum PointRedemptionHistoryStore {
     private static let maxRecordCount = 500
 

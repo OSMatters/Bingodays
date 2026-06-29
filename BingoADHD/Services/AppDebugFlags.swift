@@ -1,6 +1,10 @@
 import Foundation
 
 enum AppDebugFlags {
+#if DEBUG
+    private static var hasConsumedLimitedOfferStateReset = false
+#endif
+
     static var forceUpdatePrompt: Bool {
 #if DEBUG
         ProcessInfo.processInfo.arguments.contains("-ForceUpdatePrompt")
@@ -62,6 +66,33 @@ enum AppDebugFlags {
         ProcessInfo.processInfo.arguments.contains("-DebugBoardEditHint")
 #else
         false
+#endif
+    }
+
+    static var resetLimitedOfferState: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-DebugResetLimitedOfferState")
+#else
+        false
+#endif
+    }
+
+    static var forceLimitedOfferEligible: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-DebugLimitedOfferEligible")
+#else
+        false
+#endif
+    }
+
+    static func consumeLimitedOfferStateResetIfNeeded() -> Bool {
+#if DEBUG
+        guard resetLimitedOfferState else { return false }
+        guard !hasConsumedLimitedOfferStateReset else { return false }
+        hasConsumedLimitedOfferStateReset = true
+        return true
+#else
+        return false
 #endif
     }
 }

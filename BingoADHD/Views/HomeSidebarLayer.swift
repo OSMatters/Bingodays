@@ -70,6 +70,7 @@ struct HomeSidebarLayer: View {
             .allowsHitTesting(isPresented)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .allowsHitTesting(isPresented)
         .animation(.spring(response: 0.35, dampingFraction: 0.82), value: isPresented)
     }
 }

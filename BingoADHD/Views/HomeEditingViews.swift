@@ -174,10 +174,11 @@ struct QuickEditView: View {
         .fullScreenCover(isPresented: $isPremiumPaywallPresented) {
             PremiumPaywallView(entrySource: premiumPaywallSource)
         }
-        .fullScreenCover(item: $previewEditingTarget) { target in
+        .sheet(item: $previewEditingTarget) { target in
             previewEditTaskSheet(for: target.slotID)
-                .background(Color.clear)
-                .presentationBackground(.clear)
+                .presentationDetents([.fraction(isPadLayout ? 0.66 : 0.74), .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Color(hex: "202020"))
         }
         .alert(
             L10n.tr("Discard changes?", zhHans: "确认退出？", zhHant: "確認退出？"),
@@ -681,13 +682,14 @@ struct QuickEditView: View {
                 isForcedTask: currentCell.isForced,
                 residentWeekdays: currentCell.residentWeekdays,
                 isOneTimeTask: currentCell.isOneTimeTask,
+                recurrenceRule: currentCell.recurrenceRule,
                 startVisibleAt: currentCell.startVisibleAt,
                 endVisibleAt: currentCell.endVisibleAt,
                 startReminderEnabled: currentCell.startReminderEnabled,
                 startReminderOffsetMinutes: currentCell.startReminderOffsetMinutes,
                 isCompletedTask: currentCell.isCompleted,
                 estimatedDurationMinutes: quickEditRemainingMinutes(from: currentCell.countdownEndsAt),
-                onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes in
+                onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, recurrenceRule, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes in
                     guard let latestIndex = previewSlots.firstIndex(where: { $0.id == slotID }) else {
                         previewEditingTarget = nil
                         return
@@ -700,6 +702,7 @@ struct QuickEditView: View {
                         isForcedTask: isForcedTask,
                         residentWeekdays: residentWeekdays,
                         isOneTimeTask: isOneTimeTask,
+                        recurrenceRule: recurrenceRule,
                         estimatedDurationMinutes: estimatedDurationMinutes,
                         startVisibleAt: startVisibleAt,
                         endVisibleAt: endVisibleAt,
@@ -1151,6 +1154,9 @@ struct QuickEditView: View {
         premiumPaywallSource = source
         focusedField = nil
         Task { @MainActor in
+            guard !subscriptionManager.hasPremiumAccess else { return }
+            await subscriptionManager.refreshEntitlements()
+            guard !subscriptionManager.hasPremiumAccess else { return }
             isPremiumPaywallPresented = true
             await subscriptionManager.warmupProductsForPaywall()
         }

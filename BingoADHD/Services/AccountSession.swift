@@ -100,7 +100,6 @@ final class AccountSession: NSObject, ObservableObject {
     private override init() {
         super.init()
         guard AppFeatureFlags.isAccountEnabled else {
-            forceSignOutForSoftOffMode()
             phase = .signedOut
             profile = nil
             return
@@ -298,20 +297,34 @@ final class AccountSession: NSObject, ObservableObject {
         UserDefaults.standard.set(snapshot.hapticsEnabled, forKey: AppSettings.hapticsEnabledKey)
         UserDefaults.standard.set(snapshot.soundEffectsEnabled, forKey: AppSettings.soundEffectsEnabledKey)
 
+        let boardRepository = LiveBoardManagementRepository()
+        var boardResult = BoardStateCommitResult()
         if let board = snapshot.board {
-            BingoBoardStore.saveBoard(
-                board,
+            boardResult = BoardStateCommitter.saveActiveBoardState(
+                board: board,
+                countdownEndsAt: snapshot.boardCountdownEndsAt,
                 savedAt: snapshot.boardLastSavedAt ?? snapshot.updatedAt,
+                associatedBoardID: nil,
+                repository: boardRepository,
                 reloadWidgets: false
             )
         } else {
-            BingoBoardStore.clearBoard(reloadWidgets: false)
+            let hadLocalBoardState = boardRepository.loadBoard() != nil
+                || boardRepository.loadActiveNamedBoardID() != nil
+                || boardRepository.loadBoardCountdownEndsAt() != nil
+            if hadLocalBoardState {
+                BingoBoardStore.clearBoard(reloadWidgets: false)
+                boardResult.savedBoard = true
+            }
+            if boardRepository.loadBoardCountdownEndsAt() != snapshot.boardCountdownEndsAt {
+                boardRepository.saveBoardCountdownEndsAt(snapshot.boardCountdownEndsAt)
+                boardResult.savedBoardCountdown = true
+            }
         }
-        BingoBoardStore.saveBoardCountdownEndsAt(snapshot.boardCountdownEndsAt)
         if let firstSeenDate = snapshot.firstSeenDate {
             BingoBoardStore.setFirstSeenDate(firstSeenDate)
         }
-        BingoBoardStore.reloadWidgetTimelines()
+        BoardStateCommitter.reloadWidgetsIfNeeded(&boardResult, repository: boardRepository)
 
         CommonTasksStore.saveLibrary(snapshot.tasksLibrary)
         RewardStore.saveRewards(snapshot.rewards)
@@ -568,9 +581,14 @@ private actor AccountSyncService {
         UserDefaults.standard.removeObject(forKey: AppSettings.hapticsEnabledKey)
         UserDefaults.standard.removeObject(forKey: AppSettings.soundEffectsEnabledKey)
 
+        let hadLocalBoardState = BingoBoardStore.loadBoard() != nil
+            || BingoBoardStore.loadActiveNamedBoardID() != nil
+            || BingoBoardStore.loadBoardCountdownEndsAt() != nil
         BingoBoardStore.clearBoard(reloadWidgets: false)
         BingoBoardStore.clearFirstSeenDate()
-        BingoBoardStore.reloadWidgetTimelines()
+        if hadLocalBoardState {
+            BingoBoardStore.reloadWidgetTimelines()
+        }
         CommonTasksStore.saveLibrary(MyTasksLibrary())
         RewardStore.clearRewards()
         StickerStore.clearInventoryCounts()

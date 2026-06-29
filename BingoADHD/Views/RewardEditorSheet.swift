@@ -18,6 +18,7 @@ struct RewardEditorSheet: View {
     }
 
     let reward: CustomReward?
+    let isSaving: Bool
     let onSave: (String, Int, String, String?) -> Void
     let onDelete: (() -> Void)?
     let onCancel: () -> Void
@@ -29,6 +30,7 @@ struct RewardEditorSheet: View {
     @State private var selectedSkinTab: CardSkinTab
     @State private var emojiInputBuffer = ""
     @State private var isEmojiKeyboardPresented = false
+    @State private var keyboardHeight: CGFloat = 0
     @State private var emojiHistory: [String]
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -42,11 +44,13 @@ struct RewardEditorSheet: View {
 
     init(
         reward: CustomReward?,
+        isSaving: Bool = false,
         onSave: @escaping (String, Int, String, String?) -> Void,
         onDelete: (() -> Void)?,
         onCancel: @escaping () -> Void
     ) {
         self.reward = reward
+        self.isSaving = isSaving
         self.onSave = onSave
         self.onDelete = onDelete
         self.onCancel = onCancel
@@ -93,7 +97,26 @@ struct RewardEditorSheet: View {
     }
 
     private func saveReward() {
-        guard let requiredPoints = normalizedPoints else { return }
+        guard !isSaving else { return }
+        guard let requiredPoints = normalizedPoints, !normalizedTitle.isEmpty else {
+            finishEditingThenRetrySave()
+            return
+        }
+        commitSave(requiredPoints: requiredPoints)
+    }
+
+    private func finishEditingThenRetrySave() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        isEmojiKeyboardPresented = false
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 160_000_000)
+            guard !isSaving, let requiredPoints = normalizedPoints, !normalizedTitle.isEmpty else { return }
+            commitSave(requiredPoints: requiredPoints)
+        }
+    }
+
+    private func commitSave(requiredPoints: Int) {
         rememberEmoji(selectedEmoji)
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         isEmojiKeyboardPresented = false
@@ -102,6 +125,10 @@ struct RewardEditorSheet: View {
 
     private var skinPickerContentHeight: CGFloat {
         scaled(220, pad: 288)
+    }
+
+    private var isKeyboardVisible: Bool {
+        keyboardHeight > 0 || isEmojiKeyboardPresented
     }
 
     var body: some View {
@@ -138,8 +165,11 @@ struct RewardEditorSheet: View {
             .offset(y: scaled(-30, pad: -36))
             .zIndex(1)
 
-            cardSkinPanel
-                .zIndex(1)
+            if !isKeyboardVisible {
+                cardSkinPanel
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(1)
+            }
 
             if isEmojiKeyboardPresented {
                 EmojiKeyboardHost(text: $emojiInputBuffer, isPresented: $isEmojiKeyboardPresented)
@@ -147,7 +177,13 @@ struct RewardEditorSheet: View {
                     .opacity(0.01)
             }
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .animation(.spring(response: 0.24, dampingFraction: 0.9), value: isKeyboardVisible)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            updateKeyboardHeight(from: notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+            updateKeyboardHeight(from: notification)
+        }
         .onChange(of: selectedEmoji) { _, newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let firstCluster = trimmed.first.map(String.init) ?? ""
@@ -189,15 +225,22 @@ struct RewardEditorSheet: View {
             Button {
                 saveReward()
             } label: {
-                Text(L10n.save)
-                    .font(.appSystem(size: scaled(16, pad: 19), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-                    .frame(width: scaled(60, pad: 72), height: scaled(40, pad: 46))
-                    .appLiquidGlass(in: Capsule(style: .continuous), interactive: canSave)
-                    .opacity(canSave ? 1 : 0.52)
+                Group {
+                    if isSaving {
+                        ProgressView()
+                            .tint(NeumorphicColors.text)
+                    } else {
+                        Text(L10n.save)
+                            .font(.appSystem(size: scaled(16, pad: 19), weight: .semibold, design: .rounded))
+                    }
+                }
+                .foregroundColor(NeumorphicColors.text)
+                .frame(width: scaled(60, pad: 72), height: scaled(40, pad: 46))
+                .appLiquidGlass(in: Capsule(style: .continuous), interactive: canSave && !isSaving)
+                .opacity(canSave ? 1 : 0.52)
             }
             .buttonStyle(.plain)
-            .disabled(!canSave)
+            .disabled(isSaving)
         }
     }
 
@@ -319,7 +362,7 @@ struct RewardEditorSheet: View {
             .fill(Color(red: 0.99, green: 0.99, blue: 0.99))
         )
         .offset(y: scaled(34, pad: 42))
-        .ignoresSafeArea(edges: .bottom)
+        .ignoresSafeArea(.container, edges: .bottom)
     }
 
     private func cardSkinTabButton(title: String, tab: CardSkinTab) -> some View {
@@ -463,6 +506,20 @@ struct RewardEditorSheet: View {
         isEmojiKeyboardPresented = false
     }
 
+    private func updateKeyboardHeight(from notification: Notification) {
+        guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            return
+        }
+
+        let screenHeight = UIScreen.main.bounds.height
+        let overlap = max(0, screenHeight - endFrame.minY)
+        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.22
+
+        withAnimation(.easeOut(duration: duration)) {
+            keyboardHeight = overlap
+        }
+    }
+
 }
 
 private struct RewardInlineTextField: UIViewRepresentable {
@@ -538,6 +595,10 @@ private struct RewardInlineTextField: UIViewRepresentable {
             return false
         }
 
+        func textFieldDidEndEditing(_ textField: UITextField) {
+            syncText(from: textField)
+        }
+
         func textField(
             _ textField: UITextField,
             shouldChangeCharactersIn range: NSRange,
@@ -575,8 +636,18 @@ private struct RewardInlineTextField: UIViewRepresentable {
         }
 
         private func normalize(_ rawValue: String) -> String {
-            let value = parent.allowsOnlyDigits ? rawValue.filter(\.isNumber) : rawValue
-            return String(value.prefix(parent.maxLength))
+            guard parent.allowsOnlyDigits else {
+                return String(rawValue.prefix(parent.maxLength))
+            }
+
+            var digits = ""
+            digits.reserveCapacity(parent.maxLength)
+            for character in rawValue {
+                guard let digit = character.wholeNumberValue else { continue }
+                digits.append(String(digit))
+                if digits.count >= parent.maxLength { break }
+            }
+            return digits
         }
     }
 }

@@ -12,6 +12,13 @@ struct HomeTimeoutOverlayLayer: View {
     @Binding var timeoutDelayPickerMinutes: Int
     let onToast: (String) -> Void
 
+    private var isShowingOverlay: Bool {
+        viewModel.expiredTaskEvent != nil ||
+            viewModel.expiredBoardCountdownEvent != nil ||
+            viewModel.scheduledTaskReplacementEvent != nil ||
+            timeoutDelayPickerContext != nil
+    }
+
     var body: some View {
         ZStack {
             if let expiredTaskEvent = viewModel.expiredTaskEvent {
@@ -38,6 +45,7 @@ struct HomeTimeoutOverlayLayer: View {
                     .zIndex(40)
             }
         }
+        .allowsHitTesting(isShowingOverlay)
     }
 
     @ViewBuilder
@@ -45,14 +53,17 @@ struct HomeTimeoutOverlayLayer: View {
         ZStack {
             TimeoutDialogBackdrop()
 
-            VStack(spacing: 20) {
+            VStack(spacing: 0) {
                 let overtimeSeconds = max(Int(countdownNow.timeIntervalSince(event.expiredAt)), 0)
                 let taskText = event.taskText.isEmpty ? L10n.task : event.taskText
 
                 TimeoutDialogCard(
                     headline: L10n.taskTimedOutHeadline(task: taskText, seconds: overtimeSeconds),
+                    ruleReason: taskTimeoutRuleReason(for: event),
                     boardNameLabel: L10n.timeoutBoardNameLabel(selectedBoardName),
                     isPadLayout: isPadLayout,
+                    showsSecondaryAction: event.allowsPostpone,
+                    bottomActionTitle: L10n.tr("Remove task", zhHans: "删除任务", zhHant: "刪除任務"),
                     onPrimaryAction: {
                         if let message = viewModel.resolveExpiredTask(.markAsCompleted, now: countdownNow) {
                             onToast(message)
@@ -60,19 +71,13 @@ struct HomeTimeoutOverlayLayer: View {
                     },
                     onSecondaryAction: {
                         openTimeoutDelayPicker(for: .task, presetMinutes: taskTimeoutDelayMinutes)
+                    },
+                    onBottomAction: {
+                        if let message = viewModel.resolveExpiredTask(.abandon, now: countdownNow) {
+                            onToast(message)
+                        }
                     }
                 )
-
-                Button {
-                    if let message = viewModel.resolveExpiredTask(.abandon, now: countdownNow) {
-                        onToast(message)
-                    }
-                } label: {
-                    Text(L10n.tr("Remove task", zhHans: "删除任务", zhHant: "刪除任務"))
-                        .font(.appSystem(size: scaled(17, pad: 20), weight: .semibold, design: .rounded))
-                        .foregroundColor(.white.opacity(0.5))
-                }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 24)
         }
@@ -83,13 +88,15 @@ struct HomeTimeoutOverlayLayer: View {
         ZStack {
             TimeoutDialogBackdrop()
 
-            VStack(spacing: 20) {
+            VStack(spacing: 0) {
                 let overtimeSeconds = max(Int(countdownNow.timeIntervalSince(event.expiredAt)), 0)
 
                 TimeoutDialogCard(
                     headline: L10n.boardTimedOutHeadline(seconds: overtimeSeconds),
+                    ruleReason: L10n.timeoutRuleReasonBoardCountdown,
                     boardNameLabel: L10n.timeoutBoardNameLabel(selectedBoardName),
                     isPadLayout: isPadLayout,
+                    bottomActionTitle: L10n.tr("Cancel countdown", zhHans: "取消倒计时", zhHant: "取消倒計時"),
                     onPrimaryAction: {
                         if let message = viewModel.resolveExpiredBoardCountdown(.markAsCompleted, now: countdownNow) {
                             onToast(message)
@@ -97,19 +104,13 @@ struct HomeTimeoutOverlayLayer: View {
                     },
                     onSecondaryAction: {
                         openTimeoutDelayPicker(for: .board, presetMinutes: boardTimeoutDelayMinutes)
+                    },
+                    onBottomAction: {
+                        if let message = viewModel.resolveExpiredBoardCountdown(.abandon, now: countdownNow) {
+                            onToast(message)
+                        }
                     }
                 )
-
-                Button {
-                    if let message = viewModel.resolveExpiredBoardCountdown(.abandon, now: countdownNow) {
-                        onToast(message)
-                    }
-                } label: {
-                    Text(L10n.tr("Cancel countdown", zhHans: "取消倒计时", zhHant: "取消倒計時"))
-                        .font(.appSystem(size: scaled(17, pad: 20), weight: .semibold, design: .rounded))
-                        .foregroundColor(.white.opacity(0.5))
-                }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 24)
         }
@@ -199,7 +200,17 @@ struct HomeTimeoutOverlayLayer: View {
         }
     }
 
-    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
-        isPadLayout ? (pad ?? base * 1.26) : base
+    private func taskTimeoutRuleReason(for event: BingoViewModel.ExpiredTaskEvent) -> String {
+        switch (event.expiredByCountdown, event.expiredByVisibilityWindow) {
+        case (true, true):
+            return L10n.timeoutRuleReasonTaskCountdownAndEndTime
+        case (true, false):
+            return L10n.timeoutRuleReasonTaskCountdown
+        case (false, true):
+            return L10n.timeoutRuleReasonTaskEndTime
+        case (false, false):
+            return L10n.timeoutRuleReasonTask
+        }
     }
+
 }

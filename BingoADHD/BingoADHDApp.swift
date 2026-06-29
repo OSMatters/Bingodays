@@ -110,11 +110,22 @@ enum TaskStartReminderService {
         let desiredIDs = Set(desiredReminders.map(\.identifier))
         let center = UNUserNotificationCenter.current()
         let pendingRequests = await pendingNotificationRequests(center: center)
-        let managedPendingIDs = pendingRequests
-            .map(\.identifier)
-            .filter(isManagedNotificationID)
+        let managedPendingRequests = pendingRequests.filter { isManagedNotificationID($0.identifier) }
+        let managedPendingIDs = Set(managedPendingRequests.map(\.identifier))
+        let pendingRequestsByID = Dictionary(
+            managedPendingRequests.map { ($0.identifier, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let stalePendingIDs = managedPendingIDs.subtracting(desiredIDs)
+        let changedPendingIDs = Set(desiredReminders.compactMap { reminder -> String? in
+            guard let request = pendingRequestsByID[reminder.identifier] else { return nil }
+            return pendingRequest(request, matches: reminder) ? nil : reminder.identifier
+        })
+        let pendingIDsToRemove = Array(stalePendingIDs.union(changedPendingIDs))
 
-        center.removePendingNotificationRequests(withIdentifiers: managedPendingIDs)
+        if !pendingIDsToRemove.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: pendingIDsToRemove)
+        }
 
         let deliveredIDs = await deliveredNotificationIDs(center: center)
         let staleDeliveredIDs = deliveredIDs
@@ -126,6 +137,9 @@ enum TaskStartReminderService {
         guard await hasNotificationAuthorization(center: center) else { return }
 
         for reminder in desiredReminders {
+            guard pendingRequestsByID[reminder.identifier] == nil || changedPendingIDs.contains(reminder.identifier) else {
+                continue
+            }
             schedule(reminder, center: center)
         }
     }
@@ -250,6 +264,28 @@ enum TaskStartReminderService {
         let trigger = UNCalendarNotificationTrigger(dateMatching: triggerDate, repeats: false)
         let request = UNNotificationRequest(identifier: reminder.identifier, content: content, trigger: trigger)
         center.add(request)
+    }
+
+    private static func pendingRequest(_ request: UNNotificationRequest, matches reminder: PendingReminder) -> Bool {
+        guard request.content.title == reminder.title,
+              request.content.body == reminder.body,
+              request.content.userInfo["type"] as? String == "task_start_reminder",
+              request.content.userInfo["board_id"] as? String == reminder.boardID.uuidString,
+              request.content.userInfo["cell_id"] as? String == reminder.cellID.uuidString,
+              let trigger = request.trigger as? UNCalendarNotificationTrigger else {
+            return false
+        }
+
+        let expectedDateComponents = Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute, .second],
+            from: reminder.date
+        )
+        return trigger.dateComponents.year == expectedDateComponents.year &&
+            trigger.dateComponents.month == expectedDateComponents.month &&
+            trigger.dateComponents.day == expectedDateComponents.day &&
+            trigger.dateComponents.hour == expectedDateComponents.hour &&
+            trigger.dateComponents.minute == expectedDateComponents.minute &&
+            trigger.dateComponents.second == expectedDateComponents.second
     }
 
     private static func hasNotificationAuthorization(center: UNUserNotificationCenter) async -> Bool {
@@ -377,6 +413,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         AppFontRegistrar.registerIfNeeded()
         AnalyticsService.bootstrap()
+        DiagnosticLogStore.recordStateChange(
+            "app.launch",
+            details: [
+                "template_sharing": "\(AppFeatureFlags.isTemplateSharingEnabled)",
+                "account": "\(AppFeatureFlags.isAccountEnabled)"
+            ]
+        )
         scheduleLegacyNotificationCleanup()
         return true
     }
@@ -394,6 +437,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
+        DiagnosticLogStore.recordStateChange("app.did_become_active")
         scheduleLegacyNotificationCleanup()
     }
 
@@ -403,12 +447,28 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
         if GIDSignIn.sharedInstance.handle(url) {
+            DiagnosticLogStore.recordStateChange(
+                "url.open_google_sign_in",
+                details: ["scheme": url.scheme ?? "none"]
+            )
             return true
         }
         guard AppFeatureFlags.isTemplateSharingEnabled else {
+            DiagnosticLogStore.recordWarning(
+                "url.open_blocked_template_flag",
+                details: ["scheme": url.scheme ?? "none"]
+            )
             return false
         }
-        return BoardTemplateImportCoordinator.shared.handleIncomingURL(url)
+        let handled = BoardTemplateImportCoordinator.shared.handleIncomingURL(url)
+        DiagnosticLogStore.recordStateChange(
+            "url.open_template",
+            details: [
+                "scheme": url.scheme ?? "none",
+                "handled": "\(handled)"
+            ]
+        )
+        return handled
     }
 
     func application(
@@ -417,13 +477,26 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
     ) -> Bool {
         guard AppFeatureFlags.isTemplateSharingEnabled else {
+            DiagnosticLogStore.recordWarning("universal_link_blocked_template_flag")
             return false
         }
         guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
               let url = userActivity.webpageURL else {
+            DiagnosticLogStore.recordWarning(
+                "universal_link_invalid",
+                details: ["activity_type": userActivity.activityType]
+            )
             return false
         }
-        return BoardTemplateImportCoordinator.shared.handleIncomingURL(url)
+        let handled = BoardTemplateImportCoordinator.shared.handleIncomingURL(url)
+        DiagnosticLogStore.recordStateChange(
+            "universal_link_template",
+            details: [
+                "host": url.host ?? "none",
+                "handled": "\(handled)"
+            ]
+        )
+        return handled
     }
 }
 

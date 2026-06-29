@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct SidebarMenuRow: View {
     let icon: String
@@ -81,6 +84,37 @@ struct SidebarDisclosureRow: View {
                     .font(.appSystem(size: 13, weight: .bold))
                     .foregroundColor(themeColor)
                     .rotationEffect(.degrees(isExpanded ? 0 : -90))
+            }
+        }
+        .buttonStyle(.plain)
+        .sidebarListRow()
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+struct SidebarSettingsLinkRow: View {
+    let title: String
+    let isPadLayout: Bool
+    let themeColor: Color
+    let onTap: () -> Void
+
+    var body: some View {
+        Button {
+            onTap()
+        } label: {
+            HStack(spacing: 14) {
+                Text(title)
+                    .font(.appSystem(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.appSystem(size: 13, weight: .bold))
+                    .foregroundColor(themeColor)
             }
         }
         .buttonStyle(.plain)
@@ -683,12 +717,12 @@ struct HomeSidebarView: View {
 
                     settingsDisclosureButton
 
-                    SidebarProEntryRow(isPremiumMember: subscriptionManager.hasPremiumAccess, themeColor: themeColor) {
-                        closeAndRun(after: 0.1, action: onPresentPremiumPaywall)
-                    }
-
                     if isSettingsExpanded {
                         settingsRows
+                    }
+
+                    SidebarProEntryRow(isPremiumMember: subscriptionManager.hasPremiumAccess, themeColor: themeColor) {
+                        closeAndRun(after: 0.1, action: onPresentPremiumPaywall)
                     }
                 }
             }
@@ -772,6 +806,10 @@ struct HomeSidebarView: View {
 
         SidebarToggleRowView(title: L10n.soundEffects, isOn: $isSoundEffectsEnabled, isPadLayout: isPadLayout, themeColor: themeColor)
 
+        SidebarSettingsLinkRow(title: L10n.language, isPadLayout: isPadLayout, themeColor: themeColor) {
+            closeAndRun(after: 0.12, action: openAppSettings)
+        }
+
         SidebarDisclosureRow(title: L10n.homeWidget, isExpanded: isWidgetGuideExpanded, isPadLayout: isPadLayout, themeColor: themeColor) {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
                 isWidgetGuideExpanded.toggle()
@@ -832,6 +870,13 @@ struct HomeSidebarView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             action()
         }
+    }
+
+    private func openAppSettings() {
+        #if canImport(UIKit)
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+        #endif
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {

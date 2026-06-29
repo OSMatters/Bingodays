@@ -146,7 +146,8 @@ struct HomeSheetsModifier: ViewModifier {
     let boardCountdownEndsAt: Date?
     let isPadLayout: Bool
     let onCopyEmail: () -> Void
-    let onOpenFeedbackEmail: () -> Void
+    let onOpenBugReportEmail: () -> Void
+    let onOpenFeatureSuggestionEmail: () -> Void
     let onApplyImportedTemplate: (BoardTemplatePayload) -> Void
     let onDismissTemplatePreview: () -> Void
     let onTemplateImportSheetHeight: (Int) -> CGFloat
@@ -164,7 +165,8 @@ struct HomeSheetsModifier: ViewModifier {
                     isPadLayout: isPadLayout,
                     isCopyToastVisible: isContactUsCopyToastVisible,
                     onCopyEmail: onCopyEmail,
-                    onOpenFeedbackEmail: onOpenFeedbackEmail
+                    onOpenBugReportEmail: onOpenBugReportEmail,
+                    onOpenFeatureSuggestionEmail: onOpenFeatureSuggestionEmail
                 )
             }
             .sheet(isPresented: $isTemplateImportPreviewPresented) {

@@ -31,10 +31,7 @@ struct BingoViewModelPersistenceCommitResult: Equatable {
 }
 
 protocol BingoBoardRepository: BoardStateCommitRepository {
-    func loadBoard() -> SavedBoard?
     func loadBoardLastSavedAt() -> Date?
-    func loadBoardCountdownEndsAt() -> Date?
-    func loadActiveNamedBoardID() -> UUID?
 }
 
 protocol BingoDiaryRepository {

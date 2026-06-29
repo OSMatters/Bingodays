@@ -14,6 +14,7 @@ struct BingoCellView: View {
     let cell: BingoCell
     let currentTime: Date
     let isScheduledInactive: Bool
+    let scheduleStatusText: String?
     let debugIdentifier: String
     let isInBingoLine: Bool
     let isLocked: Bool
@@ -265,10 +266,10 @@ struct BingoCellView: View {
                             .padding(.bottom, isScheduledInactive ? 6 : 10)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
-                        if isScheduledInactive, let scheduleText = scheduleWindowText {
+                        if let scheduleText = scheduleStatusText ?? scheduleWindowText, displayCountdownText == nil, !cell.isCompleted {
                             Text(scheduleText)
                                 .font(.appSystem(size: max(dynamicFontSize * 0.34, 8), weight: .semibold, design: .rounded))
-                                .foregroundColor(primaryTextColor.opacity(0.45))
+                                .foregroundColor(primaryTextColor.opacity(isScheduledInactive ? 0.45 : 0.58))
                                 .multilineTextAlignment(.center)
                                 .lineLimit(2)
                                 .minimumScaleFactor(0.7)
@@ -366,16 +367,20 @@ struct BingoCellView: View {
     private var scheduleWindowText: String? {
         guard cell.startVisibleAt != nil || cell.endVisibleAt != nil else { return nil }
 
-        if let start = cell.startVisibleAt {
+        if let start = cell.occurrenceStartVisibleAt(on: currentTime) {
             return Self.scheduleDateFormatter.string(from: start)
         }
-        if let end = cell.endVisibleAt {
+        if let end = cell.occurrenceEndVisibleAt(on: currentTime) {
             return Self.scheduleDateFormatter.string(from: end)
         }
         return nil
     }
 
     private var taskCountdownText: String? {
+        guard cell.canUseTaskCountdown else { return nil }
+        if (cell.countdownPausedRemainingSeconds ?? 0) > 0 {
+            return L10n.tr("Paused", zhHans: "已暂停", zhHant: "已暫停", ja: "一時停止中")
+        }
         guard let deadline = cell.countdownEndsAt else { return nil }
         let remainingSeconds = max(Int(deadline.timeIntervalSince(currentTime)), 0)
         return countdownUnitText(from: remainingSeconds)
@@ -383,8 +388,8 @@ struct BingoCellView: View {
 
     private var windowCountdownText: String? {
         guard !isScheduledInactive,
-              let start = cell.startVisibleAt,
-              let end = cell.endVisibleAt,
+              let start = cell.occurrenceStartVisibleAt(on: currentTime),
+              let end = cell.occurrenceEndVisibleAt(on: currentTime),
               currentTime >= start,
               currentTime < end else {
             return nil

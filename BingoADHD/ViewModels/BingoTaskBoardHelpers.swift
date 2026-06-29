@@ -54,6 +54,7 @@ enum BingoTaskBoardHelpers {
             residentTaskText: task.hasStartDate ? task.trimmedText : nil,
             startVisibleAt: task.startAt,
             endVisibleAt: task.endAt,
+            usesRecurringTimeWindow: false,
             startVisibleMonth: task.startMonth,
             startVisibleDay: task.startDay
         )
@@ -64,6 +65,7 @@ enum BingoTaskBoardHelpers {
         cell.residentTaskText = task.hasStartDate ? task.trimmedText : nil
         cell.startVisibleAt = task.startAt
         cell.endVisibleAt = task.endAt
+        cell.usesRecurringTimeWindow = false
         cell.startReminderEnabled = false
         cell.startReminderOffsetMinutes = BingoCell.defaultStartReminderOffsetMinutes
         cell.startVisibleMonth = task.startMonth
