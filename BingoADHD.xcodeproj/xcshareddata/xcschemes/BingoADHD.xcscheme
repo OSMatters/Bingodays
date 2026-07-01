@@ -80,7 +80,7 @@
       <CommandLineArguments>
          <CommandLineArgument
             argument = "-FIRDebugEnabled "
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-DebugLimitedOfferEnabled"
@@ -100,15 +100,15 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-DebugResetLimitedOfferState"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-DebugAppReviewPrompt"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-DebugBoardEditHint"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-DebugForceNoPremium"
@@ -116,11 +116,11 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-DebugCustomResetToast"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-DebugStreakReady"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-SimulateNextDayBoardRuleReset"
@@ -128,7 +128,7 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-ForceUpdatePrompt"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
       </CommandLineArguments>
    </LaunchAction>

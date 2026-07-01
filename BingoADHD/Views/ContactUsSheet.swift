@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 struct ContactUsSheet: View {
     @Binding var isPresented: Bool
@@ -10,141 +9,118 @@ struct ContactUsSheet: View {
     let onOpenFeatureSuggestionEmail: () -> Void
 
     var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 18) {
-                Text(L10n.contactUsMessage)
-                    .font(.appSystem(size: 16, weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(spacing: 0) {
+            heroSection
 
-                emailCard
+            VStack(spacing: scaled(22, pad: 26)) {
+                VStack(spacing: scaled(14, pad: 16)) {
+                    Text(L10n.tr("Support", zhHans: "支持", zhHant: "支援", ja: "サポート"))
+                        .font(.appSystem(size: scaled(22, pad: 25), weight: .heavy, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+                        .frame(maxWidth: .infinity, alignment: .center)
 
-                actionButtons
+                    Text(L10n.contactUsMessage)
+                        .font(.appSystem(size: scaled(15, pad: 17), weight: .medium, design: .rounded))
+                        .foregroundColor(Color(hex: "7E7E7E"))
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .offset(y: scaled(-10, pad: -12))
 
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 22)
-            .padding(.vertical, 20)
-            .background(NeumorphicColors.background.ignoresSafeArea())
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        isPresented = false
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .accessibilityLabel(L10n.done)
-                    .font(.appSystem(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.accent)
+                VStack(spacing: scaled(14, pad: 16)) {
+                    contactActionButton(
+                        title: L10n.contactUsBugReportAction,
+                        isPrimary: true,
+                        action: onOpenBugReportEmail
+                    )
+
+                    contactActionButton(
+                        title: L10n.contactUsFeatureSuggestionAction,
+                        isPrimary: false,
+                        action: onOpenFeatureSuggestionEmail
+                    )
                 }
             }
+            .padding(.horizontal, scaled(42, pad: 56))
+            .padding(.top, scaled(46, pad: 54))
+            .padding(.bottom, scaled(56, pad: 68))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color(hex: "F7F2EE"))
         }
-        .overlay(alignment: .bottom) {
-            if isCopyToastVisible {
-                IOSNativeToastView(
-                    L10n.contactUsEmailCopied,
-                    isPadLayout: isPadLayout
-                )
-                    .padding(.bottom, 22)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: isCopyToastVisible)
-        .presentationDetents([.height(isPadLayout ? 470 : 420)])
-        .presentationDragIndicator(.visible)
-        .presentationBackground(NeumorphicColors.background)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(hex: "F7F2EE"))
+        .clipShape(RoundedRectangle(cornerRadius: scaled(16, pad: 20), style: .continuous))
+        .presentationDetents([.height(isPadLayout ? 620 : 574)])
+        .presentationDragIndicator(.hidden)
+        .presentationBackground(Color(hex: "F7F2EE"))
     }
 
-    private var emailCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(L10n.contactUsEmailLabel)
-                .font(.appSystem(size: 13, weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.56))
+    private var heroSection: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topTrailing) {
+                Color(hex: "FFF0DE")
 
-            HStack(spacing: 10) {
-                Text(L10n.contactUsEmail)
-                    .font(.appSystem(size: 17, weight: .bold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.accent)
-                    .textSelection(.enabled)
-
-                Spacer(minLength: 0)
+                Image("ContactSupport")
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(
+                        width: min(proxy.size.width * 0.74, scaled(300, pad: 344)),
+                        height: proxy.size.height * 0.84
+                    )
+                    .position(
+                        x: proxy.size.width / 2,
+                        y: proxy.size.height * 0.54 + scaled(8, pad: 9)
+                    )
+                    .accessibilityHidden(true)
 
                 Button {
-                    UIPasteboard.general.string = L10n.contactUsEmail
-                    onCopyEmail()
+                    isPresented = false
                 } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.appSystem(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.accent)
-                        .frame(width: 30, height: 30)
-                        .background(
-                            Circle()
-                                .fill(NeumorphicColors.background)
-                                .shadow(color: NeumorphicColors.lightShadow.opacity(0.8), radius: 4, x: -2, y: -2)
-                                .shadow(color: NeumorphicColors.darkShadow.opacity(0.25), radius: 4, x: 2, y: 2)
-                        )
+                    Image(systemName: "xmark")
+                        .font(.appSystem(size: scaled(18, pad: 21), weight: .semibold))
+                        .foregroundColor(Color(hex: "201915"))
+                        .frame(width: scaled(36, pad: 42), height: scaled(36, pad: 42))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(L10n.contactUsCopyEmailAction)
+                .accessibilityLabel(L10n.done)
+                .padding(.top, scaled(22, pad: 26))
+                .padding(.trailing, scaled(10, pad: 16))
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(NeumorphicColors.background)
-                .shadow(color: NeumorphicColors.lightShadow.opacity(0.8), radius: 8, x: -4, y: -4)
-                .shadow(color: NeumorphicColors.darkShadow.opacity(0.42), radius: 8, x: 4, y: 4)
-        )
-    }
-
-    private var actionButtons: some View {
-        VStack(spacing: 12) {
-            contactActionButton(
-                title: L10n.contactUsBugReportAction,
-                systemImage: "exclamationmark.bubble",
-                isPrimary: true,
-                action: onOpenBugReportEmail
-            )
-
-            contactActionButton(
-                title: L10n.contactUsFeatureSuggestionAction,
-                systemImage: "lightbulb",
-                isPrimary: false,
-                action: onOpenFeatureSuggestionEmail
-            )
-        }
+        .frame(height: scaled(244, pad: 282))
     }
 
     private func contactActionButton(
         title: String,
-        systemImage: String,
         isPrimary: Bool,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.appSystem(size: 17, weight: .semibold, design: .rounded))
-
-                Text(title)
-                    .font(.appSystem(size: 17, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-            }
-            .foregroundColor(isPrimary ? .white : NeumorphicColors.accent)
-            .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(isPrimary ? NeumorphicColors.accent : NeumorphicColors.background)
-                    .shadow(color: NeumorphicColors.lightShadow.opacity(isPrimary ? 0 : 0.8), radius: 6, x: -3, y: -3)
-                    .shadow(color: NeumorphicColors.darkShadow.opacity(isPrimary ? 0.24 : 0.34), radius: 8, x: 4, y: 4)
-            )
-            .contentShape(Capsule(style: .continuous))
+            Text(title)
+                .font(.appSystem(size: scaled(17, pad: 19), weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .foregroundColor(isPrimary ? .white : NeumorphicColors.text)
+                .frame(maxWidth: .infinity)
+                .frame(height: scaled(58, pad: 66))
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(isPrimary ? Color(hex: "D9A574") : Color.clear)
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color(hex: "D9A574"), lineWidth: isPrimary ? 0 : 1.2)
+                )
+                .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
     }
 }

@@ -14,18 +14,22 @@ struct HomeBoardMainContent: View {
     let shouldShowBoardEditHint: Bool
     let shouldReserveBoardEditHintSpace: Bool
     let countdownText: String?
-    let isTemplateShareDisabled: Bool
     let isEditActionsExpanded: Bool
     let surfaceShadowColor: Color
+    let themeColor: Color
     let boardSwipeBlockingState: BoardSwitchAnimationStore.SwipeBlockingState
     let onSelectBoard: (UUID) -> Void
     let onBoardLongPress: (UUID) -> Void
     let onCreateBoard: () -> Void
     let onDismissBoardEditHint: () -> Void
     let onCellCompletionToggled: () -> Void
-    let onTemplateShare: () -> Void
     let onCountdown: () -> Void
     let onEditActionsToggle: () -> Void
+    let onDismissEditActions: () -> Void
+    let onShuffle: () -> Void
+    let onClearBoard: () -> Void
+    let onGridSize: () -> Void
+    let onQuickEdit: () -> Void
 
     @GestureState private var boardDragTranslationX: CGFloat = 0
     @State private var isCellReordering = false
@@ -51,18 +55,22 @@ struct HomeBoardMainContent: View {
             BoardBottomControlsView(
                 countdownText: countdownText,
                 isPadLayout: isPadLayout,
-                isTemplateShareDisabled: isTemplateShareDisabled,
                 isEditActionsExpanded: isEditActionsExpanded,
                 surfaceShadowColor: surfaceShadowColor,
-                onTemplateShare: onTemplateShare,
+                themeColor: themeColor,
                 onCountdown: onCountdown,
-                onEditActionsToggle: onEditActionsToggle
+                onEditActionsToggle: onEditActionsToggle,
+                onDismissEditActions: onDismissEditActions,
+                onShuffle: onShuffle,
+                onClearBoard: onClearBoard,
+                onGridSize: onGridSize,
+                onQuickEdit: onQuickEdit
             )
             .padding(.top, 10)
         }
         .frame(width: contentWidth)
         .padding(.top, 32)
-        .offset(y: (usesPadLayout ? -35 : 0) - 35)
+        .offset(y: (usesPadLayout ? -35 : 0) - 65)
     }
 
     private var swipeableBoardView: some View {

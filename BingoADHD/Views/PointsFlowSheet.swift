@@ -6,11 +6,17 @@ struct PointsFlowPresenter: View {
     let totalPoints: Int
     @ObservedObject var pointsFeatureStore: PointsFeatureStore
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
+    var showsCloseButton = true
+    var bottomContentPadding: CGFloat = 32
+    var onSubpagePresentationChange: (Bool) -> Void = { _ in }
     let onAddStickerToHomeSuccess: () -> Void
     var body: some View {
         PointsFlowSheet(
             isPadLayout: isPadLayout,
             points: points,
+            showsCloseButton: showsCloseButton,
+            bottomContentPadding: bottomContentPadding,
+            onSubpagePresentationChange: onSubpagePresentationChange,
             inventoryCounts: pointsFeatureStore.stickerInventoryCounts,
             usedCounts: pointsFeatureStore.currentStickerUsageCounts,
             rewards: pointsFeatureStore.activeRewards,
@@ -65,6 +71,9 @@ struct PointsFlowSheet: View {
 
     let isPadLayout: Bool
     let points: Int
+    let showsCloseButton: Bool
+    let bottomContentPadding: CGFloat
+    let onSubpagePresentationChange: (Bool) -> Void
     let inventoryCounts: [StickerKind: Int]
     let usedCounts: [StickerKind: Int]
     let rewards: [CustomReward]
@@ -175,6 +184,24 @@ struct PointsFlowSheet: View {
         } message: {
             Text(rewardSaveFailureMessage ?? "")
         }
+        .onAppear {
+            onSubpagePresentationChange(isSubpagePresented)
+        }
+        .onChange(of: isSubpagePresented) { _, isPresented in
+            onSubpagePresentationChange(isPresented)
+        }
+        .onDisappear {
+            onSubpagePresentationChange(false)
+        }
+    }
+
+    private var isSubpagePresented: Bool {
+        switch screen {
+        case .details:
+            return selectedStickerForDetail != nil || selectedRewardForDetail != nil
+        case .rewardEditor:
+            return true
+        }
     }
 
     private var rewardSaveFailureBinding: Binding<Bool> {
@@ -276,6 +303,8 @@ struct PointsFlowSheet: View {
         let content = PointsDetailSheet(
             initialTab: detailsInitialTab,
             points: points,
+            showsCloseButton: showsCloseButton,
+            bottomContentPadding: bottomContentPadding,
             inventoryCounts: inventoryCounts,
             usedCounts: usedCounts,
             rewards: rewards,
@@ -328,6 +357,8 @@ private enum PointsTab: String, CaseIterable, Identifiable {
 
 private struct PointsDetailSheet: View {
     let points: Int
+    let showsCloseButton: Bool
+    let bottomContentPadding: CGFloat
     let inventoryCounts: [StickerKind: Int]
     let usedCounts: [StickerKind: Int]
     let rewards: [CustomReward]
@@ -348,11 +379,12 @@ private struct PointsDetailSheet: View {
     @State private var isDeleteActionSheetPresented = false
     @State private var isDeleteSecondConfirmPresented = false
     @State private var isHistoryPresented = false
-    @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
 
     init(
         initialTab: PointsTab,
         points: Int,
+        showsCloseButton: Bool,
+        bottomContentPadding: CGFloat,
         inventoryCounts: [StickerKind: Int],
         usedCounts: [StickerKind: Int],
         rewards: [CustomReward],
@@ -367,6 +399,8 @@ private struct PointsDetailSheet: View {
         onSelectReward: @escaping (CustomReward) -> Void
     ) {
         self.points = points
+        self.showsCloseButton = showsCloseButton
+        self.bottomContentPadding = bottomContentPadding
         self.inventoryCounts = inventoryCounts
         self.usedCounts = usedCounts
         self.rewards = rewards
@@ -390,7 +424,7 @@ private struct PointsDetailSheet: View {
         isPadLayout ? 820 : .infinity
     }
 
-    private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
+    private var activeTheme: AppTheme { .concise }
     private var themeColor: Color { activeTheme.color }
     private var themeShadowColor: Color { activeTheme.bingoSurfaceShadowColor }
 
@@ -483,7 +517,13 @@ private struct PointsDetailSheet: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.horizontal, scaled(20, pad: 32))
                     .padding(.top, scaled(64, pad: 82))
-                    .padding(.bottom, selectedTab == .rewards && !rewards.isEmpty ? scaled(112, pad: 132) : 32)
+                    .padding(
+                        .bottom,
+                        max(
+                            selectedTab == .rewards && !rewards.isEmpty ? scaled(112, pad: 132) : 32,
+                            bottomContentPadding
+                        )
+                    )
                 }
                 .simultaneousGesture(
                     TapGesture().onEnded {
@@ -499,11 +539,11 @@ private struct PointsDetailSheet: View {
                     VStack {
                         Spacer()
                         floatingAddRewardButton
-                            .padding(.bottom, scaled(26, pad: 34))
+                            .padding(.bottom, floatingAddRewardBottomPadding)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.keyboard, edges: .bottom)
-                        .zIndex(1)
+                    .zIndex(1)
                 }
 
                 pointsHeader
@@ -561,17 +601,22 @@ private struct PointsDetailSheet: View {
 
     private var pointsHeader: some View {
         HStack {
-            Button {
-                dismiss()
-            } label: {
-                LiquidGlassIconBadge(
-                    systemName: "chevron.left",
-                    size: scaled(44, pad: 52),
-                    iconSize: scaled(18, pad: 22),
-                    foregroundColor: NeumorphicColors.text
-                )
+            if showsCloseButton {
+                Button {
+                    dismiss()
+                } label: {
+                    LiquidGlassIconBadge(
+                        systemName: "chevron.left",
+                        size: scaled(44, pad: 52),
+                        iconSize: scaled(18, pad: 22),
+                        foregroundColor: NeumorphicColors.text
+                    )
+                }
+                .buttonStyle(.plain)
+            } else {
+                Color.clear
+                    .frame(width: scaled(44, pad: 52), height: scaled(44, pad: 52))
             }
-            .buttonStyle(.plain)
 
             Spacer()
 
@@ -792,6 +837,10 @@ private struct PointsDetailSheet: View {
             .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+
+    private var floatingAddRewardBottomPadding: CGFloat {
+        max(scaled(26, pad: 34), bottomContentPadding + scaled(14, pad: 18))
     }
 
     private func rewardActionOverlay(for reward: CustomReward) -> some View {

@@ -383,6 +383,836 @@ struct SidebarThemePickerRow: View {
     }
 }
 
+struct HomeThemePickerSheet: View {
+    @Binding var themeRawValue: String
+    let isPadLayout: Bool
+
+    var body: some View {
+        VStack(alignment: .center, spacing: 0) {
+            Text(L10n.themeColor)
+                .font(.appSystem(size: scaled(16, pad: 19), weight: .bold, design: .rounded))
+                .foregroundColor(NeumorphicColors.text)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            HStack(spacing: scaled(10, pad: 14)) {
+                ForEach(AppTheme.selectableCases) { theme in
+                    Button {
+                        apply(theme)
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(theme.color)
+                                .frame(width: scaled(26, pad: 31), height: scaled(26, pad: 31))
+
+                            Circle()
+                                .stroke(themeRawValue == theme.rawValue ? NeumorphicColors.text : Color.white.opacity(0.72), lineWidth: themeRawValue == theme.rawValue ? 2.4 : 1.4)
+                                .frame(width: scaled(34, pad: 40), height: scaled(34, pad: 40))
+                        }
+                        .frame(width: scaled(34, pad: 40), height: scaled(34, pad: 40))
+                        .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(theme.rawValue)
+                    .accessibilityAddTraits(themeRawValue == theme.rawValue ? .isSelected : [])
+                }
+            }
+            .padding(.top, scaled(50, pad: 55))
+        }
+        .padding(.horizontal, scaled(20, pad: 28))
+        .padding(.top, scaled(23, pad: 25))
+        .padding(.bottom, scaled(8, pad: 10))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(NeumorphicColors.background)
+    }
+
+    private func apply(_ theme: AppTheme) {
+        guard themeRawValue != theme.rawValue else { return }
+        themeRawValue = theme.rawValue
+        UserDefaults(suiteName: BingoBoardStore.appGroupID)?.set(theme.rawValue, forKey: AppSettings.themeKey)
+        AnalyticsService.logThemeColorSelected(theme)
+        BingoBoardStore.reloadWidgetTimelines()
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+private enum MeScreenPalette {
+    static let background = Color(hex: "F9F7F0")
+    static let text = Color(hex: "463C2E")
+    static let mutedText = Color(hex: "8B7B68")
+    static let accent = Color(hex: "D6A77C")
+    static let darkBadge = Color(hex: "23190F")
+    static let cardBackground = Color.white.opacity(0.84)
+    static let border = Color(hex: "2F281F").opacity(0.82)
+}
+
+enum MeGreeting: Int, CaseIterable {
+    case hardWork
+    case welcomeBack
+    case deservesCredit
+    case takeItSlow
+    case beKind
+    case doingEnough
+    case noRush
+    case takeCare
+    case ownPace
+    case worthCelebrating
+    case thanksForBeingHere
+    case betterThanThink
+    case believeALittle
+    case noNeedPerfect
+    case everyStep
+    case thankYourself
+    case kindDay
+    case rememberSmile
+    case alwaysWorthy
+    case happyToSeeYou
+
+    static func randomIndex(excluding excludedIndex: Int? = nil) -> Int {
+        let allIndexes = allCases.map(\.rawValue)
+        let candidates = allIndexes.filter { $0 != excludedIndex }
+        return candidates.randomElement() ?? allIndexes.randomElement() ?? 0
+    }
+
+    static func localizedText(at index: Int) -> String {
+        let greeting = MeGreeting(rawValue: index) ?? .welcomeBack
+        return greeting.localizedText
+    }
+
+    private var localizedText: String {
+        switch self {
+        case .hardWork:
+            return L10n.tr("You’re doing great today.", zhHans: "今天也辛苦啦。", zhHant: "今天也辛苦啦。", ja: "今日もおつかれさま。")
+        case .welcomeBack:
+            return L10n.tr("Welcome back.", zhHans: "欢迎回来。", zhHant: "歡迎回來。", ja: "おかえりなさい。")
+        case .deservesCredit:
+            return L10n.tr("You deserve some credit today.", zhHans: "今天也值得被夸夸。", zhHant: "今天也值得被誇誇。", ja: "今日のあなたもちゃんとすごい。")
+        case .takeItSlow:
+            return L10n.tr("It’s okay to take it slow.", zhHans: "慢一点，也没关系。", zhHant: "慢一點，也沒關係。", ja: "ゆっくりでも大丈夫。")
+        case .beKind:
+            return L10n.tr("Be kind to yourself today.", zhHans: "今天也要对自己温柔一点。", zhHant: "今天也要對自己溫柔一點。", ja: "今日も自分にやさしく。")
+        case .doingEnough:
+            return L10n.tr("You’re doing enough.", zhHans: "你已经做得很好了。", zhHant: "你已經做得很好了。", ja: "もう十分頑張ってるよ。")
+        case .noRush:
+            return L10n.tr("No rush. Things will come together.", zhHans: "不用着急，一切都会慢慢变好。", zhHant: "不用著急，一切都會慢慢變好。", ja: "焦らなくて大丈夫。")
+        case .takeCare:
+            return L10n.tr("Take care of yourself today.", zhHans: "今天也请照顾好自己。", zhHant: "今天也請照顧好自己。", ja: "今日も自分を大切にね。")
+        case .ownPace:
+            return L10n.tr("Every day has its own pace.", zhHans: "每一天都有自己的节奏。", zhHant: "每一天都有自己的節奏。", ja: "毎日には毎日のペースがある。")
+        case .worthCelebrating:
+            return L10n.tr("Today is worth celebrating.", zhHans: "今天也是值得庆祝的一天。", zhHant: "今天也是值得慶祝的一天。", ja: "今日も大切な一日。")
+        case .thanksForBeingHere:
+            return L10n.tr("Thanks for being here today.", zhHans: "谢谢你今天也来了。", zhHant: "謝謝你今天也來了。", ja: "今日も来てくれてありがとう。")
+        case .betterThanThink:
+            return L10n.tr("You’re doing better than you think.", zhHans: "你比想象中更棒。", zhHant: "你比想像中更棒。", ja: "思っているより、ちゃんとできてるよ。")
+        case .believeALittle:
+            return L10n.tr("Believe in yourself a little today.", zhHans: "今天，也请相信自己一点点。", zhHant: "今天，也請相信自己一點點。", ja: "今日も少しだけ自分を信じて。")
+        case .noNeedPerfect:
+            return L10n.tr("You don’t have to be perfect.", zhHans: "不用完美，你已经很好了。", zhHant: "不用完美，你已經很好了。", ja: "完璧じゃなくていい。")
+        case .everyStep:
+            return L10n.tr("Every step is worth celebrating.", zhHans: "每一步都值得骄傲。", zhHant: "每一步都值得驕傲。", ja: "一歩一歩がちゃんと前進。")
+        case .thankYourself:
+            return L10n.tr("Thank yourself for showing up today.", zhHans: "今天也谢谢努力的自己。", zhHant: "今天也謝謝努力的自己。", ja: "今日も頑張った自分にありがとう。")
+        case .kindDay:
+            return L10n.tr("Hope today is kind to you.", zhHans: "愿今天对你温柔一点。", zhHant: "願今天對你溫柔一點。", ja: "今日がやさしい一日になりますように。")
+        case .rememberSmile:
+            return L10n.tr("Don’t forget to smile today.", zhHans: "今天，也要记得微笑。", zhHant: "今天，也要記得微笑。", ja: "今日も笑顔を忘れずに。")
+        case .alwaysWorthy:
+            return L10n.tr("You’re worthy, no matter how today goes.", zhHans: "无论今天怎样，你都值得被喜欢。", zhHant: "無論今天怎樣，你都值得被喜歡。", ja: "どんな一日でも、あなたは大切。")
+        case .happyToSeeYou:
+            return L10n.tr("I’m happy to see you again.", zhHans: "很高兴今天又见到你。", zhHant: "很高興今天又見到你。", ja: "今日も会えてうれしい。")
+        }
+    }
+}
+
+struct BingodaysMeScreen: View {
+    let isPremiumMember: Bool
+    let premiumPlanKind: PremiumPlanKind?
+    let hasReviewedApp: Bool
+    let streakDays: Int
+    let greetingText: String
+    let isPadLayout: Bool
+    let bottomInset: CGFloat
+    let onOpenContact: () -> Void
+    let onOpenSettings: () -> Void
+    let onLeaveReview: () -> Void
+    let onOpenDiary: () -> Void
+    let onOpenPremium: () -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            let contentWidth = min(geo.size.width, isPadLayout ? 430 : 393)
+            let layoutScale = min(
+                max(
+                    min(contentWidth / 393, (geo.size.height - bottomInset) / 849),
+                    isPadLayout ? 0.9 : 0.82
+                ),
+                isPadLayout ? 1.08 : 1.0
+            )
+            let contentX = geo.size.width / 2
+            let yLift = isPadLayout ? max(0, (geo.size.height - 849 * layoutScale) * 0.18) : 0
+
+            ZStack(alignment: .top) {
+                Image("MeBackground")
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFill()
+                    .frame(
+                        width: geo.size.width,
+                        height: geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom
+                    )
+                    .clipped()
+                    .ignoresSafeArea()
+
+                VStack(spacing: scaled(20, pad: 24)) {
+                    titleBlock
+                    topActions
+                }
+                .frame(width: contentWidth)
+                .position(x: contentX, y: y(118, scale: layoutScale, lift: yLift))
+
+                if isPremiumMember {
+                    Button(action: onOpenPremium) {
+                        MeMembershipBadge(
+                            planKind: premiumPlanKind,
+                            isPadLayout: isPadLayout
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Capsule(style: .continuous))
+                    .accessibilityLabel(L10n.tr("Membership details", zhHans: "会员详情", zhHant: "會員詳情", ja: "メンバーシップ詳細"))
+                    .position(
+                        x: contentX + contentWidth / 2 - scaled(66, pad: 76),
+                        y: y(39, scale: layoutScale, lift: yLift)
+                    )
+                    .zIndex(10)
+                }
+
+                MeStreakCard(
+                    streakDays: streakDays,
+                    isPadLayout: isPadLayout
+                )
+                .scaleEffect(layoutScale, anchor: .center)
+                .position(
+                    x: contentX - contentWidth / 2 + 96 * layoutScale,
+                    y: y(266, scale: layoutScale, lift: yLift)
+                )
+
+                if !isPremiumMember {
+                    MeCrownUpgradeButton(
+                        isPadLayout: isPadLayout,
+                        onTap: onOpenPremium
+                    )
+                    .scaleEffect(layoutScale, anchor: .center)
+                    .position(
+                        x: contentX + contentWidth / 2 - 126 * layoutScale,
+                        y: y(270, scale: layoutScale, lift: yLift)
+                    )
+                }
+
+                Image(mainImageName)
+                    .resizable()
+                    .interpolation(.high)
+                    .renderingMode(.original)
+                    .scaledToFit()
+                    .frame(width: scaled(392, pad: 424) * layoutScale)
+                    .position(
+                        x: contentX,
+                        y: y(476, scale: layoutScale, lift: yLift)
+                    )
+                    .accessibilityHidden(true)
+
+                MeDiaryDeskButton(
+                    isPadLayout: isPadLayout,
+                    onTap: onOpenDiary
+                )
+                .scaleEffect(layoutScale, anchor: .center)
+                .position(
+                    x: contentX + contentWidth / 2 - 173 * layoutScale,
+                    y: y(557, scale: layoutScale, lift: yLift)
+                )
+                .zIndex(2)
+
+                if !hasReviewedApp {
+                    MeReviewButton(
+                        isPadLayout: isPadLayout,
+                        onTap: onLeaveReview
+                    )
+                    .scaleEffect(layoutScale, anchor: .center)
+                    .position(
+                        x: contentX - contentWidth / 2 + 125 * layoutScale,
+                        y: y(383, scale: layoutScale, lift: yLift)
+                    )
+                }
+
+                MeDiaryButton(
+                    isPadLayout: isPadLayout,
+                    onTap: onOpenDiary
+                )
+                .scaleEffect(layoutScale, anchor: .center)
+                .position(
+                    x: contentX + contentWidth / 2 - (147 + 52) * layoutScale,
+                    y: y(623, scale: layoutScale, lift: yLift)
+                )
+                .zIndex(1)
+            }
+        }
+        .background(MeScreenPalette.background.ignoresSafeArea())
+    }
+
+    private var titleBlock: some View {
+        VStack(spacing: 0) {
+            Text(greetingText)
+                .lineLimit(2)
+                .minimumScaleFactor(0.72)
+        }
+        .font(.custom("Outfit", size: scaled(23, pad: 27)).weight(.semibold))
+        .foregroundColor(MeScreenPalette.text)
+        .multilineTextAlignment(.center)
+        .accessibilityElement(children: .combine)
+        .offset(y: scaled(-4, pad: -5))
+    }
+
+    private var topActions: some View {
+        HStack(spacing: scaled(42, pad: 52)) {
+            Button(action: onOpenContact) {
+                Text("\(L10n.contactUs) 📫")
+                    .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+                    .foregroundColor(MeScreenPalette.accent)
+            }
+            .buttonStyle(.plain)
+
+            Button(action: onOpenSettings) {
+                Text("\(L10n.tr("Preferences", zhHans: "个性设置", zhHant: "個性設定", ja: "個人設定")) ⚙️")
+                    .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
+                    .foregroundColor(MeScreenPalette.accent)
+            }
+            .buttonStyle(.plain)
+        }
+        .offset(y: scaled(-4, pad: -5))
+    }
+
+    private var mainImageName: String {
+        switch (isPremiumMember, hasReviewedApp) {
+        case (false, false):
+            return "MeNoproUnreviewed"
+        case (false, true):
+            return "MeNoproReviewed"
+        case (true, false):
+            return "MeProUnreviewed"
+        case (true, true):
+            return "MeProReviewed"
+        }
+    }
+
+    private func y(_ value: CGFloat, scale: CGFloat, lift: CGFloat) -> CGFloat {
+        value * scale + lift
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+private struct MeMembershipBadge: View {
+    let planKind: PremiumPlanKind?
+    let isPadLayout: Bool
+
+    var body: some View {
+        HStack(spacing: scaled(4, pad: 5)) {
+            Image("MeProIcon")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: scaled(12, pad: 14), height: scaled(12, pad: 14))
+
+            Text(memberTitle)
+                .font(.appSystem(size: scaled(10.5, pad: 12), weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+        .padding(.leading, scaled(6, pad: 7))
+        .padding(.trailing, scaled(8, pad: 9))
+        .frame(minWidth: scaled(72, pad: 84))
+        .frame(height: scaled(22, pad: 26))
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color(hex: "2B2116"))
+                .shadow(color: Color.black.opacity(0.18), radius: scaled(4, pad: 6), x: 0, y: scaled(2, pad: 3))
+        )
+        .accessibilityElement(children: .combine)
+    }
+
+    private var memberTitle: String {
+        switch planKind {
+        case .monthly:
+            return L10n.tr("Monthly", zhHans: "月度会员", zhHant: "月度會員", ja: "月間プラン")
+        case .yearly:
+            return L10n.tr("Annual", zhHans: "年度会员", zhHant: "年度會員", ja: "年間プラン")
+        case .lifetime:
+            return L10n.tr("Lifetime", zhHans: "终身会员", zhHant: "終身會員", ja: "永久プラン")
+        case nil:
+            return L10n.tr("Premium", zhHans: "会员", zhHant: "會員", ja: "Premiumメンバー")
+        }
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+private struct MeStreakCard: View {
+    let streakDays: Int
+    let isPadLayout: Bool
+
+    var body: some View {
+        ZStack {
+            Image("MeStreakBackground")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+
+            VStack(spacing: 2) {
+                HStack(spacing: 4) {
+                    Image("MeStreakIcon")
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: scaled(19, pad: 22), height: scaled(19, pad: 22))
+
+                    Text("\(streakDays)")
+                        .font(.appSystem(size: scaled(28, pad: 32), weight: .bold, design: .rounded))
+                        .foregroundColor(MeScreenPalette.accent)
+                }
+
+                Text(L10n.dayStreak)
+                    .font(.appSystem(size: scaled(9.5, pad: 11), weight: .bold, design: .rounded))
+                    .foregroundColor(MeScreenPalette.accent.opacity(0.8))
+            }
+            .offset(y: scaled(10, pad: 12))
+        }
+        .frame(width: scaled(96, pad: 108), height: scaled(110, pad: 124))
+        .accessibilityLabel(L10n.dayStreak)
+        .accessibilityValue("\(streakDays)")
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+private struct MeCrownUpgradeButton: View {
+    let isPadLayout: Bool
+    let onTap: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isCrownFloating = false
+    @State private var lightRotationDegrees = 0.0
+
+    var body: some View {
+        Button {
+            AppHaptics.control()
+            onTap()
+        } label: {
+            VStack(spacing: -5) {
+                ZStack {
+                    Image("MeLightBackground")
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: scaled(156, pad: 176), height: scaled(156, pad: 176))
+                        .rotationEffect(.degrees(reduceMotion ? 0 : lightRotationDegrees))
+
+                    Image("MeCrown")
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: scaled(78, pad: 88), height: scaled(70, pad: 80))
+                        .rotationEffect(.degrees(-10))
+                        .offset(y: scaled(reduceMotion ? 4 : (isCrownFloating ? 0 : 6), pad: reduceMotion ? 5 : (isCrownFloating ? 1 : 7)))
+                }
+                .frame(width: scaled(150, pad: 170), height: scaled(88, pad: 98))
+
+                Text(L10n.tr("Go Crowned", zhHans: "戴上皇冠", zhHant: "戴上皇冠", ja: "王冠をかぶる"))
+                    .font(.appSystem(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
+                    .foregroundColor(MeScreenPalette.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
+
+                Image("MeCrownArrow")
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: scaled(42, pad: 48), height: scaled(42, pad: 48))
+                    .offset(x: scaled(-12, pad: -11), y: scaled(8, pad: 9))
+            }
+            .frame(width: scaled(150, pad: 168), height: scaled(150, pad: 168))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.paywallHeroAllFeaturesTitle)
+        .onAppear {
+            startCrownMotionIfNeeded()
+        }
+    }
+
+    private func startCrownMotionIfNeeded() {
+        guard !reduceMotion else { return }
+        withAnimation(.easeInOut(duration: 1.15).repeatForever(autoreverses: true)) {
+            isCrownFloating = true
+        }
+        withAnimation(.linear(duration: 18).repeatForever(autoreverses: false)) {
+            lightRotationDegrees = 360
+        }
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+private struct MeReviewButton: View {
+    let isPadLayout: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        MeOutlinedPillButton(
+            title: L10n.tr("Like Bingodays?", zhHans: "喜欢 Bingodays？", zhHant: "喜歡 Bingodays？", ja: "Bingodaysが好き？"),
+            imageName: "MePopReview",
+            width: scaled(142, pad: 163),
+            height: scaled(70, pad: 80),
+            isPadLayout: isPadLayout,
+            onTap: onTap
+        )
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+private struct MeDiaryButton: View {
+    let isPadLayout: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        MeOutlinedPillButton(
+            title: L10n.tr("Check My\nBingo Dairy", zhHans: "查看我的\nBingo 日记", zhHant: "查看我的\nBingo 日記", ja: "Bingo日記を\n見る"),
+            imageName: "MePopDairy",
+            width: scaled(178, pad: 205),
+            height: scaled(73, pad: 84),
+            isPadLayout: isPadLayout,
+            contentTopOffset: 4,
+            onTap: onTap
+        )
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+private struct MeDiaryDeskButton: View {
+    let isPadLayout: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button {
+            AppHaptics.control()
+            onTap()
+        } label: {
+            Image("MeDiary")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: scaled(94, pad: 108), height: scaled(70, pad: 80))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(MeDiaryDeskButtonStyle())
+        .accessibilityLabel(L10n.tr("Check My Bingo Dairy", zhHans: "查看我的 Bingo 日记", zhHant: "查看我的 Bingo 日記", ja: "Bingo日記を見る"))
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+private struct MeDiaryDeskButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.92 : 1)
+            .animation(.spring(response: 0.18, dampingFraction: 0.68), value: configuration.isPressed)
+    }
+}
+
+private struct MeOutlinedPillButton: View {
+    let title: String
+    let imageName: String
+    let width: CGFloat
+    let height: CGFloat
+    let isPadLayout: Bool
+    let contentTopOffset: CGFloat
+    let onTap: () -> Void
+
+    init(
+        title: String,
+        imageName: String,
+        width: CGFloat,
+        height: CGFloat,
+        isPadLayout: Bool,
+        contentTopOffset: CGFloat = 0,
+        onTap: @escaping () -> Void
+    ) {
+        self.title = title
+        self.imageName = imageName
+        self.width = width
+        self.height = height
+        self.isPadLayout = isPadLayout
+        self.contentTopOffset = contentTopOffset
+        self.onTap = onTap
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            ZStack {
+                Image(imageName)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: width, height: height)
+
+                HStack(spacing: scaled(6, pad: 7)) {
+                    Text(title)
+                        .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                        .foregroundColor(MeScreenPalette.text)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.76)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .layoutPriority(1)
+
+                    Image("MeEnter")
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: scaled(20, pad: 23), height: scaled(20, pad: 23))
+                        .padding(.trailing, scaled(1, pad: 2))
+                }
+                .padding(.leading, scaled(17, pad: 20))
+                .padding(.trailing, scaled(12, pad: 14))
+                .padding(.top, scaled(3 + contentTopOffset, pad: 4 + contentTopOffset))
+                .frame(width: width, height: height)
+            }
+            .frame(width: width, height: height)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title.replacingOccurrences(of: "\n", with: " "))
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+struct MeSettingsScreen: View {
+    let isPadLayout: Bool
+    let appShortVersion: String
+    @Binding var isHapticsEnabled: Bool
+    @Binding var isSoundEffectsEnabled: Bool
+    @Binding var isWidgetGuideExpanded: Bool
+    let onBack: () -> Void
+    let onOpenLanguage: () -> Void
+    let onOpenTerms: () -> Void
+    let onOpenPrivacy: () -> Void
+    let onEncourageUs: () -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            let contentWidth = min(geo.size.width - 32, isPadLayout ? 430 : 361)
+            let topContentPadding = max(0, max(geo.safeAreaInsets.top, 12) + 10 - 40)
+
+            VStack(spacing: 0) {
+                settingsHeader
+                    .padding(.top, topContentPadding)
+                    .padding(.horizontal, 16)
+
+                VStack(spacing: 0) {
+                    MeSettingsToggleRow(
+                        title: L10n.haptics,
+                        isOn: $isHapticsEnabled,
+                        isPadLayout: isPadLayout
+                    )
+
+                    MeSettingsToggleRow(
+                        title: L10n.soundEffects,
+                        isOn: $isSoundEffectsEnabled,
+                        isPadLayout: isPadLayout
+                    )
+
+                    MeSettingsActionRow(
+                        title: L10n.homeWidget,
+                        isPadLayout: isPadLayout
+                    ) {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                            isWidgetGuideExpanded.toggle()
+                        }
+                    }
+
+                    if isWidgetGuideExpanded {
+                        Text(L10n.homeWidgetInstructions)
+                            .font(.appSystem(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
+                            .foregroundColor(MeScreenPalette.mutedText)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, scaled(18, pad: 22))
+                            .padding(.bottom, scaled(12, pad: 14))
+                    }
+
+                    MeSettingsActionRow(
+                        title: L10n.language,
+                        isPadLayout: isPadLayout,
+                        action: onOpenLanguage
+                    )
+
+                    MeSettingsActionRow(
+                        title: L10n.encourageUs,
+                        isPadLayout: isPadLayout,
+                        action: onEncourageUs
+                    )
+                }
+                .frame(width: contentWidth)
+                .background(
+                    RoundedRectangle(cornerRadius: scaled(15, pad: 18), style: .continuous)
+                        .fill(Color.white.opacity(0.88))
+                )
+                .padding(.top, scaled(30, pad: 40))
+
+                Spacer(minLength: 24)
+
+                settingsLegalLinks
+                    .padding(.bottom, scaled(16, pad: 20))
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .background(MeScreenPalette.background.ignoresSafeArea())
+        }
+    }
+
+    private var settingsHeader: some View {
+        ZStack {
+            Text(L10n.setting)
+                .font(.appSystem(size: scaled(18, pad: 21), weight: .bold, design: .rounded))
+                .foregroundColor(MeScreenPalette.text)
+
+            HStack {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.appSystem(size: scaled(17, pad: 19), weight: .bold))
+                        .foregroundColor(MeScreenPalette.text)
+                        .frame(width: scaled(40, pad: 46), height: scaled(40, pad: 46))
+                        .background(
+                            Circle()
+                                .fill(Color.white.opacity(0.72))
+                        )
+                        .appLiquidGlass(in: Circle(), interactive: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.cancel)
+
+                Spacer()
+            }
+        }
+        .frame(height: scaled(44, pad: 52))
+    }
+
+    private var settingsLegalLinks: some View {
+        HStack(spacing: scaled(12, pad: 14)) {
+            Button(action: onOpenTerms) {
+                Text(L10n.paywallTermsOfUse)
+            }
+            .buttonStyle(.plain)
+
+            Text("|")
+
+            Button(action: onOpenPrivacy) {
+                Text(L10n.paywallPrivacyPolicy)
+            }
+            .buttonStyle(.plain)
+
+            Text("|")
+
+            Text("Version \(appShortVersion)")
+        }
+        .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
+        .foregroundColor(MeScreenPalette.mutedText.opacity(0.72))
+        .lineLimit(1)
+        .minimumScaleFactor(0.72)
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+private struct MeSettingsToggleRow: View {
+    let title: String
+    @Binding var isOn: Bool
+    let isPadLayout: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
+                .foregroundColor(MeScreenPalette.text)
+
+            Spacer()
+
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(SidebarGlassToggleStyle(accentColor: MeScreenPalette.accent))
+        }
+        .frame(height: scaled(50, pad: 58))
+        .padding(.horizontal, scaled(18, pad: 22))
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+private struct MeSettingsActionRow: View {
+    let title: String
+    let isPadLayout: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Text(title)
+                    .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
+                    .foregroundColor(MeScreenPalette.text)
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.appSystem(size: scaled(12, pad: 14), weight: .bold))
+                    .foregroundColor(MeScreenPalette.mutedText.opacity(0.48))
+            }
+            .frame(height: scaled(50, pad: 58))
+            .padding(.horizontal, scaled(18, pad: 22))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
 #if DEBUG
 struct SidebarPricingDebugInfoRow: View {
     let loadedProductIDs: [String]

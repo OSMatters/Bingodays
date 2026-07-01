@@ -1,5 +1,112 @@
 import SwiftUI
 
+enum HomeMainTab: String, CaseIterable, Identifiable {
+    case home
+    case points
+    case me
+
+    var id: String { rawValue }
+
+    var accessibilityTitle: String {
+        switch self {
+        case .home:
+            return L10n.tr("Home", zhHans: "首页", zhHant: "首頁", ja: "ホーム")
+        case .points:
+            return L10n.tr("Points", zhHans: "积分", zhHant: "積分", ja: "ポイント")
+        case .me:
+            return L10n.tr("Me", zhHans: "我的", zhHant: "我的", ja: "マイページ")
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .home:
+            return "HomeTabHome"
+        case .points:
+            return "HomeTabRedeem"
+        case .me:
+            return "HomeTabMe"
+        }
+    }
+
+    var selectedIconName: String {
+        switch self {
+        case .home:
+            return "HomeTabHomeSelected"
+        case .points:
+            return "HomeTabRedeemSelected"
+        case .me:
+            return "HomeTabMeSelected"
+        }
+    }
+}
+
+struct HomeMainTabBarView: View {
+    @Binding var selectedTab: HomeMainTab
+    let isPadLayout: Bool
+    @State private var bouncingTab: HomeMainTab?
+
+    var body: some View {
+        tabButtons
+            .frame(width: scaled(292, pad: 360), height: scaled(56, pad: 66))
+            .background {
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.52))
+            }
+            .appLiquidGlass(in: Capsule(style: .continuous), interactive: false)
+            .contentShape(Capsule(style: .continuous))
+    }
+
+    private var tabButtons: some View {
+        HStack(spacing: scaled(42, pad: 58)) {
+            ForEach(HomeMainTab.allCases) { tab in
+                Button {
+                    guard selectedTab != tab else {
+                        triggerTabBounce(for: tab)
+                        return
+                    }
+                    selectedTab = tab
+                    triggerTabBounce(for: tab)
+                } label: {
+                    Image(selectedTab == tab ? tab.selectedIconName : tab.iconName)
+                        .resizable()
+                        .interpolation(.high)
+                        .renderingMode(.original)
+                        .scaledToFit()
+                        .frame(
+                            width: selectedTab == tab ? scaled(36, pad: 42) : scaled(30, pad: 36),
+                            height: selectedTab == tab ? scaled(36, pad: 42) : scaled(30, pad: 36)
+                        )
+                        .scaleEffect(bouncingTab == tab ? 1.08 : 1)
+                        .offset(y: bouncingTab == tab ? scaled(-3, pad: -4) : 0)
+                        .animation(.interpolatingSpring(stiffness: 360, damping: 13), value: bouncingTab)
+                        .frame(width: scaled(52, pad: 62), height: scaled(44, pad: 52))
+                        .contentShape(Capsule(style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(tab.accessibilityTitle)
+                .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+            }
+        }
+    }
+
+    private func triggerTabBounce(for tab: HomeMainTab) {
+        withAnimation(.interpolatingSpring(stiffness: 360, damping: 13)) {
+            bouncingTab = tab
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            guard bouncingTab == tab else { return }
+            withAnimation(.interpolatingSpring(stiffness: 260, damping: 15)) {
+                bouncingTab = nil
+            }
+        }
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.18) : base
+    }
+}
+
 struct BoardSwitcherControlsView: View {
     let boards: [BingoBoardStore.NamedBoard]
     let selectedBoardID: UUID?
@@ -113,45 +220,43 @@ private struct BoardEditHintBubbleView: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            HStack(spacing: isPadLayout ? 8 : 7) {
+            HStack(spacing: isPadLayout ? 7 : 6) {
                 Image(systemName: "hand.tap")
-                    .font(.appSystem(size: isPadLayout ? 16 : 14, weight: .medium))
+                    .font(.appSystem(size: isPadLayout ? 14 : 12, weight: .medium))
                     .foregroundColor(Color(hex: "9D9D9D"))
-                    .frame(width: isPadLayout ? 20 : 18)
+                    .frame(width: isPadLayout ? 18 : 16)
 
                 Text(L10n.boardEditHintMessage)
-                    .font(.appSystem(size: isPadLayout ? 13 : 12, weight: .semibold, design: .rounded))
+                    .font(.appSystem(size: isPadLayout ? 12 : 11, weight: .semibold, design: .rounded))
                     .foregroundColor(Color(hex: "2B2B2B"))
                     .lineLimit(1)
                     .minimumScaleFactor(0.84)
 
                 Button(action: onDismiss) {
                     Text(L10n.boardEditHintAcknowledge)
-                        .font(.appSystem(size: isPadLayout ? 12 : 11, weight: .bold, design: .rounded))
+                        .font(.appSystem(size: isPadLayout ? 11 : 10, weight: .bold, design: .rounded))
                         .foregroundColor(NeumorphicColors.accent)
-                        .padding(.horizontal, 4)
-                        .frame(height: isPadLayout ? 26 : 24)
+                        .padding(.horizontal, 3)
+                        .frame(height: isPadLayout ? 23 : 21)
                 }
                 .buttonStyle(.plain)
                 .fixedSize(horizontal: true, vertical: false)
             }
-            .padding(.leading, isPadLayout ? 18 : 16)
-            .padding(.trailing, isPadLayout ? 10 : 8)
-            .frame(height: isPadLayout ? 44 : 40)
+            .padding(.leading, isPadLayout ? 15 : 14)
+            .padding(.trailing, isPadLayout ? 8 : 7)
+            .frame(height: isPadLayout ? 38 : 34)
             .background(
                 Capsule(style: .continuous)
                     .fill(Color.white.opacity(0.96))
-                    .shadow(color: Color.black.opacity(0.13), radius: 12, x: 0, y: 5)
-                    .shadow(color: Color.white.opacity(0.76), radius: 2, x: 0, y: -1)
             )
 
             Triangle()
                 .fill(Color.white.opacity(0.96))
-                .frame(width: isPadLayout ? 20 : 18, height: isPadLayout ? 13 : 12)
-                .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 3)
-                .offset(x: isPadLayout ? 22 : 20, y: isPadLayout ? 11 : 10)
+                .frame(width: isPadLayout ? 17 : 15, height: isPadLayout ? 11 : 10)
+                .offset(x: isPadLayout ? 19 : 18, y: isPadLayout ? 9 : 8)
         }
         .padding(.bottom, isPadLayout ? 12 : 11)
+        .offset(y: 8)
     }
 }
 
@@ -232,89 +337,121 @@ struct BoardActionsOverlayView: View {
 struct BoardBottomControlsView: View {
     let countdownText: String?
     let isPadLayout: Bool
-    let isTemplateShareDisabled: Bool
     let isEditActionsExpanded: Bool
     let surfaceShadowColor: Color
-    let onTemplateShare: () -> Void
+    let themeColor: Color
     let onCountdown: () -> Void
     let onEditActionsToggle: () -> Void
+    let onDismissEditActions: () -> Void
+    let onShuffle: () -> Void
+    let onClearBoard: () -> Void
+    let onGridSize: () -> Void
+    let onQuickEdit: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            BoardTemplateShareTriggerView(
-                isPadLayout: isPadLayout,
-                isDisabled: isTemplateShareDisabled,
-                onTap: onTemplateShare
-            )
-
-            Spacer(minLength: 0)
-
-            if let countdownText {
-                BoardCountdownTriggerView(
-                    text: countdownText,
+        ZStack(alignment: .topLeading) {
+            HStack(alignment: .center, spacing: 12) {
+                BoardMoreActionsTriggerView(
+                    isExpanded: isEditActionsExpanded,
                     isPadLayout: isPadLayout,
-                    surfaceShadowColor: surfaceShadowColor,
-                    onTap: onCountdown
+                    themeColor: themeColor,
+                    onTap: onEditActionsToggle
                 )
-                .offset(y: isPadLayout ? 4 : 3)
-            } else {
-                Color.clear
-                    .frame(width: isPadLayout ? 170 : 140, height: isPadLayout ? 38 : 32)
+
+                Spacer(minLength: 0)
+
+                if let countdownText {
+                    BoardCountdownTriggerView(
+                        text: countdownText,
+                        isPadLayout: isPadLayout,
+                        surfaceShadowColor: surfaceShadowColor,
+                        onTap: onCountdown
+                    )
+                    .offset(y: isPadLayout ? 4 : 3)
+                } else {
+                    Color.clear
+                        .frame(width: isPadLayout ? 170 : 140, height: isPadLayout ? 38 : 32)
+                }
+
+                Spacer(minLength: 0)
+
+                BoardQuickEditTriggerView(
+                    isPadLayout: isPadLayout,
+                    onTap: onQuickEdit
+                )
             }
 
-            Spacer(minLength: 0)
-
-            BoardEditActionsTriggerView(
-                isExpanded: isEditActionsExpanded,
-                isPadLayout: isPadLayout,
-                onTap: onEditActionsToggle
-            )
+            if isEditActionsExpanded {
+                BoardMoreActionsSidePanel(
+                    isPadLayout: isPadLayout,
+                    onDismiss: onDismissEditActions,
+                    onShuffle: onShuffle,
+                    onClearBoard: onClearBoard,
+                    onGridSize: onGridSize
+                )
+                .offset(x: moreActionsPanelOffsetX, y: moreActionsPanelOffsetY)
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .leading)))
+                .zIndex(2)
+            }
         }
+    }
+
+    private var moreActionsPanelOffsetX: CGFloat {
+        isPadLayout ? 63 : 53
+    }
+
+    private var moreActionsPanelOffsetY: CGFloat {
+        let triggerSize: CGFloat = isPadLayout ? 44 : 38
+        let rowHeight: CGFloat = isPadLayout ? 40 : 34
+        let verticalPadding: CGFloat = isPadLayout ? 6 : 5
+        let panelHeight = rowHeight * 3 + verticalPadding * 2
+
+        return triggerSize - panelHeight
     }
 }
 
-struct BoardTemplateShareTriggerView: View {
-    let isPadLayout: Bool
-    let isDisabled: Bool
-    let onTap: () -> Void
-
-    var body: some View {
-        let buttonSize: CGFloat = isPadLayout ? 51 : 45
-
-        if AppFeatureFlags.isTemplateSharingEnabled {
-            Button(action: onTap) {
-                Image(systemName: "paperplane.fill")
-                    .font(.appSystem(size: isPadLayout ? 22 : 20, weight: .bold))
-                    .foregroundColor(NeumorphicColors.accent)
-                    .frame(width: buttonSize, height: buttonSize)
-                    .background {
-                        Circle()
-                            .fill(Color.white.opacity(0.64))
-                    }
-                    .appLiquidGlass(in: Circle(), interactive: true)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(isDisabled)
-            .accessibilityLabel(L10n.shareBoardTemplate)
-        } else {
-            Color.clear
-                .frame(width: buttonSize, height: buttonSize)
-        }
-    }
-}
-
-struct BoardEditActionsTriggerView: View {
+struct BoardMoreActionsTriggerView: View {
     let isExpanded: Bool
     let isPadLayout: Bool
+    let themeColor: Color
     let onTap: () -> Void
 
     var body: some View {
-        let buttonSize: CGFloat = isPadLayout ? 51 : 45
+        let buttonSize: CGFloat = isPadLayout ? 44 : 38
 
         Button(action: onTap) {
-            Image(systemName: isExpanded ? "xmark" : "square.and.pencil")
-                .font(.appSystem(size: isPadLayout ? 28 : 26, weight: .bold))
+            Image("HomeMore")
+                .resizable()
+                .interpolation(.high)
+                .renderingMode(.template)
+                .foregroundColor(themeColor)
+                .scaledToFit()
+                .frame(width: isPadLayout ? 25 : 21, height: isPadLayout ? 25 : 21)
+                .frame(width: buttonSize, height: buttonSize)
+                .background {
+                    Circle()
+                        .fill(Color.white.opacity(0.64))
+                }
+                .appLiquidGlass(in: Circle(), interactive: true)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: buttonSize, height: buttonSize, alignment: .bottomTrailing)
+        .accessibilityLabel(L10n.tr("More board actions", zhHans: "更多棋盘操作", zhHant: "更多棋盤操作", ja: "その他のボード操作"))
+        .accessibilityAddTraits(isExpanded ? .isSelected : [])
+    }
+}
+
+struct BoardQuickEditTriggerView: View {
+    let isPadLayout: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        let buttonSize: CGFloat = isPadLayout ? 44 : 38
+
+        Button(action: onTap) {
+            Image(systemName: "square.and.pencil")
+                .font(.appSystem(size: isPadLayout ? 20 : 18, weight: .bold))
                 .foregroundColor(NeumorphicColors.accent)
                 .frame(width: buttonSize, height: buttonSize)
                 .background {
@@ -326,6 +463,59 @@ struct BoardEditActionsTriggerView: View {
         }
         .buttonStyle(.plain)
         .frame(width: buttonSize, height: buttonSize, alignment: .bottomTrailing)
+        .accessibilityLabel(L10n.quickEdit)
+    }
+}
+
+struct BoardMoreActionsSidePanel: View {
+    let isPadLayout: Bool
+    let onDismiss: () -> Void
+    let onShuffle: () -> Void
+    let onClearBoard: () -> Void
+    let onGridSize: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            actionButton(L10n.tr("Shuffle", zhHans: "随机排序"), action: onShuffle)
+            actionButton(L10n.clearBoard, action: onClearBoard)
+            actionButton(L10n.tr("Grid Size", zhHans: "格子大小"), action: onGridSize)
+        }
+        .padding(.vertical, scaled(5, pad: 6))
+        .frame(width: scaled(160, pad: 184), alignment: .center)
+        .background(
+            RoundedRectangle(cornerRadius: scaled(8, pad: 10), style: .continuous)
+                .fill(Color.white.opacity(0.94))
+                .overlay(
+                    RoundedRectangle(cornerRadius: scaled(8, pad: 10), style: .continuous)
+                        .stroke(Color(hex: "E9E4DA"), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.045), radius: 8, x: 0, y: 4)
+        )
+    }
+
+    private func actionButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button {
+            onDismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                action()
+            }
+        } label: {
+            Text(title)
+                .font(.appSystem(size: scaled(16, pad: 18), weight: .regular, design: .rounded))
+                .foregroundColor(NeumorphicColors.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.86)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(height: scaled(34, pad: 40))
+                .padding(.horizontal, scaled(12, pad: 14))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
     }
 }
 

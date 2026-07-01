@@ -42,11 +42,16 @@ struct ContentView: View {
     private let homeLifecycleWorkStore = HomeLifecycleWorkStore()
     private let homeTimeoutWorkStore = HomeTimeoutWorkStore()
     private let homeAppReviewPromptStore = HomeAppReviewPromptStore()
+    @State private var selectedMainTab: HomeMainTab = .home
+    @State private var meGreetingIndex = MeGreeting.randomIndex()
     @State private var isSidebarPresented = false
     @State private var isSettingsExpanded = false
     @State private var isWidgetGuideExpanded = false
     @State private var isThemePickerExpanded = false
+    @State private var isThemePickerSheetPresented = false
+    @State private var isMeSettingsPresented = false
     @State private var isPointsFlowPresented = false
+    @State private var isPointsTabSubpagePresented = false
     @State private var isBoardCountdownPresented = false
     @State private var isBoardRulesPresented = false
     @State private var boardRulesTargetBoardID: UUID?
@@ -116,9 +121,9 @@ struct ContentView: View {
     private var streakGoals: [Int] { bingoStreakDays >= 60 ? [60, 180, 270, 365] : [7, 14, 30, 60] }
     private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
     private var activeThemeColor: Color { activeTheme.color }
-    private let conciseSurfaceColor = Color(hex: "F4F4F4")
+    private let conciseSurfaceColor = Color(hex: "FAF9F3")
     private var homeThemeBackgroundTint: some View {
-        Color(hex: "F4F4F4")
+        Color(hex: "FAF9F3")
     }
     private var appShortVersion: String {
         AppUpdatePromptStore.currentAppVersion
@@ -198,6 +203,28 @@ struct ContentView: View {
             isBoardCountdownPresented: isBoardCountdownPresented,
             isGridSizeSheetPresented: isGridSizeSheetPresented
         )
+    }
+    private var shouldShowMainTabBar: Bool {
+        guard !(selectedMainTab == .me && isMeSettingsPresented) else { return false }
+        switch selectedMainTab {
+        case .home:
+            return !isHomeMainTabBarSuppressed
+        case .points:
+            return !isPointsTabSubpagePresented
+        case .me:
+            return true
+        }
+    }
+    private var isHomeMainTabBarSuppressed: Bool {
+        boardActionPresentationStore.actionSheetBoardID != nil ||
+            firstStepGuideOverlay != nil ||
+            isUpdatePromptPresented ||
+            isAppReviewPromptPresented ||
+            isCustomResetDowngradeAlertPresented ||
+            viewModel.expiredTaskEvent != nil ||
+            viewModel.expiredBoardCountdownEvent != nil ||
+            viewModel.scheduledTaskReplacementEvent != nil ||
+            timeoutDelayPickerContext != nil
     }
     private var selectedBoardName: String {
         boardManagementStore.selectedBoardName
@@ -322,7 +349,7 @@ struct ContentView: View {
         )
     }
 
-    private func presentPremiumPaywall(source: String) {
+    private func presentPremiumPaywall(source: String, allowsMemberCenter: Bool = false) {
         DiagnosticLogStore.recordUserAction(
             "premium_paywall.request",
             details: diagnosticHomeStateDetails(source: source)
@@ -332,19 +359,37 @@ struct ContentView: View {
         }
         premiumPaywallSource = source
         Task { @MainActor in
-            guard !subscriptionManager.hasPremiumAccess else {
+            if subscriptionManager.hasPremiumAccess {
+                guard allowsMemberCenter else {
+                    DiagnosticLogStore.recordStateChange(
+                        "premium_paywall.skip_already_premium",
+                        details: ["source": source]
+                    )
+                    return
+                }
+                isPremiumPaywallPresented = true
                 DiagnosticLogStore.recordStateChange(
-                    "premium_paywall.skip_already_premium",
-                    details: ["source": source]
+                    "premium_paywall.member_center_presented",
+                    details: diagnosticHomeStateDetails(source: source)
                 )
+                await subscriptionManager.warmupProductsForPaywall()
                 return
             }
             await subscriptionManager.refreshEntitlements()
-            guard !subscriptionManager.hasPremiumAccess else {
+            if subscriptionManager.hasPremiumAccess {
+                guard allowsMemberCenter else {
+                    DiagnosticLogStore.recordStateChange(
+                        "premium_paywall.skip_after_refresh",
+                        details: ["source": source]
+                    )
+                    return
+                }
+                isPremiumPaywallPresented = true
                 DiagnosticLogStore.recordStateChange(
-                    "premium_paywall.skip_after_refresh",
-                    details: ["source": source]
+                    "premium_paywall.member_center_presented_after_refresh",
+                    details: diagnosticHomeStateDetails(source: source)
                 )
+                await subscriptionManager.warmupProductsForPaywall()
                 return
             }
             isPremiumPaywallPresented = true
@@ -393,12 +438,31 @@ struct ContentView: View {
                 )
             )
         )
+        .sheet(isPresented: $isThemePickerSheetPresented) {
+            HomeThemePickerSheet(
+                themeRawValue: $themeRawValue,
+                isPadLayout: isPadLayout
+            )
+            .presentationDetents([.height(isPadLayout ? 158 : 138)])
+            .presentationDragIndicator(.visible)
+        }
         .onAppear {
             resetLimitedOfferStateForDebugIfNeeded()
             clearLimitedOfferEntryIfPremium()
         }
         .onChange(of: subscriptionManager.hasPremiumAccess) { _, _ in
             clearLimitedOfferEntryIfPremium()
+        }
+        .onChange(of: selectedMainTab) { _, newValue in
+            if newValue == .me {
+                meGreetingIndex = MeGreeting.randomIndex(excluding: meGreetingIndex)
+            }
+            if newValue != .me {
+                isMeSettingsPresented = false
+            }
+            if newValue != .points {
+                isPointsTabSubpagePresented = false
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .limitedOfferEligibilityDidChange)) { _ in
             Task {
@@ -430,22 +494,32 @@ struct ContentView: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
-                VStack(spacing: 0) {
+                if selectedMainTab == .home && isEditActionsExpanded {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                isEditActionsExpanded = false
+                            }
+                        }
+                }
+
+                if selectedMainTab == .home {
+                    VStack(spacing: 0) {
                     HomeHeaderView(
                         pointsAnimationStore: pointsAnimationStore,
                         isPadLayout: isPadLayout,
                         availablePoints: availablePoints,
                         showsLimitedOffer: shouldShowLimitedOfferEntry,
                         limitedTimeOfferDuration: limitedTimeOfferConfig.offerDuration,
-                        onToggleSidebar: {
+                        themeColor: activeThemeColor,
+                        onOpenThemePicker: {
                             DiagnosticLogStore.recordUserAction(
-                                "home_header.sidebar_toggle",
+                                "home_header.theme_picker",
                                 details: diagnosticHomeStateDetails(source: "home_header")
                             )
                             selectedStickerID = nil
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
-                                isSidebarPresented.toggle()
-                            }
+                            isThemePickerSheetPresented = true
                         },
                         onOpenPointsFlow: {
                             DiagnosticLogStore.recordUserAction(
@@ -453,7 +527,9 @@ struct ContentView: View {
                                 details: diagnosticHomeStateDetails(source: "home_header")
                             )
                             selectedStickerID = nil
-                            isPointsFlowPresented = true
+                            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                                selectedMainTab = .points
+                            }
                         },
                         onOpenLimitedOffer: {
                             DiagnosticLogStore.recordUserAction(
@@ -480,9 +556,9 @@ struct ContentView: View {
                         shouldShowBoardEditHint: shouldShowBoardEditHint,
                         shouldReserveBoardEditHintSpace: shouldReserveBoardEditHintSpace,
                         countdownText: boardCountdownText,
-                        isTemplateShareDisabled: isTemplateShareComposerPresented,
                         isEditActionsExpanded: isEditActionsExpanded,
                         surfaceShadowColor: activeTheme.bingoSurfaceShadowColor,
+                        themeColor: activeThemeColor,
                         boardSwipeBlockingState: boardSwipeBlockingState,
                         onSelectBoard: selectBoard,
                         onBoardLongPress: beginBoardActions,
@@ -492,7 +568,6 @@ struct ContentView: View {
                             selectedStickerID = nil
                             reconcileRedemptionsIfPointsInsufficient()
                         },
-                        onTemplateShare: beginBoardTemplateShare,
                         onCountdown: {
                             DiagnosticLogStore.recordUserAction(
                                 "board_header.countdown",
@@ -510,68 +585,55 @@ struct ContentView: View {
                             withAnimation(.easeInOut(duration: 0.18)) {
                                 isEditActionsExpanded.toggle()
                             }
+                        },
+                        onDismissEditActions: {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                isEditActionsExpanded = false
+                            }
+                        },
+                        onShuffle: {
+                            DiagnosticLogStore.recordUserAction(
+                                "edit_actions.shuffle",
+                                details: diagnosticHomeStateDetails(source: "edit_actions")
+                            )
+                            withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                                viewModel.shuffleBoard()
+                            }
+                        },
+                        onClearBoard: {
+                            DiagnosticLogStore.recordUserAction(
+                                "edit_actions.clear_board",
+                                details: diagnosticHomeStateDetails(source: "edit_actions")
+                            )
+                            isClearBoardConfirmationPresented = true
+                        },
+                        onGridSize: {
+                            DiagnosticLogStore.recordUserAction(
+                                "edit_actions.grid_size",
+                                details: diagnosticHomeStateDetails(source: "edit_actions")
+                            )
+                            isGridSizeSheetPresented = true
+                        },
+                        onQuickEdit: {
+                            DiagnosticLogStore.recordUserAction(
+                                "board_header.quick_edit",
+                                details: diagnosticHomeStateDetails(source: "board_header")
+                            )
+                            selectedStickerID = nil
+                            isQuickEditPresented = true
                         }
                     )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .offset(y: -layoutLift)
 
-                HomeStickerLayer(
+                    HomeStickerLayer(
                     pointsFeatureStore: pointsFeatureStore,
                     selectedStickerID: $selectedStickerID,
                     canvasSize: geo.size
                 )
 
-                HomeSidebarLayer(
-                    canvasWidth: geo.size.width,
-                    topInset: topLayoutSafeInset,
-                    bottomInset: geo.safeAreaInsets.bottom,
-                    streakDays: bingoStreakDays,
-                    streakGoals: streakGoals,
-                    themeColor: activeThemeColor,
-                    isPadLayout: isPadLayout,
-                    appShortVersion: appShortVersion,
-                    isPresented: $isSidebarPresented,
-                    isSettingsExpanded: $isSettingsExpanded,
-                    isWidgetGuideExpanded: $isWidgetGuideExpanded,
-                    isThemePickerExpanded: $isThemePickerExpanded,
-                    isHapticsEnabled: $isHapticsEnabled,
-                    isSoundEffectsEnabled: $isSoundEffectsEnabled,
-                    themeRawValue: $themeRawValue,
-                    onOpenDiary: {
-                        DiagnosticLogStore.recordUserAction(
-                            "sidebar.diary",
-                            details: diagnosticHomeStateDetails(source: "sidebar")
-                        )
-                        isDiaryPresented = true
-                    },
-                    onOpenBlackBoxMode: {
-                        DiagnosticLogStore.recordUserAction(
-                            "sidebar.black_box",
-                            details: diagnosticHomeStateDetails(source: "sidebar")
-                        )
-                        isBlackBoxModePresented = true
-                    },
-                    onOpenContact: {
-                        DiagnosticLogStore.recordUserAction(
-                            "sidebar.contact",
-                            details: diagnosticHomeStateDetails(source: "sidebar")
-                        )
-                        isContactUsPresented = true
-                    },
-                    onEncourageUs: {
-                        DiagnosticLogStore.recordUserAction(
-                            "sidebar.encourage_us",
-                            details: diagnosticHomeStateDetails(source: "sidebar")
-                        )
-                        requestAppStoreReviewFromSidebar()
-                    },
-                    onPresentPremiumPaywall: {
-                        presentPremiumPaywall(source: "sidebar_pro_entry")
-                    }
-                )
-
-                HomeFeedbackLayer(
+                    HomeFeedbackLayer(
                     viewModel: viewModel,
                     toastStore: toastStore,
                     canvasSize: geo.size,
@@ -581,7 +643,7 @@ struct ContentView: View {
                     onBoardCompletionAnimationFinished: handleBoardCompletionAnimationFinished
                 )
 
-                HomePromptLayer(
+                    HomePromptLayer(
                     firstStepGuideOverlay: firstStepGuideOverlay,
                     pendingUpdateInfo: pendingUpdateInfo,
                     isUpdatePromptPresented: isUpdatePromptPresented,
@@ -609,7 +671,7 @@ struct ContentView: View {
                     }
                 )
 
-                HomeBoardActionLayer(
+                    HomeBoardActionLayer(
                     boardActionPresentationStore: boardActionPresentationStore,
                     namedBoards: namedBoards,
                     contentWidth: contentWidth,
@@ -621,47 +683,7 @@ struct ContentView: View {
                     onDeleteBoard: requestDeleteBoard
                 )
 
-                HomeEditActionsLayer(
-                    isEditActionsExpanded: isEditActionsExpanded,
-                    isPadLayout: isPadLayout,
-                    onDismiss: {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            isEditActionsExpanded = false
-                        }
-                    },
-                    onShuffle: {
-                        DiagnosticLogStore.recordUserAction(
-                            "edit_actions.shuffle",
-                            details: diagnosticHomeStateDetails(source: "edit_actions")
-                        )
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-                            viewModel.shuffleBoard()
-                        }
-                    },
-                    onClearBoard: {
-                        DiagnosticLogStore.recordUserAction(
-                            "edit_actions.clear_board",
-                            details: diagnosticHomeStateDetails(source: "edit_actions")
-                        )
-                        isClearBoardConfirmationPresented = true
-                    },
-                    onGridSize: {
-                        DiagnosticLogStore.recordUserAction(
-                            "edit_actions.grid_size",
-                            details: diagnosticHomeStateDetails(source: "edit_actions")
-                        )
-                        isGridSizeSheetPresented = true
-                    },
-                    onQuickEdit: {
-                        DiagnosticLogStore.recordUserAction(
-                            "edit_actions.quick_edit",
-                            details: diagnosticHomeStateDetails(source: "edit_actions")
-                        )
-                        isQuickEditPresented = true
-                    }
-                )
-
-                HomeTimeoutOverlayLayer(
+                    HomeTimeoutOverlayLayer(
                     viewModel: viewModel,
                     countdownNow: countdownNow,
                     selectedBoardName: selectedBoardName,
@@ -672,9 +694,125 @@ struct ContentView: View {
                     timeoutDelayPickerHours: $timeoutDelayPickerHours,
                     timeoutDelayPickerMinutes: $timeoutDelayPickerMinutes,
                     onToast: showCommonTasksToast
-                )
+                    )
+                } else if selectedMainTab == .points {
+                    pointsTabContent(bottomInset: geo.safeAreaInsets.bottom)
+                } else {
+                    meTabContent(bottomInset: geo.safeAreaInsets.bottom)
+                }
+
+                if shouldShowMainTabBar {
+                    VStack {
+                        Spacer()
+                        HomeMainTabBarView(
+                            selectedTab: $selectedMainTab,
+                            isPadLayout: isPadLayout
+                        )
+                        .padding(.bottom, 6)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
+                    .zIndex(5)
+                }
 
             }
+        }
+    }
+
+    private func pointsTabContent(bottomInset: CGFloat) -> some View {
+        PointsFlowPresenter(
+            isPadLayout: isPadLayout,
+            points: availablePoints,
+            totalPoints: viewModel.totalPoints,
+            pointsFeatureStore: pointsFeatureStore,
+            showsCloseButton: false,
+            bottomContentPadding: max(bottomInset, 0) + scaled(116, pad: 136),
+            onSubpagePresentationChange: { isPresented in
+                isPointsTabSubpagePresented = isPresented
+            },
+            onAddStickerToHomeSuccess: {
+                selectedStickerID = nil
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    selectedMainTab = .home
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func meTabContent(bottomInset: CGFloat) -> some View {
+        if isMeSettingsPresented {
+            MeSettingsScreen(
+                isPadLayout: isPadLayout,
+                appShortVersion: appShortVersion,
+                isHapticsEnabled: $isHapticsEnabled,
+                isSoundEffectsEnabled: $isSoundEffectsEnabled,
+                isWidgetGuideExpanded: $isWidgetGuideExpanded,
+                onBack: {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        isMeSettingsPresented = false
+                    }
+                },
+                onOpenLanguage: openAppSettings,
+                onOpenTerms: {
+                    openLegalURL("https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")
+                },
+                onOpenPrivacy: {
+                    openLegalURL("https://osmatters.github.io/bingoday-support/privacy")
+                },
+                onEncourageUs: {
+                    DiagnosticLogStore.recordUserAction(
+                        "me.settings.encourage_us",
+                        details: diagnosticHomeStateDetails(source: "me_settings")
+                    )
+                    requestAppStoreReviewFromMe(markEntryHidden: false)
+                }
+            )
+            .transition(.opacity)
+        } else {
+            BingodaysMeScreen(
+                isPremiumMember: subscriptionManager.hasPremiumAccess,
+                premiumPlanKind: subscriptionManager.currentPlanKind,
+                hasReviewedApp: hasRatedAppReviewPrompt,
+                streakDays: bingoStreakDays,
+                greetingText: MeGreeting.localizedText(at: meGreetingIndex),
+                isPadLayout: isPadLayout,
+                bottomInset: bottomInset,
+                onOpenContact: {
+                    DiagnosticLogStore.recordUserAction(
+                        "me.contact",
+                        details: diagnosticHomeStateDetails(source: "me")
+                    )
+                    isContactUsPresented = true
+                },
+                onOpenSettings: {
+                    DiagnosticLogStore.recordUserAction(
+                        "me.settings",
+                        details: diagnosticHomeStateDetails(source: "me")
+                    )
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        isMeSettingsPresented = true
+                    }
+                },
+                onLeaveReview: {
+                    DiagnosticLogStore.recordUserAction(
+                        "me.encourage_us",
+                        details: diagnosticHomeStateDetails(source: "me")
+                    )
+                    requestAppStoreReviewFromMe(markEntryHidden: true)
+                },
+                onOpenDiary: {
+                    DiagnosticLogStore.recordUserAction(
+                        "me.diary",
+                        details: diagnosticHomeStateDetails(source: "me")
+                    )
+                    isDiaryPresented = true
+                },
+                onOpenPremium: {
+                    presentPremiumPaywall(source: "me_pro_entry", allowsMemberCenter: true)
+                }
+            )
+            .transition(.opacity)
         }
     }
 
@@ -850,7 +988,9 @@ struct ContentView: View {
                     onCancelBoardCountdown: {
                         isBoardCountdownPresented = false
                     },
-                    onPresentPremiumPaywall: presentPremiumPaywall,
+                    onPresentPremiumPaywall: { source in
+                        presentPremiumPaywall(source: source)
+                    },
                     onApplyBoardRulesSettings: { boardID, countdownMinutes, resetMode, customResetMinutes in
                         applyBoardRulesSettings(
                             for: boardID,
@@ -1415,6 +1555,27 @@ struct ContentView: View {
         )
         hasRatedAppReviewPrompt = true
         requestReview()
+    }
+
+    private func requestAppStoreReviewFromMe(markEntryHidden: Bool) {
+        DiagnosticLogStore.recordUserAction(
+            "app_review.request",
+            details: diagnosticHomeStateDetails(source: "me")
+        )
+        if markEntryHidden {
+            hasRatedAppReviewPrompt = true
+        }
+        requestReview()
+    }
+
+    private func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        openURL(url)
+    }
+
+    private func openLegalURL(_ urlString: String) {
+        guard let url = URL(string: urlString) else { return }
+        openURL(url)
     }
 
     private func openFeedbackEmailFromPrompt() {

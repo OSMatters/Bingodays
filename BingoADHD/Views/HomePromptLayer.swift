@@ -88,16 +88,18 @@ private struct AppReviewPromptOverlayView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let panelWidth = min(proxy.size.width, scaled(393, pad: 430))
+            let horizontalMargin = scaled(10, pad: 24)
+            let panelWidth = min(scaled(393, pad: 430), max(280, proxy.size.width - horizontalMargin * 2))
             let panelHeight = min(scaled(516, pad: 540), max(proxy.size.height - proxy.safeAreaInsets.top - 56, scaled(430, pad: 500)))
             let horizontalInset = max((proxy.size.width - panelWidth) / 2, 0)
+            let contentWidth = max(236, min(scaled(300, pad: 340), panelWidth - scaled(48, pad: 56)))
 
             ZStack(alignment: .bottom) {
                 Color.black.opacity(0.78)
                     .ignoresSafeArea()
 
                 if isPadLayout {
-                    panel
+                    panel(contentWidth: contentWidth)
                         .frame(width: panelWidth, height: panelHeight, alignment: .top)
                         .background(
                             RoundedRectangle(cornerRadius: scaled(16, pad: 20), style: .continuous)
@@ -116,7 +118,7 @@ private struct AppReviewPromptOverlayView: View {
                         .padding(.top, proxy.safeAreaInsets.top + scaled(128, pad: 96))
                         .padding(.trailing, horizontalInset + scaled(32, pad: 34))
 
-                    panel
+                    panel(contentWidth: contentWidth)
                         .frame(width: panelWidth, height: panelHeight, alignment: .top)
                         .background(
                             AppReviewPromptTopRoundedShape(radius: scaled(16, pad: 20))
@@ -128,14 +130,18 @@ private struct AppReviewPromptOverlayView: View {
             }
         }
         .ignoresSafeArea()
+        .dynamicTypeSize(.xSmall...DynamicTypeSize.xxxLarge)
     }
 
-    private var panel: some View {
-        VStack(spacing: scaled(32, pad: 34)) {
+    private func panel(contentWidth: CGFloat) -> some View {
+        let imageWidth = min(scaled(211, pad: 238), contentWidth * 0.72)
+        let imageHeight = imageWidth * (145.0 / 211.0)
+
+        return VStack(spacing: scaled(32, pad: 34)) {
             Image("RatingPromptFiveStars")
                 .resizable()
                 .scaledToFill()
-                .frame(width: scaled(211, pad: 238), height: scaled(145, pad: 164))
+                .frame(width: imageWidth, height: imageHeight)
                 .clipped()
                 .padding(.top, scaled(31, pad: 36))
 
@@ -145,22 +151,23 @@ private struct AppReviewPromptOverlayView: View {
                     .foregroundColor(Color(hex: "291E0A"))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.82)
+                    .minimumScaleFactor(0.76)
 
                 Text(L10n.appReviewPromptSubtitle)
                     .font(.appSystem(size: scaled(16, pad: 18), weight: .medium, design: .rounded))
                     .foregroundColor(Color(hex: "828282"))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.82)
+                    .minimumScaleFactor(0.76)
             }
-            .frame(width: scaled(300, pad: 340))
+            .frame(width: contentWidth)
 
             VStack(spacing: scaled(16, pad: 18)) {
                 AppReviewPromptButton(
                     title: L10n.appReviewPromptRateAction,
                     style: .primary,
                     isPadLayout: isPadLayout,
+                    width: contentWidth,
                     action: onRateApp
                 )
 
@@ -168,6 +175,7 @@ private struct AppReviewPromptOverlayView: View {
                     title: L10n.appReviewPromptFeedbackAction,
                     style: .secondary,
                     isPadLayout: isPadLayout,
+                    width: contentWidth,
                     action: onOpenFeedbackEmail
                 )
 
@@ -175,6 +183,7 @@ private struct AppReviewPromptOverlayView: View {
                     title: L10n.appReviewPromptDismissAction,
                     style: .plain,
                     isPadLayout: isPadLayout,
+                    width: contentWidth,
                     action: onReject
                 )
             }
@@ -210,6 +219,7 @@ private struct AppReviewPromptButton: View {
     let title: String
     let style: Style
     let isPadLayout: Bool
+    let width: CGFloat
     let action: () -> Void
 
     var body: some View {
@@ -219,7 +229,7 @@ private struct AppReviewPromptButton: View {
                 .foregroundColor(foregroundColor)
                 .multilineTextAlignment(.center)
                 .lineLimit(1)
-                .minimumScaleFactor(0.78)
+                .minimumScaleFactor(0.66)
                 .frame(maxWidth: .infinity)
                 .frame(height: scaled(52, pad: 58))
                 .background(background)
@@ -227,7 +237,7 @@ private struct AppReviewPromptButton: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .frame(width: scaled(300, pad: 340), height: scaled(52, pad: 58))
+        .frame(width: width, height: scaled(52, pad: 58))
     }
 
     @ViewBuilder

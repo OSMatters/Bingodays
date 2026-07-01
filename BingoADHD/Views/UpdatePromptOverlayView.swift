@@ -8,48 +8,58 @@ struct UpdatePromptOverlayView: View {
     let onUpdate: () -> Void
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.78)
-                .ignoresSafeArea()
-                .onTapGesture(perform: onSkip)
+        GeometryReader { proxy in
+            let horizontalMargin = scaled(16, pad: 24)
+            let panelWidth = min(scaled(360, pad: 500), max(280, proxy.size.width - horizontalMargin * 2))
+            let contentPadding = min(scaled(34, pad: 44), max(22, panelWidth * 0.09))
 
-            VStack(spacing: 0) {
-                hero
+            ZStack {
+                Color.black.opacity(0.78)
+                    .ignoresSafeArea()
+                    .onTapGesture(perform: onSkip)
 
-                VStack(spacing: scaled(14, pad: 18)) {
-                    Text(L10n.updateWhatsNewTitle)
-                        .font(.appSystem(size: scaled(19, pad: 23), weight: .semibold, design: .rounded))
-                        .foregroundColor(updateTextColor)
-                        .multilineTextAlignment(.center)
-                        .padding(.top, scaled(32, pad: 40))
+                VStack(spacing: 0) {
+                    hero(panelWidth: panelWidth)
 
-                    changeList
+                    VStack(spacing: scaled(14, pad: 18)) {
+                        Text(L10n.updateWhatsNewTitle)
+                            .font(.appSystem(size: scaled(19, pad: 23), weight: .semibold, design: .rounded))
+                            .foregroundColor(updateTextColor)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.76)
+                            .padding(.top, scaled(32, pad: 40))
 
-                    Button(action: onUpdate) {
-                        Text(L10n.updatePrimaryAction)
-                            .font(.appSystem(size: scaled(16, pad: 18), weight: .semibold, design: .rounded))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: scaled(58, pad: 66))
-                            .background(
-                                Capsule()
-                                    .fill(updateButtonColor)
-                            )
+                        changeList
+
+                        Button(action: onUpdate) {
+                            Text(L10n.updatePrimaryAction)
+                                .font(.appSystem(size: scaled(16, pad: 18), weight: .semibold, design: .rounded))
+                                .foregroundColor(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.72)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: scaled(58, pad: 66))
+                                .background(
+                                    Capsule()
+                                        .fill(updateButtonColor)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, scaled(18, pad: 24))
                     }
-                    .buttonStyle(.plain)
-                    .padding(.top, scaled(18, pad: 24))
+                    .padding(.horizontal, contentPadding)
+                    .padding(.bottom, scaled(34, pad: 44))
+                    .background(updateBodyColor)
                 }
-                .padding(.horizontal, scaled(34, pad: 44))
-                .padding(.bottom, scaled(34, pad: 44))
-                .background(updateBodyColor)
+                .frame(width: panelWidth)
+                .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
             }
-            .frame(maxWidth: isPadLayout ? 500 : 360)
-            .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
-            .padding(.horizontal, 20)
         }
+        .dynamicTypeSize(.xSmall...DynamicTypeSize.xxxLarge)
     }
 
-    private var hero: some View {
+    private func hero(panelWidth: CGFloat) -> some View {
         ZStack(alignment: .topTrailing) {
             Image("UpdatePromptImage")
                 .resizable()
@@ -68,7 +78,7 @@ struct UpdatePromptOverlayView: View {
             .padding(.top, scaled(12, pad: 14))
             .padding(.trailing, scaled(12, pad: 14))
         }
-        .frame(height: scaled(133, pad: 184))
+        .frame(height: min(scaled(133, pad: 184), panelWidth * (133.0 / 360.0)))
     }
 
     private var changeList: some View {

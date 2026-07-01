@@ -2,27 +2,31 @@ import SwiftUI
 
 struct HomeHeaderView: View {
     @ObservedObject var pointsAnimationStore: PointsAnimationStore
-    @AppStorage(AppSettings.limitedTimeDiscountStartedAtKey) private var limitedTimeDiscountStartedAt = 0.0
 
     let isPadLayout: Bool
     let availablePoints: Int
     let showsLimitedOffer: Bool
     let limitedTimeOfferDuration: TimeInterval
-    let onToggleSidebar: () -> Void
+    let themeColor: Color
+    let onOpenThemePicker: () -> Void
     let onOpenPointsFlow: () -> Void
     let onOpenLimitedOffer: () -> Void
 
     var body: some View {
-        let iconSize: CGFloat = isPadLayout ? 52 : 48
+        let iconSize: CGFloat = isPadLayout ? 44 : 40
 
         ZStack {
             HStack {
                 Button {
-                    onToggleSidebar()
+                    onOpenThemePicker()
                 } label: {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.appSystem(size: scaled(20, pad: 23), weight: .semibold))
-                        .foregroundColor(NeumorphicColors.accent)
+                    Image("HomeSkin")
+                        .resizable()
+                        .interpolation(.high)
+                        .renderingMode(.template)
+                        .foregroundColor(themeColor)
+                        .scaledToFit()
+                        .frame(width: scaled(24, pad: 28), height: scaled(24, pad: 28))
                         .frame(width: iconSize, height: iconSize)
                         .contentShape(Rectangle())
                 }
@@ -73,30 +77,14 @@ struct HomeHeaderView: View {
             }
 
             if showsLimitedOffer {
-                ZStack {
-                    HomeLimitedOfferBannerView(
-                        isPadLayout: isPadLayout,
-                        offerDuration: limitedTimeOfferDuration,
-                        onTap: onOpenLimitedOffer
-                    )
-
-                    if shouldShowLimitedOfferCountdownLabel {
-                        Text(L10n.limitedOfferCountdownLabel)
-                            .font(.appSystem(size: isPadLayout ? 10 : 9, weight: .bold))
-                            .foregroundColor(Color(hex: "D3A375"))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .frame(height: isPadLayout ? 12 : 11)
-                            .offset(y: isPadLayout ? -31 : -26)
-                    }
-                }
+                HomeLimitedOfferBannerView(
+                    isPadLayout: isPadLayout,
+                    offerDuration: limitedTimeOfferDuration,
+                    onTap: onOpenLimitedOffer
+                )
                 .offset(y: -20)
             }
         }
-    }
-
-    private var shouldShowLimitedOfferCountdownLabel: Bool {
-        limitedTimeDiscountStartedAt > 0
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {

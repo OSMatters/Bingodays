@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct PointsRewardBackground: View {
-    var theme: AppTheme = .current
+    var theme: AppTheme = .concise
 
     var body: some View {
         theme.backgroundColor
@@ -74,7 +74,7 @@ struct PointsStickerActionOverlay: View {
         return !(isOwned && isPlacedOnHome)
     }
 
-    private var activeTheme: AppTheme { .current }
+    private var activeTheme: AppTheme { .concise }
     private var previewShowsUnlocked: Bool {
         isOwned || hasRevealedRedeemedSticker || phase == .success
     }
@@ -311,7 +311,7 @@ struct PointsRewardRedeemOverlay: View {
     @State private var cardFlipDegrees = 0.0
     @State private var backgroundMaterialOpacity = 0.0
     @State private var backgroundMaterialScale = 0.96
-    private var activeTheme: AppTheme { .current }
+    private var activeTheme: AppTheme { .concise }
     private let redeemAnimationDuration = 0.92
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
@@ -364,6 +364,40 @@ struct PointsRewardRedeemOverlay: View {
             Color(red: 0.19, green: 0.17, blue: 0.12)
                 .opacity(0.86)
                 .ignoresSafeArea()
+
+            GeometryReader { proxy in
+                VStack {
+                    HStack {
+                        Button {
+                            onCancel()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.appSystem(size: scaled(16, pad: 18), weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(width: scaled(40, pad: 46), height: scaled(40, pad: 46))
+                                .background(
+                                    Circle()
+                                        .fill(Color.white.opacity(0.14))
+                                )
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.white.opacity(0.28), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isRedeeming)
+                        .opacity(isRedeeming ? 0 : 1)
+                        .accessibilityLabel(L10n.cancel)
+
+                        Spacer()
+                    }
+                    .padding(.top, max(proxy.safeAreaInsets.top, 0) + scaled(12, pad: 16))
+                    .padding(.leading, max(proxy.safeAreaInsets.leading, 0) + scaled(18, pad: 28))
+
+                    Spacer()
+                }
+            }
+            .zIndex(3)
 
             rewardBackgroundMaterial
                 .ignoresSafeArea()

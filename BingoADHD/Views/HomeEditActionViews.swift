@@ -70,11 +70,11 @@ struct GridSizeAdjustmentSheet: View {
 
 struct EditActionsFullscreenOverlay: View {
     let isPadLayout: Bool
+    let bottomInset: CGFloat
     let onDismiss: () -> Void
     let onShuffle: () -> Void
     let onClearBoard: () -> Void
     let onGridSize: () -> Void
-    let onQuickEdit: () -> Void
 
     var body: some View {
         ZStack {
@@ -93,7 +93,6 @@ struct EditActionsFullscreenOverlay: View {
                 editActionsTextButton(L10n.tr("Shuffle", zhHans: "随机排序"), action: onShuffle)
                 editActionsTextButton(L10n.clearBoard, action: onClearBoard)
                 editActionsTextButton(L10n.tr("Grid Size", zhHans: "格子大小"), action: onGridSize)
-                editActionsTextButton(L10n.quickEdit, action: onQuickEdit)
 
                 editActionsTextButton(
                     L10n.cancel,
@@ -105,6 +104,7 @@ struct EditActionsFullscreenOverlay: View {
             }
             .padding(.horizontal, 32)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .offset(y: bottomInset > 0 ? 0 : 15)
         }
     }
 

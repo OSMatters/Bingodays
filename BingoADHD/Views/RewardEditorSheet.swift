@@ -11,6 +11,14 @@ struct RewardThemeSkin: Identifiable {
     static let all: [RewardThemeSkin] = (1...9).map { RewardThemeSkin(id: $0) }
 }
 
+private struct RewardEditorLayout {
+    let headerTopPadding: CGFloat
+    let cardWidth: CGFloat
+    let cardHeight: CGFloat
+    let cardScale: CGFloat
+    let cardCenterY: CGFloat
+}
+
 struct RewardEditorSheet: View {
     private enum CardSkinTab: Equatable {
         case emoji
@@ -127,57 +135,70 @@ struct RewardEditorSheet: View {
         scaled(220, pad: 288)
     }
 
+    private var cardSkinPanelHeight: CGFloat {
+        scaled(350, pad: 430)
+    }
+
+    private var cardSkinPanelBottomOffset: CGFloat {
+        scaled(34, pad: 42)
+    }
+
     private var isKeyboardVisible: Bool {
         keyboardHeight > 0 || isEmojiKeyboardPresented
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            PointsRewardBackground()
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    dismissKeyboard()
-                }
+        GeometryReader { proxy in
+            let layout = editorLayout(for: proxy.size)
 
-            if isEmojiKeyboardPresented {
-                Color.clear
-                    .contentShape(Rectangle())
+            ZStack(alignment: .bottom) {
+                PointsRewardBackground()
                     .ignoresSafeArea()
+                    .contentShape(Rectangle())
                     .onTapGesture {
                         dismissKeyboard()
                     }
-            }
 
-            VStack(spacing: 0) {
-                editorHeader
-                    .padding(.top, scaled(48, pad: 62))
-                    .padding(.horizontal, scaled(24, pad: 34))
+                if isEmojiKeyboardPresented {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            dismissKeyboard()
+                        }
+                }
 
-                rewardTicketPreview
-                    .frame(width: scaled(280, pad: 360), height: scaled(347, pad: 446))
-                    .padding(.top, scaled(12, pad: 22))
+                VStack(spacing: 0) {
+                    editorHeader
+                        .padding(.top, layout.headerTopPadding)
+                        .padding(.horizontal, scaled(24, pad: 34))
 
-                Spacer(minLength: scaled(24, pad: 34))
-            }
-            .frame(maxWidth: isPadLayout ? 620 : .infinity)
-            .frame(maxWidth: .infinity)
-            .offset(y: scaled(-30, pad: -36))
-            .zIndex(1)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: isPadLayout ? 620 : .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .zIndex(2)
 
-            if !isKeyboardVisible {
-                cardSkinPanel
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                rewardTicketPreview(cardWidth: layout.cardWidth, scale: layout.cardScale)
+                    .frame(width: layout.cardWidth, height: layout.cardHeight)
+                    .position(x: proxy.size.width / 2, y: layout.cardCenterY)
                     .zIndex(1)
-            }
 
-            if isEmojiKeyboardPresented {
-                EmojiKeyboardHost(text: $emojiInputBuffer, isPresented: $isEmojiKeyboardPresented)
-                    .frame(width: 1, height: 1)
-                    .opacity(0.01)
+                if !isKeyboardVisible {
+                    cardSkinPanel
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(3)
+                }
+
+                if isEmojiKeyboardPresented {
+                    EmojiKeyboardHost(text: $emojiInputBuffer, isPresented: $isEmojiKeyboardPresented)
+                        .frame(width: 1, height: 1)
+                        .opacity(0.01)
+                }
             }
         }
-        .animation(.spring(response: 0.24, dampingFraction: 0.9), value: isKeyboardVisible)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .dynamicTypeSize(.xSmall...DynamicTypeSize.xxxLarge)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
             updateKeyboardHeight(from: notification)
         }
@@ -200,6 +221,29 @@ struct RewardEditorSheet: View {
         }
     }
 
+    private func editorLayout(for size: CGSize) -> RewardEditorLayout {
+        let defaultCardWidth = scaled(280, pad: 360)
+        let defaultCardHeight = scaled(347, pad: 446)
+        let headerTopPadding = scaled(3, pad: 17)
+        let cardAnchorTopPadding = scaled(48, pad: 62)
+        let headerHeight = scaled(56, pad: 66)
+        let minimumCardTop = cardAnchorTopPadding + headerHeight + scaled(8, pad: 12)
+        let panelTop = size.height - cardSkinPanelHeight + cardSkinPanelBottomOffset
+        let cardBottom = panelTop - scaled(10, pad: 14)
+        let availableCardHeight = max(scaled(148, pad: 190), cardBottom - minimumCardTop)
+        let cardScale = min(1, max(0.62, availableCardHeight / defaultCardHeight))
+        let cardHeight = defaultCardHeight * cardScale
+        let cardWidth = defaultCardWidth * cardScale
+
+        return RewardEditorLayout(
+            headerTopPadding: headerTopPadding,
+            cardWidth: cardWidth,
+            cardHeight: cardHeight,
+            cardScale: cardScale,
+            cardCenterY: cardBottom - cardHeight / 2
+        )
+    }
+
     private var editorHeader: some View {
         HStack {
             Button {
@@ -219,6 +263,8 @@ struct RewardEditorSheet: View {
             Text(L10n.rewardCard)
                 .font(.appSystem(size: scaled(20, pad: 24), weight: .semibold, design: .rounded))
                 .foregroundColor(NeumorphicColors.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
 
             Spacer()
 
@@ -232,6 +278,8 @@ struct RewardEditorSheet: View {
                     } else {
                         Text(L10n.save)
                             .font(.appSystem(size: scaled(16, pad: 19), weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
                     }
                 }
                 .foregroundColor(NeumorphicColors.text)
@@ -244,8 +292,10 @@ struct RewardEditorSheet: View {
         }
     }
 
-    private var rewardTicketPreview: some View {
-        let previewCardWidth = scaled(280, pad: 360)
+    private func rewardTicketPreview(cardWidth previewCardWidth: CGFloat, scale: CGFloat) -> some View {
+        let contentScale = max(0.62, min(1, scale))
+        let titleHeight = max(scaled(44, pad: 56) * contentScale, scaled(34, pad: 40))
+        let pointsHeight = max(scaled(42, pad: 52) * contentScale, scaled(32, pad: 38))
 
         return ZStack {
             Image(selectedThemeImageName ?? "CustomRewardDefaultCard")
@@ -259,48 +309,48 @@ struct RewardEditorSheet: View {
                     Color.clear
                         .frame(height: previewCardWidth * CustomRewardThemeCardImage.contentTopRatio)
                     Color.clear
-                        .frame(height: scaled(16, pad: 22))
+                        .frame(height: scaled(16, pad: 22) * contentScale)
                 } else {
                     Text(selectedEmoji)
-                        .font(.system(size: scaled(112, pad: 142)))
+                        .font(.system(size: scaled(112, pad: 142) * contentScale))
                         .minimumScaleFactor(0.72)
-                        .frame(height: scaled(204, pad: 262))
+                        .frame(height: scaled(204, pad: 262) * contentScale)
                         .frame(maxWidth: .infinity)
                 }
 
-                titleEditor
-                    .frame(height: scaled(44, pad: 56))
-                    .padding(.horizontal, scaled(28, pad: 36))
+                titleEditor(scale: contentScale, height: titleHeight)
+                    .frame(height: titleHeight)
+                    .padding(.horizontal, scaled(28, pad: 36) * contentScale)
 
-                pointsEditor
-                    .frame(height: scaled(42, pad: 52))
-                    .padding(.horizontal, scaled(34, pad: 44))
-                    .offset(y: scaled(5, pad: 5))
+                pointsEditor(scale: contentScale, height: pointsHeight)
+                    .frame(height: pointsHeight)
+                    .padding(.horizontal, scaled(34, pad: 44) * contentScale)
+                    .offset(y: scaled(5, pad: 5) * contentScale)
 
                 Spacer(minLength: 0)
             }
-            .padding(.top, scaled(12, pad: 16))
+            .padding(.top, scaled(12, pad: 16) * contentScale)
         }
     }
 
-    private var titleEditor: some View {
+    private func titleEditor(scale: CGFloat, height: CGFloat) -> some View {
         RewardInlineTextField(
             text: $titleText,
             placeholder: L10n.rewardNamePlaceholder,
             maxLength: AppSettings.maxRewardTitleLength,
             keyboardType: .default,
             allowsOnlyDigits: false,
-            font: .systemFont(ofSize: scaled(18, pad: 22), weight: .regular),
+            font: .systemFont(ofSize: max(scaled(18, pad: 22) * scale, scaled(13, pad: 15)), weight: .regular),
             textColor: UIColor(NeumorphicColors.text),
             placeholderColor: UIColor(red: 0.51, green: 0.51, blue: 0.51, alpha: 1),
             textAlignment: .center
         )
         .frame(maxWidth: .infinity)
-        .frame(height: scaled(44, pad: 56))
+        .frame(height: height)
     }
 
-    private var pointsEditor: some View {
-        HStack(spacing: scaled(4, pad: 6)) {
+    private func pointsEditor(scale: CGFloat, height: CGFloat) -> some View {
+        HStack(spacing: scaled(4, pad: 6) * scale) {
             Text(L10n.rewardSetRedeem)
                 .foregroundColor(Color(red: 0.51, green: 0.51, blue: 0.51))
 
@@ -310,19 +360,21 @@ struct RewardEditorSheet: View {
                 maxLength: 4,
                 keyboardType: .numberPad,
                 allowsOnlyDigits: true,
-                font: .systemFont(ofSize: scaled(16, pad: 19), weight: .medium),
+                font: .systemFont(ofSize: max(scaled(16, pad: 19) * scale, scaled(12, pad: 14)), weight: .medium),
                 textColor: UIColor(NeumorphicColors.text),
                 placeholderColor: UIColor(red: 0.51, green: 0.51, blue: 0.51, alpha: 1),
                 textAlignment: .center
             )
-                .frame(width: scaled(64, pad: 80))
+                .frame(width: max(scaled(64, pad: 80) * scale, scaled(44, pad: 54)))
 
             Text(L10n.pointsUnit)
                 .foregroundColor(NeumorphicColors.text)
         }
-        .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
+        .font(.appSystem(size: max(scaled(15, pad: 18) * scale, scaled(12, pad: 14)), weight: .medium, design: .rounded))
+        .lineLimit(1)
+        .minimumScaleFactor(0.68)
         .frame(maxWidth: .infinity)
-        .frame(height: scaled(42, pad: 52))
+        .frame(height: height)
     }
 
     private var cardSkinPanel: some View {
@@ -348,7 +400,7 @@ struct RewardEditorSheet: View {
                 themeSkinPicker
             }
         }
-        .frame(height: scaled(350, pad: 430), alignment: .top)
+        .frame(height: cardSkinPanelHeight, alignment: .top)
         .animation(.spring(response: 0.24, dampingFraction: 0.9), value: selectedSkinTab)
         .animation(.spring(response: 0.24, dampingFraction: 0.9), value: selectedThemeImageName)
         .frame(maxWidth: isPadLayout ? 620 : .infinity)
@@ -361,7 +413,7 @@ struct RewardEditorSheet: View {
             )
             .fill(Color(red: 0.99, green: 0.99, blue: 0.99))
         )
-        .offset(y: scaled(34, pad: 42))
+        .offset(y: cardSkinPanelBottomOffset)
         .ignoresSafeArea(.container, edges: .bottom)
     }
 

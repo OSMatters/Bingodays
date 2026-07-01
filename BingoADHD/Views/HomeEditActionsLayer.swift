@@ -3,21 +3,21 @@ import SwiftUI
 struct HomeEditActionsLayer: View {
     let isEditActionsExpanded: Bool
     let isPadLayout: Bool
+    let bottomInset: CGFloat
     let onDismiss: () -> Void
     let onShuffle: () -> Void
     let onClearBoard: () -> Void
     let onGridSize: () -> Void
-    let onQuickEdit: () -> Void
 
     var body: some View {
         if isEditActionsExpanded {
             EditActionsFullscreenOverlay(
                 isPadLayout: isPadLayout,
+                bottomInset: bottomInset,
                 onDismiss: onDismiss,
                 onShuffle: onShuffle,
                 onClearBoard: onClearBoard,
-                onGridSize: onGridSize,
-                onQuickEdit: onQuickEdit
+                onGridSize: onGridSize
             )
             .transition(.opacity)
             .zIndex(12)

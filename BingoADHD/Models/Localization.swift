@@ -267,7 +267,7 @@ enum L10n {
     static var contactUsEmailLabel: String { tr("Email", zhHans: "联系邮箱", zhHant: "聯絡信箱", ja: "メール") }
     static var contactUsEmailCopied: String { tr("Email copied", zhHans: "邮箱已复制", zhHant: "信箱已複製", ja: "メールアドレスをコピーしました") }
     static var contactUsFeedbackAction: String { tr("Report a problem", zhHans: "反馈问题", zhHant: "回報問題", ja: "問題を報告する") }
-    static var contactUsBugReportAction: String { tr("Report a bug", zhHans: "反馈 Bug", zhHant: "回報 Bug", ja: "不具合を報告する") }
+    static var contactUsBugReportAction: String { tr("Report a problem", zhHans: "反馈问题", zhHant: "回報問題", ja: "問題を報告する") }
     static var contactUsFeatureSuggestionAction: String { tr("Suggest a feature", zhHans: "提功能建议", zhHant: "提出功能建議", ja: "機能を提案する") }
     static var contactUsCopyEmailAction: String { tr("Copy email", zhHans: "复制邮箱", zhHant: "複製信箱", ja: "メールをコピー") }
     static var appReviewPromptTitle: String { tr("Do you like Bingodays?", zhHans: "喜欢Bingodays吗？", zhHant: "喜歡 Bingodays 嗎？", ja: "Bingodaysは気に入りましたか？") }

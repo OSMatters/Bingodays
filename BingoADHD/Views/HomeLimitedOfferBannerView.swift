@@ -76,27 +76,55 @@ struct HomeLimitedOfferBannerView: View {
     @AppStorage(AppSettings.limitedTimeDiscountStartedAtKey) private var limitedTimeDiscountStartedAt = 0.0
 
     private var bannerWidth: CGFloat {
-        isPadLayout ? 178 : 136
+        isPadLayout ? 170 : 136
     }
 
     private var bannerHeight: CGFloat {
-        isPadLayout ? 42 : 32
+        isPadLayout ? 50 : 42
     }
 
     private var animationSize: CGFloat {
-        isPadLayout ? 62 : 48
+        isPadLayout ? 50 : 40
+    }
+
+    private var bubbleWidth: CGFloat {
+        isPadLayout ? 128 : 100
+    }
+
+    private var bubbleHeight: CGFloat {
+        bubbleWidth * 76 / 234
+    }
+
+    private var bubbleLeadingOffset: CGFloat {
+        isPadLayout ? 41 : 37
+    }
+
+    private var bubbleTextLeadingPadding: CGFloat {
+        isPadLayout ? 25 : 20
+    }
+
+    private var bubbleTextTrailingPadding: CGFloat {
+        isPadLayout ? 12 : 8
     }
 
     private var titleFontSize: CGFloat {
-        isPadLayout ? 15 : 12
+        isPadLayout ? 15 : 11
     }
 
-    private var titleVerticalAdjustment: CGFloat {
-        isPadLayout ? 9 : 8
+    private var countdownTitleFontSize: CGFloat {
+        isPadLayout ? 13 : 10
     }
 
-    private var capsuleHorizontalInset: CGFloat {
-        0
+    private var countdownFontSize: CGFloat {
+        isPadLayout ? 14 : 11
+    }
+
+    private var starSize: CGFloat {
+        isPadLayout ? 9 : 7
+    }
+
+    private var hasStartedCountdown: Bool {
+        limitedTimeDiscountStartedAt > 0
     }
 
     var body: some View {
@@ -104,76 +132,75 @@ struct HomeLimitedOfferBannerView: View {
             onTap()
         } label: {
             ZStack(alignment: .leading) {
-                limitedOfferCapsule
-                    .padding(.horizontal, capsuleHorizontalInset)
+                limitedOfferBubble
 
                 PAGLoopView(resourceName: "limited_home_bmp")
                     .frame(width: animationSize, height: animationSize)
-                    .offset(x: isPadLayout ? 3 : 2, y: isPadLayout ? -3 : -2)
+                    .offset(x: 0, y: isPadLayout ? -1 : 0)
                     .allowsHitTesting(false)
-
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    Text(bannerTitle(now: timeline.date))
-                        .font(.appSystem(size: titleFontSize, weight: .semibold))
-                        .foregroundColor(.white)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.64)
-                        .frame(width: isPadLayout ? 94 : 74, height: 19, alignment: .center)
-                }
-                .position(x: isPadLayout ? 99 : 76, y: (bannerHeight / 2) + titleVerticalAdjustment)
-
-                Image("LimitedOfferStar")
-                    .resizable()
-                    .interpolation(.high)
-                    .renderingMode(.template)
-                    .foregroundColor(.white)
-                    .frame(width: isPadLayout ? 17 : 12, height: isPadLayout ? 17 : 12)
-                    .position(x: isPadLayout ? 151 : 116, y: isPadLayout ? 13 : 10)
-
-                Image("LimitedOfferStar")
-                    .resizable()
-                    .interpolation(.high)
-                    .renderingMode(.template)
-                    .foregroundColor(.white)
-                    .frame(width: isPadLayout ? 10 : 8, height: isPadLayout ? 10 : 8)
-                    .position(x: isPadLayout ? 162 : 125, y: isPadLayout ? 27 : 22)
             }
             .frame(width: bannerWidth, height: bannerHeight, alignment: .leading)
-            .contentShape(Capsule(style: .continuous))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .frame(width: bannerWidth, height: bannerHeight)
-        .padding(.bottom, 8)
     }
 
-    private var limitedOfferCapsule: some View {
-        Capsule(style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color(hex: "BB814C"),
-                        Color(hex: "8F5C2F"),
-                        Color(hex: "5A351B")
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
+    private var limitedOfferBubble: some View {
+        Image("LimitedOfferBubble")
+            .resizable()
+            .interpolation(.high)
+            .frame(width: bubbleWidth, height: bubbleHeight)
             .overlay {
-                Capsule(style: .continuous)
-                    .stroke(Color(hex: "D8A36B"), lineWidth: 2)
+                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                    bannerText(now: timeline.date)
+                        .padding(.leading, bubbleTextLeadingPadding)
+                        .padding(.trailing, bubbleTextTrailingPadding)
+                        .frame(width: bubbleWidth, height: bubbleHeight)
+                }
             }
-            .shadow(color: Color(hex: "6F3916").opacity(0.26), radius: 11, x: 0, y: 2)
-            .shadow(color: Color.black.opacity(0.08), radius: 7, x: 0, y: 3)
-            .frame(width: bannerWidth - (capsuleHorizontalInset * 2), height: bannerHeight)
+            .offset(x: bubbleLeadingOffset, y: isPadLayout ? 3 : 2)
+            .shadow(color: Color(hex: "6F3916").opacity(0.14), radius: 8, x: 0, y: 2)
     }
 
-    private func bannerTitle(now: Date) -> String {
-        guard limitedTimeDiscountStartedAt > 0 else {
-            return L10n.limitedOfferHomeTitle
+    @ViewBuilder
+    private func bannerText(now: Date) -> some View {
+        if hasStartedCountdown {
+            VStack(spacing: isPadLayout ? 1 : 0) {
+                titleWithStar(fontSize: countdownTitleFontSize)
+                Text(countdownText(now: now))
+                    .font(.appSystem(size: countdownFontSize, weight: .bold))
+                    .foregroundColor(.white)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .offset(x: -7)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            titleWithStar(fontSize: titleFontSize)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
 
+    private func titleWithStar(fontSize: CGFloat) -> some View {
+        HStack(spacing: isPadLayout ? 7 : 5) {
+            Text(L10n.limitedOfferHomeTitle)
+                .font(.appSystem(size: fontSize, weight: .bold))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+
+            Image("LimitedOfferStar")
+                .resizable()
+                .interpolation(.high)
+                .renderingMode(.template)
+                .foregroundColor(.white)
+                .frame(width: starSize, height: starSize)
+        }
+    }
+
+    private func countdownText(now: Date) -> String {
         let effectiveStartedAt = min(limitedTimeDiscountStartedAt, now.timeIntervalSince1970)
         let target = Date(timeIntervalSince1970: effectiveStartedAt + offerDuration)
         let totalSeconds = max(0, Int(ceil(target.timeIntervalSince(now))))

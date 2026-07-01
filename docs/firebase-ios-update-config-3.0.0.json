@@ -1,0 +1,26 @@
+{
+  "latestVersion": "3.0.0",
+  "trackViewURL": "https://apps.apple.com/app/id6760203837",
+  "notes": {
+    "zh-Hans": [
+      "我们把首页、积分和我的页面重新整理了一下，让常用入口更好找，页面也更清爽啦。",
+      "现在底部有了新的导航栏：首页用来打卡，积分用来兑换奖励，我的用来查看日记、设置和更多小功能。",
+      "还有一些小细节也偷偷变可爱了，快来探索吧！"
+    ],
+    "zh-Hant": [
+      "我們把首頁、積分和我的頁面重新整理了一下，讓常用入口更好找，頁面也更清爽啦。",
+      "現在底部有了新的導覽列：首頁用來打卡，積分用來兌換獎勵，我的用來查看日記、設定和更多小功能。",
+      "還有一些小細節也悄悄變可愛了，快來探索吧！"
+    ],
+    "en": [
+      "We reorganized Home, Points, and Me so the things you use most are easier to find and the app feels cleaner.",
+      "There is now a new bottom navigation bar: Home is for check-ins, Points is for redeeming rewards, and Me is for diary, settings, and more.",
+      "A few small details got quietly cuter too. Come explore!"
+    ],
+    "ja": [
+      "ホーム、ポイント、マイページを整理し直して、よく使う入口を見つけやすく、画面もすっきりさせました。",
+      "新しい下部ナビゲーションができました。ホームはチェックイン、ポイントはごほうび交換、マイページは日記・設定・その他の機能に使えます。",
+      "細かなところもこっそりかわいくなっています。ぜひ探索してみてください！"
+    ]
+  }
+}

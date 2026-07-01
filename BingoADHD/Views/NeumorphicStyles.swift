@@ -255,26 +255,33 @@ extension View {
     @ViewBuilder
     func appLiquidGlass<S: Shape>(in shape: S, interactive: Bool = true) -> some View {
         if #available(iOS 26.0, *) {
-            self.glassEffect(.regular.interactive(interactive), in: shape)
+            self
+                .background {
+                    shape
+                        .fill(Color.white.opacity(0.42))
+                }
+                .glassEffect(.regular.interactive(interactive), in: shape)
         } else {
             self.background {
-                shape
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        shape
-                            .fill(Color.white.opacity(0.24))
-                    )
-                    .overlay(
-                        shape
-                            .stroke(Color.white.opacity(0.9), lineWidth: 1)
-                    )
-                    .overlay(
-                        shape
-                            .stroke(Color.white.opacity(0.24), lineWidth: 3)
-                            .blur(radius: 2.4)
-                            .offset(y: -1)
-                    )
-                    .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+                ZStack {
+                    shape
+                        .fill(Color.white.opacity(0.48))
+
+                    shape
+                        .fill(.ultraThinMaterial)
+
+                    shape
+                        .fill(Color.white.opacity(0.24))
+
+                    shape
+                        .stroke(Color.white.opacity(0.9), lineWidth: 1)
+
+                    shape
+                        .stroke(Color.white.opacity(0.24), lineWidth: 3)
+                        .blur(radius: 2.4)
+                        .offset(y: -1)
+                }
+                .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
             }
         }
     }
