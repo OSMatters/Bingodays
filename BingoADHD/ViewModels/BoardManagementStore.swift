@@ -8,7 +8,7 @@ protocol BoardManagementRepository: BoardStateCommitRepository, WidgetPanelSelec
     func loadBoardLastSavedAt() -> Date?
 
     func loadWidgetTaskSyncEvent() -> WidgetTaskSyncStore.Event?
-    func clearWidgetTaskSyncEvent()
+    func clearWidgetTaskSyncEvent(ifMatching eventID: UUID)
 }
 
 struct BoardManagementMutationResult: Equatable {
@@ -19,13 +19,31 @@ struct BoardManagementMutationResult: Equatable {
     let shouldSyncTaskReminders: Bool
 }
 
+enum BoardRenameResult: Equatable {
+    case renamed
+    case unchanged
+    case persistenceFailed
+}
+
 struct LiveBoardManagementRepository: BoardManagementRepository {
+    private let widgetTimelineReloadScheduler: any WidgetTimelineReloadScheduling
+
+    init(
+        widgetTimelineReloadScheduler: any WidgetTimelineReloadScheduling = WidgetTimelineReloadScheduler.shared
+    ) {
+        self.widgetTimelineReloadScheduler = widgetTimelineReloadScheduler
+    }
+
     func loadNamedBoardsSnapshot() -> BingoBoardStore.NamedBoardsSnapshot {
         BingoBoardStore.loadNamedBoardsSnapshot()
     }
 
     func saveNamedBoardsSnapshot(_ snapshot: BingoBoardStore.NamedBoardsSnapshot, reloadWidgets: Bool) -> Bool {
-        BingoBoardStore.saveNamedBoardsSnapshot(snapshot, reloadWidgets: reloadWidgets)
+        let didSave = BingoBoardStore.saveNamedBoardsSnapshot(snapshot, reloadWidgets: false)
+        if didSave, reloadWidgets {
+            widgetTimelineReloadScheduler.requestReload()
+        }
+        return didSave
     }
 
     func loadBoard() -> SavedBoard? {
@@ -45,12 +63,16 @@ struct LiveBoardManagementRepository: BoardManagementRepository {
     }
 
     func saveBoard(_ board: SavedBoard, savedAt: Date, associatedBoardID: UUID?, reloadWidgets: Bool) -> Bool {
-        BingoBoardStore.saveBoard(
+        let didSave = BingoBoardStore.saveBoard(
             board,
             savedAt: savedAt,
             associatedBoardID: associatedBoardID,
-            reloadWidgets: reloadWidgets
+            reloadWidgets: false
         )
+        if didSave, reloadWidgets {
+            widgetTimelineReloadScheduler.requestReload()
+        }
+        return didSave
     }
 
     func saveBoardCountdownEndsAt(_ endsAt: Date?) {
@@ -61,8 +83,8 @@ struct LiveBoardManagementRepository: BoardManagementRepository {
         WidgetTaskSyncStore.load()
     }
 
-    func clearWidgetTaskSyncEvent() {
-        WidgetTaskSyncStore.clear()
+    func clearWidgetTaskSyncEvent(ifMatching eventID: UUID) {
+        WidgetTaskSyncStore.clear(ifMatching: eventID)
     }
 
     func loadSelectedWidgetPanelID() -> UUID? {
@@ -74,7 +96,7 @@ struct LiveBoardManagementRepository: BoardManagementRepository {
     }
 
     func reloadWidgetTimelines() {
-        BingoBoardStore.reloadWidgetTimelines()
+        widgetTimelineReloadScheduler.requestReload()
     }
 }
 
@@ -87,6 +109,9 @@ final class BoardManagementStore: ObservableObject {
     @Published var hasLoadedBoardSwitcherState = false
 
     private let repository: any BoardManagementRepository
+    private var deletedBoardIDs: Set<UUID> = []
+    private var requiresNamedBoardsPersistenceRetry = false
+    private var requiresActiveBoardMirrorPersistenceRetry = false
 
     init(repository: any BoardManagementRepository = LiveBoardManagementRepository()) {
         self.repository = repository
@@ -102,6 +127,10 @@ final class BoardManagementStore: ObservableObject {
             return L10n.boardDefaultName(1)
         }
         return namedBoards[selectedNamedBoardIndex].name
+    }
+
+    var selectedBoardSnapshot: BingoBoardStore.NamedBoard? {
+        selectedBoard
     }
 
     func loadIfNeeded(
@@ -123,13 +152,16 @@ final class BoardManagementStore: ObservableObject {
             )
             snapshot = BingoBoardStore.NamedBoardsSnapshot(
                 selectedBoardID: initialBoard.id,
-                boards: [initialBoard]
+                boards: [initialBoard],
+                deletedBoardIDs: snapshot.effectiveDeletedBoardIDs
             )
             saveNamedBoardsSnapshotIfChanged(snapshot, reloadWidgets: true)
         }
 
         namedBoards = snapshot.boards
+        deletedBoardIDs = snapshot.effectiveDeletedBoardIDs
         selectedBoardID = snapshot.selectedBoardID ?? snapshot.boards.first?.id
+        refreshActiveBoardMirrorPersistenceRetryRequirement()
         return selectedBoard
     }
 
@@ -144,13 +176,17 @@ final class BoardManagementStore: ObservableObject {
             guard let currentBoard = currentBoardsByID[persistedBoard.id] else { return true }
             return persistedBoard.updatedAt > currentBoard.updatedAt
         }
+        let hasBoardMembershipChange = Set(snapshot.boards.map(\.id)) != Set(namedBoards.map(\.id)) ||
+            snapshot.effectiveDeletedBoardIDs != deletedBoardIDs
         let selectedID = snapshot.selectedBoardID ?? snapshot.boards.first?.id
         let hasSelectionChange = selectedID != selectedBoardID
 
-        guard hasNewerBoard || hasSelectionChange else { return nil }
+        guard hasNewerBoard || hasBoardMembershipChange || hasSelectionChange else { return nil }
 
         namedBoards = snapshot.boards
+        deletedBoardIDs = snapshot.effectiveDeletedBoardIDs
         selectedBoardID = selectedID
+        refreshActiveBoardMirrorPersistenceRetryRequirement()
         return selectedBoard
     }
 
@@ -161,7 +197,9 @@ final class BoardManagementStore: ObservableObject {
         guard !snapshot.boards.isEmpty else { return nil }
 
         namedBoards = snapshot.boards
+        deletedBoardIDs = snapshot.effectiveDeletedBoardIDs
         selectedBoardID = snapshot.selectedBoardID ?? snapshot.boards.first?.id
+        refreshActiveBoardMirrorPersistenceRetryRequirement()
         return selectedBoard
     }
 
@@ -169,7 +207,8 @@ final class BoardManagementStore: ObservableObject {
     func persistSnapshot(reloadWidgets: Bool = true) -> Bool {
         let snapshot = BingoBoardStore.NamedBoardsSnapshot(
             selectedBoardID: selectedBoardID,
-            boards: namedBoards
+            boards: namedBoards,
+            deletedBoardIDs: deletedBoardIDs
         )
         return saveNamedBoardsSnapshotIfChanged(snapshot, reloadWidgets: reloadWidgets)
     }
@@ -194,20 +233,36 @@ final class BoardManagementStore: ObservableObject {
         save: Bool = true
     ) -> Bool {
         guard let boardIndex = namedBoards.firstIndex(where: { $0.id == boardID }) else { return false }
-        guard namedBoards[boardIndex].board != board ||
-                namedBoards[boardIndex].countdownEndsAt != countdownEndsAt else {
-            return false
+        let persistenceDate = Date()
+        let normalizedBoard = BingoBoardStore.normalizedBoardForPersistence(
+            board,
+            referenceDate: persistenceDate
+        )
+        let didChangeState = namedBoards[boardIndex].board != normalizedBoard ||
+            namedBoards[boardIndex].countdownEndsAt != countdownEndsAt
+
+        if didChangeState {
+            namedBoards[boardIndex].board = normalizedBoard
+            namedBoards[boardIndex].countdownEndsAt = countdownEndsAt
+            namedBoards[boardIndex].updatedAt = persistenceDate
+            requiresNamedBoardsPersistenceRetry = true
         }
 
-        namedBoards[boardIndex].board = board
-        namedBoards[boardIndex].countdownEndsAt = countdownEndsAt
-        namedBoards[boardIndex].updatedAt = .now
-        if save {
-            let shouldMirrorActiveBoard = selectedBoardID == boardID
-            let activeMirror = shouldMirrorActiveBoard ? namedBoards[boardIndex] : nil
-            commitNamedBoardsSnapshot(activeMirror: activeMirror)
+        let shouldMirrorActiveBoard = selectedBoardID == boardID
+        let shouldPersistNamedBoards = didChangeState || requiresNamedBoardsPersistenceRetry
+        let shouldPersistActiveBoardMirror = shouldMirrorActiveBoard &&
+            (didChangeState || requiresActiveBoardMirrorPersistenceRetry)
+
+        guard save, shouldPersistNamedBoards || shouldPersistActiveBoardMirror else {
+            return didChangeState
         }
-        return true
+        let activeMirror = shouldPersistActiveBoardMirror ? namedBoards[boardIndex] : nil
+        commitNamedBoardsSnapshot(
+            activeMirror: activeMirror,
+            persistNamedBoardsSnapshot: shouldPersistNamedBoards,
+            requireNamedBoardsPersistenceBeforeActiveMirror: false
+        )
+        return didChangeState
     }
 
     @discardableResult
@@ -221,6 +276,19 @@ final class BoardManagementStore: ObservableObject {
             board: board,
             countdownEndsAt: countdownEndsAt
         )
+    }
+
+    func hasDurableSelectedBoardState() -> Bool {
+        guard let selectedBoard else { return false }
+        let persistedSnapshot = repository.loadNamedBoardsSnapshot()
+        guard persistedSnapshot.selectedBoardID == selectedBoardID,
+              persistedSnapshot.boards.first(where: { $0.id == selectedBoard.id }) == selectedBoard else {
+            return false
+        }
+        return repository.loadBoard() == selectedBoard.board &&
+            repository.loadBoardCountdownEndsAt() == selectedBoard.countdownEndsAt &&
+            repository.loadActiveNamedBoardID() == selectedBoard.id &&
+            repository.loadSelectedWidgetPanelID() == selectedBoard.id
     }
 
     func selectBoard(
@@ -249,10 +317,19 @@ final class BoardManagementStore: ObservableObject {
             )
         }
 
+        let rollbackBoards = namedBoards
+        let rollbackSelectedBoardID = selectedBoardID
         selectedBoardID = boardID
         let selected = selectedBoard
         guard let selected else { return nil }
         let commitResult = commitNamedBoardsSnapshot(activeMirror: selected)
+        guard !commitResult.failedToSaveNamedBoards else {
+            restoreBoardManagementState(
+                boards: rollbackBoards,
+                selectedBoardID: rollbackSelectedBoardID
+            )
+            return nil
+        }
         return BoardManagementMutationResult(
             selectedBoard: selected,
             didChangeSelection: true,
@@ -266,7 +343,7 @@ final class BoardManagementStore: ObservableObject {
         nameDraft: String,
         currentBoard: SavedBoard?,
         currentCountdownEndsAt: Date?
-    ) -> BoardManagementMutationResult {
+    ) -> BoardManagementMutationResult? {
         if let selectedBoardID, let currentBoard {
             persistBoardState(
                 for: selectedBoardID,
@@ -276,6 +353,8 @@ final class BoardManagementStore: ObservableObject {
             )
         }
 
+        let rollbackBoards = namedBoards
+        let rollbackSelectedBoardID = selectedBoardID
         let fallbackName = L10n.boardDefaultName(namedBoards.count + 1)
         let boardName = Self.sanitizedBoardName(nameDraft, fallback: fallbackName)
         let newBoard = BingoBoardStore.NamedBoard(
@@ -288,6 +367,13 @@ final class BoardManagementStore: ObservableObject {
         namedBoards.append(newBoard)
         selectedBoardID = newBoard.id
         let commitResult = commitNamedBoardsSnapshot(activeMirror: newBoard)
+        guard !commitResult.failedToSaveNamedBoards else {
+            restoreBoardManagementState(
+                boards: rollbackBoards,
+                selectedBoardID: rollbackSelectedBoardID
+            )
+            return nil
+        }
         return BoardManagementMutationResult(
             selectedBoard: newBoard,
             didChangeSelection: true,
@@ -307,6 +393,9 @@ final class BoardManagementStore: ObservableObject {
         }
 
         let previousSelectedID = selectedBoardID
+        let rollbackBoards = namedBoards
+        let rollbackSelectedBoardID = selectedBoardID
+        let rollbackDeletedBoardIDs = deletedBoardIDs
         var nextSelectedID = selectedBoardID
         if selectedBoardID == boardID {
             let fallbackIndex = removeIndex == 0 ? 1 : removeIndex - 1
@@ -314,6 +403,7 @@ final class BoardManagementStore: ObservableObject {
         }
 
         namedBoards.remove(at: removeIndex)
+        deletedBoardIDs.insert(boardID)
 
         if let nextSelectedID,
            namedBoards.contains(where: { $0.id == nextSelectedID }) {
@@ -324,6 +414,14 @@ final class BoardManagementStore: ObservableObject {
 
         guard let selectedAfterDelete = selectedBoard else { return nil }
         let commitResult = commitNamedBoardsSnapshot(activeMirror: selectedAfterDelete)
+        guard !commitResult.failedToSaveNamedBoards else {
+            restoreBoardManagementState(
+                boards: rollbackBoards,
+                selectedBoardID: rollbackSelectedBoardID,
+                deletedBoardIDs: rollbackDeletedBoardIDs
+            )
+            return nil
+        }
         return BoardManagementMutationResult(
             selectedBoard: selectedAfterDelete,
             didChangeSelection: previousSelectedID != selectedBoardID,
@@ -345,77 +443,46 @@ final class BoardManagementStore: ObservableObject {
         return true
     }
 
-    @discardableResult
-    func renameBoard(_ boardID: UUID, nameDraft: String) -> Bool {
-        guard let boardIndex = namedBoards.firstIndex(where: { $0.id == boardID }) else { return false }
+    func renameBoard(_ boardID: UUID, nameDraft: String) -> BoardRenameResult {
+        guard let boardIndex = namedBoards.firstIndex(where: { $0.id == boardID }) else {
+            return .unchanged
+        }
         let fallbackName = L10n.boardDefaultName(boardIndex + 1)
         let boardName = Self.sanitizedBoardName(nameDraft, fallback: fallbackName)
-        guard namedBoards[boardIndex].name != boardName else { return false }
+        guard namedBoards[boardIndex].name != boardName else { return .unchanged }
 
+        let rollbackBoards = namedBoards
+        let rollbackSelectedBoardID = selectedBoardID
         namedBoards[boardIndex].name = boardName
         namedBoards[boardIndex].updatedAt = .now
-        return persistSnapshot()
-    }
-
-    func importTemplateAsNewBoard(
-        nameDraft: String,
-        savedBoard: SavedBoard,
-        currentBoard: SavedBoard?,
-        currentCountdownEndsAt: Date?
-    ) -> BoardManagementMutationResult {
-        if let selectedBoardID, let currentBoard {
-            persistBoardState(
-                for: selectedBoardID,
-                board: currentBoard,
-                countdownEndsAt: currentCountdownEndsAt,
-                save: false
+        persistSnapshot()
+        guard !requiresNamedBoardsPersistenceRetry else {
+            restoreBoardManagementState(
+                boards: rollbackBoards,
+                selectedBoardID: rollbackSelectedBoardID
             )
+            return .persistenceFailed
         }
-
-        let fallbackName = L10n.boardDefaultName(namedBoards.count + 1)
-        let boardName = Self.sanitizedBoardName(nameDraft, fallback: fallbackName)
-        let importedBoard = BingoBoardStore.NamedBoard(
-            name: boardName,
-            board: savedBoard,
-            countdownEndsAt: nil,
-            updatedAt: .now
-        )
-        namedBoards.append(importedBoard)
-        selectedBoardID = importedBoard.id
-        let commitResult = commitNamedBoardsSnapshot(activeMirror: importedBoard)
-        return BoardManagementMutationResult(
-            selectedBoard: importedBoard,
-            didChangeSelection: true,
-            commitResult: commitResult,
-            shouldInvalidateCountdownTickSchedule: true,
-            shouldSyncTaskReminders: true
-        )
+        return .renamed
     }
 
-    func replaceSelectedBoardWithTemplate(
-        nameDraft: String,
-        savedBoard: SavedBoard
-    ) -> BoardManagementMutationResult? {
-        guard let targetBoardID = selectedBoardID ?? namedBoards.first?.id,
-              let boardIndex = namedBoards.firstIndex(where: { $0.id == targetBoardID }) else {
-            return nil
+    @discardableResult
+    func markSelectedBoardAsStarterGuide() -> Bool {
+        guard let selectedBoardID,
+              let boardIndex = namedBoards.firstIndex(where: { $0.id == selectedBoardID }) else {
+            return false
         }
+        guard namedBoards[boardIndex].origin != .starterGuide else { return true }
 
-        let fallbackName = L10n.boardDefaultName(namedBoards.count + 1)
-        namedBoards[boardIndex].name = Self.sanitizedBoardName(nameDraft, fallback: fallbackName)
-        namedBoards[boardIndex].board = savedBoard
-        namedBoards[boardIndex].countdownEndsAt = nil
+        let previousBoard = namedBoards[boardIndex]
+        namedBoards[boardIndex].origin = .starterGuide
         namedBoards[boardIndex].updatedAt = .now
-        selectedBoardID = targetBoardID
-        let updatedBoard = namedBoards[boardIndex]
-        let commitResult = commitNamedBoardsSnapshot(activeMirror: updatedBoard)
-        return BoardManagementMutationResult(
-            selectedBoard: updatedBoard,
-            didChangeSelection: false,
-            commitResult: commitResult,
-            shouldInvalidateCountdownTickSchedule: true,
-            shouldSyncTaskReminders: true
-        )
+        let didSave = persistSnapshot(reloadWidgets: false)
+        guard didSave else {
+            namedBoards[boardIndex] = previousBoard
+            return false
+        }
+        return true
     }
 
     func boardName(for boardID: UUID) -> String {
@@ -439,13 +506,24 @@ final class BoardManagementStore: ObservableObject {
     private func persistedSnapshotPreferringCurrentBoard() -> BingoBoardStore.NamedBoardsSnapshot {
         var snapshot = repository.loadNamedBoardsSnapshot()
         snapshot = snapshotByApplyingPendingWidgetTaskEvent(snapshot)
+        let activeMirrorBoardID = repository.loadActiveNamedBoardID()
+        let locallySelectedSnapshot = BingoBoardStore.snapshotByApplyingLocalSelection(
+            snapshot,
+            activeBoardID: activeMirrorBoardID
+        )
+        if locallySelectedSnapshot != snapshot {
+            _ = saveNamedBoardsSnapshotIfChanged(
+                locallySelectedSnapshot,
+                reloadWidgets: false
+            )
+            snapshot = locallySelectedSnapshot
+        }
         guard !snapshot.boards.isEmpty,
               let currentBoard = repository.loadBoard(),
               let currentBoardSavedAt = repository.loadBoardLastSavedAt() else {
             return snapshot
         }
 
-        let activeMirrorBoardID = repository.loadActiveNamedBoardID()
         let targetIndex: Int?
         if let activeMirrorBoardID {
             targetIndex = snapshot.boards.firstIndex(where: { $0.id == activeMirrorBoardID })
@@ -455,8 +533,31 @@ final class BoardManagementStore: ObservableObject {
             targetIndex = nil
         }
 
-        guard let targetIndex,
-              currentBoardSavedAt > snapshot.boards[targetIndex].updatedAt else {
+        guard let targetIndex else { return snapshot }
+
+        if !BingoBoardStore.hasMatchingCellIdentity(
+            currentBoard,
+            snapshot.boards[targetIndex].board
+        ) {
+            let authoritativeBoard = snapshot.boards[targetIndex]
+            _ = BoardStateCommitter.saveActiveBoardState(
+                board: authoritativeBoard.board,
+                countdownEndsAt: authoritativeBoard.countdownEndsAt,
+                savedAt: authoritativeBoard.updatedAt,
+                associatedBoardID: authoritativeBoard.id,
+                repository: repository,
+                widgetPanelRepository: repository,
+                selectedWidgetPanelID: authoritativeBoard.id,
+                reloadWidgets: true
+            )
+            DiagnosticLogStore.recordWarning(
+                "board.active_mirror_repaired",
+                details: ["board_id": String(authoritativeBoard.id.uuidString.prefix(8))]
+            )
+            return snapshot
+        }
+
+        guard currentBoardSavedAt > snapshot.boards[targetIndex].updatedAt else {
             return snapshot
         }
 
@@ -473,42 +574,71 @@ final class BoardManagementStore: ObservableObject {
         guard let event = repository.loadWidgetTaskSyncEvent() else {
             return snapshot
         }
-        defer {
-            repository.clearWidgetTaskSyncEvent()
-        }
 
-        var updatedSnapshot = snapshot
-        if let boardIndex = updatedSnapshot.boards.firstIndex(where: { $0.id == event.boardID }) {
-            guard event.savedAt >= updatedSnapshot.boards[boardIndex].updatedAt else {
-                return snapshot
-            }
-            updatedSnapshot.boards[boardIndex] = event.board
+        let updatedSnapshot = WidgetTaskEventMerge.applying(event, to: snapshot)
+        let savedNamedBoards: Bool
+        if updatedSnapshot == snapshot {
+            savedNamedBoards = false
         } else {
-            updatedSnapshot.boards.append(event.board)
+            savedNamedBoards = saveNamedBoardsSnapshotIfChanged(
+                updatedSnapshot,
+                reloadWidgets: false
+            )
+            guard savedNamedBoards else { return snapshot }
         }
 
-        updatedSnapshot.selectedBoardID = event.boardID
-        let savedNamedBoards = saveNamedBoardsSnapshotIfChanged(updatedSnapshot, reloadWidgets: false)
-        var result = BoardStateCommitter.saveActiveBoardState(
-            board: event.board.board,
-            countdownEndsAt: event.board.countdownEndsAt,
-            savedAt: event.savedAt,
-            associatedBoardID: event.boardID,
-            repository: repository,
-            widgetPanelRepository: repository,
-            selectedWidgetPanelID: event.boardID,
-            reloadWidgets: false
-        )
+        let activeBoard = updatedSnapshot.boards.first(where: {
+            $0.id == updatedSnapshot.selectedBoardID
+        }) ?? updatedSnapshot.boards.first
+        var result = activeBoard.map { board in
+            BoardStateCommitter.saveActiveBoardState(
+                board: board.board,
+                countdownEndsAt: board.countdownEndsAt,
+                savedAt: board.updatedAt,
+                associatedBoardID: board.id,
+                repository: repository,
+                reloadWidgets: false
+            )
+        } ?? BoardStateCommitResult()
+        guard !result.failedToSaveBoard else { return updatedSnapshot }
+
+        if !event.sideEffectsCommitted,
+           let mergedBoard = updatedSnapshot.boards.first(where: { $0.id == event.boardID }) {
+            guard WidgetTaskToggleService.reconcileRewards(
+                for: event,
+                mergedBoard: mergedBoard,
+                now: event.savedAt
+            ) else {
+                return updatedSnapshot
+            }
+        }
+        // Keep the event available until board and point recovery have both completed.
+        repository.clearWidgetTaskSyncEvent(ifMatching: event.id)
         result.savedNamedBoards = savedNamedBoards
         BoardStateCommitter.reloadWidgetsIfNeeded(&result, repository: repository)
         return updatedSnapshot
     }
 
     @discardableResult
-    private func commitNamedBoardsSnapshot(activeMirror: BingoBoardStore.NamedBoard?) -> BoardStateCommitResult {
-        let savedNamedBoards = persistSnapshot(reloadWidgets: false)
+    private func commitNamedBoardsSnapshot(
+        activeMirror: BingoBoardStore.NamedBoard?,
+        persistNamedBoardsSnapshot: Bool = true,
+        requireNamedBoardsPersistenceBeforeActiveMirror: Bool = true
+    ) -> BoardStateCommitResult {
+        let savedNamedBoards = persistNamedBoardsSnapshot
+            ? persistSnapshot(reloadWidgets: false)
+            : false
+        let failedToSaveNamedBoards = persistNamedBoardsSnapshot &&
+            requiresNamedBoardsPersistenceRetry
+        guard !failedToSaveNamedBoards ||
+                !requireNamedBoardsPersistenceBeforeActiveMirror else {
+            return BoardStateCommitResult(failedToSaveNamedBoards: true)
+        }
         guard let activeMirror else {
-            var result = BoardStateCommitResult(savedNamedBoards: savedNamedBoards)
+            var result = BoardStateCommitResult(
+                savedNamedBoards: savedNamedBoards,
+                failedToSaveNamedBoards: failedToSaveNamedBoards
+            )
             BoardStateCommitter.reloadWidgetsIfNeeded(&result, repository: repository)
             return result
         }
@@ -518,7 +648,9 @@ final class BoardManagementStore: ObservableObject {
             countdownEndsAt: activeMirror.countdownEndsAt,
             savedAt: activeMirror.updatedAt
         )
+        requiresActiveBoardMirrorPersistenceRetry = result.failedToSaveBoard
         result.savedNamedBoards = savedNamedBoards
+        result.failedToSaveNamedBoards = failedToSaveNamedBoards
         BoardStateCommitter.reloadWidgetsIfNeeded(&result, repository: repository)
         return result
     }
@@ -547,6 +679,41 @@ final class BoardManagementStore: ObservableObject {
         _ snapshot: BingoBoardStore.NamedBoardsSnapshot,
         reloadWidgets: Bool
     ) -> Bool {
-        repository.saveNamedBoardsSnapshot(snapshot, reloadWidgets: reloadWidgets)
+        let didSave = repository.saveNamedBoardsSnapshot(snapshot, reloadWidgets: reloadWidgets)
+        requiresNamedBoardsPersistenceRetry = !didSave &&
+            repository.loadNamedBoardsSnapshot() != snapshot
+        return didSave
+    }
+
+    private func refreshActiveBoardMirrorPersistenceRetryRequirement() {
+        guard let selectedBoard else {
+            requiresActiveBoardMirrorPersistenceRetry = false
+            return
+        }
+        requiresActiveBoardMirrorPersistenceRetry =
+            repository.loadBoard() != selectedBoard.board ||
+            repository.loadBoardCountdownEndsAt() != selectedBoard.countdownEndsAt ||
+            repository.loadActiveNamedBoardID() != selectedBoard.id ||
+            repository.loadSelectedWidgetPanelID() != selectedBoard.id
+    }
+
+    private func restoreBoardManagementState(
+        boards: [BingoBoardStore.NamedBoard],
+        selectedBoardID: UUID?,
+        deletedBoardIDs: Set<UUID>? = nil
+    ) {
+        namedBoards = boards
+        self.selectedBoardID = selectedBoardID
+        if let deletedBoardIDs {
+            self.deletedBoardIDs = deletedBoardIDs
+        }
+        let restoredSnapshot = BingoBoardStore.NamedBoardsSnapshot(
+            selectedBoardID: selectedBoardID,
+            boards: boards,
+            deletedBoardIDs: self.deletedBoardIDs
+        )
+        requiresNamedBoardsPersistenceRetry =
+            repository.loadNamedBoardsSnapshot() != restoredSnapshot
+        refreshActiveBoardMirrorPersistenceRetryRequirement()
     }
 }

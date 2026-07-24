@@ -15,6 +15,7 @@ struct PointsRedemptionHistorySheet: View {
     let rewards: [CustomReward]
     let records: [PointRedemptionRecord]
     let isPadLayout: Bool
+    var onClose: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var selectedDate = Calendar.current.startOfDay(for: .now)
     @State private var displayedMonth = Calendar.current.startOfMonth(for: .now)
@@ -34,12 +35,17 @@ struct PointsRedemptionHistorySheet: View {
         }
 
         let legacyRewards = rewards.compactMap { reward -> HistoryItem? in
-            guard reward.redemptionCount > 0 else { return nil }
+            let linkedRecords = records.filter {
+                $0.isActive && $0.referencedCustomRewardID == reward.id
+            }
+            let missingCount = max(reward.redemptionCount - linkedRecords.count, 0)
+            guard missingCount > 0 else { return nil }
+            let linkedPoints = linkedRecords.reduce(0) { $0 + max($1.points, 0) }
             return HistoryItem(
                 id: "legacy-reward-\(reward.id.uuidString)",
                 title: reward.title,
                 detail: L10n.tr("Redeemed before history tracking", zhHans: "开启记录前已兑换", zhHant: "開啟記錄前已兌換", ja: "履歴記録の開始前に交換済み"),
-                points: reward.totalSpentPoints,
+                points: max(reward.totalSpentPoints - linkedPoints, 0),
                 redeemedAt: .distantPast,
                 imageName: reward.themeImageName,
                 emoji: reward.themeImageName == nil ? reward.displayEmoji : nil
@@ -48,7 +54,10 @@ struct PointsRedemptionHistorySheet: View {
 
         let legacyStickers = StickerKind.allCases.compactMap { kind -> HistoryItem? in
             let count = inventoryCounts[kind] ?? 0
-            guard count > 0 else { return nil }
+            let hasLinkedRecord = records.contains {
+                $0.isActive && $0.referencedStickerKind == kind
+            }
+            guard count > 0, !hasLinkedRecord else { return nil }
             return HistoryItem(
                 id: "legacy-sticker-\(kind.rawValue)",
                 title: kind.redemptionHistoryTitle,
@@ -157,7 +166,11 @@ struct PointsRedemptionHistorySheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        dismiss()
+                        if let onClose {
+                            onClose()
+                        } else {
+                            dismiss()
+                        }
                     } label: {
                         Image(systemName: "xmark")
                             .foregroundColor(historyPrimaryTextColor)

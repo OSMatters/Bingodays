@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 struct HomeLifecycleWorkContext: Equatable {
@@ -107,14 +108,11 @@ struct AppReviewPromptPresentationState: Equatable {
     let isCustomResetDowngradeAlertPresented: Bool
     let isSidebarPresented: Bool
     let isQuickEditPresented: Bool
-    let isBlackBoxModePresented: Bool
     let isContactUsPresented: Bool
     let isPointsFlowPresented: Bool
     let isBoardCountdownPresented: Bool
     let isBoardRulesPresented: Bool
     let isGridSizeSheetPresented: Bool
-    let isTemplateImportPreviewPresented: Bool
-    let isTemplateShareComposerPresented: Bool
     let isShowingCelebration: Bool
     let isShowingBoardCompletionAnimation: Bool
     let hasBoardActionSheet: Bool
@@ -129,14 +127,11 @@ struct AppReviewPromptPresentationState: Equatable {
             isCustomResetDowngradeAlertPresented ||
             isSidebarPresented ||
             isQuickEditPresented ||
-            isBlackBoxModePresented ||
             isContactUsPresented ||
             isPointsFlowPresented ||
             isBoardCountdownPresented ||
             isBoardRulesPresented ||
             isGridSizeSheetPresented ||
-            isTemplateImportPreviewPresented ||
-            isTemplateShareComposerPresented ||
             isShowingCelebration ||
             isShowingBoardCompletionAnimation ||
             hasBoardActionSheet ||
@@ -195,5 +190,68 @@ struct HomeAppReviewPromptStore {
             return true
         }
         return !state.hasBlockingPresentation
+    }
+}
+
+@MainActor
+final class HomeAppReviewEvaluationStore: ObservableObject {
+    typealias DelayedActionScheduler = (TimeInterval, @escaping () -> Void) -> Void
+
+    private struct PendingRequest {
+        let boardID: UUID?
+        let trigger: AppReviewPromptCandidate
+    }
+
+    private static let evaluationDelay: TimeInterval = 1.0
+
+    private let scheduler: DelayedActionScheduler
+    private var requestGeneration: UInt = 0
+    private var pendingRequest: PendingRequest?
+
+    init(scheduler: @escaping DelayedActionScheduler = { delay, action in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            action()
+        }
+    }) {
+        self.scheduler = scheduler
+    }
+
+    func scheduleEvaluation(
+        trigger: AppReviewPromptCandidate,
+        boardID: UUID?,
+        currentBoardID: @escaping () -> UUID?,
+        onEvaluate: @escaping (AppReviewPromptCandidate) -> Void
+    ) {
+        let coalescedTrigger: AppReviewPromptCandidate
+        if let pendingRequest, pendingRequest.boardID == boardID {
+            coalescedTrigger = Self.coalescedTrigger(
+                pending: pendingRequest.trigger,
+                incoming: trigger
+            )
+        } else {
+            coalescedTrigger = trigger
+        }
+
+        requestGeneration &+= 1
+        let generation = requestGeneration
+        pendingRequest = PendingRequest(boardID: boardID, trigger: coalescedTrigger)
+
+        scheduler(Self.evaluationDelay) { [weak self] in
+            guard let self, self.requestGeneration == generation else { return }
+            guard let request = self.pendingRequest else { return }
+            self.pendingRequest = nil
+            guard request.boardID == currentBoardID() else { return }
+            onEvaluate(request.trigger)
+        }
+    }
+
+    private static func coalescedTrigger(
+        pending: AppReviewPromptCandidate,
+        incoming: AppReviewPromptCandidate
+    ) -> AppReviewPromptCandidate {
+        if pending == .secondThreeDayStreak || incoming == .secondThreeDayStreak {
+            return .secondThreeDayStreak
+        }
+        return incoming
     }
 }

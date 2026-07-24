@@ -1,8 +1,9 @@
 {
   "images" : [
     {
-      "filename" : "sharelogo.png",
-      "idiom" : "universal"
+      "filename" : "ic_complete.png",
+      "idiom" : "universal",
+      "scale" : "1x"
     }
   ],
   "info" : {

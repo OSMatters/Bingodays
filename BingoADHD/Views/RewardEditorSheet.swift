@@ -40,10 +40,15 @@ struct RewardEditorSheet: View {
     @State private var isEmojiKeyboardPresented = false
     @State private var keyboardHeight: CGFloat = 0
     @State private var emojiHistory: [String]
+    @StateObject private var emojiKeyboardController = EmojiKeyboardController()
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
+    }
+
+    private var isPadDevice: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
@@ -184,14 +189,30 @@ struct RewardEditorSheet: View {
                     .position(x: proxy.size.width / 2, y: layout.cardCenterY)
                     .zIndex(1)
 
-                if !isKeyboardVisible {
+                if isPadDevice {
+                    cardSkinPanel
+                        .allowsHitTesting(!isKeyboardVisible)
+                        .zIndex(3)
+                } else if !isKeyboardVisible {
                     cardSkinPanel
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(3)
                 }
 
-                if isEmojiKeyboardPresented {
-                    EmojiKeyboardHost(text: $emojiInputBuffer, isPresented: $isEmojiKeyboardPresented)
+                if isPadDevice {
+                    EmojiKeyboardHost(
+                        text: $emojiInputBuffer,
+                        isPresented: $isEmojiKeyboardPresented,
+                        activationController: emojiKeyboardController
+                    )
+                        .frame(width: 1, height: 1)
+                        .opacity(0.01)
+                } else if isEmojiKeyboardPresented {
+                    EmojiKeyboardHost(
+                        text: $emojiInputBuffer,
+                        isPresented: $isEmojiKeyboardPresented,
+                        activationController: nil
+                    )
                         .frame(width: 1, height: 1)
                         .opacity(0.01)
                 }
@@ -222,8 +243,15 @@ struct RewardEditorSheet: View {
     }
 
     private func editorLayout(for size: CGSize) -> RewardEditorLayout {
-        let defaultCardWidth = scaled(280, pad: 360)
-        let defaultCardHeight = scaled(347, pad: 446)
+        let usesExpandedPadPortraitLayout = UIDevice.current.userInterfaceIdiom == .pad
+            && size.height > size.width
+        let baseCardWidth = scaled(280, pad: 360)
+        let baseCardHeight = scaled(347, pad: 446)
+        let expandedCardWidth = min(440, size.width * 0.54)
+        let defaultCardWidth = usesExpandedPadPortraitLayout
+            ? max(baseCardWidth, expandedCardWidth)
+            : baseCardWidth
+        let defaultCardHeight = baseCardHeight * (defaultCardWidth / baseCardWidth)
         let headerTopPadding = scaled(3, pad: 17)
         let cardAnchorTopPadding = scaled(48, pad: 62)
         let headerHeight = scaled(56, pad: 66)
@@ -231,16 +259,18 @@ struct RewardEditorSheet: View {
         let panelTop = size.height - cardSkinPanelHeight + cardSkinPanelBottomOffset
         let cardBottom = panelTop - scaled(10, pad: 14)
         let availableCardHeight = max(scaled(148, pad: 190), cardBottom - minimumCardTop)
-        let cardScale = min(1, max(0.62, availableCardHeight / defaultCardHeight))
-        let cardHeight = defaultCardHeight * cardScale
-        let cardWidth = defaultCardWidth * cardScale
+        let cardFitScale = min(1, max(0.62, availableCardHeight / defaultCardHeight))
+        let cardHeight = defaultCardHeight * cardFitScale
+        let cardWidth = defaultCardWidth * cardFitScale
 
         return RewardEditorLayout(
             headerTopPadding: headerTopPadding,
             cardWidth: cardWidth,
             cardHeight: cardHeight,
-            cardScale: cardScale,
-            cardCenterY: cardBottom - cardHeight / 2
+            cardScale: cardWidth / baseCardWidth,
+            cardCenterY: usesExpandedPadPortraitLayout
+                ? (minimumCardTop + cardBottom) / 2
+                : cardBottom - cardHeight / 2
         )
     }
 
@@ -293,7 +323,7 @@ struct RewardEditorSheet: View {
     }
 
     private func rewardTicketPreview(cardWidth previewCardWidth: CGFloat, scale: CGFloat) -> some View {
-        let contentScale = max(0.62, min(1, scale))
+        let contentScale = max(0.62, min(1.25, scale))
         let titleHeight = max(scaled(44, pad: 56) * contentScale, scaled(34, pad: 40))
         let pointsHeight = max(scaled(42, pad: 52) * contentScale, scaled(32, pad: 38))
 
@@ -311,11 +341,7 @@ struct RewardEditorSheet: View {
                     Color.clear
                         .frame(height: scaled(16, pad: 22) * contentScale)
                 } else {
-                    Text(selectedEmoji)
-                        .font(.system(size: scaled(112, pad: 142) * contentScale))
-                        .minimumScaleFactor(0.72)
-                        .frame(height: scaled(204, pad: 262) * contentScale)
-                        .frame(maxWidth: .infinity)
+                    previewEmoji(scale: contentScale)
                 }
 
                 titleEditor(scale: contentScale, height: titleHeight)
@@ -476,10 +502,7 @@ struct RewardEditorSheet: View {
     @ViewBuilder
     private func emojiAddButton(showHint: Bool) -> some View {
         Button {
-            selectedThemeImageName = nil
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            emojiInputBuffer = ""
-            isEmojiKeyboardPresented = true
+            presentEmojiKeyboard()
         } label: {
             if showHint {
                 HStack(spacing: scaled(14, pad: 18)) {
@@ -499,6 +522,28 @@ struct RewardEditorSheet: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func previewEmoji(scale: CGFloat) -> some View {
+        if isPadDevice {
+            Button {
+                presentEmojiKeyboard()
+            } label: {
+                previewEmojiLabel(scale: scale)
+            }
+            .buttonStyle(.plain)
+        } else {
+            previewEmojiLabel(scale: scale)
+        }
+    }
+
+    private func previewEmojiLabel(scale: CGFloat) -> some View {
+        Text(selectedEmoji)
+            .font(.system(size: scaled(112, pad: 142) * scale))
+            .minimumScaleFactor(0.72)
+            .frame(height: scaled(204, pad: 262) * scale)
+            .frame(maxWidth: .infinity)
     }
 
     private var emojiAddIcon: some View {
@@ -550,6 +595,31 @@ struct RewardEditorSheet: View {
         .frame(height: skinPickerContentHeight)
         .padding(.horizontal, scaled(24, pad: 34))
         .padding(.bottom, 0)
+    }
+
+    private func presentEmojiKeyboard() {
+        if isPadDevice {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                selectedThemeImageName = nil
+                selectedSkinTab = .emoji
+                emojiInputBuffer = ""
+                isEmojiKeyboardPresented = true
+            }
+
+            if !emojiKeyboardController.activate() {
+                DispatchQueue.main.async {
+                    emojiKeyboardController.activate()
+                }
+            }
+        } else {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            selectedThemeImageName = nil
+            selectedSkinTab = .emoji
+            emojiInputBuffer = ""
+            isEmojiKeyboardPresented = true
+        }
     }
 
     private func dismissKeyboard() {
@@ -707,6 +777,7 @@ private struct RewardInlineTextField: UIViewRepresentable {
 private struct EmojiKeyboardHost: UIViewRepresentable {
     @Binding var text: String
     @Binding var isPresented: Bool
+    let activationController: EmojiKeyboardController?
 
     func makeUIView(context: Context) -> EmojiPreferredTextField {
         let textField = EmojiPreferredTextField(frame: .zero)
@@ -721,6 +792,7 @@ private struct EmojiKeyboardHost: UIViewRepresentable {
         textField.textColor = .clear
         textField.backgroundColor = .clear
         textField.returnKeyType = .done
+        activationController?.attach(textField)
         return textField
     }
 
@@ -730,7 +802,11 @@ private struct EmojiKeyboardHost: UIViewRepresentable {
         }
 
         if isPresented, !uiView.isFirstResponder {
-            DispatchQueue.main.async {
+            if activationController == nil {
+                DispatchQueue.main.async {
+                    uiView.becomeFirstResponder()
+                }
+            } else {
                 uiView.becomeFirstResponder()
             }
         } else if !isPresented, uiView.isFirstResponder {
@@ -805,6 +881,22 @@ private struct EmojiKeyboardHost: UIViewRepresentable {
             let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.first.map(String.init) ?? ""
         }
+    }
+}
+
+@MainActor
+private final class EmojiKeyboardController: ObservableObject {
+    private weak var textField: EmojiPreferredTextField?
+
+    func attach(_ textField: EmojiPreferredTextField) {
+        self.textField = textField
+        _ = textField.textInputMode
+    }
+
+    @discardableResult
+    func activate() -> Bool {
+        guard let textField, textField.window != nil else { return false }
+        return textField.becomeFirstResponder()
     }
 }
 

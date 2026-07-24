@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct PointsFlowPresenter: View {
     let isPadLayout: Bool
@@ -289,12 +290,9 @@ struct PointsFlowSheet: View {
             source: source
         )
         premiumPaywallSource = source
+        isPremiumPaywallPresented = true
         Task { @MainActor in
-            guard !subscriptionManager.hasPremiumAccess else { return }
             await subscriptionManager.refreshEntitlements()
-            guard !subscriptionManager.hasPremiumAccess else { return }
-            isPremiumPaywallPresented = true
-            await subscriptionManager.warmupProductsForPaywall()
         }
     }
 
@@ -325,17 +323,11 @@ struct PointsFlowSheet: View {
             },
             onSelectReward: { reward in
                 selectedRewardForDetail = reward
-            }
+            },
+            onHistoryPresentationChange: onSubpagePresentationChange
         )
 
-        if isPadLayout {
-            NineTenthsSheetContainer(contentMaxWidth: 960) {
-                content
-            }
-            .background(Color.clear)
-        } else {
-            content
-        }
+        content
     }
 }
 
@@ -371,6 +363,7 @@ private struct PointsDetailSheet: View {
     let onRequestEditReward: (CustomReward) -> Void
     let onSelectSticker: (StickerKind) -> Void
     let onSelectReward: (CustomReward) -> Void
+    let onHistoryPresentationChange: (Bool) -> Void
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTab: PointsTab
@@ -396,7 +389,8 @@ private struct PointsDetailSheet: View {
         onRequestCreateReward: @escaping () -> Void,
         onRequestEditReward: @escaping (CustomReward) -> Void,
         onSelectSticker: @escaping (StickerKind) -> Void,
-        onSelectReward: @escaping (CustomReward) -> Void
+        onSelectReward: @escaping (CustomReward) -> Void,
+        onHistoryPresentationChange: @escaping (Bool) -> Void
     ) {
         self.points = points
         self.showsCloseButton = showsCloseButton
@@ -413,11 +407,20 @@ private struct PointsDetailSheet: View {
         self.onRequestEditReward = onRequestEditReward
         self.onSelectSticker = onSelectSticker
         self.onSelectReward = onSelectReward
+        self.onHistoryPresentationChange = onHistoryPresentationChange
         _selectedTab = State(initialValue: initialTab)
     }
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
+    }
+
+    private var isPadDevice: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
+    }
+
+    private var usesPadBottomHalfSheet: Bool {
+        isPadDevice
     }
 
     private var contentMaxWidth: CGFloat {
@@ -588,13 +591,29 @@ private struct PointsDetailSheet: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
-            .sheet(isPresented: $isHistoryPresented) {
+            .adaptivePadBottomHalfSheet(
+                isPresented: $isHistoryPresented,
+                usePadPresentation: usesPadBottomHalfSheet,
+                backgroundColor: NeumorphicColors.background,
+                contentMaxWidth: 860
+            ) {
                 PointsRedemptionHistorySheet(
                     inventoryCounts: inventoryCounts,
                     rewards: rewards,
                     records: redemptionHistory,
-                    isPadLayout: isPadLayout
+                    isPadLayout: isPadLayout,
+                    onClose: usesPadBottomHalfSheet ? {
+                        isHistoryPresented = false
+                    } : nil
                 )
+            }
+            .onChange(of: isHistoryPresented) { _, isPresented in
+                guard usesPadBottomHalfSheet else { return }
+                onHistoryPresentationChange(isPresented)
+            }
+            .onDisappear {
+                guard usesPadBottomHalfSheet, isHistoryPresented else { return }
+                onHistoryPresentationChange(false)
             }
         }
     }
@@ -761,12 +780,7 @@ private struct PointsDetailSheet: View {
                     Color.clear
                     .frame(height: scaled(118, pad: 150))
                 } else {
-                    Text(reward.displayEmoji)
-                        .font(.system(size: scaled(81.2, pad: 225.6)))
-                        .frame(height: scaled(118, pad: 150))
-                        .padding(.top, scaled(10, pad: 14))
-                        .saturation(canRedeem ? 1 : 0)
-                        .opacity(canRedeem ? 1 : 0.55)
+                    rewardCardEmoji(reward.displayEmoji, canRedeem: canRedeem)
                 }
 
                 Spacer(minLength: scaled(8, pad: 10))
@@ -820,6 +834,41 @@ private struct PointsDetailSheet: View {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
                 actionRewardID = reward.id
             }
+        }
+    }
+
+    @ViewBuilder
+    private func rewardCardEmoji(_ emoji: String, canRedeem: Bool) -> some View {
+        if isPadDevice {
+            GeometryReader { proxy in
+                let artworkHeight = proxy.size.height * 1.3
+                let fontSize = min(proxy.size.width * 0.52, artworkHeight * 0.86)
+                let verticalOffset: CGFloat = 30
+
+                Text(emoji)
+                    .font(.system(size: fontSize))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .frame(width: proxy.size.width, height: artworkHeight)
+                    .offset(y: verticalOffset)
+                    .frame(
+                        width: proxy.size.width,
+                        height: artworkHeight + verticalOffset,
+                        alignment: .top
+                    )
+                    .clipped()
+            }
+            .frame(height: scaled(118, pad: 150))
+            .padding(.top, scaled(10, pad: 14))
+            .saturation(canRedeem ? 1 : 0)
+            .opacity(canRedeem ? 1 : 0.55)
+        } else {
+            Text(emoji)
+                .font(.system(size: scaled(81.2, pad: 225.6)))
+                .frame(height: scaled(118, pad: 150))
+                .padding(.top, scaled(10, pad: 14))
+                .saturation(canRedeem ? 1 : 0)
+                .opacity(canRedeem ? 1 : 0.55)
         }
     }
 

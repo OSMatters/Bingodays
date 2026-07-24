@@ -32,31 +32,42 @@ final class PointsFeatureStore: ObservableObject {
         loadPersistedStores()
     }
 
+    func reloadAfterExternalDataChange() {
+        loadPersistedStores()
+    }
+
     func redeemSticker(_ kind: StickerKind, totalPoints: Int) {
         guard availablePoints(totalPoints: totalPoints) >= kind.requiredPoints else { return }
         guard stickerInventoryCounts[kind] != 1 else { return }
 
-        stickerInventoryCounts[kind] = 1
-        StickerStore.saveInventoryCounts(stickerInventoryCounts)
-        redemptionHistory = PointRedemptionHistoryStore.append(
+        guard let records = PointRedemptionHistoryStore.append(
             PointRedemptionRecord(
                 itemKind: .sticker,
                 title: kind.redemptionHistoryTitle,
                 points: kind.requiredPoints,
-                imageName: kind.unlockedImageName
+                imageName: kind.unlockedImageName,
+                itemReferenceID: PointRedemptionRecord.stickerReferenceID(kind)
             )
-        )
+        ) else { return }
+        redemptionHistory = records.filter(\.isActive)
+        stickerInventoryCounts[kind] = 1
+        StickerStore.saveInventoryCounts(stickerInventoryCounts)
         AppHaptics.completion()
         AnalyticsService.logStickerRedeemed(kind)
     }
 
     @discardableResult
     func reconcileRedemptionsIfPointsInsufficient(totalPoints: Int) -> PointRedemptionReconciliationResult {
+        let ledgerRecords = PointRedemptionLedger.loadOrMigrate(
+            stickerInventoryCounts: stickerInventoryCounts,
+            customRewards: customRewards
+        )
         let result = PointRedemptionReconciler.reconcileRedemptionsIfNeeded(
             totalPoints: totalPoints,
             stickerInventoryCounts: stickerInventoryCounts,
             homeStickerPlacements: homeStickerPlacements,
-            customRewards: customRewards
+            customRewards: customRewards,
+            redemptionRecords: ledgerRecords
         )
         guard result.didChange else { return result }
 
@@ -64,6 +75,7 @@ final class PointsFeatureStore: ObservableObject {
         homeStickerPlacements = result.homeStickerPlacements
         customRewards = result.customRewards
         PointRedemptionReconciler.persist(result)
+        redemptionHistory = (result.redemptionRecords ?? PointRedemptionHistoryStore.load()).filter(\.isActive)
         return result
     }
 
@@ -119,7 +131,8 @@ final class PointsFeatureStore: ObservableObject {
         guard !trimmedTitle.isEmpty else { return false }
         guard canCreateReward(hasPremiumAccess: hasPremiumAccess) else { return false }
 
-        customRewards.append(
+        var updatedRewards = customRewards
+        updatedRewards.append(
             CustomReward(
                 title: trimmedTitle,
                 requiredPoints: normalizedPoints,
@@ -127,7 +140,13 @@ final class PointsFeatureStore: ObservableObject {
                 themeImageName: themeImageName
             )
         )
-        RewardStore.saveRewards(customRewards)
+        guard RewardStore.saveRewards(updatedRewards) else { return false }
+        customRewards = updatedRewards
+        AnalyticsService.logCustomRewardVisualUsed(
+            action: .create,
+            emoji: emoji,
+            themeImageName: themeImageName
+        )
         return true
     }
 
@@ -137,12 +156,30 @@ final class PointsFeatureStore: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }
 
-        customRewards[index].title = trimmedTitle
-        customRewards[index].requiredPoints = min(max(reward.requiredPoints, 1), 9_999)
-        customRewards[index].emoji = reward.emoji
-        customRewards[index].themeImageName = reward.themeImageName
-        customRewards[index].cardStyleVersion = CustomReward.currentCardStyleVersion
-        RewardStore.saveRewards(customRewards)
+        let previousVisual = AnalyticsEventContract.customRewardVisual(
+            emoji: customRewards[index].emoji,
+            themeImageName: customRewards[index].themeImageName
+        )
+        var updatedRewards = customRewards
+        updatedRewards[index].title = trimmedTitle
+        updatedRewards[index].requiredPoints = min(max(reward.requiredPoints, 1), 9_999)
+        updatedRewards[index].emoji = reward.emoji
+        updatedRewards[index].themeImageName = reward.themeImageName
+        updatedRewards[index].cardStyleVersion = CustomReward.currentCardStyleVersion
+        guard RewardStore.saveRewards(updatedRewards) else { return }
+        customRewards = updatedRewards
+
+        let updatedVisual = AnalyticsEventContract.customRewardVisual(
+            emoji: reward.emoji,
+            themeImageName: reward.themeImageName
+        )
+        if updatedVisual != previousVisual {
+            AnalyticsService.logCustomRewardVisualUsed(
+                action: .update,
+                emoji: reward.emoji,
+                themeImageName: reward.themeImageName
+            )
+        }
     }
 
     func archiveReward(_ reward: CustomReward) {
@@ -156,18 +193,20 @@ final class PointsFeatureStore: ObservableObject {
         let requiredPoints = customRewards[index].requiredPoints
         guard availablePoints(totalPoints: totalPoints) >= requiredPoints else { return }
 
-        customRewards[index].redemptionCount += 1
-        customRewards[index].totalSpentPoints += requiredPoints
-        RewardStore.saveRewards(customRewards)
-        redemptionHistory = PointRedemptionHistoryStore.append(
+        guard let records = PointRedemptionHistoryStore.append(
             PointRedemptionRecord(
                 itemKind: .customReward,
                 title: customRewards[index].title,
                 points: requiredPoints,
                 imageName: customRewards[index].themeImageName,
-                emoji: customRewards[index].themeImageName == nil ? customRewards[index].displayEmoji : nil
+                emoji: customRewards[index].themeImageName == nil ? customRewards[index].displayEmoji : nil,
+                itemReferenceID: PointRedemptionRecord.customRewardReferenceID(customRewards[index].id)
             )
-        )
+        ) else { return }
+        redemptionHistory = records.filter(\.isActive)
+        customRewards[index].redemptionCount += 1
+        customRewards[index].totalSpentPoints += requiredPoints
+        RewardStore.saveRewards(customRewards)
         AppHaptics.completion()
     }
 
@@ -188,7 +227,31 @@ final class PointsFeatureStore: ObservableObject {
         stickerInventoryCounts = StickerStore.loadInventoryCounts()
         homeStickerPlacements = StickerStore.loadPlacements()
         customRewards = RewardStore.loadRewards()
-        redemptionHistory = PointRedemptionHistoryStore.load()
+        guard let ledgerRecords = PointRedemptionLedger.loadOrMigrate(
+            stickerInventoryCounts: stickerInventoryCounts,
+            customRewards: customRewards
+        ) else {
+            redemptionHistory = PointRedemptionHistoryStore.load().filter(\.isActive)
+            return
+        }
+        let projection = PointRedemptionLedger.projection(
+            from: ledgerRecords,
+            homeStickerPlacements: homeStickerPlacements,
+            customRewards: customRewards
+        )
+        if projection.stickerInventoryCounts != stickerInventoryCounts {
+            stickerInventoryCounts = projection.stickerInventoryCounts
+            StickerStore.saveInventoryCounts(stickerInventoryCounts)
+        }
+        if projection.homeStickerPlacements != homeStickerPlacements {
+            homeStickerPlacements = projection.homeStickerPlacements
+            StickerStore.savePlacements(homeStickerPlacements)
+        }
+        if projection.customRewards != customRewards {
+            customRewards = projection.customRewards
+            RewardStore.saveRewards(customRewards)
+        }
+        redemptionHistory = ledgerRecords.filter(\.isActive)
     }
 
     private func availableStickerCount(for kind: StickerKind) -> Int {

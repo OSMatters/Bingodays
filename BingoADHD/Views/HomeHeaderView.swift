@@ -7,6 +7,7 @@ struct HomeHeaderView: View {
     let availablePoints: Int
     let showsLimitedOffer: Bool
     let limitedTimeOfferDuration: TimeInterval
+    let limitedTimeOfferCampaignID: String
     let themeColor: Color
     let onOpenThemePicker: () -> Void
     let onOpenPointsFlow: () -> Void
@@ -80,6 +81,7 @@ struct HomeHeaderView: View {
                 HomeLimitedOfferBannerView(
                     isPadLayout: isPadLayout,
                     offerDuration: limitedTimeOfferDuration,
+                    campaignID: limitedTimeOfferCampaignID,
                     onTap: onOpenLimitedOffer
                 )
                 .offset(y: -20)

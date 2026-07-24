@@ -1,7 +1,6 @@
 
 import Foundation
 import UIKit
-import Compression
 
 struct TaskRecurrenceRule: Codable, Equatable {
     enum Kind: String, Codable, Equatable, CaseIterable {
@@ -21,6 +20,14 @@ struct TaskRecurrenceRule: Codable, Equatable {
     var monthDay: Int?
     var anchorDate: Date?
 
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case interval
+        case weekdays
+        case monthDay
+        case anchorDate
+    }
+
     init(
         kind: Kind,
         interval: Int = 1,
@@ -33,6 +40,15 @@ struct TaskRecurrenceRule: Codable, Equatable {
         self.weekdays = Set(weekdays.filter { (1...7).contains($0) })
         self.monthDay = Self.normalizedMonthDay(monthDay)
         self.anchorDate = anchorDate
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(interval, forKey: .interval)
+        try container.encode(weekdays.sorted(), forKey: .weekdays)
+        try container.encodeIfPresent(monthDay, forKey: .monthDay)
+        try container.encodeIfPresent(anchorDate, forKey: .anchorDate)
     }
 
     static func normalizedInterval(_ value: Int, kind: Kind) -> Int {
@@ -174,6 +190,7 @@ struct BingoCell: Identifiable, Codable, Equatable {
     var recurrenceRule: TaskRecurrenceRule?
     var startVisibleAt: Date?
     var endVisibleAt: Date?
+    // Legacy persisted field kept only so older boards decode and migrate cleanly.
     var usesRecurringTimeWindow: Bool
     var startReminderEnabled: Bool
     var startReminderOffsetMinutes: Int
@@ -294,6 +311,32 @@ struct BingoCell: Identifiable, Codable, Equatable {
         lastVisibilityWindowTimeoutAt = try container.decodeIfPresent(Date.self, forKey: .lastVisibilityWindowTimeoutAt)
     }
 
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(text, forKey: .text)
+        try container.encodeIfPresent(residentTaskText, forKey: .residentTaskText)
+        try container.encode(residentWeekdays.sorted(), forKey: .residentWeekdays)
+        try container.encodeIfPresent(oneTimeVisibleDate, forKey: .oneTimeVisibleDate)
+        try container.encodeIfPresent(recurrenceRule, forKey: .recurrenceRule)
+        try container.encodeIfPresent(startVisibleAt, forKey: .startVisibleAt)
+        try container.encodeIfPresent(endVisibleAt, forKey: .endVisibleAt)
+        try container.encode(usesRecurringTimeWindow, forKey: .usesRecurringTimeWindow)
+        try container.encode(startReminderEnabled, forKey: .startReminderEnabled)
+        try container.encode(startReminderOffsetMinutes, forKey: .startReminderOffsetMinutes)
+        try container.encodeIfPresent(startVisibleMonth, forKey: .startVisibleMonth)
+        try container.encodeIfPresent(startVisibleDay, forKey: .startVisibleDay)
+        try container.encode(isTaskHidden, forKey: .isTaskHidden)
+        try container.encode(isCompleted, forKey: .isCompleted)
+        try container.encode(isForced, forKey: .isForced)
+        try container.encodeIfPresent(countdownEndsAt, forKey: .countdownEndsAt)
+        try container.encodeIfPresent(countdownPausedRemainingSeconds, forKey: .countdownPausedRemainingSeconds)
+        try container.encodeIfPresent(estimatedDurationMinutes, forKey: .estimatedDurationMinutes)
+        try container.encode(completionStreakCount, forKey: .completionStreakCount)
+        try container.encodeIfPresent(lastCompletedAt, forKey: .lastCompletedAt)
+        try container.encodeIfPresent(lastVisibilityWindowTimeoutAt, forKey: .lastVisibilityWindowTimeoutAt)
+    }
+
     var hasVisibilityWindow: Bool {
         hasStartVisibilityDate || hasEndVisibilityDate
     }
@@ -304,6 +347,36 @@ struct BingoCell: Identifiable, Codable, Equatable {
     static func normalizedStartReminderOffsetMinutes(_ value: Int?) -> Int {
         guard let value else { return defaultStartReminderOffsetMinutes }
         return allowedStartReminderOffsetMinutes.contains(value) ? value : defaultStartReminderOffsetMinutes
+    }
+
+    @discardableResult
+    mutating func removeUnsupportedRepeatingTiming() -> Bool {
+        let original = self
+        let hasRuleBasedRepeat = recurrenceRule.map { $0.kind != .none } ?? false
+        let hasLegacyWeeklyRepeat = recurrenceRule == nil &&
+            !residentWeekdays.isEmpty &&
+            !(residentTaskText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        guard hasRuleBasedRepeat || hasLegacyWeeklyRepeat else { return false }
+
+        if var rule = recurrenceRule,
+           rule.kind == .everyNDays,
+           rule.anchorDate == nil,
+           let startVisibleAt {
+            rule.anchorDate = startVisibleAt
+            recurrenceRule = rule
+        }
+
+        startVisibleAt = nil
+        endVisibleAt = nil
+        startVisibleMonth = nil
+        startVisibleDay = nil
+        usesRecurringTimeWindow = false
+        startReminderEnabled = false
+        countdownEndsAt = nil
+        countdownPausedRemainingSeconds = nil
+        estimatedDurationMinutes = nil
+        lastVisibilityWindowTimeoutAt = nil
+        return self != original
     }
 
     func isVisibilityWindowActive(on date: Date, calendar: Calendar = .current) -> Bool {
@@ -384,20 +457,12 @@ struct BingoCell: Identifiable, Codable, Equatable {
     }
 
     var hasStartVisibilityDate: Bool {
-        startVisibleAt != nil || (startVisibleMonth != nil && startVisibleDay != nil)
+        guard !hasRepeatingSchedule else { return false }
+        return startVisibleAt != nil || (startVisibleMonth != nil && startVisibleDay != nil)
     }
 
     func isStartVisibilityReached(on date: Date, calendar: Calendar = .current) -> Bool {
-        if hasRepeatingSchedule && usesRecurringTimeWindow {
-            guard isResidentActive(on: date, calendar: calendar) else {
-                return true
-            }
-            guard let startVisibleAt,
-                  let occurrenceStart = occurrenceDate(on: date, matchingTimeOf: startVisibleAt, calendar: calendar) else {
-                return true
-            }
-            return date >= occurrenceStart
-        }
+        if hasRepeatingSchedule { return true }
 
         if let startVisibleAt {
             return date >= startVisibleAt
@@ -416,51 +481,23 @@ struct BingoCell: Identifiable, Codable, Equatable {
     }
 
     var hasEndVisibilityDate: Bool {
-        endVisibleAt != nil
+        guard !hasRepeatingSchedule else { return false }
+        return endVisibleAt != nil
     }
 
     func isEndVisibilityReached(on date: Date, calendar: Calendar = .current) -> Bool {
-        if hasRepeatingSchedule && usesRecurringTimeWindow {
-            guard isResidentActive(on: date, calendar: calendar) else {
-                return false
-            }
-            guard let endVisibleAt,
-                  let occurrenceEnd = occurrenceDate(on: date, matchingTimeOf: endVisibleAt, calendar: calendar) else {
-                return false
-            }
-            return date >= occurrenceEnd
-        }
+        if hasRepeatingSchedule { return false }
 
         guard let endVisibleAt else { return false }
         return date >= endVisibleAt
     }
 
     func occurrenceStartVisibleAt(on date: Date, calendar: Calendar = .current) -> Date? {
-        guard hasRepeatingSchedule,
-              usesRecurringTimeWindow,
-              let startVisibleAt else {
-            return startVisibleAt
-        }
-        return occurrenceDate(on: date, matchingTimeOf: startVisibleAt, calendar: calendar)
+        hasRepeatingSchedule ? nil : startVisibleAt
     }
 
     func occurrenceEndVisibleAt(on date: Date, calendar: Calendar = .current) -> Date? {
-        guard hasRepeatingSchedule,
-              usesRecurringTimeWindow,
-              let endVisibleAt else {
-            return endVisibleAt
-        }
-        return occurrenceDate(on: date, matchingTimeOf: endVisibleAt, calendar: calendar)
-    }
-
-    private func occurrenceDate(on date: Date, matchingTimeOf templateDate: Date, calendar: Calendar = .current) -> Date? {
-        var dayComponents = calendar.dateComponents([.year, .month, .day], from: date)
-        let timeComponents = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: templateDate)
-        dayComponents.hour = timeComponents.hour
-        dayComponents.minute = timeComponents.minute
-        dayComponents.second = timeComponents.second
-        dayComponents.nanosecond = timeComponents.nanosecond
-        return calendar.date(from: dayComponents)
+        hasRepeatingSchedule ? nil : endVisibleAt
     }
 
     func isResidentActive(on date: Date, calendar: Calendar = .current) -> Bool {
@@ -477,13 +514,9 @@ struct BingoCell: Identifiable, Codable, Equatable {
     }
 
     func completionApplies(on date: Date, calendar: Calendar = .current) -> Bool {
-        guard isCompleted else { return false }
-        guard let recurrenceRule = effectiveRecurrenceRule,
-              recurrenceRule.kind != .none else {
-            return true
-        }
-        guard let lastCompletedAt else { return false }
-        return calendar.isDate(lastCompletedAt, inSameDayAs: date)
+        // Completion lifetime is owned by the board reset rule. Recurring-task projection
+        // must not introduce a second, implicit midnight reset boundary.
+        isCompleted
     }
 
     func countdownAppliesToCurrentOccurrence(on date: Date, calendar: Calendar = .current) -> Bool {
@@ -584,291 +617,54 @@ struct SavedBoard: Codable, Equatable {
     let completedLines: Set<BingoLine>
     let fullBoardCells: [[BingoCell]]?
 
+    private enum CodingKeys: String, CodingKey {
+        case gridSize
+        case cells
+        case completedLines
+        case fullBoardCells
+    }
+
     init(gridSize: Int, cells: [[BingoCell]], completedLines: Set<BingoLine>, fullBoardCells: [[BingoCell]]? = nil) {
         self.gridSize = gridSize
         self.cells = cells
         self.completedLines = completedLines
         self.fullBoardCells = fullBoardCells
     }
-}
 
-struct BoardTemplateTile: Codable, Equatable {
-    var text: String
-    var residentWeekdays: [Int]
-    var recurrenceRule: TaskRecurrenceRule?
-    var startVisibleMonth: Int?
-    var startVisibleDay: Int?
-    var isForced: Bool
-
-    init(
-        text: String,
-        residentWeekdays: [Int] = [],
-        recurrenceRule: TaskRecurrenceRule? = nil,
-        startVisibleMonth: Int? = nil,
-        startVisibleDay: Int? = nil,
-        isForced: Bool = false
-    ) {
-        self.text = String(text.prefix(AppSettings.maxTaskLength))
-        self.residentWeekdays = residentWeekdays.sorted()
-        self.recurrenceRule = recurrenceRule
-        self.startVisibleMonth = startVisibleMonth
-        self.startVisibleDay = startVisibleDay
-        self.isForced = isForced
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        gridSize = try container.decode(Int.self, forKey: .gridSize)
+        cells = try container.decode([[BingoCell]].self, forKey: .cells)
+        completedLines = Set(try container.decode([BingoLine].self, forKey: .completedLines))
+        fullBoardCells = try container.decodeIfPresent([[BingoCell]].self, forKey: .fullBoardCells)
     }
 
-    init(cell: BingoCell) {
-        self.init(
-            text: cell.storedTaskText,
-            residentWeekdays: Array(cell.residentWeekdays),
-            recurrenceRule: cell.recurrenceRule,
-            startVisibleMonth: cell.startVisibleMonth,
-            startVisibleDay: cell.startVisibleDay,
-            // Template sharing/import should not implicitly carry force flag.
-            isForced: false
-        )
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(gridSize, forKey: .gridSize)
+        try container.encode(cells, forKey: .cells)
+        try container.encode(completedLines.sorted(by: Self.isOrderedBefore), forKey: .completedLines)
+        try container.encodeIfPresent(fullBoardCells, forKey: .fullBoardCells)
     }
 
-    var trimmedText: String {
-        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func isOrderedBefore(_ lhs: BingoLine, _ rhs: BingoLine) -> Bool {
+        let lhsOrder = stableOrder(for: lhs)
+        let rhsOrder = stableOrder(for: rhs)
+        if lhsOrder.kind != rhsOrder.kind { return lhsOrder.kind < rhsOrder.kind }
+        return lhsOrder.index < rhsOrder.index
     }
 
-    var hasContent: Bool {
-        !trimmedText.isEmpty
+    private static func stableOrder(for line: BingoLine) -> (kind: Int, index: Int) {
+        switch line {
+        case .row(let index): return (0, index)
+        case .column(let index): return (1, index)
+        case .diagonalMain: return (2, 0)
+        case .diagonalAnti: return (3, 0)
+        }
     }
 }
 
-struct BoardTemplatePayload: Codable, Equatable, Identifiable {
-    private static let minGridSize = 2
-    private static let maxGridSize = BoardEngine.maxGridSize
-    static let urlScheme = "bingodays"
-    static let urlHost = "template"
-    static let universalHost = "dashbingo.xyz"
-    static let universalPath = "/t"
-    static let payloadQueryItem = "payload"
-    private static let compressedPayloadPrefix = "z."
-    static let appStoreURL = URL(string: "https://apps.apple.com/app/id6760203837")!
-
-    let version: Int
-    var title: String
-    let gridSize: Int
-    let tiles: [BoardTemplateTile]
-    let createdAt: Date
-
-    init(title: String, gridSize: Int, tiles: [BoardTemplateTile], createdAt: Date = .now) {
-        self.version = 1
-        self.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.gridSize = min(max(gridSize, Self.minGridSize), Self.maxGridSize)
-        self.tiles = Array(tiles.prefix(self.gridSize * self.gridSize))
-        self.createdAt = createdAt
-    }
-
-    init(title: String, gridSize: Int, cells: [[BingoCell]], createdAt: Date = .now) {
-        let normalizedGridSize = min(max(gridSize, Self.minGridSize), Self.maxGridSize)
-        let normalizedTiles = (0..<normalizedGridSize).flatMap { row in
-            (0..<normalizedGridSize).map { col in
-                BoardTemplateTile(cell: cells[row][col])
-            }
-        }
-        self.init(title: title, gridSize: normalizedGridSize, tiles: normalizedTiles, createdAt: createdAt)
-    }
-
-    var id: String {
-        encodedPayloadToken ?? UUID().uuidString
-    }
-
-    var normalizedTitle: String {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let limited = String(trimmed.prefix(20))
-        return limited.isEmpty ? L10n.templateShareNamePlaceholder : limited
-    }
-
-    var filledTileCount: Int {
-        tiles.filter(\.hasContent).count
-    }
-
-    var hasShareableContent: Bool {
-        filledTileCount > 0
-    }
-
-    var qrCodeURL: URL {
-        // Prefer direct template import for installed users.
-        importURL ?? Self.appStoreURL
-    }
-
-    var importURL: URL? {
-        guard let encodedPayloadToken else { return nil }
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = Self.universalHost
-        components.path = Self.universalPath
-        components.queryItems = [
-            URLQueryItem(name: Self.payloadQueryItem, value: encodedPayloadToken)
-        ]
-        return components.url
-    }
-
-    var nativeImportURL: URL? {
-        guard let encodedPayloadToken else { return nil }
-        var components = URLComponents()
-        components.scheme = Self.urlScheme
-        components.host = Self.urlHost
-        components.queryItems = [
-            URLQueryItem(name: Self.payloadQueryItem, value: encodedPayloadToken)
-        ]
-        return components.url
-    }
-
-    func shareMessage() -> String {
-        let deepLink = importURL?.absoluteString ?? (nativeImportURL?.absoluteString ?? "")
-        return L10n.templateShareMessage(
-            deepLink: deepLink,
-            appStoreLink: Self.appStoreURL.absoluteString
-        )
-    }
-
-    func makeSavedBoard(referenceDate: Date = .now) -> SavedBoard {
-        let normalizedGridSize = min(max(gridSize, Self.minGridSize), Self.maxGridSize)
-        let requiredTiles = normalizedGridSize * normalizedGridSize
-        let normalizedTiles = Array(tiles.prefix(requiredTiles)) + Array(
-            repeating: BoardTemplateTile(text: ""),
-            count: max(requiredTiles - tiles.count, 0)
-        )
-
-        var fullBoardCells = BoardEngine.createEmptyGrid(size: Self.maxGridSize)
-        for index in 0..<requiredTiles {
-            let row = index / normalizedGridSize
-            let col = index % normalizedGridSize
-            let tile = normalizedTiles[index]
-            let trimmedText = tile.trimmedText
-
-            guard !trimmedText.isEmpty else {
-                fullBoardCells[row][col] = BingoCell()
-                continue
-            }
-
-            let weekdaySet = Set(tile.residentWeekdays.filter { (1...7).contains($0) })
-            let hasRecurrenceRule = tile.recurrenceRule != nil
-            var cell = BingoCell(
-                text: trimmedText,
-                residentTaskText: weekdaySet.isEmpty && !hasRecurrenceRule ? nil : trimmedText,
-                residentWeekdays: weekdaySet,
-                oneTimeVisibleDate: tile.recurrenceRule?.kind == TaskRecurrenceRule.Kind.none ? (tile.recurrenceRule?.anchorDate ?? referenceDate) : nil,
-                recurrenceRule: tile.recurrenceRule,
-                startVisibleMonth: tile.startVisibleMonth,
-                startVisibleDay: tile.startVisibleDay,
-                isTaskHidden: false,
-                isCompleted: false,
-                // Import path should not implicitly inherit force flag.
-                isForced: false,
-                countdownEndsAt: nil,
-                completionStreakCount: 0,
-                lastCompletedAt: nil
-            )
-            cell = cell.projectedForDisplay(on: referenceDate)
-            fullBoardCells[row][col] = cell
-        }
-
-        let visibleCells = BoardEngine.projectVisibleCells(
-            from: fullBoardCells,
-            size: normalizedGridSize,
-            referenceDate: referenceDate
-        )
-
-        return SavedBoard(
-            gridSize: normalizedGridSize,
-            cells: visibleCells,
-            completedLines: [],
-            fullBoardCells: fullBoardCells
-        )
-    }
-
-    static func decode(from url: URL) -> BoardTemplatePayload? {
-        guard let token = payloadToken(from: url),
-              let data = payloadData(from: token),
-              let payload = try? JSONDecoder().decode(BoardTemplatePayload.self, from: data) else {
-            return nil
-        }
-
-        return payload.hasShareableContent ? payload : nil
-    }
-
-    private static func payloadToken(from url: URL) -> String? {
-        let scheme = url.scheme?.lowercased()
-        let host = url.host?.lowercased()
-        let isNativeTemplateLink = scheme == urlScheme && host == urlHost
-
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            return nil
-        }
-
-        if let token = components.queryItems?.first(where: { $0.name == payloadQueryItem })?.value,
-           !token.isEmpty {
-            return token
-        }
-
-        if let fragment = components.fragment,
-           let fragmentComponents = URLComponents(string: "placeholder://placeholder?\(fragment)"),
-           let token = fragmentComponents.queryItems?.first(where: { $0.name == payloadQueryItem })?.value,
-           !token.isEmpty {
-            return token
-        }
-
-        let pathComponents = url.pathComponents.filter { $0 != "/" }
-        if let payloadIndex = pathComponents.lastIndex(of: payloadQueryItem),
-           payloadIndex + 1 < pathComponents.count {
-            let token = pathComponents[payloadIndex + 1]
-            return token.isEmpty ? nil : token
-        }
-
-        if isNativeTemplateLink, pathComponents.count == 1 {
-            let token = pathComponents[0]
-            return token.isEmpty ? nil : token
-        }
-
-        return nil
-    }
-
-    private var encodedPayloadToken: String? {
-        guard let data = try? JSONEncoder().encode(self) else { return nil }
-        if let compressedData = data.zlibCompressedData(),
-           compressedData.count < data.count {
-            return Self.compressedPayloadPrefix + compressedData.base64URLToken
-        }
-        return data.base64URLToken
-    }
-
-    private static func payloadData(from token: String) -> Data? {
-        if token.hasPrefix(compressedPayloadPrefix) {
-            let compressedToken = String(token.dropFirst(compressedPayloadPrefix.count))
-            guard let compressedData = Data(base64URLToken: compressedToken) else { return nil }
-            return compressedData.zlibDecompressedData()
-        }
-        return Data(base64URLToken: token)
-    }
-
-}
-
-@MainActor
-final class BoardTemplateImportCoordinator: ObservableObject {
-    static let shared = BoardTemplateImportCoordinator()
-
-    @Published var pendingTemplate: BoardTemplatePayload?
-    @Published var pendingTemplateSource: String = "unknown"
-
-    func handleIncomingURL(_ url: URL) -> Bool {
-        guard let template = BoardTemplatePayload.decode(from: url) else { return false }
-        pendingTemplateSource = "qr_scan"
-        pendingTemplate = template
-        return true
-    }
-
-    func dismissPendingTemplate() {
-        pendingTemplate = nil
-        pendingTemplateSource = "unknown"
-    }
-}
-
-struct BingoDiaryEntry: Identifiable, Codable {
+struct BingoDiaryEntry: Identifiable, Codable, Equatable {
     let id: String
     let date: Date
     let board: SavedBoard
@@ -922,6 +718,13 @@ struct DailyRewardState: Codable, Equatable {
     var peakCompletedLineCount: Int
     var fullBoardRewardGranted: Bool
 
+    private enum CodingKeys: String, CodingKey {
+        case dateKey
+        case rewardedCellIDs
+        case peakCompletedLineCount
+        case fullBoardRewardGranted
+    }
+
     init(
         dateKey: String,
         rewardedCellIDs: Set<UUID> = [],
@@ -932,6 +735,17 @@ struct DailyRewardState: Codable, Equatable {
         self.rewardedCellIDs = rewardedCellIDs
         self.peakCompletedLineCount = peakCompletedLineCount
         self.fullBoardRewardGranted = fullBoardRewardGranted
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(dateKey, forKey: .dateKey)
+        try container.encode(
+            rewardedCellIDs.sorted { $0.uuidString < $1.uuidString },
+            forKey: .rewardedCellIDs
+        )
+        try container.encode(peakCompletedLineCount, forKey: .peakCompletedLineCount)
+        try container.encode(fullBoardRewardGranted, forKey: .fullBoardRewardGranted)
     }
 }
 
@@ -1226,6 +1040,10 @@ struct PointRedemptionRecord: Identifiable, Codable, Equatable {
     let redeemedAt: Date
     let imageName: String?
     let emoji: String?
+    let itemReferenceID: String?
+    var revokedAt: Date?
+
+    var isActive: Bool { revokedAt == nil }
 
     init(
         id: UUID = UUID(),
@@ -1234,7 +1052,9 @@ struct PointRedemptionRecord: Identifiable, Codable, Equatable {
         points: Int,
         redeemedAt: Date = .now,
         imageName: String? = nil,
-        emoji: String? = nil
+        emoji: String? = nil,
+        itemReferenceID: String? = nil,
+        revokedAt: Date? = nil
     ) {
         self.id = id
         self.itemKind = itemKind
@@ -1243,6 +1063,42 @@ struct PointRedemptionRecord: Identifiable, Codable, Equatable {
         self.redeemedAt = redeemedAt
         self.imageName = imageName
         self.emoji = emoji
+        self.itemReferenceID = itemReferenceID
+        self.revokedAt = revokedAt
+    }
+
+    static func stickerReferenceID(_ kind: StickerKind) -> String {
+        "sticker:\(kind.rawValue)"
+    }
+
+    static func customRewardReferenceID(_ rewardID: UUID) -> String {
+        "reward:\(rewardID.uuidString.lowercased())"
+    }
+
+    var referencedStickerKind: StickerKind? {
+        guard let itemReferenceID,
+              itemReferenceID.hasPrefix("sticker:") else { return nil }
+        return StickerKind(rawValue: String(itemReferenceID.dropFirst("sticker:".count)))
+    }
+
+    var referencedCustomRewardID: UUID? {
+        guard let itemReferenceID,
+              itemReferenceID.hasPrefix("reward:") else { return nil }
+        return UUID(uuidString: String(itemReferenceID.dropFirst("reward:".count)))
+    }
+
+    func linked(to itemReferenceID: String) -> PointRedemptionRecord {
+        PointRedemptionRecord(
+            id: id,
+            itemKind: itemKind,
+            title: title,
+            points: points,
+            redeemedAt: redeemedAt,
+            imageName: imageName,
+            emoji: emoji,
+            itemReferenceID: itemReferenceID,
+            revokedAt: revokedAt
+        )
     }
 }
 
@@ -1458,6 +1314,7 @@ enum AppSettings {
     static let homeStickerPlacementsKey = "home_sticker_placements_v1"
     static let customRewardsKey = "custom_rewards_v1"
     static let pointRedemptionHistoryKey = "point_redemption_history_v1"
+    static let pointRedemptionLedgerInitializedKey = "point_redemption_ledger_initialized_v1"
     static let rewardEmojiHistoryKey = "reward_emoji_history_v1"
     static let taskHistoryKey = "task_history_v1"
     static let lastAppUpdateCheckAtKey = "last_app_update_check_at_v1"
@@ -1542,93 +1399,6 @@ enum AppHaptics {
         perform {
             emphasisGenerator.impactOccurred(intensity: 1.0)
             emphasisGenerator.prepare()
-        }
-    }
-}
-
-private extension Data {
-    var base64URLToken: String {
-        base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-    }
-
-    init?(base64URLToken: String) {
-        var base64 = base64URLToken
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let remainder = base64.count % 4
-        if remainder != 0 {
-            base64.append(String(repeating: "=", count: 4 - remainder))
-        }
-        self.init(base64Encoded: base64)
-    }
-
-    func zlibCompressedData() -> Data? {
-        processedWithZlib(operation: COMPRESSION_STREAM_ENCODE)
-    }
-
-    func zlibDecompressedData() -> Data? {
-        processedWithZlib(operation: COMPRESSION_STREAM_DECODE)
-    }
-
-    private func processedWithZlib(operation: compression_stream_operation) -> Data? {
-        guard !isEmpty else { return Data() }
-
-        return withUnsafeBytes { rawBuffer -> Data? in
-            guard let sourceBase = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return nil }
-
-            let initialDstPointer = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
-            let initialSrcMutablePointer = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
-            initialDstPointer.initialize(to: 0)
-            initialSrcMutablePointer.initialize(to: 0)
-            defer {
-                initialDstPointer.deallocate()
-                initialSrcMutablePointer.deallocate()
-            }
-
-            var stream = compression_stream(
-                dst_ptr: initialDstPointer,
-                dst_size: 0,
-                src_ptr: UnsafePointer(initialSrcMutablePointer),
-                src_size: 0,
-                state: nil
-            )
-            guard compression_stream_init(&stream, operation, COMPRESSION_ZLIB) != COMPRESSION_STATUS_ERROR else {
-                return nil
-            }
-            defer { compression_stream_destroy(&stream) }
-
-            let destinationCapacity = 64 * 1024
-            let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: destinationCapacity)
-            defer { destinationBuffer.deallocate() }
-
-            stream.src_ptr = sourceBase
-            stream.src_size = count
-            stream.dst_ptr = destinationBuffer
-            stream.dst_size = destinationCapacity
-
-            var outputData = Data()
-            let flags = Int32(COMPRESSION_STREAM_FINALIZE.rawValue)
-
-            while true {
-                let status = compression_stream_process(&stream, flags)
-                let producedBytes = destinationCapacity - stream.dst_size
-                if producedBytes > 0 {
-                    outputData.append(destinationBuffer, count: producedBytes)
-                }
-
-                if status == COMPRESSION_STATUS_END {
-                    return outputData
-                }
-                if status != COMPRESSION_STATUS_OK {
-                    return nil
-                }
-
-                stream.dst_ptr = destinationBuffer
-                stream.dst_size = destinationCapacity
-            }
         }
     }
 }

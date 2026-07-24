@@ -4,7 +4,15 @@ enum BingoDiaryStore {
     private static let key = "bingo_diary_v1"
 
     static func save(board: SavedBoard, on date: Date = .now) {
-        var entries = loadEntriesDictionary()
+        persist(entriesBySaving(board: board, on: date, entries: loadEntriesDictionary()))
+    }
+
+    static func entriesBySaving(
+        board: SavedBoard,
+        on date: Date,
+        entries existingEntries: [String: BingoDiaryEntry]
+    ) -> [String: BingoDiaryEntry] {
+        var entries = existingEntries
         let entryID = dateKey(for: date)
         let existingEntry = entries[entryID]
         let completionIncrements = completedTaskIncrements(
@@ -28,24 +36,44 @@ enum BingoDiaryStore {
             completedTaskCounts: mergedCounts
         )
         entries[entry.id] = entry
-        persist(entries)
+        return entries
     }
 
+    @discardableResult
     static func applyExplicitTaskDelta(
         task: String,
         delta: Int,
         board: SavedBoard,
         on date: Date = .now
-    ) {
+    ) -> Bool {
+        persist(entriesByApplyingExplicitTaskDelta(
+            task: task,
+            delta: delta,
+            board: board,
+            on: date,
+            entries: loadEntriesDictionary()
+        ))
+    }
+
+    static func entriesByApplyingExplicitTaskDelta(
+        task: String,
+        delta: Int,
+        board: SavedBoard,
+        on date: Date,
+        entries existingEntries: [String: BingoDiaryEntry]
+    ) -> [String: BingoDiaryEntry] {
+        let entryID = dateKey(for: date)
+        let existingEntry = existingEntries[entryID]
         let normalizedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTask.isEmpty else {
-            syncBoardSnapshotWithoutCounting(board: board, on: date)
-            return
+            return entriesBySyncingBoardSnapshotWithoutCounting(
+                board: board,
+                on: date,
+                entries: existingEntries
+            )
         }
 
-        var entries = loadEntriesDictionary()
-        let entryID = dateKey(for: date)
-        let existingEntry = entries[entryID]
+        var entries = existingEntries
         var mergedCounts = existingTaskCounts(from: existingEntry)
 
         if delta > 0 {
@@ -68,15 +96,27 @@ enum BingoDiaryStore {
             completedTaskCounts: mergedCounts
         )
         entries[entry.id] = entry
-        persist(entries)
+        return entries
     }
 
     // Keep today's baseline board snapshot in sync even when diary counting is skipped.
     // This prevents stale snapshot diffs from causing large decrement/increment jumps later.
     static func syncBoardSnapshotWithoutCounting(board: SavedBoard, on date: Date = .now) {
-        var entries = loadEntriesDictionary()
+        persist(entriesBySyncingBoardSnapshotWithoutCounting(
+            board: board,
+            on: date,
+            entries: loadEntriesDictionary()
+        ))
+    }
+
+    static func entriesBySyncingBoardSnapshotWithoutCounting(
+        board: SavedBoard,
+        on date: Date,
+        entries existingEntries: [String: BingoDiaryEntry]
+    ) -> [String: BingoDiaryEntry] {
+        var entries = existingEntries
         let entryID = dateKey(for: date)
-        guard let existingEntry = entries[entryID] else { return }
+        guard let existingEntry = entries[entryID] else { return entries }
 
         let updatedEntry = BingoDiaryEntry(
             id: existingEntry.id,
@@ -86,7 +126,7 @@ enum BingoDiaryStore {
             completedTaskCounts: existingEntry.completedTaskCounts
         )
         entries[entryID] = updatedEntry
-        persist(entries)
+        return entries
     }
 
     static func entry(for date: Date) -> BingoDiaryEntry? {
@@ -303,13 +343,23 @@ enum BingoDiaryStore {
         loadEntriesDictionary()
     }
 
-    static func replaceAllEntriesDictionary(_ entries: [String: BingoDiaryEntry]) {
+    @discardableResult
+    static func replaceAllEntriesDictionary(_ entries: [String: BingoDiaryEntry]) -> Bool {
         persist(entries)
     }
 
     private static func loadEntriesDictionary() -> [String: BingoDiaryEntry] {
         if let data = sharedDefaults.data(forKey: key),
            let entries = try? JSONDecoder().decode([String: BingoDiaryEntry].self, from: data) {
+            if UserDefaults.standard.data(forKey: key) != data {
+                _ = PersistenceWriteTransaction.commit([
+                    PersistenceWriteTransaction.userDefaultsStep(
+                        defaults: .standard,
+                        key: key,
+                        newValue: data
+                    )
+                ])
+            }
             return entries
         }
 
@@ -317,14 +367,31 @@ enum BingoDiaryStore {
               let entries = try? JSONDecoder().decode([String: BingoDiaryEntry].self, from: data) else {
             return [:]
         }
-        sharedDefaults.set(data, forKey: key)
+        _ = PersistenceWriteTransaction.commit([
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: key,
+                newValue: data
+            )
+        ])
         return entries
     }
 
-    private static func persist(_ entries: [String: BingoDiaryEntry]) {
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        sharedDefaults.set(data, forKey: key)
-        UserDefaults.standard.set(data, forKey: key)
+    @discardableResult
+    private static func persist(_ entries: [String: BingoDiaryEntry]) -> Bool {
+        guard let data = try? JSONEncoder().encode(entries) else { return false }
+        return PersistenceWriteTransaction.commit([
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: key,
+                newValue: data
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: key,
+                newValue: data
+            )
+        ])
     }
 
     private static var sharedDefaults: UserDefaults {

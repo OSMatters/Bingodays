@@ -1,18 +1,9 @@
 import SwiftUI
 import CoreText
+import CloudKit
+import BackgroundTasks
 import FirebaseCore
-import GoogleSignIn
 import UserNotifications
-
-enum AppFeatureFlags {
-    // Soft-off account capabilities for review builds.
-    // Set to true to restore account features later.
-    static let isAccountEnabled = false
-
-    // Soft-off template sharing capabilities.
-    // Set to true to restore share/import template flows later.
-    static let isTemplateSharingEnabled = true
-}
 
 enum AppFontRegistrar {
     private static var hasRegisteredFonts = false
@@ -57,6 +48,22 @@ enum TaskStartReminderService {
 
     static func normalizedOffsetMinutes(_ value: Int) -> Int {
         BingoCell.normalizedStartReminderOffsetMinutes(value)
+    }
+
+    static func nextReminderDate(
+        for cell: BingoCell,
+        now: Date,
+        calendar _: Calendar = .current
+    ) -> Date? {
+        guard !cell.hasRepeatingSchedule,
+              let startDate = cell.startVisibleAt,
+              cell.endVisibleAt != nil else {
+            return nil
+        }
+
+        let offset = TimeInterval(normalizedOffsetMinutes(cell.startReminderOffsetMinutes) * 60)
+        let reminderDate = startDate.addingTimeInterval(-offset)
+        return reminderDate > now ? reminderDate : nil
     }
 
     static func offsetTitle(minutes: Int) -> String {
@@ -206,14 +213,11 @@ enum TaskStartReminderService {
         guard cell.startReminderEnabled,
               !taskText.isEmpty,
               !cell.isCompleted,
-              let startDate = cell.startVisibleAt,
-              cell.endVisibleAt != nil else {
+              let reminderDate = nextReminderDate(for: cell, now: now) else {
             return nil
         }
 
         let offsetMinutes = normalizedOffsetMinutes(cell.startReminderOffsetMinutes)
-        let reminderDate = startDate.addingTimeInterval(Double(-offsetMinutes * 60))
-        guard reminderDate > now else { return nil }
 
         let title = offsetMinutes == 0
             ? L10n.tr("Task started", zhHans: "任务开始了", zhHant: "任務開始了", ja: "タスクが始まりました")
@@ -373,6 +377,75 @@ struct LiveTaskStartReminderScheduler: TaskStartReminderScheduling {
     }
 }
 
+enum NativeICloudWidgetRefreshScheduler {
+    static let taskIdentifier = "com.bingoday.app.icloud-widget-refresh"
+
+    /// A background refresh is deliberately only a fallback. CloudKit silent
+    /// pushes are still the fast path; iOS decides when this task can run.
+    static func register() {
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: taskIdentifier,
+            using: nil
+        ) { task in
+            guard let refreshTask = task as? BGAppRefreshTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            handle(refreshTask)
+        }
+    }
+
+    static func scheduleFallback(after delay: TimeInterval = 15 * 60) {
+        guard NativeICloudPreferences.isEnabled else { return }
+
+        let request = BGAppRefreshTaskRequest(identifier: taskIdentifier)
+        request.earliestBeginDate = Date().addingTimeInterval(max(delay, 0))
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            DiagnosticLogStore.recordStateChange(
+                "icloud.widget_refresh_fallback_scheduled",
+                details: ["delay_seconds": String(Int(max(delay, 0)))]
+            )
+        } catch {
+            // A pending request with the same identifier is normal. It already
+            // provides the intended fallback, so avoid treating it as a sync failure.
+            DiagnosticLogStore.recordStateChange(
+                "icloud.widget_refresh_fallback_not_scheduled",
+                details: ["error": NativeICloudErrorFormatter.describe(error)]
+            )
+        }
+    }
+
+    private static func handle(_ task: BGAppRefreshTask) {
+        scheduleFallback(after: 30 * 60)
+        DiagnosticLogStore.recordStateChange("icloud.widget_refresh_fallback_started")
+
+        let refresh = Task {
+            do {
+                let imported = try await NativeICloudRuntime.shared
+                    .importPrimaryForBackgroundCloudNotification(timeout: 20)
+                DiagnosticLogStore.recordStateChange(
+                    imported
+                        ? "icloud.widget_refresh_fallback_imported"
+                        : "icloud.widget_refresh_fallback_no_data"
+                )
+                task.setTaskCompleted(success: true)
+            } catch is CancellationError {
+                task.setTaskCompleted(success: false)
+            } catch {
+                DiagnosticLogStore.recordWarning(
+                    "icloud.widget_refresh_fallback_failed",
+                    details: ["error": NativeICloudErrorFormatter.describe(error)]
+                )
+                task.setTaskCompleted(success: false)
+            }
+        }
+        task.expirationHandler = {
+            refresh.cancel()
+        }
+    }
+}
+
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private func clearLegacyNotifications() {
         let center = UNUserNotificationCenter.current()
@@ -413,13 +486,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         AppFontRegistrar.registerIfNeeded()
         AnalyticsService.bootstrap()
-        DiagnosticLogStore.recordStateChange(
-            "app.launch",
-            details: [
-                "template_sharing": "\(AppFeatureFlags.isTemplateSharingEnabled)",
-                "account": "\(AppFeatureFlags.isAccountEnabled)"
-            ]
-        )
+        DiagnosticLogStore.recordStateChange("app.launch")
+        NativeICloudWidgetRefreshScheduler.register()
+        NativeICloudWidgetRefreshScheduler.scheduleFallback()
+        application.registerForRemoteNotifications()
+        Task { @MainActor in
+            NativeICloudSyncCoordinator.shared.startIfEnabled()
+        }
         scheduleLegacyNotificationCleanup()
         return true
     }
@@ -441,80 +514,82 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         scheduleLegacyNotificationCleanup()
     }
 
-    func application(
-        _ app: UIApplication,
-        open url: URL,
-        options: [UIApplication.OpenURLOptionsKey: Any] = [:]
-    ) -> Bool {
-        if GIDSignIn.sharedInstance.handle(url) {
-            DiagnosticLogStore.recordStateChange(
-                "url.open_google_sign_in",
-                details: ["scheme": url.scheme ?? "none"]
-            )
-            return true
-        }
-        guard AppFeatureFlags.isTemplateSharingEnabled else {
-            DiagnosticLogStore.recordWarning(
-                "url.open_blocked_template_flag",
-                details: ["scheme": url.scheme ?? "none"]
-            )
-            return false
-        }
-        let handled = BoardTemplateImportCoordinator.shared.handleIncomingURL(url)
-        DiagnosticLogStore.recordStateChange(
-            "url.open_template",
-            details: [
-                "scheme": url.scheme ?? "none",
-                "handled": "\(handled)"
-            ]
-        )
-        return handled
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        NativeICloudWidgetRefreshScheduler.scheduleFallback()
     }
 
     func application(
         _ application: UIApplication,
-        continue userActivity: NSUserActivity,
-        restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
-    ) -> Bool {
-        guard AppFeatureFlags.isTemplateSharingEnabled else {
-            DiagnosticLogStore.recordWarning("universal_link_blocked_template_flag")
-            return false
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        guard CKNotification(fromRemoteNotificationDictionary: userInfo) != nil else {
+            completionHandler(.noData)
+            return
         }
-        guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
-              let url = userActivity.webpageURL else {
-            DiagnosticLogStore.recordWarning(
-                "universal_link_invalid",
-                details: ["activity_type": userActivity.activityType]
-            )
-            return false
+        guard NativeICloudPreferences.isEnabled else {
+            completionHandler(.noData)
+            return
         }
-        let handled = BoardTemplateImportCoordinator.shared.handleIncomingURL(url)
-        DiagnosticLogStore.recordStateChange(
-            "universal_link_template",
-            details: [
-                "host": url.host ?? "none",
-                "handled": "\(handled)"
-            ]
-        )
-        return handled
+
+        DiagnosticLogStore.recordStateChange("icloud.background_push_received")
+        Task {
+            do {
+                let imported = try await NativeICloudRuntime.shared
+                    .importPrimaryForBackgroundCloudNotification()
+                DiagnosticLogStore.recordStateChange(
+                    imported
+                        ? "icloud.background_push_imported"
+                        : "icloud.background_push_no_data"
+                )
+                AnalyticsService.logICloudSyncResult(
+                    operation: .backgroundPush,
+                    result: imported ? .success : .noData
+                )
+                NativeICloudWidgetRefreshScheduler.scheduleFallback(after: 30 * 60)
+                completionHandler(imported ? .newData : .noData)
+            } catch {
+                DiagnosticLogStore.recordWarning(
+                    "icloud.background_push_failed",
+                    details: ["error": NativeICloudErrorFormatter.describe(error)]
+                )
+                AnalyticsService.logICloudSyncResult(
+                    operation: .backgroundPush,
+                    result: .failed,
+                    failureStage: "import"
+                )
+                completionHandler(.failed)
+            }
+        }
     }
+
 }
 
 @main
 struct BingoADHDApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var subscriptionManager = SubscriptionManager()
+    @StateObject private var iCloudSyncCoordinator = NativeICloudSyncCoordinator.shared
     @State private var hasStartedDeferredBootstrap = false
 
     var body: some Scene {
         WindowGroup {
             AppRootView()
                 .environmentObject(subscriptionManager)
+                .environmentObject(iCloudSyncCoordinator)
                 .task {
+                    iCloudSyncCoordinator.startIfEnabled()
                     guard !hasStartedDeferredBootstrap else { return }
                     hasStartedDeferredBootstrap = true
                     try? await Task.sleep(nanoseconds: 1_200_000_000)
                     await subscriptionManager.refreshEntitlements()
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    guard newPhase == .active else { return }
+                    Task {
+                        await iCloudSyncCoordinator.refreshWhenAppBecomesActive()
+                    }
                 }
         }
     }

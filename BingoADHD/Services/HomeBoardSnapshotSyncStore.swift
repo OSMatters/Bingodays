@@ -37,4 +37,19 @@ final class HomeBoardSnapshotSyncStore: ObservableObject {
             shouldSyncTaskReminders: didChangeSnapshot && syncTaskReminders
         )
     }
+
+    /// Completion taps commit the named-board snapshot immediately so WidgetKit reads the same
+    /// local state as the app without waiting for a later SwiftUI observation.
+    func commitCellCompletionSnapshot(
+        boardManagementStore: BoardManagementStore,
+        board: SavedBoard,
+        countdownEndsAt: Date?
+    ) -> HomeBoardSnapshotSyncResult {
+        syncSelectedBoardSnapshot(
+            boardManagementStore: boardManagementStore,
+            board: board,
+            countdownEndsAt: countdownEndsAt,
+            syncTaskReminders: false
+        )
+    }
 }

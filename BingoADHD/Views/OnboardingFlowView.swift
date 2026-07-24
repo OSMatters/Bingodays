@@ -21,10 +21,7 @@ enum OnboardingStateResolver {
 }
 
 struct AppRootView: View {
-    @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var accountSession = AccountSession.shared
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
-    @StateObject private var boardTemplateImportCoordinator = BoardTemplateImportCoordinator.shared
     @State private var shouldShowOnboarding = OnboardingStateResolver.shouldPresentOnboarding()
 
     var body: some View {
@@ -41,21 +38,12 @@ struct AppRootView: View {
                 ContentView()
             }
         }
-        .environmentObject(accountSession)
         .environmentObject(subscriptionManager)
-        .environmentObject(boardTemplateImportCoordinator)
-        .onOpenURL { url in
-            guard AppFeatureFlags.isTemplateSharingEnabled else { return }
-            _ = boardTemplateImportCoordinator.handleIncomingURL(url)
-        }
         .onAppear {
             shouldShowOnboarding = OnboardingStateResolver.shouldPresentOnboarding()
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).receive(on: RunLoop.main)) { _ in
             shouldShowOnboarding = OnboardingStateResolver.shouldPresentOnboarding()
-        }
-        .onChange(of: scenePhase) { _, newValue in
-            accountSession.handleScenePhaseChange(newValue)
         }
     }
 }

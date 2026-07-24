@@ -1,5 +1,25 @@
 import SwiftUI
 
+enum TaskCountdownDisplayRules {
+    static let refreshInterval: TimeInterval = 1
+
+    static func text(remainingSeconds: Int) -> String {
+        let safeSeconds = max(remainingSeconds, 0)
+        let hours = safeSeconds / 3_600
+        let minutes = (safeSeconds % 3_600) / 60
+        let seconds = safeSeconds % 60
+        return "\(padded(hours)):\(padded(minutes)):\(padded(seconds))"
+    }
+
+    static func remainingSeconds(until deadline: Date, at referenceDate: Date) -> Int {
+        max(Int(ceil(deadline.timeIntervalSince(referenceDate))), 0)
+    }
+
+    private static func padded(_ value: Int) -> String {
+        value < 10 ? "0\(value)" : "\(value)"
+    }
+}
+
 struct BingoCellView: View {
     private static let longPressDuration = 0.28
     private static let dragThreshold: CGFloat = 20
@@ -246,6 +266,26 @@ struct BingoCellView: View {
         min(max(cellSize * 0.2, 20), 28)
     }
 
+    private var auxiliaryStatusText: String? {
+        scheduleStatusText ?? scheduleWindowText
+    }
+
+    private var hasFrontFooter: Bool {
+        !cell.isCompleted && (
+            displayCountdownText(at: currentTime) != nil ||
+            auxiliaryStatusText != nil
+        )
+    }
+
+    private var taskTitleFontSize: CGFloat {
+        guard cellSize < 72, hasFrontFooter else { return dynamicFontSize }
+        return max(dynamicFontSize * 0.86, 9.5)
+    }
+
+    private var taskTitleLineLimit: Int {
+        cellSize < 72 && hasFrontFooter ? 2 : 3
+    }
+
     private var frontFace: some View {
         ZStack {
             backgroundSurface
@@ -253,59 +293,68 @@ struct BingoCellView: View {
             if !isDragSource {
                 if isLocked {
                     lockOverlay
-                } else if !cell.isEmpty {
-                    ZStack(alignment: .bottom) {
-                        Text(cell.text)
-                            .font(.appSystem(size: dynamicFontSize, weight: .medium))
-                            .foregroundColor(cellTextColor)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(3)
-                            .minimumScaleFactor(0.5)
-                            .padding(.horizontal, 10)
-                            .padding(.top, 10)
-                            .padding(.bottom, isScheduledInactive ? 6 : 10)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-
-                        if let scheduleText = scheduleStatusText ?? scheduleWindowText, displayCountdownText == nil, !cell.isCompleted {
-                            Text(scheduleText)
-                                .font(.appSystem(size: max(dynamicFontSize * 0.34, 8), weight: .semibold, design: .rounded))
-                                .foregroundColor(primaryTextColor.opacity(isScheduledInactive ? 0.45 : 0.58))
-                                .multilineTextAlignment(.center)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.7)
-                                .padding(.horizontal, 6)
-                                .frame(height: footerSlotHeight)
-                                .padding(.bottom, 8)
-                        } else if let countdownText = displayCountdownText, !cell.isCompleted {
-                            Text(countdownText)
-                                .font(.appSystem(size: max(dynamicFontSize * 0.42, 9), weight: .bold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.accent.opacity(0.9))
-                                .frame(height: footerSlotHeight)
-                                .padding(.bottom, 8)
-                        }
-
-                        if cell.isCompleted {
-                            completionIcon(isLarge: false)
-                                .frame(height: footerSlotHeight)
-                                .padding(.bottom, 8)
-                        }
-
-                        if displayCountdownText == nil && !cell.isCompleted {
-                            Color.clear
-                                .frame(height: footerSlotHeight)
-                                .padding(.bottom, 8)
-                        }
+                } else {
+                    if cell.isCompleted {
+                        completionArtwork
                     }
-                } else if let emptyHintText, !emptyHintText.isEmpty {
-                    Text(emptyHintText)
-                        .font(.appSystem(size: max(dynamicFontSize * 0.68, 10), weight: .semibold, design: .rounded))
-                        .foregroundColor(primaryTextColor.opacity(0.46))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.75)
-                        .padding(.horizontal, 10)
+
+                    if !cell.isEmpty {
+                        VStack(spacing: 0) {
+                            Text(cell.text)
+                                .font(.appSystem(size: taskTitleFontSize, weight: .medium))
+                                .foregroundColor(cellTextColor)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(taskTitleLineLimit)
+                                .minimumScaleFactor(0.5)
+                                .padding(.horizontal, cellSize < 72 ? 5 : 10)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+
+                            if hasFrontFooter {
+                                frontFooter
+                                    .frame(height: footerSlotHeight)
+                            }
+                        }
+                        .padding(.top, cellSize < 72 ? 5 : 8)
+                        .padding(.bottom, cellSize < 72 ? 4 : 8)
+                    } else if let emptyHintText, !emptyHintText.isEmpty {
+                        Text(emptyHintText)
+                            .font(.appSystem(size: max(dynamicFontSize * 0.68, 10), weight: .semibold, design: .rounded))
+                            .foregroundColor(primaryTextColor.opacity(0.46))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.75)
+                            .padding(.horizontal, 10)
+                    }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var frontFooter: some View {
+        if displayCountdownText(at: currentTime) != nil {
+            TimelineView(
+                .periodic(
+                    from: .now,
+                    by: TaskCountdownDisplayRules.refreshInterval
+                )
+            ) { context in
+                Text(displayCountdownText(at: context.date) ?? "00:00:00")
+                    .font(.appSystem(size: max(dynamicFontSize * 0.42, 9), weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundColor(NeumorphicColors.accent.opacity(0.9))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .padding(.horizontal, 4)
+            }
+        } else if let auxiliaryStatusText {
+            Text(auxiliaryStatusText)
+                .font(.appSystem(size: max(dynamicFontSize * 0.34, 8), weight: .semibold, design: .rounded))
+                .foregroundColor(primaryTextColor.opacity(isScheduledInactive ? 0.45 : 0.58))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 4)
         }
     }
 
@@ -317,7 +366,7 @@ struct BingoCellView: View {
                 if isLocked {
                     lockOverlay
                 } else {
-                    completionIcon(isLarge: true)
+                    completionArtwork
                 }
             }
         }
@@ -333,22 +382,6 @@ struct BingoCellView: View {
             .zIndex(10)
             .animation(.easeInOut(duration: 0.22), value: cell.isCompleted)
             .animation(.easeInOut(duration: 0.22), value: isLocked)
-    }
-
-    private var bingoLineContent: some View {
-        VStack(spacing: 10) {
-            Text(cell.text)
-                .font(.appSystem(size: dynamicFontSize, weight: .medium))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-                .minimumScaleFactor(0.5)
-                .padding(.horizontal, 8)
-
-            if !isLocked {
-                completionIcon(isLarge: false)
-            }
-        }
     }
 
     private var cellTextColor: Color {
@@ -376,49 +409,40 @@ struct BingoCellView: View {
         return nil
     }
 
-    private var taskCountdownText: String? {
+    private func taskCountdownText(at referenceDate: Date) -> String? {
         guard cell.canUseTaskCountdown else { return nil }
         if (cell.countdownPausedRemainingSeconds ?? 0) > 0 {
             return L10n.tr("Paused", zhHans: "已暂停", zhHant: "已暫停", ja: "一時停止中")
         }
         guard let deadline = cell.countdownEndsAt else { return nil }
-        let remainingSeconds = max(Int(deadline.timeIntervalSince(currentTime)), 0)
+        let remainingSeconds = TaskCountdownDisplayRules.remainingSeconds(
+            until: deadline,
+            at: referenceDate
+        )
         return countdownUnitText(from: remainingSeconds)
     }
 
-    private var windowCountdownText: String? {
+    private func windowCountdownText(at referenceDate: Date) -> String? {
         guard !isScheduledInactive,
-              let start = cell.occurrenceStartVisibleAt(on: currentTime),
-              let end = cell.occurrenceEndVisibleAt(on: currentTime),
-              currentTime >= start,
-              currentTime < end else {
+              let start = cell.occurrenceStartVisibleAt(on: referenceDate),
+              let end = cell.occurrenceEndVisibleAt(on: referenceDate),
+              referenceDate >= start,
+              referenceDate < end else {
             return nil
         }
-        let remainingSeconds = max(Int(end.timeIntervalSince(currentTime)), 0)
+        let remainingSeconds = TaskCountdownDisplayRules.remainingSeconds(
+            until: end,
+            at: referenceDate
+        )
         return countdownUnitText(from: remainingSeconds)
     }
 
-    private var displayCountdownText: String? {
-        windowCountdownText ?? taskCountdownText
+    private func displayCountdownText(at referenceDate: Date) -> String? {
+        windowCountdownText(at: referenceDate) ?? taskCountdownText(at: referenceDate)
     }
 
     private func countdownUnitText(from remainingSeconds: Int) -> String {
-        let safeSeconds = max(remainingSeconds, 0)
-        let days = safeSeconds / 86_400
-        let hours = (safeSeconds % 86_400) / 3_600
-        let minutes = (safeSeconds % 3_600) / 60
-        let seconds = safeSeconds % 60
-
-        if days > 0 {
-            return "\(days)d \(hours)h \(minutes)m \(seconds)s"
-        }
-        if hours > 0 {
-            return "\(hours)h \(minutes)m \(seconds)s"
-        }
-        if minutes > 0 {
-            return "\(minutes)m \(seconds)s"
-        }
-        return "\(seconds)s"
+        TaskCountdownDisplayRules.text(remainingSeconds: remainingSeconds)
     }
 
     private var backgroundSurface: some View {
@@ -480,24 +504,13 @@ struct BingoCellView: View {
             .fill(isInBingoLine ? bingoLineColor : selectedColor)
     }
 
-    private func completionIcon(isLarge: Bool) -> some View {
-        let size = isLarge
-            ? min(max(cellSize * 0.42, 36), 52)
-            : (cellSize >= 90 ? 20 : min(max(cellSize * 0.13, 14), 18))
-
-        return ZStack {
-            Circle()
-                .fill(Color.white.opacity(0.96))
-
-            Image(systemName: "checkmark")
-                .font(.appSystem(size: size * 0.5, weight: .bold))
-                .foregroundColor(
-                    isInBingoLine
-                        ? activeTheme.color
-                        : reducedSaturationColor(from: activeTheme.color, by: 0.30)
-                )
-        }
-        .frame(width: size, height: size)
+    private var completionArtwork: some View {
+        Image(isInBingoLine ? "CellBingo" : "CellComplete")
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: cellSize * 0.76, height: cellSize * 0.76)
+            .allowsHitTesting(false)
     }
 
     private var lockOverlay: some View {

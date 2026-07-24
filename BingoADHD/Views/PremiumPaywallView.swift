@@ -278,7 +278,7 @@ struct PremiumPaywallView: View {
     private func entryFeatureID(for source: String) -> String {
         let source = source.lowercased()
 
-        if source.contains("grid") || source.contains("template") {
+        if source.contains("grid") {
             return "grid5x5"
         } else if source.contains("history") {
             return "history"
@@ -298,21 +298,22 @@ struct PremiumPaywallView: View {
     }
 
     private var classicHeroTitle: String {
-        if isSidebarEntrySource {
+        if isAllFeaturesEntrySource {
             return L10n.paywallHeroAllFeaturesTitle
         }
         return classicHeroBenefit.title
     }
 
     private var classicHeroSubtitle: String {
-        if isSidebarEntrySource {
+        if isAllFeaturesEntrySource {
             return L10n.paywallHeroAllFeaturesSubtitle
         }
         return classicHeroBenefit.subtitle
     }
 
-    private var isSidebarEntrySource: Bool {
-        entrySource.lowercased() == "sidebar_pro_entry"
+    private var isAllFeaturesEntrySource: Bool {
+        let normalizedEntrySource = entrySource.lowercased()
+        return normalizedEntrySource == "sidebar_pro_entry" || normalizedEntrySource == "me_pro_entry"
     }
 
     private var classicHeroBenefit: PaywallBenefit {
@@ -1239,7 +1240,10 @@ struct PremiumPaywallView: View {
         case .yearly:
             if let product = subscriptionManager.productsByID[plan.productID] {
                 let monthlyPrice = NSDecimalNumber(decimal: product.price).dividing(by: 12).decimalValue
-                let formattedMonthlyPrice = formattedMonthlyPrice(monthlyPrice, from: product.displayPrice)
+                let formattedMonthlyPrice = formattedMonthlyPrice(
+                    monthlyPrice,
+                    from: subscriptionManager.displayPrice(for: product)
+                )
                 return L10n.paywallOnlyMonthlyPriceSubtitle(formattedMonthlyPrice)
             }
             if let cachedMonthlySubtitle = yearlyMonthlySubtitle(from: price.displayPrice) {
@@ -1275,7 +1279,10 @@ struct PremiumPaywallView: View {
             case .monthly:
                 subtitle = nil
             }
-            return PlanPriceDisplay(displayPrice: product.displayPrice, subtitle: subtitle)
+            return PlanPriceDisplay(
+                displayPrice: subscriptionManager.displayPrice(for: product),
+                subtitle: subtitle
+            )
         }
 
         let cachedPrice = subscriptionManager.displayPrice(for: plan.productID)
@@ -1293,7 +1300,10 @@ struct PremiumPaywallView: View {
 
     private func yearlyPerMonthSubtitle(for product: Product) -> String {
         let monthlyPrice = NSDecimalNumber(decimal: product.price).dividing(by: 12).decimalValue
-        let formattedMonthlyPrice = formattedMonthlyPrice(monthlyPrice, from: product.displayPrice)
+        let formattedMonthlyPrice = formattedMonthlyPrice(
+            monthlyPrice,
+            from: subscriptionManager.displayPrice(for: product)
+        )
         return L10n.paywallPerMonth(formattedMonthlyPrice)
     }
 

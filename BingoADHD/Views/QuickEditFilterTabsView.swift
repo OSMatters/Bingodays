@@ -6,6 +6,11 @@ struct QuickEditGroupTab: Identifiable, Equatable {
 }
 
 struct QuickEditFilterTabsView: View {
+    private enum ScrollTarget: Hashable {
+        case allTasks
+        case group(UUID)
+    }
+
     let groups: [QuickEditGroupTab]
     let selectedGroupID: UUID?
     let isPadLayout: Bool
@@ -17,30 +22,43 @@ struct QuickEditFilterTabsView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    filterTabButton(
-                        title: L10n.allTasks,
-                        isSelected: selectedGroupID == nil,
-                        action: onSelectAll
-                    )
-
-                    ForEach(groups) { group in
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
                         filterTabButton(
-                            title: group.title,
-                            isSelected: selectedGroupID == group.id
-                        ) {
-                            onSelectGroup(group.id)
-                        }
-                        .simultaneousGesture(
-                            LongPressGesture(minimumDuration: 0.8)
-                                .onEnded { _ in
-                                    onLongPressGroup(group.id)
-                                }
+                            title: L10n.allTasks,
+                            isSelected: selectedGroupID == nil,
+                            action: onSelectAll
                         )
+                        .id(ScrollTarget.allTasks)
+
+                        ForEach(groups) { group in
+                            filterTabButton(
+                                title: group.title,
+                                isSelected: selectedGroupID == group.id
+                            ) {
+                                onSelectGroup(group.id)
+                            }
+                            .id(ScrollTarget.group(group.id))
+                            .simultaneousGesture(
+                                LongPressGesture(minimumDuration: 0.8)
+                                    .onEnded { _ in
+                                        onLongPressGroup(group.id)
+                                    }
+                            )
+                        }
                     }
+                    .padding(.vertical, 2)
                 }
-                .padding(.vertical, 2)
+                .onAppear {
+                    positionSelectedFilter(using: proxy, animated: false)
+                }
+                .onChange(of: selectedGroupID) { _, _ in
+                    positionSelectedFilter(using: proxy, animated: true)
+                }
+                .onChange(of: groups) { _, _ in
+                    positionSelectedFilter(using: proxy, animated: false)
+                }
             }
 
             Button(action: onAddGroup) {
@@ -74,6 +92,44 @@ struct QuickEditFilterTabsView: View {
                 }
         }
         .buttonStyle(.plain)
+    }
+
+    private func positionSelectedFilter(using proxy: ScrollViewProxy, animated: Bool) {
+        let target: ScrollTarget
+        let anchor: UnitPoint
+
+        guard let selectedGroupID,
+              let selectedIndex = groups.firstIndex(where: { $0.id == selectedGroupID }) else {
+            target = .allTasks
+            anchor = .leading
+            scroll(to: target, anchor: anchor, using: proxy, animated: animated)
+            return
+        }
+
+        target = .group(selectedGroupID)
+        if selectedIndex == groups.index(before: groups.endIndex) {
+            anchor = .trailing
+        } else {
+            anchor = .center
+        }
+        scroll(to: target, anchor: anchor, using: proxy, animated: animated)
+    }
+
+    private func scroll(
+        to target: ScrollTarget,
+        anchor: UnitPoint,
+        using proxy: ScrollViewProxy,
+        animated: Bool
+    ) {
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+                    proxy.scrollTo(target, anchor: anchor)
+                }
+            } else {
+                proxy.scrollTo(target, anchor: anchor)
+            }
+        }
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {

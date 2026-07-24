@@ -19,7 +19,6 @@ struct HomeSidebarLayer: View {
     @Binding var themeRawValue: String
 
     let onOpenDiary: () -> Void
-    let onOpenBlackBoxMode: () -> Void
     let onOpenContact: () -> Void
     let onEncourageUs: () -> Void
     let onPresentPremiumPaywall: () -> Void
@@ -61,7 +60,6 @@ struct HomeSidebarLayer: View {
                 isSoundEffectsEnabled: $isSoundEffectsEnabled,
                 themeRawValue: $themeRawValue,
                 onOpenDiary: onOpenDiary,
-                onOpenBlackBoxMode: onOpenBlackBoxMode,
                 onOpenContact: onOpenContact,
                 onEncourageUs: onEncourageUs,
                 onPresentPremiumPaywall: onPresentPremiumPaywall

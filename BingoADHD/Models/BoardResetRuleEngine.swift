@@ -34,7 +34,7 @@ enum BoardResetRuleEngine {
             case .resetStatusNextDay, .clearTasksNextDay:
                 return !alreadyAppliedToday
             case .customResetStatusTime:
-                return customResetDue
+                return usesCustomResetTime ? customResetDue : !alreadyAppliedToday
             case .keepTaskStatus:
                 return false
             }
@@ -67,14 +67,27 @@ enum BoardResetRuleEngine {
             mode: board.taskResetMode,
             referenceDate: now
         )
+        updatedBoard.countdownEndsAt = nil
         updatedBoard.lastTaskResetAppliedAt = now
         updatedBoard.updatedAt = now
         return updatedBoard
     }
 
     static func boardUsesCustomResetTime(_ board: BingoBoardStore.NamedBoard) -> Bool {
-        board.customResetMinutes != nil &&
-            (board.taskResetMode == .resetStatusNextDay || board.taskResetMode == .customResetStatusTime)
+        normalizedCustomResetMinutes(
+            board.customResetMinutes,
+            mode: board.taskResetMode
+        ) != nil
+    }
+
+    static func normalizedCustomResetMinutes(
+        _ minutes: Int?,
+        mode: BoardTaskResetMode
+    ) -> Int? {
+        guard mode != .keepTaskStatus, let minutes else { return nil }
+        let clampedMinutes = min(max(minutes, 0), 23 * 60 + 59)
+        // Custom 00:00 is behaviorally identical to the free default midnight rule.
+        return clampedMinutes == 0 ? nil : clampedMinutes
     }
 
     static func customResetTriggerTime(
@@ -83,9 +96,36 @@ enum BoardResetRuleEngine {
         calendar: Calendar = .current
     ) -> Date? {
         guard boardUsesCustomResetTime(board) else { return nil }
-        let clampedMinutes = min(max(board.customResetMinutes ?? 0, 0), 23 * 60 + 59)
+        guard let clampedMinutes = normalizedCustomResetMinutes(
+            board.customResetMinutes,
+            mode: board.taskResetMode
+        ) else {
+            return nil
+        }
         let startOfDay = calendar.startOfDay(for: now)
         return calendar.date(byAdding: .minute, value: clampedMinutes, to: startOfDay)
+    }
+
+    static func nextScheduledResetTime(
+        for board: BingoBoardStore.NamedBoard,
+        after now: Date,
+        calendar: Calendar = .current
+    ) -> Date? {
+        guard board.taskResetMode != .keepTaskStatus else { return nil }
+
+        let minutes = normalizedCustomResetMinutes(
+            board.customResetMinutes,
+            mode: board.taskResetMode
+        ) ?? 0
+        let startOfDay = calendar.startOfDay(for: now)
+        guard let triggerToday = calendar.date(byAdding: .minute, value: minutes, to: startOfDay) else {
+            return nil
+        }
+        if triggerToday > now {
+            return triggerToday
+        }
+        return calendar.date(byAdding: .day, value: 1, to: triggerToday)
+            ?? triggerToday.addingTimeInterval(86_400)
     }
 
     static func shouldApplyCustomReset(
@@ -270,5 +310,45 @@ enum BoardResetRuleEngine {
         for position in forcedPositions where !(position.row == keepPosition.row && position.col == keepPosition.col) {
             fullBoard[position.row][position.col].isForced = false
         }
+    }
+}
+
+enum BoardRulesSaveRules {
+    static func resolvedLastResetAppliedAt(
+        previousMode: BoardTaskResetMode,
+        previousCustomResetMinutes: Int?,
+        previousLastResetAppliedAt: Date?,
+        newMode: BoardTaskResetMode,
+        newCustomResetMinutes: Int?,
+        now: Date
+    ) -> Date? {
+        let previousSchedule = normalizedSchedule(
+            mode: previousMode,
+            customResetMinutes: previousCustomResetMinutes
+        )
+        let newSchedule = normalizedSchedule(
+            mode: newMode,
+            customResetMinutes: newCustomResetMinutes
+        )
+        return previousSchedule == newSchedule ? previousLastResetAppliedAt : now
+    }
+
+    private static func normalizedSchedule(
+        mode: BoardTaskResetMode,
+        customResetMinutes: Int?
+    ) -> Schedule {
+        let normalizedMode = mode == .customResetStatusTime ? .resetStatusNextDay : mode
+        return Schedule(
+            mode: normalizedMode,
+            customResetMinutes: BoardResetRuleEngine.normalizedCustomResetMinutes(
+                customResetMinutes,
+                mode: normalizedMode
+            )
+        )
+    }
+
+    private struct Schedule: Equatable {
+        let mode: BoardTaskResetMode
+        let customResetMinutes: Int?
     }
 }

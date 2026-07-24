@@ -2,10 +2,12 @@ import Foundation
 
 struct BoardResetResult {
     let didReset: Bool
+    let didResetActiveBoard: Bool
     let clearedCompletedTaskCount: Int
 
     static let noReset = BoardResetResult(
         didReset: false,
+        didResetActiveBoard: false,
         clearedCompletedTaskCount: 0
     )
 }
@@ -181,6 +183,7 @@ struct BoardResetCoordinator {
         var appliedCount = 0
         var skippedCount = 0
         var staleForceCount = 0
+        var didResetActiveBoard = false
         var activeBoardClearedCompletedTaskCount = 0
 
         for index in namedBoards.indices {
@@ -221,9 +224,11 @@ struct BoardResetCoordinator {
             )
 
             namedBoards[index].board = transformedBoard
+            namedBoards[index].countdownEndsAt = nil
             namedBoards[index].lastTaskResetAppliedAt = now
             namedBoards[index].updatedAt = now
             if board.id == activeBoardID {
+                didResetActiveBoard = true
                 activeBoardClearedCompletedTaskCount = clearedCompletedCount
             }
             hasAnyUpdate = true
@@ -238,6 +243,7 @@ struct BoardResetCoordinator {
         debugToast("reset applied=\(appliedCount), staleForce=\(staleForceCount), skipped=\(skippedCount)")
         return BoardResetResult(
             didReset: true,
+            didResetActiveBoard: didResetActiveBoard,
             clearedCompletedTaskCount: activeBoardClearedCompletedTaskCount
         )
     }

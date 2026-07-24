@@ -71,6 +71,7 @@ private struct PAGLoopView: View {
 struct HomeLimitedOfferBannerView: View {
     let isPadLayout: Bool
     let offerDuration: TimeInterval
+    let campaignID: String
     let onTap: () -> Void
 
     @AppStorage(AppSettings.limitedTimeDiscountStartedAtKey) private var limitedTimeDiscountStartedAt = 0.0
@@ -129,6 +130,10 @@ struct HomeLimitedOfferBannerView: View {
 
     var body: some View {
         Button {
+            AnalyticsService.logOfferBannerClicked(
+                campaignID: campaignID,
+                countdownStarted: hasStartedCountdown
+            )
             onTap()
         } label: {
             ZStack(alignment: .leading) {
@@ -144,6 +149,12 @@ struct HomeLimitedOfferBannerView: View {
         }
         .buttonStyle(.plain)
         .frame(width: bannerWidth, height: bannerHeight)
+        .onAppear {
+            AnalyticsService.logOfferBannerViewed(
+                campaignID: campaignID,
+                countdownStarted: hasStartedCountdown
+            )
+        }
     }
 
     private var limitedOfferBubble: some View {

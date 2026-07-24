@@ -1,6 +1,11 @@
 import Foundation
 
 enum DiagnosticLogStore {
+    struct PointsBaseline: Equatable {
+        let totalPoints: Int
+        let lifetimePoints: Int
+    }
+
     enum Level: String, Codable {
         case info
         case warning
@@ -35,6 +40,16 @@ enum DiagnosticLogStore {
             name: sanitizedKey(name),
             details: sanitizedDetails(details)
         )
+
+        #if DEBUG
+        if entry.name.hasPrefix("points.") {
+            let detailsText = entry.details
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: " ")
+            print("[BingodaysPoints] \(entry.name) \(detailsText)")
+        }
+        #endif
 
         lock.lock()
         defer { lock.unlock() }
@@ -90,6 +105,37 @@ enum DiagnosticLogStore {
         lock.lock()
         defer { lock.unlock() }
         return loadEntries()
+    }
+
+    /// Returns the durable points state immediately before the current run of
+    /// failed task transactions. This is used only to retire the unshipped V1
+    /// transaction journal that alternated old point snapshots on every tap.
+    static func pointsBaselineBeforeLatestFailedTransactionEpisode() -> PointsBaseline? {
+        let entries = snapshot()
+        let lastSuccessfulToggleIndex = entries.lastIndex {
+            $0.name == "points.task_toggle_persisted"
+        }
+        let episodeStart = lastSuccessfulToggleIndex.map { entries.index(after: $0) }
+            ?? entries.startIndex
+        let episode = entries[episodeStart...]
+        guard episode.contains(where: {
+            $0.name == "points.task_toggle_persistence_failed"
+        }) else {
+            return nil
+        }
+        guard let firstToggle = episode.first(where: {
+            $0.name == "points.task_toggle_begin"
+        }),
+        let totalText = firstToggle.details["persisted_total"],
+        let lifetimeText = firstToggle.details["persisted_lifetime"],
+        let totalPoints = Int(totalText),
+        let lifetimePoints = Int(lifetimeText) else {
+            return nil
+        }
+        return PointsBaseline(
+            totalPoints: totalPoints,
+            lifetimePoints: lifetimePoints
+        )
     }
 
     private static func sanitizedDetails(_ details: [String: String]) -> [String: String] {

@@ -12,11 +12,13 @@ struct EditTaskSheet: View {
     @State private var recurrenceKind: TaskRecurrenceRule.Kind
     @State private var recurrenceMonthDay: Int
     @State private var recurrenceDayInterval: Int
+    @State private var recurrenceAnchorDate: Date
     @State var startVisibleAt: Date?
     @State var endVisibleAt: Date?
     @State var startReminderEnabled: Bool
     @State var startReminderOffsetMinutes: Int
     let isCompletedTask: Bool
+    let usesClearPresentationBackground: Bool
     let onSave: (String, Bool, Set<Int>, Bool, TaskRecurrenceRule?, Int?, Date?, Date?, Bool, Int) -> Void
     let onDelete: () -> Void
     let onCancel: () -> Void
@@ -79,11 +81,12 @@ struct EditTaskSheet: View {
         startReminderOffsetMinutes: Int = BingoCell.defaultStartReminderOffsetMinutes,
         isCompletedTask: Bool,
         estimatedDurationMinutes: Int?,
+        usesClearPresentationBackground: Bool = false,
         onSave: @escaping (String, Bool, Set<Int>, Bool, TaskRecurrenceRule?, Int?, Date?, Date?, Bool, Int) -> Void,
         onDelete: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
-        let recurrenceDefaultDate = startVisibleAt ?? Date()
+        let recurrenceDefaultDate = recurrenceRule?.anchorDate ?? startVisibleAt ?? Date()
         let normalizedRecurrenceRule = recurrenceRule?.normalized(
             defaultWeekday: Calendar.current.component(.weekday, from: recurrenceDefaultDate),
             defaultMonthDay: Calendar.current.component(.day, from: recurrenceDefaultDate),
@@ -107,19 +110,22 @@ struct EditTaskSheet: View {
         _recurrenceKind = State(initialValue: resolvedKind)
         _recurrenceMonthDay = State(initialValue: normalizedRecurrenceRule?.monthDay ?? Calendar.current.component(.day, from: recurrenceDefaultDate))
         _recurrenceDayInterval = State(initialValue: normalizedRecurrenceRule?.interval ?? TaskRecurrenceRule.defaultDayInterval)
-        let resolvedStartVisibleAt = startVisibleAt ?? (resolvedKind == .everyNDays ? normalizedRecurrenceRule?.anchorDate : nil)
+        _recurrenceAnchorDate = State(initialValue: normalizedRecurrenceRule?.anchorDate ?? recurrenceDefaultDate)
+        let resolvedStartVisibleAt = hasRepeatingSchedule ? nil : startVisibleAt
+        let resolvedEndVisibleAt = hasRepeatingSchedule ? nil : endVisibleAt
         _startVisibleAt = State(initialValue: resolvedStartVisibleAt)
-        _endVisibleAt = State(initialValue: endVisibleAt)
-        _startReminderEnabled = State(initialValue: startReminderEnabled && resolvedStartVisibleAt != nil && endVisibleAt != nil && !isCompletedTask)
+        _endVisibleAt = State(initialValue: resolvedEndVisibleAt)
+        _startReminderEnabled = State(initialValue: startReminderEnabled && resolvedStartVisibleAt != nil && resolvedEndVisibleAt != nil && !isCompletedTask)
         _startReminderOffsetMinutes = State(initialValue: TaskStartReminderService.normalizedOffsetMinutes(startReminderOffsetMinutes))
-        _isTimeWindowExpanded = State(initialValue: resolvedStartVisibleAt != nil || endVisibleAt != nil)
+        _isTimeWindowExpanded = State(initialValue: resolvedStartVisibleAt != nil || resolvedEndVisibleAt != nil)
         self.isCompletedTask = isCompletedTask
+        self.usesClearPresentationBackground = usesClearPresentationBackground
         self.onSave = onSave
         self.onDelete = onDelete
         self.onCancel = onCancel
         let normalizedDuration = estimatedDurationMinutes.map { min(max($0, 1), BingoViewModel.maxCountdownMinutes) }
-        self.initialStartVisibleAt = startVisibleAt
-        self.initialEndVisibleAt = endVisibleAt
+        self.initialStartVisibleAt = resolvedStartVisibleAt
+        self.initialEndVisibleAt = resolvedEndVisibleAt
         let presetCandidates = [15, 30, 45, 60]
         if let normalizedDuration, presetCandidates.contains(normalizedDuration) {
             _timerPresetMinutes = State(initialValue: normalizedDuration)
@@ -257,7 +263,7 @@ struct EditTaskSheet: View {
             Text(L10n.deleteTaskConfirmationMessage)
         }
         .preferredColorScheme(.dark)
-        .presentationBackground(sheetBackgroundColor)
+        .presentationBackground(usesClearPresentationBackground ? Color.clear : sheetBackgroundColor)
         .onChange(of: speechRecognizer.isRecording) { _, isRecording in
             if !isRecording {
                 activeSpeechInputSessionID = nil
@@ -287,10 +293,7 @@ struct EditTaskSheet: View {
             taskInputSection
             scheduleModeSection
             if scheduleMode == .repeating {
-                VStack(spacing: 14) {
-                    repeatSection
-                    timeWindowSection
-                }
+                repeatSection
             } else {
                 timeWindowSection
             }
@@ -727,8 +730,8 @@ struct EditTaskSheet: View {
 
     private func saveTask() {
         guard hasValidTaskLength else { return }
-        let saveStartVisibleAt = startVisibleAt
-        let saveEndVisibleAt = endVisibleAtForSave()
+        let saveStartVisibleAt = scheduleMode == .repeating ? nil : startVisibleAt
+        let saveEndVisibleAt = scheduleMode == .repeating ? nil : endVisibleAtForSave()
         let saveEstimatedDurationMinutes = countdownMinutesForSave
         if isCompletedTask, saveEstimatedDurationMinutes != nil {
             showBlockedSaveToast(L10n.completedTaskCountdownBlocked)
@@ -1157,22 +1160,30 @@ struct EditTaskSheet: View {
             residentWeekdays.removeAll()
         case .repeating:
             isOneTimeTask = false
+            startVisibleAt = nil
+            endVisibleAt = nil
+            startReminderEnabled = false
+            isTimeWindowExpanded = false
+            clearCountdownSelection()
             if recurrenceKind == .none {
                 recurrenceKind = .daily
             }
             if recurrenceKind == .weekly {
                 ensureWeeklyRecurrenceHasAWeekday()
             }
-            if recurrenceKind == .everyNDays {
-                isTimeWindowExpanded = true
-            }
         }
     }
 
     private func selectRecurrenceKind(_ kind: TaskRecurrenceRule.Kind) {
         dismissKeyboard()
+        let previousKind = recurrenceKind
         scheduleMode = .repeating
         recurrenceKind = kind
+        startVisibleAt = nil
+        endVisibleAt = nil
+        startReminderEnabled = false
+        isTimeWindowExpanded = false
+        clearCountdownSelection()
         switch kind {
         case .none:
             isOneTimeTask = true
@@ -1191,7 +1202,9 @@ struct EditTaskSheet: View {
             isOneTimeTask = false
             residentWeekdays.removeAll()
             recurrenceDayInterval = min(max(recurrenceDayInterval, 2), TaskRecurrenceRule.maxDayInterval)
-            isTimeWindowExpanded = true
+            if previousKind != .everyNDays {
+                recurrenceAnchorDate = Date()
+            }
         }
     }
 
@@ -1206,7 +1219,7 @@ struct EditTaskSheet: View {
 
     private func recurrenceRuleForSave() -> TaskRecurrenceRule? {
         guard scheduleMode == .repeating else { return nil }
-        return recurrenceRuleForCurrentRepeatingDraft(defaultDate: startVisibleAt ?? Date())
+        return recurrenceRuleForCurrentRepeatingDraft(defaultDate: recurrenceAnchorDate)
     }
 
     private func recurrenceRuleForCurrentRepeatingDraft(defaultDate: Date) -> TaskRecurrenceRule {
@@ -1391,8 +1404,7 @@ struct EditTaskSheet: View {
 
     private var repeatPreviewText: String? {
         guard scheduleMode == .repeating else { return nil }
-        let defaultDate = startVisibleAt ?? Date()
-        let rule = recurrenceRuleForCurrentRepeatingDraft(defaultDate: defaultDate)
+        let rule = recurrenceRuleForCurrentRepeatingDraft(defaultDate: recurrenceAnchorDate)
         let separator = AppLanguage.current == .english ? ", " : "、"
 
         switch rule.kind {
@@ -1447,11 +1459,14 @@ struct EditTaskSheet: View {
     }
 
     private func repeatPreviewWithTime(_ ruleText: String) -> String {
-        guard let timeText = repeatTimeWindowPreviewText else {
-            return ruleText
-        }
+        let allDayText = L10n.tr(
+            "Available all day on repeat dates.",
+            zhHans: "在重复日期全天可完成。",
+            zhHant: "在重複日期全天可完成。",
+            ja: "繰り返し日は終日完了できます。"
+        )
         let separator = AppLanguage.current == .english ? " " : ""
-        return "\(ruleText)\(separator)\(timeText)"
+        return "\(ruleText)\(separator)\(allDayText)"
     }
 
     private var repeatTimeWindowPreviewText: String? {

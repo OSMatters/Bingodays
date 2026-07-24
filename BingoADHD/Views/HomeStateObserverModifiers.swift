@@ -12,6 +12,16 @@ struct HomeBoardStateChange: Equatable {
         didChangeCells || didChangeGridSize
     }
 
+    var appReviewPromptTrigger: AppReviewPromptCandidate? {
+        if didChangeCells {
+            return .secondThreeDayStreak
+        }
+        if didChangeCompletedLines {
+            return .firstTwoLines
+        }
+        return nil
+    }
+
     init(
         didChangeCells: Bool,
         didChangeGridSize: Bool,
@@ -38,15 +48,11 @@ struct HomeBoardStateChange: Equatable {
 }
 
 struct HomeLifecycleObserversModifier: ViewModifier {
-    @Binding var boardTemplateShareDraft: BoardTemplatePayload?
-    @Binding var isTemplateShareComposerPresented: Bool
     @Binding var hasCheckedAppUpdateOnLaunch: Bool
     @Binding var hasStartedDeferredHomePreloads: Bool
     @Binding var hasStartedDeferredSubscriptionRefresh: Bool
 
     let scenePhase: ScenePhase
-    let onDismissTemplateImportPreview: () -> Void
-    let onDismissPendingTemplate: () -> Void
     let onProcessLifecycleEvents: (Date, Bool, String, Bool) -> Void
     let onCheckAppUpdate: () async -> Void
     let onRefreshLimitedTimeOfferConfig: () async -> Void
@@ -57,13 +63,6 @@ struct HomeLifecycleObserversModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onAppear {
-                if !AppFeatureFlags.isTemplateSharingEnabled {
-                    boardTemplateShareDraft = nil
-                    isTemplateShareComposerPresented = false
-                    onDismissTemplateImportPreview()
-                    onDismissPendingTemplate()
-                }
-
                 onProcessLifecycleEvents(Date(), true, "onAppear", true)
                 refreshLimitedTimeOfferConfig()
                 startDeferredHomePreloadsIfNeeded()
@@ -123,25 +122,16 @@ struct HomeLifecycleObserversModifier: ViewModifier {
 
 struct HomePresentationStateObserversModifier: ViewModifier {
     @Binding var isEditActionsExpanded: Bool
-    @Binding var boardTemplateShareDraft: BoardTemplatePayload?
     @Binding var boardRulesTargetBoardID: UUID?
 
     let isQuickEditPresented: Bool
-    let pendingTemplate: BoardTemplatePayload?
-    let pendingTemplateSource: String
-    let isTemplateShareComposerPresented: Bool
-    let isTemplateImportPreviewPresented: Bool
     let isBoardCountdownPresented: Bool
     let isBoardRulesPresented: Bool
-    let isBlackBoxModePresented: Bool
     let isGridSizeSheetPresented: Bool
     let isSidebarPresented: Bool
     let firstStepGuideOverlay: FirstStepGuideOverlay?
     let isUpdatePromptPresented: Bool
     let boardActionSheetBoardID: UUID?
-    let onPresentImportPreview: (BoardTemplatePayload, String) -> Void
-    let onDismissPendingTemplate: () -> Void
-    let onClearTemplateImportPreview: () -> Void
     let onDebugTileGestureBlockers: (String) -> Void
 
     func body(content: Content) -> some View {
@@ -150,29 +140,12 @@ struct HomePresentationStateObserversModifier: ViewModifier {
             .onChange(of: isQuickEditPresented) { _, newValue in
                 if newValue { isEditActionsExpanded = false }
             }
-            .onChange(of: pendingTemplate) { _, incomingTemplate in
-                guard AppFeatureFlags.isTemplateSharingEnabled else { return }
-                guard let incomingTemplate else { return }
-                onPresentImportPreview(incomingTemplate, pendingTemplateSource)
-                onDismissPendingTemplate()
-            }
-            .onChange(of: isTemplateShareComposerPresented) { _, isPresented in
-                if !isPresented {
-                    boardTemplateShareDraft = nil
-                }
-            }
-            .onChange(of: isTemplateImportPreviewPresented) { _, isPresented in
-                if !isPresented { onClearTemplateImportPreview() }
-            }
             .onChange(of: isBoardCountdownPresented) { _, newValue in
                 if newValue { isEditActionsExpanded = false }
             }
             .onChange(of: isBoardRulesPresented) { _, newValue in
                 if newValue { isEditActionsExpanded = false }
                 if !newValue { boardRulesTargetBoardID = nil }
-            }
-            .onChange(of: isBlackBoxModePresented) { _, newValue in
-                if newValue { isEditActionsExpanded = false }
             }
             .onChange(of: isGridSizeSheetPresented) { _, newValue in
                 if newValue { isEditActionsExpanded = false }
@@ -211,8 +184,7 @@ struct HomeBoardStateObserversModifier: ViewModifier {
     let hasPremiumAccess: Bool
     let onSyncSelectedBoardSnapshot: (HomeBoardStateChange) -> Void
     let onEvaluateFirstStepGuideProgress: () -> Void
-    let onEvaluateAppReviewTaskCompletionOpportunity: () -> Void
-    let onEvaluateAppReviewLineCompletionOpportunity: () -> Void
+    let onEvaluateAppReviewPromptOpportunity: (AppReviewPromptCandidate) -> Void
     let onReconcileStickerOwnership: () -> Void
     let onEnforceCustomResetAccess: () -> Void
 
@@ -234,12 +206,11 @@ struct HomeBoardStateObserversModifier: ViewModifier {
 
                 if change.didChangeCells {
                     onEvaluateFirstStepGuideProgress()
-                    onEvaluateAppReviewTaskCompletionOpportunity()
                     onReconcileStickerOwnership()
                 }
 
-                if change.didChangeCompletedLines {
-                    onEvaluateAppReviewLineCompletionOpportunity()
+                if let trigger = change.appReviewPromptTrigger {
+                    onEvaluateAppReviewPromptOpportunity(trigger)
                 }
             }
             .onChange(of: hasCompletedEntitlementRefresh) { _, hasCompleted in

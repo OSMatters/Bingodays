@@ -993,9 +993,19 @@ struct QuickEditView: View {
     private func applyActiveGroupToPreview() {
         guard !activeGroupTaskKeys.isEmpty else { return }
         focusedField = nil
-        selectedTaskKeys = activeGroupTaskKeys
-        rebuildPreviewFromSelectedKeys()
-        showLocalToast(L10n.quickEditGroupAppliedToPreview)
+        let result = quickEditAppendTasksToPreview(
+            keys: activeGroupTaskKeys,
+            candidateTaskMap: candidateTaskMap,
+            currentSlots: previewSlots
+        )
+        previewSlots = result.updatedSlots
+        selectedTaskKeys = previewSlots.compactMap(\.sourceTaskKey)
+
+        if result.omittedTaskCount > 0 {
+            showLocalToast(L10n.quickEditGroupPartiallyApplied(result.omittedTaskCount))
+        } else {
+            showLocalToast(L10n.quickEditGroupAppliedToPreview)
+        }
     }
 
     private func handleExitTap() {
@@ -1091,14 +1101,6 @@ struct QuickEditView: View {
         previewSlots = quickEditRemovePreviewTask(key: key, currentSlots: previewSlots)
     }
 
-    private func rebuildPreviewFromSelectedKeys() {
-        previewSlots = quickEditRebuildPreviewSlots(
-            selectedTaskKeys: selectedTaskKeys,
-            candidateTaskMap: candidateTaskMap,
-            totalGridSlots: totalGridSlots
-        )
-    }
-
     private func syncPreviewSlotsWithCurrentLibrary() {
         previewSlots = quickEditSyncPreviewSlotsWithLibrary(
             currentSlots: previewSlots,
@@ -1153,12 +1155,9 @@ struct QuickEditView: View {
     private func openPremiumPaywall(source: String) {
         premiumPaywallSource = source
         focusedField = nil
+        isPremiumPaywallPresented = true
         Task { @MainActor in
-            guard !subscriptionManager.hasPremiumAccess else { return }
             await subscriptionManager.refreshEntitlements()
-            guard !subscriptionManager.hasPremiumAccess else { return }
-            isPremiumPaywallPresented = true
-            await subscriptionManager.warmupProductsForPaywall()
         }
     }
 private func confirmDelete(_ target: QuickEditDeleteTarget) {

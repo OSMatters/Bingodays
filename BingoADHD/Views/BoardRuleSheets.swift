@@ -3,6 +3,7 @@ import Foundation
 
 struct SidebarGlassToggleStyle: ToggleStyle {
     var accentColor: Color = NeumorphicColors.accent
+    var inactiveColor: Color = Color.white.opacity(0.18)
 
     func makeBody(configuration: Configuration) -> some View {
         Button {
@@ -12,7 +13,7 @@ struct SidebarGlassToggleStyle: ToggleStyle {
         } label: {
             ZStack(alignment: configuration.isOn ? .trailing : .leading) {
                 Capsule()
-                    .fill(configuration.isOn ? accentColor.opacity(0.78) : Color.white.opacity(0.18))
+                    .fill(configuration.isOn ? accentColor.opacity(0.78) : inactiveColor)
                     .frame(width: 42, height: 24)
                     .overlay {
                         Capsule()
@@ -290,10 +291,34 @@ struct BoardCountdownSheet: View {
     }
 }
 
+struct BoardRulesDraft: Equatable {
+    let boardID: UUID
+    let countdownMinutes: Int?
+    let resetMode: BoardTaskResetMode
+    let customResetMinutes: Int?
+}
+
+enum BoardRulesPremiumReturnRules {
+    static func restorableDraft(
+        from pendingDraft: BoardRulesDraft?,
+        hasPremiumAccess: Bool,
+        availableBoardIDs: Set<UUID>
+    ) -> BoardRulesDraft? {
+        guard hasPremiumAccess,
+              let pendingDraft,
+              availableBoardIDs.contains(pendingDraft.boardID) else {
+            return nil
+        }
+        return pendingDraft
+    }
+}
+
 struct BoardRulesSheet: View {
+    let boardName: String?
     let countdownEndsAt: Date?
     let initialResetMode: BoardTaskResetMode
     let initialCustomResetMinutes: Int?
+    let restoredDraft: BoardRulesDraft?
     let onSave: (Int?, BoardTaskResetMode, Int?) -> Void
     let onCancel: () -> Void
 
@@ -314,24 +339,44 @@ struct BoardRulesSheet: View {
         isPadLayout ? (pad ?? base * 1.18) : base
     }
 
+    private var sheetBackgroundColor: Color { Color(hex: "FAF9F3") }
+    private var contentTopOffset: CGFloat { 20 }
+    private static let titleMaxCharacterCount = 12
+    private static let resetTimeSectionID = "board-rules-reset-time-section"
+    private static let countdownSectionID = "board-rules-countdown-section"
+
     init(
+        boardName: String? = nil,
         countdownEndsAt: Date?,
         initialResetMode: BoardTaskResetMode,
         initialCustomResetMinutes: Int?,
+        restoredDraft: BoardRulesDraft? = nil,
         onSave: @escaping (Int?, BoardTaskResetMode, Int?) -> Void,
         onCancel: @escaping () -> Void
     ) {
-        let countdownTotalMinutes = Self.remainingMinutes(until: countdownEndsAt)
+        let draftResetMode = restoredDraft?.resetMode ?? initialResetMode
+        let draftCustomResetMinutes = restoredDraft == nil
+            ? initialCustomResetMinutes
+            : restoredDraft?.customResetMinutes
+        let countdownTotalMinutes = restoredDraft == nil
+            ? Self.remainingMinutes(until: countdownEndsAt)
+            : restoredDraft?.countdownMinutes
         let (initialDays, initialHours, initialMinutes) = Self.makeTimeValues(from: countdownTotalMinutes ?? 1)
-        let initialCustomResetTime = Self.makeClockDate(from: initialCustomResetMinutes ?? 0)
-        let normalizedInitialMode: BoardTaskResetMode = initialResetMode == .customResetStatusTime
+        let initialCustomResetTime = Self.makeClockDate(from: draftCustomResetMinutes ?? 0)
+        let normalizedInitialMode: BoardTaskResetMode = draftResetMode == .customResetStatusTime
             ? .resetStatusNextDay
-            : initialResetMode
-        let shouldEnableCustomResetTime = initialCustomResetMinutes != nil || initialResetMode == .customResetStatusTime
+            : draftResetMode
+        let normalizedInitialCustomResetMinutes = BoardResetRuleEngine.normalizedCustomResetMinutes(
+            draftCustomResetMinutes,
+            mode: normalizedInitialMode
+        )
+        let shouldEnableCustomResetTime = normalizedInitialCustomResetMinutes != nil
 
+        self.boardName = boardName
         self.countdownEndsAt = countdownEndsAt
         self.initialResetMode = initialResetMode
         self.initialCustomResetMinutes = initialCustomResetMinutes
+        self.restoredDraft = restoredDraft
         self.onSave = onSave
         self.onCancel = onCancel
 
@@ -345,239 +390,397 @@ struct BoardRulesSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                NeumorphicColors.background.ignoresSafeArea()
+        ZStack {
+            sheetBackgroundColor.ignoresSafeArea()
 
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 22) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(L10n.tr("Board Countdown", zhHans: "面板倒计时", zhHant: "面板倒計時"))
-                                .font(.appSystem(size: scaled(17, pad: 20), weight: .bold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text)
+            VStack(spacing: 0) {
+                header
 
-                            HStack(spacing: 12) {
-                                Text(L10n.tr("Enable countdown", zhHans: "开启倒计时", zhHant: "開啟倒計時"))
-                                    .font(.appSystem(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
-                                    .foregroundColor(NeumorphicColors.text)
-                                Spacer()
-                                Toggle("", isOn: $isCountdownEnabled)
-                                    .labelsHidden()
-                                    .toggleStyle(NeumorphicSwitchToggleStyle())
+                ScrollViewReader { scrollProxy in
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: scaled(34, pad: 40)) {
+                            resetRulesSection
+
+                            if selectedResetMode != .keepTaskStatus {
+                                resetTimeSection
+                                    .id(Self.resetTimeSectionID)
                             }
 
-                            if isCountdownEnabled {
-                                HStack(spacing: 12) {
-                                    countdownNumberField(
-                                        title: L10n.tr("Days", zhHans: "天", zhHant: "天"),
-                                        value: $countdownDays,
-                                        range: 0...30
-                                    )
-
-                                    countdownNumberField(
-                                        title: L10n.hours,
-                                        value: $countdownHours,
-                                        range: 0...23
-                                    )
-
-                                    countdownNumberField(
-                                        title: L10n.minutes,
-                                        value: $countdownMinutes,
-                                        range: 0...59
-                                    )
-                                }
-
-                                Text(countdownSummaryText)
-                                    .font(.appSystem(size: scaled(12, pad: 14), design: .rounded))
-                                    .foregroundColor(NeumorphicColors.text.opacity(0.62))
-                                    .frame(maxWidth: .infinity, alignment: .center)
-                                    .multilineTextAlignment(.center)
-                            }
+                            countdownSection
+                                .id(Self.countdownSectionID)
                         }
-
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(L10n.tr("Board task reset mode", zhHans: "面板任务重置方式", zhHant: "面板任務重置方式"))
-                                .font(.appSystem(size: scaled(17, pad: 20), weight: .bold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text)
-
-                            resetOptionRow(
-                                mode: .resetStatusNextDay,
-                                title: L10n.tr(
-                                    "Auto reset task status every other day",
-                                    zhHans: "隔天自动重置任务状态",
-                                    zhHant: "隔天自動重置任務狀態",
-                                    ja: "翌日にタスク状態を自動リセット"
-                                ),
-                                hint: L10n.tr(
-                                    "Regular tasks reset to incomplete the next day. Repeating tasks start fresh each time they appear.",
-                                    zhHans: "普通任务会在第二天变回未完成，重复任务会在每次显示时重新开始。",
-                                    zhHant: "普通任務會在第二天變回未完成，重複任務會在每次顯示時重新開始。",
-                                    ja: "通常タスクは翌日に未完了へ戻り、繰り返しタスクは表示されるたびに新しく始まります。"
-                                )
-                            )
-
-                            if selectedResetMode == .resetStatusNextDay {
-                                customResetTimeSection
-                            }
-
-                            resetOptionRow(
-                                mode: .clearTasksNextDay,
-                                title: L10n.tr(
-                                    "Auto clear regular tasks every other day",
-                                    zhHans: "隔天自动清空普通任务",
-                                    zhHant: "隔天自動清空普通任務",
-                                    ja: "翌日に通常タスクを自動クリア"
-                                ),
-                                hint: L10n.tr(
-                                    "Regular tile tasks clear the next day. Tasks with a time or repeat rule keep their plan and appear on schedule.",
-                                    zhHans: "普通格子任务会在第二天清空，已设置时间或重复规则的任务会保留计划并按时显示。",
-                                    zhHant: "普通格子任務會在第二天清空，已設定時間或重複規則的任務會保留計劃並按時顯示。",
-                                    ja: "通常の格子タスクは翌日にクリアされます。時刻または繰り返しを設定したタスクは計画を保ち、予定どおり表示されます。"
-                                )
-                            )
-
-                            resetOptionRow(
-                                mode: .keepTaskStatus,
-                                title: L10n.tr(
-                                    "Keep regular task status",
-                                    zhHans: "保持普通任务状态",
-                                    zhHant: "保持普通任務狀態",
-                                    ja: "通常タスクの状態を保持"
-                                ),
-                                hint: L10n.tr(
-                                    "Regular tile tasks keep their current status. Repeating tasks start fresh each time they appear.",
-                                    zhHans: "普通格子任务会保持当前状态，重复任务会在每次显示时重新开始。",
-                                    zhHant: "普通格子任務會保持目前狀態，重複任務會在每次顯示時重新開始。",
-                                    ja: "通常の格子タスクは現在の状態を保持します。繰り返しタスクは表示されるたびに新しく始まります。"
-                                )
-                            )
-                        }
+                        .frame(maxWidth: isPadLayout ? 560 : .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.horizontal, scaled(22, pad: 30))
+                        .padding(.bottom, scaled(42, pad: 54))
                     }
-                    .frame(maxWidth: isPadLayout ? 560 : .infinity, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(24)
-                    .padding(.bottom, 24)
+                    .background(sheetBackgroundColor)
+                    .onAppear {
+                        guard restoredDraft?.customResetMinutes != nil else { return }
+                        scrollResetTimeIntoView(using: scrollProxy)
+                    }
+                    .onChange(of: isCountdownEnabled) { _, isEnabled in
+                        guard isEnabled else { return }
+                        scrollCountdownIntoView(using: scrollProxy)
+                    }
                 }
             }
-            .navigationTitle(L10n.tr("Board Rules", zhHans: "面板规则", zhHant: "面板規則"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(NeumorphicColors.background, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.cancel) { onCancel() }
-                        .foregroundColor(NeumorphicColors.text.opacity(0.8))
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.save) {
-                        onSave(resolvedTotalMinutes, selectedResetMode, resolvedCustomResetMinutes)
+            .padding(.top, contentTopOffset)
+        }
+        .background(sheetBackgroundColor.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            sheetBackgroundColor
+                .frame(height: 1)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Button(L10n.cancel) {
+                onCancel()
+            }
+            .buttonStyle(.plain)
+            .font(.appSystem(size: scaled(16, pad: 18), weight: .regular, design: .rounded))
+            .foregroundColor(NeumorphicColors.text.opacity(0.86))
+            .frame(width: scaled(72, pad: 86), alignment: .leading)
+
+            Text(sheetTitle)
+                .font(.appSystem(size: scaled(18, pad: 20), weight: .medium, design: .rounded))
+                .foregroundColor(NeumorphicColors.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(maxWidth: .infinity)
+
+            Button(L10n.save) {
+                onSave(resolvedTotalMinutes, selectedResetMode, resolvedCustomResetMinutes)
+            }
+            .buttonStyle(.plain)
+            .font(.appSystem(size: scaled(16, pad: 18), weight: .medium, design: .rounded))
+            .foregroundColor(NeumorphicColors.accent)
+            .frame(width: scaled(72, pad: 86), alignment: .trailing)
+        }
+        .padding(.horizontal, scaled(22, pad: 30))
+        .padding(.top, scaled(20, pad: 24))
+        .padding(.bottom, scaled(30, pad: 34))
+        .frame(maxWidth: isPadLayout ? 620 : .infinity)
+    }
+
+    private var sheetTitle: String {
+        guard let trimmedName = boardName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmedName.isEmpty else {
+            return L10n.tr("Board Rules", zhHans: "面板规则", zhHant: "面板規則", ja: "ボードルール")
+        }
+        guard trimmedName.count > Self.titleMaxCharacterCount else {
+            return trimmedName
+        }
+        return "\(trimmedName.prefix(Self.titleMaxCharacterCount))..."
+    }
+
+    private var resetRulesSection: some View {
+        VStack(alignment: .leading, spacing: scaled(18, pad: 22)) {
+            sectionTitle(
+                L10n.tr("Reset Rules", zhHans: "重置规则", zhHant: "重置規則", ja: "リセットルール"),
+                systemImage: "arrow.clockwise"
+            )
+
+            VStack(alignment: .leading, spacing: scaled(20, pad: 24)) {
+                resetOptionRow(
+                    mode: .resetStatusNextDay,
+                    title: L10n.tr("Reset status", zhHans: "重置状态", zhHant: "重置狀態", ja: "状態をリセット"),
+                    hint: L10n.tr(
+                        "At the reset time each day, regular and repeating tasks return to incomplete, and the board countdown ends.",
+                        zhHans: "每天到达重置时间后，单次任务和重复任务都会回到未完成，面板倒计时同时结束。",
+                        zhHant: "每天到達重置時間後，單次任務和重複任務都會回到未完成，面板倒計時同時結束。",
+                        ja: "毎日リセット時刻になると、通常タスクと繰り返しタスクが未完了に戻り、ボードのカウントダウンも終了します。"
+                    )
+                )
+
+                resetOptionRow(
+                    mode: .clearTasksNextDay,
+                    title: L10n.tr("Clear tasks", zhHans: "清空任务", zhHant: "清空任務", ja: "タスクをクリア"),
+                    hint: L10n.tr(
+                        "Regular tasks are cleared. Repeating tasks keep their schedule and return to incomplete. The board countdown ends.",
+                        zhHans: "单次任务会被清空；重复任务保留原计划并回到未完成；面板倒计时同时结束。",
+                        zhHant: "單次任務會被清空；重複任務保留原計劃並回到未完成；面板倒計時同時結束。",
+                        ja: "通常タスクはクリアされ、繰り返しタスクは予定を維持したまま未完了に戻り、ボードのカウントダウンも終了します。"
+                    )
+                )
+
+                resetOptionRow(
+                    mode: .keepTaskStatus,
+                    title: L10n.tr("Keep status", zhHans: "保持状态", zhHant: "保持狀態", ja: "状態を保持"),
+                    hint: L10n.tr(
+                        "All tasks keep their completion status.",
+                        zhHans: "所有任务的完成状态保持不变。",
+                        zhHant: "所有任務的完成狀態保持不變。",
+                        ja: "すべてのタスクの完了状態を維持します。"
+                    )
+                )
+            }
+        }
+    }
+
+    private var resetTimeSection: some View {
+        VStack(alignment: .leading, spacing: scaled(18, pad: 22)) {
+            sectionTitle(
+                L10n.tr("Reset Time", zhHans: "重置时间", zhHant: "重置時間", ja: "リセット時刻"),
+                systemImage: "clock"
+            )
+
+            VStack(alignment: .leading, spacing: scaled(22, pad: 26)) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        isCustomResetTimeEnabled = false
                     }
-                    .fontWeight(.semibold)
-                    .foregroundColor(NeumorphicColors.accent)
+                } label: {
+                    HStack(spacing: 12) {
+                        Text(L10n.tr("Default every night 24:00", zhHans: "默认每晚 24:00", zhHant: "預設每晚 24:00", ja: "毎晩 24:00"))
+                            .font(rowTitleFont)
+                            .foregroundColor(NeumorphicColors.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        selectionCircle(isSelected: !isCustomResetTimeEnabled)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        isCustomResetTimeEnabled = true
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        Text(L10n.tr("Custom time", zhHans: "自定义时间", zhHant: "自訂時間", ja: "カスタム時刻"))
+                            .font(rowTitleFont)
+                            .foregroundColor(NeumorphicColors.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        selectionCircle(isSelected: isCustomResetTimeEnabled)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if isCustomResetTimeEnabled {
+                    Text(customResetDailySummaryText)
+                        .font(helperFont)
+                        .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.opacity)
+
+                    DatePicker(
+                        "",
+                        selection: $customResetTimeOfDay,
+                        displayedComponents: .hourAndMinute
+                    )
+                    .labelsHidden()
+                    .datePickerStyle(.wheel)
+                    .environment(\.colorScheme, .light)
+                    .tint(NeumorphicColors.text)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: scaled(148, pad: 166))
+                    .clipped()
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
         }
+    }
+
+    private var countdownSection: some View {
+        VStack(alignment: .leading, spacing: scaled(14, pad: 18)) {
+            HStack(spacing: 12) {
+                sectionTitle(
+                    L10n.tr("Board Countdown", zhHans: "面板倒计时", zhHant: "面板倒計時", ja: "ボードカウントダウン"),
+                    systemImage: "timer"
+                )
+
+                Spacer()
+
+                Toggle("", isOn: $isCountdownEnabled.animation(.easeInOut(duration: 0.18)))
+                    .labelsHidden()
+                    .toggleStyle(BoardRulesCountdownToggleStyle(onTint: NeumorphicColors.accent))
+                    .scaleEffect(scaled(0.92, pad: 1.0), anchor: .trailing)
+            }
+
+            if isCountdownEnabled {
+                countdownWheelPicker
+
+                Text(countdownSummaryText)
+                    .font(helperFont)
+                    .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                    .multilineTextAlignment(.leading)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            } else {
+                Text(countdownDisabledHint)
+                    .font(helperFont)
+                    .foregroundColor(NeumorphicColors.text.opacity(0.52))
+            }
+        }
+    }
+
+private struct BoardRulesCountdownToggleStyle: ToggleStyle {
+    let onTint: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                configuration.isOn.toggle()
+            }
+        } label: {
+            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                Capsule(style: .continuous)
+                    .fill(configuration.isOn ? onTint : Color(hex: "A8AAA8"))
+                    .frame(width: 51, height: 31)
+
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 27, height: 27)
+                    .shadow(color: Color.black.opacity(0.16), radius: 1.5, x: 0, y: 1)
+                    .padding(2)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(configuration.isOn ? "1" : "0")
+    }
+}
+
+    private var countdownWheelPicker: some View {
+        HStack(spacing: scaled(8, pad: 12)) {
+            countdownPickerColumn(
+                title: L10n.tr("Days", zhHans: "天", zhHant: "天", ja: "日"),
+                value: $countdownDays,
+                range: 0...30
+            )
+
+            countdownPickerColumn(
+                title: L10n.hours,
+                value: $countdownHours,
+                range: 0...23
+            )
+
+            countdownPickerColumn(
+                title: L10n.minutes,
+                value: $countdownMinutes,
+                range: 0...59
+            )
+        }
+        .frame(height: scaled(174, pad: 194))
+        .clipped()
     }
 
     private func resetOptionRow(mode: BoardTaskResetMode, title: String, hint: String) -> some View {
         let isSelected = selectedResetMode == mode
-        return VStack(alignment: .leading, spacing: 6) {
-            Button {
+        return Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
                 selectedResetMode = mode
-                if mode != .resetStatusNextDay {
-                    isCustomResetTimeEnabled = false
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.appSystem(size: scaled(16, pad: 18), weight: .semibold))
-                        .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
-
+            }
+        } label: {
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(title)
-                        .font(.appSystem(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
+                        .font(rowTitleFont)
+                        .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
 
-            if isSelected {
-                Text(hint)
-                    .font(.appSystem(size: scaled(12, pad: 14), weight: .regular, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.62))
-                    .padding(.leading, 28)
+                    if isSelected {
+                        Text(hint)
+                            .font(helperFont)
+                            .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                selectionCircle(isSelected: isSelected)
+                    .padding(.top, 1)
             }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 
-    private var customResetTimeSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button {
-                isCustomResetTimeEnabled.toggle()
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: isCustomResetTimeEnabled ? "checkmark.circle.fill" : "circle")
-                        .font(.appSystem(size: scaled(16, pad: 18), weight: .semibold))
-                        .foregroundColor(isCustomResetTimeEnabled ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.45))
-                    Text(L10n.tr("Custom task status reset time", zhHans: "自定义重置任务状态时间", zhHant: "自訂重置任務狀態時間"))
-                        .font(.appSystem(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
+    private func countdownPickerColumn(
+        title: String,
+        value: Binding<Int>,
+        range: ClosedRange<Int>
+    ) -> some View {
+        VStack(spacing: 0) {
+            Text(title)
+                .font(.appSystem(size: scaled(13, pad: 15), weight: .regular, design: .rounded))
+                .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                .frame(height: scaled(24, pad: 28))
+
+            Picker(title, selection: value) {
+                ForEach(Array(range), id: \.self) { item in
+                    Text("\(item)")
+                        .font(.appSystem(size: scaled(22, pad: 26), weight: .regular, design: .rounded))
                         .foregroundColor(NeumorphicColors.text)
-                    proBadge
-                    Spacer()
+                        .tag(item)
                 }
-                .padding(.vertical, 6)
-                .padding(.leading, 28)
             }
-            .buttonStyle(.plain)
+            .pickerStyle(.wheel)
+            .labelsHidden()
+            .frame(maxWidth: .infinity)
+            .frame(height: scaled(146, pad: 164))
+            .clipped()
+        }
+        .frame(maxWidth: .infinity)
+    }
 
-            if isCustomResetTimeEnabled {
-                DatePicker(
-                    "",
-                    selection: $customResetTimeOfDay,
-                    displayedComponents: .hourAndMinute
-                )
-                .labelsHidden()
-                .datePickerStyle(.wheel)
-                .environment(\.colorScheme, .light)
-                .tint(.black)
-                .foregroundStyle(.black)
-                .colorMultiply(.black)
-                .compositingGroup()
-                .frame(maxWidth: .infinity)
-                .frame(height: isPadLayout ? 160 : 148)
-                .clipped()
-                .padding(.horizontal, 8)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(NeumorphicColors.background.opacity(0.94))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(NeumorphicColors.accent.opacity(0.58), lineWidth: 1)
-                        )
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .padding(.leading, 28)
+    @ViewBuilder
+    private func selectionCircle(isSelected: Bool) -> some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.appSystem(size: scaled(22, pad: 24), weight: .medium, design: .rounded))
+            .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.24))
+            .frame(width: scaled(26, pad: 30), height: scaled(26, pad: 30))
+    }
 
-                Text(customResetTimeSummaryText)
-                    .font(.appSystem(size: scaled(12, pad: 14), design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.62))
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .multilineTextAlignment(.center)
+    private func sectionTitle(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: scaled(7, pad: 8)) {
+            Image(systemName: systemImage)
+                .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
+                .foregroundColor(NeumorphicColors.accent)
+                .frame(width: scaled(19, pad: 22), alignment: .center)
+
+            Text(title)
+                .font(sectionTitleFont)
+                .foregroundColor(NeumorphicColors.text)
+        }
+    }
+
+    private func scrollCountdownIntoView(using proxy: ScrollViewProxy) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            withAnimation(.easeInOut(duration: 0.24)) {
+                proxy.scrollTo(Self.countdownSectionID, anchor: .bottom)
             }
         }
     }
 
-    private var proBadge: some View {
-        Text("Pro")
-            .font(.appSystem(size: scaled(11, pad: 12), weight: .bold, design: .rounded))
-            .foregroundColor(NeumorphicColors.accent)
-            .padding(.horizontal, 8)
-            .frame(height: scaled(22, pad: 24))
-            .background(
-                RoundedRectangle(cornerRadius: scaled(11, pad: 12), style: .continuous)
-                    .stroke(NeumorphicColors.accent.opacity(0.82), lineWidth: 1)
-            )
+    private func scrollResetTimeIntoView(using proxy: ScrollViewProxy) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+            withAnimation(.easeInOut(duration: 0.24)) {
+                proxy.scrollTo(Self.resetTimeSectionID, anchor: .center)
+            }
+        }
+    }
+
+    private var sectionTitleFont: Font {
+        .appSystem(size: scaled(17, pad: 20), weight: .medium, design: .rounded)
+    }
+
+    private var rowTitleFont: Font {
+        .appSystem(size: scaled(16, pad: 18), weight: .regular, design: .rounded)
+    }
+
+    private var helperFont: Font {
+        .appSystem(size: scaled(13, pad: 15), weight: .regular, design: .rounded)
+    }
+
+    private var countdownDisabledHint: String {
+        L10n.tr(
+            "Turn it on to set a countdown duration. The board must be completed within the selected time.",
+            zhHans: "开启后，才设置倒计时时长；需要在设定时间内完成面板所有任务。",
+            zhHant: "開啟後，才設定倒計時時長；需要在設定時間內完成面板所有任務。",
+            ja: "オンにするとカウントダウン時間を設定できます。設定時間内にボードの全タスクを完了する必要があります。"
+        )
     }
 
     private var totalMinutes: Int {
@@ -591,65 +794,35 @@ struct BoardRulesSheet: View {
     }
 
     private var resolvedCustomResetMinutes: Int? {
-        guard selectedResetMode == .resetStatusNextDay, isCustomResetTimeEnabled else { return nil }
+        guard isCustomResetTimeEnabled, selectedResetMode != .keepTaskStatus else { return nil }
         let components = Calendar.current.dateComponents([.hour, .minute], from: customResetTimeOfDay)
         let hour = min(max(components.hour ?? 0, 0), 23)
         let minute = min(max(components.minute ?? 0, 0), 59)
-        return hour * 60 + minute
+        return BoardResetRuleEngine.normalizedCustomResetMinutes(
+            hour * 60 + minute,
+            mode: selectedResetMode
+        )
+    }
+
+    private var customResetDailySummaryText: String {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: customResetTimeOfDay)
+        let hour = min(max(components.hour ?? 0, 0), 23)
+        let minute = min(max(components.minute ?? 0, 0), 59)
+        let time = String(format: "%02d:%02d", hour, minute)
+        return L10n.tr(
+            "Resets every day at \(time)",
+            zhHans: "每天 \(time) 重置",
+            zhHant: "每天 \(time) 重置",
+            ja: "毎日 \(time) にリセット"
+        )
     }
 
     private var countdownSummaryText: String {
         return L10n.tr(
-            "When the countdown ends, you can choose to complete, abandon, or postpone.",
-            zhHans: "倒计时结束后，你可以选择完成、放弃或延后。",
-            zhHant: "倒計時結束後，你可以選擇完成、放棄或延後。",
-            ja: "カウントダウン終了後、完了・放棄・延期を選べます。"
-        )
-    }
-
-    private var customResetTimeSummaryText: String {
-        let components = Calendar.current.dateComponents([.hour, .minute], from: customResetTimeOfDay)
-        let hour = min(max(components.hour ?? 0, 0), 23)
-        let minute = min(max(components.minute ?? 0, 0), 59)
-        return L10n.tr(
-            "Resets every day at \(String(format: "%02d:%02d", hour, minute)).",
-            zhHans: "每天将在 \(String(format: "%02d:%02d", hour, minute)) 自动重置。",
-            zhHant: "每天將在 \(String(format: "%02d:%02d", hour, minute)) 自動重置。",
-            ja: "毎日 \(String(format: "%02d:%02d", hour, minute)) に自動リセットされます。"
-        )
-    }
-
-    private func countdownNumberField(
-        title: String,
-        value: Binding<Int>,
-        range: ClosedRange<Int>
-    ) -> some View {
-        VStack(alignment: .center, spacing: 6) {
-            Text(title)
-                .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-                .frame(maxWidth: .infinity, alignment: .center)
-
-            TextField("0", value: value, formatter: Self.integerFormatter)
-                .keyboardType(.numberPad)
-                .multilineTextAlignment(.center)
-                .font(.appSystem(size: scaled(18, pad: 22), weight: .bold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-                .frame(maxWidth: .infinity)
-                .frame(height: scaled(48, pad: 56))
-                .onChange(of: value.wrappedValue) { _, newValue in
-                    value.wrappedValue = min(max(newValue, range.lowerBound), range.upperBound)
-                }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(NeumorphicColors.background.opacity(0.94))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(NeumorphicColors.accent.opacity(0.58), lineWidth: 1)
-                )
+            "After turning it on, all board tasks must be completed within the selected time.",
+            zhHans: "开启后，需要在设定时间内完成面板所有任务。",
+            zhHant: "開啟後，需要在設定時間內完成面板所有任務。",
+            ja: "オンにすると、設定時間内にボードの全タスクを完了する必要があります。"
         )
     }
 
@@ -658,14 +831,6 @@ struct BoardRulesSheet: View {
         let seconds = date.timeIntervalSinceNow
         let totalMinutes = Int(ceil(seconds / 60))
         return min(max(totalMinutes, 1), BingoViewModel.maxCountdownMinutes)
-    }
-
-    private static var integerFormatter: NumberFormatter {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .none
-        formatter.minimum = 0
-        formatter.maximum = BingoViewModel.maxCountdownMinutes as NSNumber
-        return formatter
     }
 
     private static func makeTimeValues(from totalMinutes: Int) -> (Int, Int, Int) {

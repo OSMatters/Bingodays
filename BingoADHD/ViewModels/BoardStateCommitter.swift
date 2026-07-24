@@ -2,8 +2,10 @@ import Foundation
 
 struct BoardStateCommitResult: Equatable {
     var savedBoard = false
+    var failedToSaveBoard = false
     var savedBoardCountdown = false
     var savedNamedBoards = false
+    var failedToSaveNamedBoards = false
     var savedSelectedWidgetPanel = false
     var reloadedWidgets = false
 
@@ -50,6 +52,8 @@ enum BoardStateCommitter {
                 associatedBoardID: associatedBoardID,
                 reloadWidgets: false
             )
+            result.failedToSaveBoard = !result.savedBoard
+            guard result.savedBoard else { return result }
         }
 
         if repository.loadBoardCountdownEndsAt() != countdownEndsAt {

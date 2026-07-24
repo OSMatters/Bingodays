@@ -12,9 +12,11 @@ enum WidgetTaskToggleService {
         board namedBoard: BingoBoardStore.NamedBoard,
         row: Int,
         col: Int,
-        now: Date
+        now: Date,
+        commitSideEffects: Bool = true
     ) -> BingoBoardStore.NamedBoard? {
         let preparedBoard = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(namedBoard, now: now)
+        let didApplyBoardReset = preparedBoard.lastTaskResetAppliedAt != namedBoard.lastTaskResetAppliedAt
         let gridSize = min(max(preparedBoard.board.gridSize, 0), maxGridSize)
         guard row >= 0, col >= 0, row < gridSize, col < gridSize else {
             return nil
@@ -35,8 +37,6 @@ enum WidgetTaskToggleService {
         let isNowCompleted = !fullBoard[row][col].isCompleted
         guard !isNowCompleted || fullBoard[row][col].isCurrentlyTappable(on: now) else { return nil }
         guard !isLocked(row: row, col: col, in: visibleCells, referenceDate: now) else { return nil }
-
-        let diaryTaskText = fullBoard[row][col].storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         fullBoard[row][col].isCompleted = isNowCompleted
         if isNowCompleted {
@@ -63,24 +63,244 @@ enum WidgetTaskToggleService {
             fullBoardCells: fullBoard
         )
 
-        settleRewards(
-            previousBoard: preparedBoard.board,
-            updatedBoard: updatedSavedBoard,
-            boardLastSavedAt: preparedBoard.updatedAt,
-            now: now
-        )
-        BingoDiaryStore.applyExplicitTaskDelta(
-            task: diaryTaskText,
-            delta: isNowCompleted ? 1 : -1,
-            board: updatedSavedBoard,
-            on: now
-        )
+        if commitSideEffects {
+            var updatedNamedBoard = preparedBoard
+            updatedNamedBoard.board = updatedSavedBoard
+            updatedNamedBoard.updatedAt = now
+            guard commitToggleSideEffects(
+                previousBoard: preparedBoard,
+                updatedBoard: updatedNamedBoard,
+                row: row,
+                col: col,
+                now: now,
+                didApplyBoardReset: didApplyBoardReset
+            ) else { return nil }
+        }
 
         var updatedNamedBoard = preparedBoard
         updatedNamedBoard.board = updatedSavedBoard
-        updatedNamedBoard.lastTaskResetAppliedAt = now
         updatedNamedBoard.updatedAt = now
         return updatedNamedBoard
+    }
+
+    @discardableResult
+    static func commitToggleSideEffects(
+        previousBoard: BingoBoardStore.NamedBoard,
+        updatedBoard: BingoBoardStore.NamedBoard,
+        row: Int,
+        col: Int,
+        now: Date,
+        didApplyBoardReset: Bool,
+        settlePoints: Bool = true
+    ) -> Bool {
+        let previousCells = BoardEngine.expandedBoardCache(from: previousBoard.board)
+        let updatedCells = BoardEngine.expandedBoardCache(from: updatedBoard.board)
+        guard row >= 0, col >= 0,
+              row < previousCells.count, col < previousCells[row].count,
+              row < updatedCells.count, col < updatedCells[row].count else {
+            return false
+        }
+        let previousCell = previousCells[row][col]
+        let updatedCell = updatedCells[row][col]
+        guard previousCell.id == updatedCell.id,
+              previousCell.isCompleted != updatedCell.isCompleted else {
+            return false
+        }
+
+        let previousPoints = settlePoints ? PointsStore.loadPersistenceSnapshot() : nil
+        if settlePoints {
+            guard settleRewards(
+                previousBoard: previousBoard.board,
+                updatedBoard: updatedBoard.board,
+                boardLastSavedAt: previousBoard.updatedAt,
+                now: now,
+                didApplyBoardReset: didApplyBoardReset
+            ) else { return false }
+        }
+        guard BingoDiaryStore.applyExplicitTaskDelta(
+            task: updatedCell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines),
+            delta: updatedCell.isCompleted ? 1 : -1,
+            board: updatedBoard.board,
+            on: now
+        ) else {
+            if let previousPoints {
+                _ = PointsStore.replacePersistenceSnapshot(previousPoints)
+            }
+            return false
+        }
+        if settlePoints, let totalPoints = PointsStore.loadTotalPoints() {
+            PointRedemptionReconciler.reconcilePersistedRedemptionsIfNeeded(totalPoints: totalPoints)
+        }
+        return true
+    }
+
+    static func cellMutation(
+        previousBoard: SavedBoard,
+        updatedBoard: SavedBoard,
+        row: Int,
+        col: Int
+    ) -> WidgetTaskSyncStore.Event.CellMutation? {
+        let previousCells = BoardEngine.expandedBoardCache(from: previousBoard)
+        let updatedCells = BoardEngine.expandedBoardCache(from: updatedBoard)
+        guard row >= 0, col >= 0,
+              row < previousCells.count, col < previousCells[row].count,
+              row < updatedCells.count, col < updatedCells[row].count else {
+            return nil
+        }
+        let previousCell = previousCells[row][col]
+        let updatedCell = updatedCells[row][col]
+        guard previousCell.id == updatedCell.id, previousCell != updatedCell else {
+            return nil
+        }
+        return WidgetTaskSyncStore.Event.CellMutation(
+            cellID: previousCell.id,
+            previousCell: previousCell,
+            updatedCell: updatedCell,
+            row: row,
+            col: col
+        )
+    }
+
+    @discardableResult
+    static func reconcileRewards(for board: BingoBoardStore.NamedBoard, now: Date) -> Bool {
+        let currentTotalPoints = PointsStore.loadTotalPoints() ?? 0
+        let currentLifetimePoints = PointsStore.loadLifetimePoints() ?? currentTotalPoints
+        let initialRewardState = BingoRewardSettlement.initialDailyRewardState(
+            referenceDate: now,
+            boardLastSavedAt: board.updatedAt,
+            currentCells: board.board.cells,
+            currentCompletedLines: board.board.completedLines,
+            isBoardFullyCompleted: BoardEngine.isBoardFullyCompleted(board.board.cells),
+            savedDailyRewardState: PointsStore.loadDailyRewardState()
+        )
+        let output = BingoRewardSettlement.settle(
+            input: BingoRewardSettlementInput(
+                date: now,
+                cells: board.board.cells,
+                completedLines: board.board.completedLines,
+                isBoardFullyCompleted: BoardEngine.isBoardFullyCompleted(board.board.cells),
+                totalPoints: currentTotalPoints,
+                lifetimePoints: currentLifetimePoints,
+                dailyRewardState: initialRewardState
+            ),
+            mode: .normal
+        )
+        guard PointsStore.saveState(
+            totalPoints: output.totalPoints,
+            lifetimePoints: output.lifetimePoints,
+            dailyRewardState: output.dailyRewardState
+        ) else { return false }
+        PointRedemptionReconciler.reconcilePersistedRedemptionsIfNeeded(totalPoints: output.totalPoints)
+        return true
+    }
+
+    /// Recovers the points side of an interrupted widget transaction from the
+    /// event's explicit before/after cell mutation. Looking only at the already
+    /// merged board would seed the daily ledger with the completed cell and then
+    /// incorrectly conclude that its point had already been awarded.
+    @discardableResult
+    static func reconcileRewards(
+        for event: WidgetTaskSyncStore.Event,
+        mergedBoard: BingoBoardStore.NamedBoard,
+        now: Date
+    ) -> Bool {
+        guard !event.didApplyBoardReset,
+              let mutation = event.cellMutation,
+              let position = WidgetTaskEventMerge.resolvedPosition(
+                  for: mutation,
+                  in: mergedBoard.board
+              ) else {
+            return reconcileRewards(for: mergedBoard, now: now)
+        }
+
+        var previousFullBoard = BoardEngine.expandedBoardCache(from: mergedBoard.board)
+        guard position.row < previousFullBoard.count,
+              position.col < previousFullBoard[position.row].count else {
+            return false
+        }
+        previousFullBoard[position.row][position.col] = mutation.previousCell
+        let gridSize = min(max(mergedBoard.board.gridSize, 2), maxGridSize)
+        let previousVisibleCells = BoardEngine.projectVisibleCells(
+            from: previousFullBoard,
+            size: gridSize,
+            referenceDate: now
+        )
+        var previousBoard = mergedBoard
+        previousBoard.board = SavedBoard(
+            gridSize: gridSize,
+            cells: previousVisibleCells,
+            completedLines: BoardEngine.completedLines(
+                in: previousVisibleCells,
+                size: gridSize
+            ),
+            fullBoardCells: previousFullBoard
+        )
+
+        let projected = projectedPointsSnapshot(
+            previousBoard: previousBoard,
+            updatedBoard: mergedBoard,
+            now: now,
+            didApplyBoardReset: false
+        )
+        guard PointsStore.replacePersistenceSnapshot(projected) else { return false }
+        if let totalPoints = projected.totalPoints {
+            PointRedemptionReconciler.reconcilePersistedRedemptionsIfNeeded(
+                totalPoints: totalPoints
+            )
+        }
+        return true
+    }
+
+    static func projectedPointsSnapshot(
+        previousBoard: BingoBoardStore.NamedBoard,
+        updatedBoard: BingoBoardStore.NamedBoard,
+        now: Date,
+        didApplyBoardReset: Bool,
+        currentPoints: PointsPersistenceSnapshot = PointsStore.loadPersistenceSnapshot()
+    ) -> PointsPersistenceSnapshot {
+        _ = didApplyBoardReset
+        let previousCells = previousBoard.board.cells
+        let previousCompletedLines = previousBoard.board.completedLines
+        let initialTotalPoints = currentPoints.totalPoints ?? BoardEngine.boardScore(
+            cells: previousCells,
+            completedLines: previousCompletedLines
+        )
+        let initialLifetimePoints = currentPoints.lifetimePoints ?? initialTotalPoints
+
+        let previousCompletedTaskCount = previousCells
+            .flatMap { $0 }
+            .filter { $0.isCompleted && !$0.isEmpty }
+            .count
+        let updatedCompletedTaskCount = updatedBoard.board.cells
+            .flatMap { $0 }
+            .filter { $0.isCompleted && !$0.isEmpty }
+            .count
+        let taskIsNowCompleted: Bool?
+        if updatedCompletedTaskCount > previousCompletedTaskCount {
+            taskIsNowCompleted = true
+        } else if updatedCompletedTaskCount < previousCompletedTaskCount {
+            taskIsNowCompleted = false
+        } else {
+            taskIsNowCompleted = nil
+        }
+        let output = BingoRewardSettlement.settleTaskToggle(
+            date: now,
+            previousCells: previousCells,
+            previousCompletedLines: previousCompletedLines,
+            previousIsBoardFullyCompleted: BoardEngine.isBoardFullyCompleted(previousCells),
+            currentCells: updatedBoard.board.cells,
+            currentCompletedLines: updatedBoard.board.completedLines,
+            currentIsBoardFullyCompleted: BoardEngine.isBoardFullyCompleted(updatedBoard.board.cells),
+            totalPoints: initialTotalPoints,
+            lifetimePoints: initialLifetimePoints,
+            dailyRewardState: currentPoints.dailyRewardState ?? BingoRewardSettlement.emptyDailyRewardState(for: now),
+            taskIsNowCompleted: taskIsNowCompleted
+        )
+        return PointsPersistenceSnapshot(
+            totalPoints: output.totalPoints,
+            lifetimePoints: output.lifetimePoints,
+            dailyRewardState: output.dailyRewardState
+        )
     }
 
     private static func isLocked(
@@ -113,13 +333,6 @@ enum WidgetTaskToggleService {
     }
 
     private static func registerCompletionIfNeeded(cell: inout BingoCell, now: Date) {
-        let calendar = Calendar.current
-        if let lastCompletedAt = cell.lastCompletedAt,
-           calendar.isDate(lastCompletedAt, inSameDayAs: now) {
-            cell.lastCompletedAt = now
-            return
-        }
-
         cell.completionStreakCount += 1
         cell.lastCompletedAt = now
     }
@@ -128,40 +341,33 @@ enum WidgetTaskToggleService {
         previousBoard: SavedBoard,
         updatedBoard: SavedBoard,
         boardLastSavedAt: Date,
-        now: Date
-    ) {
-        let previousCells = previousBoard.cells
-        let previousCompletedLines = previousBoard.completedLines
-        let initialTotalPoints = PointsStore.loadTotalPoints() ?? BoardEngine.boardScore(
-            cells: previousCells,
-            completedLines: previousCompletedLines
+        now: Date,
+        didApplyBoardReset: Bool
+    ) -> Bool {
+        let previousNamedBoard = BingoBoardStore.NamedBoard(
+            name: "",
+            board: previousBoard,
+            updatedAt: boardLastSavedAt
         )
-        let initialLifetimePoints = PointsStore.loadLifetimePoints() ?? initialTotalPoints
-        let initialDailyRewardState = BingoRewardSettlement.initialDailyRewardState(
-            referenceDate: now,
-            boardLastSavedAt: boardLastSavedAt,
-            currentCells: previousCells,
-            currentCompletedLines: previousCompletedLines,
-            isBoardFullyCompleted: BoardEngine.isBoardFullyCompleted(previousCells),
-            savedDailyRewardState: PointsStore.loadDailyRewardState()
+        let updatedNamedBoard = BingoBoardStore.NamedBoard(
+            id: previousNamedBoard.id,
+            name: "",
+            board: updatedBoard,
+            updatedAt: now
         )
-
-        let output = BingoRewardSettlement.settle(
-            input: BingoRewardSettlementInput(
-                date: now,
-                cells: updatedBoard.cells,
-                completedLines: updatedBoard.completedLines,
-                isBoardFullyCompleted: BoardEngine.isBoardFullyCompleted(updatedBoard.cells),
-                totalPoints: initialTotalPoints,
-                lifetimePoints: initialLifetimePoints,
-                dailyRewardState: initialDailyRewardState
-            ),
-            mode: .normal
+        let projected = projectedPointsSnapshot(
+            previousBoard: previousNamedBoard,
+            updatedBoard: updatedNamedBoard,
+            now: now,
+            didApplyBoardReset: didApplyBoardReset
         )
-
-        PointsStore.saveTotalPoints(output.totalPoints)
-        PointsStore.saveLifetimePoints(output.lifetimePoints)
-        PointsStore.saveDailyRewardState(output.dailyRewardState)
-        PointRedemptionReconciler.reconcilePersistedRedemptionsIfNeeded(totalPoints: output.totalPoints)
+        guard let totalPoints = projected.totalPoints,
+              let lifetimePoints = projected.lifetimePoints,
+              let dailyRewardState = projected.dailyRewardState else { return false }
+        return PointsStore.saveState(
+            totalPoints: totalPoints,
+            lifetimePoints: lifetimePoints,
+            dailyRewardState: dailyRewardState
+        )
     }
 }

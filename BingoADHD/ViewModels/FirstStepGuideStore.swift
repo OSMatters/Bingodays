@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 enum FirstStepGuideState: Int {
     case notStarted = 0
@@ -189,6 +190,12 @@ enum FirstStepGuideStore {
         milestoneShown: Int,
         hasTaskPoolTasks: Bool
     ) -> StorageState? {
+        // This marker intentionally lives only on this physical device. A fresh
+        // install on the same phone should not replay onboarding, while another
+        // device can still offer its own introduction if it has no cloud data.
+        if FirstStepGuideDeviceStateStore.hasShownGuideOnThisDevice {
+            return skippedState
+        }
         guard state == .notStarted else { return nil }
         guard currentOverlay == nil else { return nil }
         guard !hasTaskPoolTasks else { return nil }
@@ -227,5 +234,39 @@ enum FirstStepGuideStore {
             milestoneShown: milestoneShown,
             overlay: nil
         )
+    }
+}
+
+/// Keychain survives an app reinstall, unlike UserDefaults/AppStorage. The
+/// `ThisDeviceOnly` accessibility class also keeps this presentation preference
+/// out of iCloud Keychain and device-to-device migration.
+enum FirstStepGuideDeviceStateStore {
+    private static let service = "com.bingoday.app.first-step-guide"
+    private static let account = "shown-v1"
+
+    static var hasShownGuideOnThisDevice: Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+    }
+
+    static func markGuideShownOnThisDevice() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        let attributes: [String: Any] = [
+            kSecValueData as String: Data([1]),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        guard status == errSecItemNotFound else { return }
+        SecItemAdd((query.merging(attributes) { _, new in new }) as CFDictionary, nil)
     }
 }

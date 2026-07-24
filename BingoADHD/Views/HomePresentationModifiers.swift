@@ -1,8 +1,8 @@
 import SwiftUI
+import UIKit
 
 struct HomePrimaryCoversModifier: ViewModifier {
     @Binding var isQuickEditPresented: Bool
-    @Binding var isBlackBoxModePresented: Bool
     @Binding var isPointsFlowPresented: Bool
     @Binding var selectedStickerID: UUID?
     @Binding var isDiaryPresented: Bool
@@ -19,6 +19,7 @@ struct HomePrimaryCoversModifier: ViewModifier {
     let limitedTimeOfferConfig: LimitedTimeOfferConfig
     let onQuickEditSuccess: (String) -> Void
     let onQuickEditBoardApplied: () -> Void
+    let onPremiumPaywallDismiss: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -28,9 +29,6 @@ struct HomePrimaryCoversModifier: ViewModifier {
                     onSaveSuccess: onQuickEditSuccess,
                     onBoardApplied: onQuickEditBoardApplied
                 )
-            }
-            .fullScreenCover(isPresented: $isBlackBoxModePresented) {
-                BlackBoxModeEntryView()
             }
             .fullScreenCover(isPresented: $isPointsFlowPresented) {
                 PointsFlowPresenter(
@@ -47,7 +45,7 @@ struct HomePrimaryCoversModifier: ViewModifier {
             .fullScreenCover(isPresented: $isDiaryPresented) {
                 BingoDiaryScreen()
             }
-            .fullScreenCover(isPresented: $isPremiumPaywallPresented) {
+            .fullScreenCover(isPresented: $isPremiumPaywallPresented, onDismiss: onPremiumPaywallDismiss) {
                 PremiumPaywallView(entrySource: premiumPaywallSource)
             }
             .fullScreenCover(isPresented: $isLimitedTimeDiscountPresented) {
@@ -131,31 +129,29 @@ struct HomeBoardAlertsModifier: ViewModifier {
 struct HomeSheetsModifier: ViewModifier {
     @Binding var isContactUsPresented: Bool
     @Binding var isContactUsCopyToastVisible: Bool
-    @Binding var isTemplateImportPreviewPresented: Bool
     @Binding var isBoardCountdownPresented: Bool
     @Binding var isBoardRulesPresented: Bool
     @Binding var boardRulesTargetBoardID: UUID?
     @Binding var isGridSizeSheetPresented: Bool
-    @Binding var isTemplateShareComposerPresented: Bool
 
-    let boardTemplateImportPreviewDraft: BoardTemplatePayload?
-    let boardTemplateShareDraft: BoardTemplatePayload?
-    let shouldImportTemplateAsNewBoard: Bool
     let namedBoards: [BingoBoardStore.NamedBoard]
+    let restoredBoardRulesDraft: BoardRulesDraft?
     let hasPremiumAccess: Bool
     let boardCountdownEndsAt: Date?
     let isPadLayout: Bool
     let onCopyEmail: () -> Void
     let onOpenBugReportEmail: () -> Void
     let onOpenFeatureSuggestionEmail: () -> Void
-    let onApplyImportedTemplate: (BoardTemplatePayload) -> Void
-    let onDismissTemplatePreview: () -> Void
-    let onTemplateImportSheetHeight: (Int) -> CGFloat
     let onSaveBoardCountdown: (Int?) -> Void
     let onCancelBoardCountdown: () -> Void
-    let onPresentPremiumPaywall: (String) -> Void
-    let onApplyBoardRulesSettings: (UUID, Int?, BoardTaskResetMode, Int?) -> Void
+    let onBoardRulesPremiumRequired: (BoardRulesDraft) -> Void
+    let onBoardRulesDismissed: () -> Void
+    let onApplyBoardRulesSettings: (UUID, Int?, BoardTaskResetMode, Int?) -> Bool
     @ViewBuilder let gridSizeSheet: () -> AnyView
+
+    private var usesPadBottomHalfSheets: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
+    }
 
     func body(content: Content) -> some View {
         content
@@ -169,20 +165,6 @@ struct HomeSheetsModifier: ViewModifier {
                     onOpenFeatureSuggestionEmail: onOpenFeatureSuggestionEmail
                 )
             }
-            .sheet(isPresented: $isTemplateImportPreviewPresented) {
-                if let template = boardTemplateImportPreviewDraft {
-                    BoardTemplateImportPreviewView(
-                        template: template,
-                        createsNewBoard: shouldImportTemplateAsNewBoard,
-                        onImport: {
-                            onApplyImportedTemplate(template)
-                        },
-                        onClose: onDismissTemplatePreview
-                    )
-                    .presentationDetents([.height(onTemplateImportSheetHeight(template.gridSize))])
-                    .presentationDragIndicator(.visible)
-                }
-            }
             .sheet(isPresented: $isBoardCountdownPresented) {
                 BoardCountdownSheet(
                     countdownEndsAt: boardCountdownEndsAt,
@@ -194,40 +176,69 @@ struct HomeSheetsModifier: ViewModifier {
                 .presentationDetents([.height(410)])
                 .presentationDragIndicator(.visible)
             }
-            .sheet(isPresented: $isBoardRulesPresented) {
+            .adaptivePadBottomHalfSheet(
+                isPresented: $isBoardRulesPresented,
+                usePadPresentation: usesPadBottomHalfSheets,
+                backgroundColor: Color(hex: "FAF9F3"),
+                contentMaxWidth: 720,
+                padHeightFraction: 0.9,
+                onDismiss: onBoardRulesDismissed
+            ) {
                 if let boardRulesTargetBoardID,
                    let board = namedBoards.first(where: { $0.id == boardRulesTargetBoardID }) {
+                    let matchingDraft = restoredBoardRulesDraft?.boardID == board.id
+                        ? restoredBoardRulesDraft
+                        : nil
                     BoardRulesSheet(
+                        boardName: board.name,
                         countdownEndsAt: board.countdownEndsAt,
                         initialResetMode: board.taskResetMode,
                         initialCustomResetMinutes: board.customResetMinutes,
+                        restoredDraft: matchingDraft,
                         onSave: { totalMinutes, resetMode, customResetMinutes in
-                            if customResetMinutes != nil, !hasPremiumAccess {
+                            let normalizedCustomResetMinutes = BoardResetRuleEngine.normalizedCustomResetMinutes(
+                                customResetMinutes,
+                                mode: resetMode
+                            )
+                            if normalizedCustomResetMinutes != nil, !hasPremiumAccess {
+                                let draft = BoardRulesDraft(
+                                    boardID: board.id,
+                                    countdownMinutes: totalMinutes,
+                                    resetMode: resetMode,
+                                    customResetMinutes: normalizedCustomResetMinutes
+                                )
                                 isBoardRulesPresented = false
-                                onPresentPremiumPaywall("board_rules_custom_reset_time")
+                                onBoardRulesPremiumRequired(draft)
                                 return
                             }
-                            onApplyBoardRulesSettings(board.id, totalMinutes, resetMode, customResetMinutes)
-                            isBoardRulesPresented = false
+                            if onApplyBoardRulesSettings(
+                                board.id,
+                                totalMinutes,
+                                resetMode,
+                                normalizedCustomResetMinutes
+                            ) {
+                                isBoardRulesPresented = false
+                            }
                         },
                         onCancel: {
                             isBoardRulesPresented = false
                         }
                     )
-                    .presentationDetents([.height(560)])
+                    .presentationDetents([.fraction(isPadLayout ? 0.72 : 0.88)])
                     .presentationDragIndicator(.visible)
+                    .presentationBackground(Color(hex: "FAF9F3"))
                 }
             }
-            .sheet(isPresented: $isGridSizeSheetPresented) {
+            .adaptivePadBottomHalfSheet(
+                isPresented: $isGridSizeSheetPresented,
+                usePadPresentation: usesPadBottomHalfSheets,
+                backgroundColor: NeumorphicColors.background,
+                contentMaxWidth: 720
+            ) {
                 gridSizeSheet()
                     .presentationDetents([.height(280)])
                     .presentationDragIndicator(.visible)
                     .presentationBackground(NeumorphicColors.background)
-            }
-            .fullScreenCover(isPresented: $isTemplateShareComposerPresented) {
-                if let template = boardTemplateShareDraft {
-                    BoardTemplateShareComposerView(template: template)
-                }
             }
     }
 }

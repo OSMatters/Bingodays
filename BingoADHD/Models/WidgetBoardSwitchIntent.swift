@@ -2,6 +2,45 @@ import Foundation
 import AppIntents
 import WidgetKit
 
+protocol WidgetBoardSelectionRepository: BoardStateCommitRepository, WidgetPanelSelectionRepository {
+    func loadNamedBoardsSnapshot() -> BingoBoardStore.NamedBoardsSnapshot
+    @discardableResult
+    func saveNamedBoardsSnapshot(_ snapshot: BingoBoardStore.NamedBoardsSnapshot, reloadWidgets: Bool) -> Bool
+}
+
+enum WidgetBoardSelectionService {
+    @discardableResult
+    static func selectBoard(
+        _ boardID: UUID,
+        repository: any WidgetBoardSelectionRepository
+    ) -> BoardStateCommitResult? {
+        var snapshot = repository.loadNamedBoardsSnapshot()
+        guard let selectedBoard = snapshot.boards.first(where: { $0.id == boardID }) else {
+            return nil
+        }
+
+        var savedNamedBoards = false
+        if snapshot.selectedBoardID != boardID {
+            snapshot.selectedBoardID = boardID
+            savedNamedBoards = repository.saveNamedBoardsSnapshot(snapshot, reloadWidgets: false)
+            guard savedNamedBoards else { return nil }
+        }
+
+        var result = BoardStateCommitter.saveActiveBoardState(
+            board: selectedBoard.board,
+            countdownEndsAt: selectedBoard.countdownEndsAt,
+            savedAt: selectedBoard.updatedAt,
+            associatedBoardID: selectedBoard.id,
+            repository: repository,
+            widgetPanelRepository: repository,
+            selectedWidgetPanelID: selectedBoard.id,
+            reloadWidgets: false
+        )
+        result.savedNamedBoards = savedNamedBoards
+        return result
+    }
+}
+
 struct SwitchBoardIntent: AppIntent {
     static var title: LocalizedStringResource = "Switch Board"
     static var description = IntentDescription("Switches the current board shown in the large widget.")
@@ -30,13 +69,14 @@ struct SwitchBoardIntent: AppIntent {
         let nextIndex = wrappedIndex(currentIndex + step, count: snapshot.boards.count)
         let nextPanelID = snapshot.boards[nextIndex].id
 
-        guard repository.loadSelectedWidgetPanelID() != nextPanelID else {
-            return .result()
-        }
+        guard WidgetBoardSelectionService.selectBoard(
+            nextPanelID,
+            repository: repository
+        ) != nil else { return .result() }
 
-        repository.saveSelectedWidgetPanelID(nextPanelID)
-        var result = BoardStateCommitResult(savedSelectedWidgetPanel: true)
-        BoardStateCommitter.reloadWidgetsIfNeeded(&result, repository: repository)
+        // Interactive widget intents receive a guaranteed timeline refresh after
+        // perform() returns. Avoid requesting another full reload here because two
+        // consecutive timeline replacements make the entire widget flash.
 
         return .result()
     }
@@ -52,6 +92,13 @@ struct ToggleWidgetTaskIntent: AppIntent {
     static var title: LocalizedStringResource = "Toggle Task"
     static var description = IntentDescription("Marks a widget task complete or incomplete.")
     static var openAppWhenRun = false
+
+    // On iOS 26 and later, keep the interaction in the containing app's background process.
+    // The app stays off-screen while the shared local transaction completes.
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes {
+        [.background, .foreground(.dynamic)]
+    }
 
     @Parameter(title: "Board ID")
     var boardID: String
@@ -80,46 +127,102 @@ struct ToggleWidgetTaskIntent: AppIntent {
             return .result()
         }
 
-        var snapshot = repository.loadNamedBoardsSnapshot()
+        var snapshot = WidgetTaskEventMerge.applying(
+            WidgetTaskSyncStore.load(),
+            to: repository.loadNamedBoardsSnapshot()
+        )
         let originalSnapshot = snapshot
         guard let index = snapshot.boards.firstIndex(where: { $0.id == id }) else {
             return .result()
         }
 
+        let now = Date()
+        let previousBoard = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(
+            snapshot.boards[index],
+            now: now
+        )
         guard let updatedBoard = WidgetTaskToggleService.toggled(
             board: snapshot.boards[index],
             row: row,
             col: col,
-            now: .now
+            now: now,
+            commitSideEffects: false
         ) else {
             return .result()
         }
 
-        snapshot.boards[index] = updatedBoard
-        snapshot.selectedBoardID = id
-        WidgetTaskSyncStore.save(board: updatedBoard)
-        let savedNamedBoards = snapshot != originalSnapshot
+        let didApplyBoardReset = updatedBoard.lastTaskResetAppliedAt != snapshot.boards[index].lastTaskResetAppliedAt
+        let cellMutation = WidgetTaskToggleService.cellMutation(
+            previousBoard: previousBoard.board,
+            updatedBoard: updatedBoard.board,
+            row: row,
+            col: col
+        )
+        guard let localSyncEvent = WidgetTaskSyncStore.saveEvent(
+            board: updatedBoard,
+            didApplyBoardReset: didApplyBoardReset,
+            cellMutation: cellMutation
+        ) else {
+            return .result()
+        }
+        // The local event is the recovery marker. Settle points before publishing the
+        // named-board snapshot so App launch cannot observe a new board with old points.
+        let committedSideEffects = NativeICloudLocalChangeReporter.withReportingSuppressed {
+            WidgetTaskToggleService.commitToggleSideEffects(
+                previousBoard: previousBoard,
+                updatedBoard: updatedBoard,
+                row: row,
+                col: col,
+                now: now,
+                didApplyBoardReset: didApplyBoardReset
+            )
+        }
+        guard committedSideEffects else {
+            return .result()
+        }
+        guard let committedSyncEvent = WidgetTaskSyncStore.markSideEffectsCommitted(
+            for: localSyncEvent
+        ) else {
+            return .result()
+        }
+
+        let latestSnapshot = repository.loadNamedBoardsSnapshot()
+        snapshot = WidgetTaskEventMerge.applying(WidgetTaskSyncStore.load(), to: latestSnapshot)
+        let shouldSaveNamedBoards = snapshot != latestSnapshot || snapshot != originalSnapshot
+        let savedNamedBoards = shouldSaveNamedBoards
             ? repository.saveNamedBoardsSnapshot(snapshot, reloadWidgets: false)
             : false
+        guard !shouldSaveNamedBoards || savedNamedBoards else {
+            return .result()
+        }
+        guard WidgetBoardSelectionService.selectBoard(id, repository: repository) != nil else {
+            return .result()
+        }
 
-        var result = BoardStateCommitter.saveActiveBoardState(
-            board: updatedBoard.board,
-            countdownEndsAt: updatedBoard.countdownEndsAt,
-            savedAt: updatedBoard.updatedAt,
-            associatedBoardID: id,
-            repository: repository,
-            widgetPanelRepository: repository,
-            selectedWidgetPanelID: id,
-            reloadWidgets: false
-        )
-        result.savedNamedBoards = savedNamedBoards
-        BoardStateCommitter.reloadWidgetsIfNeeded(&result, repository: repository)
+        // Every local repository is now durable, so the recovery marker can be removed.
+        WidgetTaskSyncStore.clear(ifMatching: committedSyncEvent.id)
+
+        if NativeICloudPreferences.isEnabled {
+            NativeICloudLocalChangeReporter.primaryStateDidChange(scheduleExport: false)
+            _ = try? await NativeICloudRuntime.shared.exportPrimaryNow()
+        }
+
+        // WidgetKit reloads the timeline once when this interaction completes.
+        // The persisted snapshot above is therefore visible without a second,
+        // explicit reloadAllTimelines() pass.
 
         return .result()
     }
 }
 
-private struct WidgetIntentBoardRepository: BoardStateCommitRepository, WidgetPanelSelectionRepository {
+// iOS 17–25 use this conformance to execute an interactive-widget intent in the containing
+// app's background process. It does not foreground or visibly open the app. The protocol is
+// unavailable to the widget-extension slice by design; both targets still share the AppIntent.
+@available(iOS, introduced: 16.4, deprecated: 26.0)
+@available(iOSApplicationExtension, unavailable)
+extension ToggleWidgetTaskIntent: ForegroundContinuableIntent {}
+
+private struct WidgetIntentBoardRepository: WidgetBoardSelectionRepository {
     func loadNamedBoardsSnapshot() -> BingoBoardStore.NamedBoardsSnapshot {
         BingoBoardStore.loadNamedBoardsSnapshot()
     }

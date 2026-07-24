@@ -3,11 +3,106 @@ import Foundation
 import WidgetKit
 #endif
 
+struct PersistenceWriteStep {
+    let apply: () -> Bool
+    let rollback: () -> Bool
+}
+
+enum PersistenceWriteTransaction {
+    static func commit(_ steps: [PersistenceWriteStep]) -> Bool {
+        for index in steps.indices {
+            guard steps[index].apply() else {
+                for rollbackIndex in (steps.startIndex...index).reversed() {
+                    _ = steps[rollbackIndex].rollback()
+                }
+                return false
+            }
+        }
+        return true
+    }
+
+    static func fileDataStep(at url: URL, newData: Data?) -> PersistenceWriteStep? {
+        let hadPreviousFile = FileManager.default.fileExists(atPath: url.path)
+        let previousData = try? Data(contentsOf: url)
+        guard !hadPreviousFile || previousData != nil else { return nil }
+
+        return PersistenceWriteStep(
+            apply: { replaceFile(at: url, with: newData) },
+            rollback: {
+                replaceFile(
+                    at: url,
+                    with: hadPreviousFile ? previousData : nil
+                )
+            }
+        )
+    }
+
+    static func userDefaultsStep(
+        defaults: UserDefaults,
+        key: String,
+        newValue: Any?
+    ) -> PersistenceWriteStep {
+        let previousValue = defaults.object(forKey: key)
+        return PersistenceWriteStep(
+            apply: {
+                replaceUserDefaultsValue(newValue, defaults: defaults, key: key)
+            },
+            rollback: {
+                replaceUserDefaultsValue(previousValue, defaults: defaults, key: key)
+            }
+        )
+    }
+
+    private static func replaceFile(at url: URL, with data: Data?) -> Bool {
+        do {
+            if let data {
+                try data.write(to: url, options: .atomic)
+                return (try? Data(contentsOf: url)) == data
+            }
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+            return !FileManager.default.fileExists(atPath: url.path)
+        } catch {
+            return false
+        }
+    }
+
+    private static func replaceUserDefaultsValue(
+        _ value: Any?,
+        defaults: UserDefaults,
+        key: String
+    ) -> Bool {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+        return propertyListValuesEqual(defaults.object(forKey: key), value)
+    }
+
+    private static func propertyListValuesEqual(_ lhs: Any?, _ rhs: Any?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (lhs as NSObject, rhs as NSObject):
+            return lhs.isEqual(rhs)
+        default:
+            return false
+        }
+    }
+}
+
 enum BoardTaskResetMode: String, Codable, CaseIterable {
     case resetStatusNextDay
     case clearTasksNextDay
     case customResetStatusTime
     case keepTaskStatus
+}
+
+enum BingoNamedBoardOrigin: String, Codable {
+    case user
+    case starterGuide
 }
 
 enum BingoBoardStore {
@@ -29,6 +124,7 @@ enum BingoBoardStore {
         var taskResetMode: BoardTaskResetMode
         var customResetMinutes: Int?
         var lastTaskResetAppliedAt: Date?
+        var origin: BingoNamedBoardOrigin
         var updatedAt: Date
 
         enum CodingKeys: String, CodingKey {
@@ -39,6 +135,7 @@ enum BingoBoardStore {
             case taskResetMode
             case customResetMinutes
             case lastTaskResetAppliedAt
+            case origin
             case updatedAt
         }
 
@@ -50,6 +147,7 @@ enum BingoBoardStore {
             taskResetMode: BoardTaskResetMode = .resetStatusNextDay,
             customResetMinutes: Int? = nil,
             lastTaskResetAppliedAt: Date? = .now,
+            origin: BingoNamedBoardOrigin = .user,
             updatedAt: Date = .now
         ) {
             self.id = id
@@ -59,6 +157,7 @@ enum BingoBoardStore {
             self.taskResetMode = taskResetMode
             self.customResetMinutes = NamedBoard.clampedCustomResetMinutes(customResetMinutes)
             self.lastTaskResetAppliedAt = lastTaskResetAppliedAt
+            self.origin = origin
             self.updatedAt = updatedAt
         }
 
@@ -70,6 +169,7 @@ enum BingoBoardStore {
             countdownEndsAt = try container.decodeIfPresent(Date.self, forKey: .countdownEndsAt)
             taskResetMode = try container.decodeIfPresent(BoardTaskResetMode.self, forKey: .taskResetMode) ?? .resetStatusNextDay
             customResetMinutes = NamedBoard.clampedCustomResetMinutes(try container.decodeIfPresent(Int.self, forKey: .customResetMinutes))
+            origin = try container.decodeIfPresent(BingoNamedBoardOrigin.self, forKey: .origin) ?? .user
             updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .now
             // Migration-safe anchor: if historical data doesn't have this field,
             // use updatedAt to avoid immediate same-day reset on first launch.
@@ -85,11 +185,188 @@ enum BingoBoardStore {
     struct NamedBoardsSnapshot: Codable, Equatable {
         var selectedBoardID: UUID?
         var boards: [NamedBoard]
+        var deletedBoardIDs: Set<UUID>?
 
-        init(selectedBoardID: UUID?, boards: [NamedBoard]) {
+        init(
+            selectedBoardID: UUID?,
+            boards: [NamedBoard],
+            deletedBoardIDs: Set<UUID> = []
+        ) {
             self.selectedBoardID = selectedBoardID
             self.boards = boards
+            self.deletedBoardIDs = deletedBoardIDs
         }
+
+        var effectiveDeletedBoardIDs: Set<UUID> {
+            deletedBoardIDs ?? []
+        }
+    }
+
+    static func snapshotByRemovingRedundantStarterGuideBoards(
+        _ snapshot: NamedBoardsSnapshot
+    ) -> NamedBoardsSnapshot {
+        let liveBoards = snapshot.boards.filter {
+            !snapshot.effectiveDeletedBoardIDs.contains($0.id)
+        }
+        let starterBoards = liveBoards.filter(isPristineStarterGuideBoard)
+        guard !starterBoards.isEmpty else {
+            return NamedBoardsSnapshot(
+                selectedBoardID: snapshot.selectedBoardID,
+                boards: liveBoards,
+                deletedBoardIDs: snapshot.effectiveDeletedBoardIDs
+            )
+        }
+
+        let hasMeaningfulUserBoard = liveBoards.contains { board in
+            !isPristineStarterGuideBoard(board) && !isPristineEmptyDefaultBoard(board)
+        }
+        let retainedStarterID: UUID?
+        if hasMeaningfulUserBoard {
+            retainedStarterID = nil
+        } else if let selectedBoardID = snapshot.selectedBoardID,
+                  starterBoards.contains(where: { $0.id == selectedBoardID }) {
+            retainedStarterID = selectedBoardID
+        } else {
+            retainedStarterID = starterBoards.min { lhs, rhs in
+                if lhs.updatedAt != rhs.updatedAt {
+                    return lhs.updatedAt < rhs.updatedAt
+                }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }?.id
+        }
+
+        let removedStarterIDs = Set(starterBoards.compactMap { board in
+            board.id == retainedStarterID ? nil : board.id
+        })
+        guard !removedStarterIDs.isEmpty else {
+            return NamedBoardsSnapshot(
+                selectedBoardID: snapshot.selectedBoardID,
+                boards: liveBoards,
+                deletedBoardIDs: snapshot.effectiveDeletedBoardIDs
+            )
+        }
+
+        let boards = liveBoards.filter { !removedStarterIDs.contains($0.id) }
+        let selectedBoardID = snapshot.selectedBoardID.flatMap { selectedID in
+            boards.contains(where: { $0.id == selectedID }) ? selectedID : nil
+        } ?? boards.first?.id
+        return NamedBoardsSnapshot(
+            selectedBoardID: selectedBoardID,
+            boards: boards,
+            deletedBoardIDs: snapshot.effectiveDeletedBoardIDs.union(removedStarterIDs)
+        )
+    }
+
+    static func isPristineStarterGuideBoard(_ namedBoard: NamedBoard) -> Bool {
+        guard defaultBoardNames.contains(normalizedBoardName(namedBoard.name)),
+              namedBoard.countdownEndsAt == nil,
+              namedBoard.taskResetMode == .resetStatusNextDay,
+              namedBoard.customResetMinutes == nil,
+              namedBoard.board.gridSize == 3,
+              namedBoard.board.completedLines.isEmpty else {
+            return false
+        }
+
+        let cells = BoardEngine.expandedBoardCache(from: namedBoard.board).flatMap(\.self)
+        let taskCells = cells.filter(\.hasStoredTask)
+        guard taskCells.count == 3,
+              cells.allSatisfy(isPristineStarterGuideCell) else {
+            return false
+        }
+        let taskKeys = Set(taskCells.map { normalizedTaskText($0.storedTaskText) })
+        return starterGuideTaskSets.contains(taskKeys)
+    }
+
+    private static func isPristineEmptyDefaultBoard(_ namedBoard: NamedBoard) -> Bool {
+        guard defaultBoardNames.contains(normalizedBoardName(namedBoard.name)),
+              namedBoard.countdownEndsAt == nil,
+              namedBoard.taskResetMode == .resetStatusNextDay,
+              namedBoard.customResetMinutes == nil,
+              namedBoard.board.gridSize == 3,
+              namedBoard.board.completedLines.isEmpty else {
+            return false
+        }
+        return BoardEngine.expandedBoardCache(from: namedBoard.board)
+            .flatMap(\.self)
+            .allSatisfy { !$0.hasStoredTask && isPristineStarterGuideCell($0) }
+    }
+
+    private static func isPristineStarterGuideCell(_ cell: BingoCell) -> Bool {
+        !cell.isCompleted &&
+            !cell.isForced &&
+            !cell.isTaskHidden &&
+            !cell.isDisplayOnlyInactive &&
+            cell.residentWeekdays.isEmpty &&
+            cell.oneTimeVisibleDate == nil &&
+            cell.recurrenceRule == nil &&
+            cell.startVisibleAt == nil &&
+            cell.endVisibleAt == nil &&
+            !cell.usesRecurringTimeWindow &&
+            !cell.startReminderEnabled &&
+            cell.startVisibleMonth == nil &&
+            cell.startVisibleDay == nil &&
+            cell.countdownEndsAt == nil &&
+            cell.countdownPausedRemainingSeconds == nil &&
+            cell.estimatedDurationMinutes == nil &&
+            cell.completionStreakCount == 0 &&
+            cell.lastCompletedAt == nil &&
+            cell.lastVisibilityWindowTimeoutAt == nil &&
+            (cell.residentTaskText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
+    private static let defaultBoardNames: Set<String> = Set([
+        "Board 1", "Board1", "棋盘1", "棋盘 1", "棋盤1", "棋盤 1", "ボード1", "ボード 1"
+    ].map(normalizedBoardName))
+
+    private static let starterGuideTaskSets: [Set<String>] = [
+        ["Drink a glass of water", "Stand for 1 minute", "Stretch your body"],
+        ["喝一杯水", "站立1分钟", "拉伸身体"],
+        ["喝一杯水", "站立1分鐘", "拉伸身體"]
+    ].map { Set($0.map(normalizedTaskText)) }
+
+    private static func normalizedBoardName(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func normalizedTaskText(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Board selection is a device-local projection. The active mirror identifies the board
+    /// currently rendered by this device and therefore wins over a stale snapshot selection.
+    static func resolvedLocalBoardID(
+        in snapshot: NamedBoardsSnapshot,
+        activeBoardID: UUID?
+    ) -> UUID? {
+        if let activeBoardID,
+           snapshot.boards.contains(where: { $0.id == activeBoardID }) {
+            return activeBoardID
+        }
+        if let selectedBoardID = snapshot.selectedBoardID,
+           snapshot.boards.contains(where: { $0.id == selectedBoardID }) {
+            return selectedBoardID
+        }
+        return snapshot.boards.first?.id
+    }
+
+    static func snapshotByApplyingLocalSelection(
+        _ snapshot: NamedBoardsSnapshot,
+        activeBoardID: UUID?
+    ) -> NamedBoardsSnapshot {
+        NamedBoardsSnapshot(
+            selectedBoardID: resolvedLocalBoardID(
+                in: snapshot,
+                activeBoardID: activeBoardID
+            ),
+            boards: snapshot.boards,
+            deletedBoardIDs: snapshot.effectiveDeletedBoardIDs
+        )
+    }
+
+    /// The active board is a repairable projection of one named board. A different cell identity
+    /// means it came from another board (or a damaged projection) and must never be merged back.
+    static func hasMatchingCellIdentity(_ lhs: SavedBoard, _ rhs: SavedBoard) -> Bool {
+        canonicalCellIDs(in: lhs) == canonicalCellIDs(in: rhs)
     }
 
     private struct WidgetMetrics: Codable {
@@ -97,24 +374,45 @@ enum BingoBoardStore {
     }
 
     static func loadBoard() -> SavedBoard? {
-        if let data = try? Data(contentsOf: sharedFileURL),
-           let saved = try? JSONDecoder().decode(SavedBoard.self, from: data) {
-            return saved
-        }
+        let fileData = try? Data(contentsOf: sharedFileURL)
+        let sharedData = sharedDefaults.data(forKey: saveKey)
+        let standardData = UserDefaults.standard.data(forKey: saveKey)
 
-        if let data = sharedDefaults.data(forKey: saveKey),
-           let saved = try? JSONDecoder().decode(SavedBoard.self, from: data) {
-            persistSharedFile(data)
-            return saved
-        }
-
-        if let data = UserDefaults.standard.data(forKey: saveKey),
-           let saved = try? JSONDecoder().decode(SavedBoard.self, from: data) {
-            persistSharedFile(data)
+        for data in preferredBoardDataCandidates(
+            fileData: fileData,
+            sharedData: sharedData,
+            standardData: standardData
+        ) {
+            guard let saved = try? JSONDecoder().decode(SavedBoard.self, from: data) else {
+                continue
+            }
+            repairBoardPersistenceIfNeeded(data)
             return saved
         }
 
         return nil
+    }
+
+    static func normalizedBoardForPersistence(
+        _ board: SavedBoard,
+        referenceDate: Date
+    ) -> SavedBoard {
+        let normalized = BoardEngine.removingUnsupportedRecurringTiming(
+            from: board,
+            referenceDate: referenceDate
+        )
+
+        // `BingoCell.isDisplayOnlyInactive` is intentionally not Codable because
+        // it is a view projection, not user data. A board assembled from visible
+        // cells can therefore differ from the same board immediately after a
+        // successful encode/decode. Canonicalize through the real persistence
+        // representation so transaction verification compares what is actually
+        // durable instead of transient UI-only state.
+        guard let data = try? JSONEncoder().encode(normalized),
+              let canonical = try? JSONDecoder().decode(SavedBoard.self, from: data) else {
+            return normalized
+        }
+        return canonical
     }
 
     @discardableResult
@@ -124,13 +422,47 @@ enum BingoBoardStore {
         associatedBoardID: UUID? = nil,
         reloadWidgets: Bool = true
     ) -> Bool {
-        guard let data = try? JSONEncoder().encode(board) else { return false }
+        let normalizedBoard = normalizedBoardForPersistence(board, referenceDate: savedAt)
+        guard let data = try? JSONEncoder().encode(normalizedBoard) else { return false }
 
-        persistSharedFile(data)
-        sharedDefaults.set(data, forKey: saveKey)
-        UserDefaults.standard.set(data, forKey: saveKey)
-        saveBoardLastSavedAt(savedAt)
-        saveActiveNamedBoardID(associatedBoardID)
+        guard let fileStep = PersistenceWriteTransaction.fileDataStep(
+            at: sharedFileURL,
+            newData: data
+        ) else { return false }
+        let didCommit = PersistenceWriteTransaction.commit([
+            fileStep,
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: saveKey,
+                newValue: data
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: saveKey,
+                newValue: data
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: lastSavedAtKey,
+                newValue: savedAt
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: lastSavedAtKey,
+                newValue: savedAt
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: activeNamedBoardIDKey,
+                newValue: associatedBoardID?.uuidString
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: activeNamedBoardIDKey,
+                newValue: associatedBoardID?.uuidString
+            )
+        ])
+        guard didCommit else { return false }
 
         if reloadWidgets {
             reloadWidgetTimelines()
@@ -140,13 +472,79 @@ enum BingoBoardStore {
     }
 
     static func clearBoard(reloadWidgets: Bool = true) {
-        try? FileManager.default.removeItem(at: sharedFileURL)
-        sharedDefaults.removeObject(forKey: saveKey)
-        UserDefaults.standard.removeObject(forKey: saveKey)
-        sharedDefaults.removeObject(forKey: lastSavedAtKey)
-        UserDefaults.standard.removeObject(forKey: lastSavedAtKey)
-        saveActiveNamedBoardID(nil)
-        saveBoardCountdownEndsAt(nil)
+        guard let fileStep = PersistenceWriteTransaction.fileDataStep(
+            at: sharedFileURL,
+            newData: nil
+        ) else { return }
+        let didClear = PersistenceWriteTransaction.commit([
+            fileStep,
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: saveKey,
+                newValue: nil
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: saveKey,
+                newValue: nil
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: lastSavedAtKey,
+                newValue: nil
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: lastSavedAtKey,
+                newValue: nil
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: activeNamedBoardIDKey,
+                newValue: nil
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: activeNamedBoardIDKey,
+                newValue: nil
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: AppSettings.boardCountdownKey,
+                newValue: nil
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: AppSettings.boardCountdownKey,
+                newValue: nil
+            )
+        ])
+        guard didClear else { return }
+
+        if reloadWidgets {
+            reloadWidgetTimelines()
+        }
+    }
+
+    static func clearNamedBoardsSnapshot(reloadWidgets: Bool = true) {
+        guard let fileStep = PersistenceWriteTransaction.fileDataStep(
+            at: namedBoardsFileURL,
+            newData: nil
+        ) else { return }
+        let didClear = PersistenceWriteTransaction.commit([
+            fileStep,
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: boardsSaveKey,
+                newValue: nil
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: boardsSaveKey,
+                newValue: nil
+            )
+        ])
+        guard didClear else { return }
 
         if reloadWidgets {
             reloadWidgetTimelines()
@@ -159,6 +557,8 @@ enum BingoBoardStore {
             let sanitized = sanitizeNamedBoardsSnapshot(decoded)
             if sanitized != decoded {
                 saveNamedBoardsSnapshot(sanitized)
+            } else {
+                repairNamedBoardsPersistenceIfNeeded(data)
             }
             return sanitized
         }
@@ -205,9 +605,23 @@ enum BingoBoardStore {
         guard let data = try? JSONEncoder().encode(sanitized) else { return false }
         guard !isNamedBoardsPersistenceCurrent(data) else { return false }
 
-        persistNamedBoardsFile(data)
-        sharedDefaults.set(data, forKey: boardsSaveKey)
-        UserDefaults.standard.set(data, forKey: boardsSaveKey)
+        guard let fileStep = PersistenceWriteTransaction.fileDataStep(
+            at: namedBoardsFileURL,
+            newData: data
+        ) else { return false }
+        guard PersistenceWriteTransaction.commit([
+            fileStep,
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: boardsSaveKey,
+                newValue: data
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: boardsSaveKey,
+                newValue: data
+            )
+        ]) else { return false }
 
         if reloadWidgets {
             reloadWidgetTimelines()
@@ -222,13 +636,37 @@ enum BingoBoardStore {
         #endif
     }
 
+    /// Cloud imports update both widget kinds from the App Group projection.
+    /// Targeted reloads make the intended refresh observable and avoid relying
+    /// on WidgetKit to infer which timeline changed.
+    static func reloadICloudWidgetTimelines() {
+        #if canImport(WidgetKit)
+        WidgetCenter.shared.reloadTimelines(ofKind: BingodaysWidgetKind.countdown)
+        WidgetCenter.shared.reloadTimelines(ofKind: BingodaysWidgetKind.board)
+        #endif
+        DiagnosticLogStore.recordStateChange("icloud.widget_timeline_reload_requested")
+    }
+
+    static func reloadBoardWidgetTimeline() {
+        #if canImport(WidgetKit)
+        WidgetCenter.shared.reloadTimelines(ofKind: BingodaysWidgetKind.board)
+        #endif
+    }
+
     static func loadBoardLastSavedAt() -> Date? {
         if let date = sharedDefaults.object(forKey: lastSavedAtKey) as? Date {
+            repairStandardDefaultsValueIfNeeded(date, forKey: lastSavedAtKey)
             return date
         }
 
         if let date = UserDefaults.standard.object(forKey: lastSavedAtKey) as? Date {
-            sharedDefaults.set(date, forKey: lastSavedAtKey)
+            _ = PersistenceWriteTransaction.commit([
+                PersistenceWriteTransaction.userDefaultsStep(
+                    defaults: sharedDefaults,
+                    key: lastSavedAtKey,
+                    newValue: date
+                )
+            ])
             return date
         }
 
@@ -242,19 +680,36 @@ enum BingoBoardStore {
     }
 
     static func saveBoardLastSavedAt(_ date: Date) {
-        sharedDefaults.set(date, forKey: lastSavedAtKey)
-        UserDefaults.standard.set(date, forKey: lastSavedAtKey)
+        _ = PersistenceWriteTransaction.commit([
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: lastSavedAtKey,
+                newValue: date
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: lastSavedAtKey,
+                newValue: date
+            )
+        ])
     }
 
     static func loadActiveNamedBoardID() -> UUID? {
         if let rawValue = sharedDefaults.string(forKey: activeNamedBoardIDKey),
            let boardID = UUID(uuidString: rawValue) {
+            repairStandardDefaultsValueIfNeeded(rawValue, forKey: activeNamedBoardIDKey)
             return boardID
         }
 
         if let rawValue = UserDefaults.standard.string(forKey: activeNamedBoardIDKey),
            let boardID = UUID(uuidString: rawValue) {
-            sharedDefaults.set(rawValue, forKey: activeNamedBoardIDKey)
+            _ = PersistenceWriteTransaction.commit([
+                PersistenceWriteTransaction.userDefaultsStep(
+                    defaults: sharedDefaults,
+                    key: activeNamedBoardIDKey,
+                    newValue: rawValue
+                )
+            ])
             return boardID
         }
 
@@ -262,23 +717,37 @@ enum BingoBoardStore {
     }
 
     static func saveActiveNamedBoardID(_ boardID: UUID?) {
-        guard let boardID else {
-            sharedDefaults.removeObject(forKey: activeNamedBoardIDKey)
-            UserDefaults.standard.removeObject(forKey: activeNamedBoardIDKey)
-            return
-        }
-
-        sharedDefaults.set(boardID.uuidString, forKey: activeNamedBoardIDKey)
-        UserDefaults.standard.set(boardID.uuidString, forKey: activeNamedBoardIDKey)
+        _ = PersistenceWriteTransaction.commit([
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: activeNamedBoardIDKey,
+                newValue: boardID?.uuidString
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: activeNamedBoardIDKey,
+                newValue: boardID?.uuidString
+            )
+        ])
     }
 
     static func loadBoardCountdownEndsAt() -> Date? {
         if let countdown = sharedDefaults.object(forKey: AppSettings.boardCountdownKey) as? Date {
+            repairStandardDefaultsValueIfNeeded(
+                countdown,
+                forKey: AppSettings.boardCountdownKey
+            )
             return countdown
         }
 
         if let countdown = UserDefaults.standard.object(forKey: AppSettings.boardCountdownKey) as? Date {
-            sharedDefaults.set(countdown, forKey: AppSettings.boardCountdownKey)
+            _ = PersistenceWriteTransaction.commit([
+                PersistenceWriteTransaction.userDefaultsStep(
+                    defaults: sharedDefaults,
+                    key: AppSettings.boardCountdownKey,
+                    newValue: countdown
+                )
+            ])
             return countdown
         }
 
@@ -286,8 +755,18 @@ enum BingoBoardStore {
     }
 
     static func saveBoardCountdownEndsAt(_ date: Date?) {
-        sharedDefaults.set(date, forKey: AppSettings.boardCountdownKey)
-        UserDefaults.standard.set(date, forKey: AppSettings.boardCountdownKey)
+        _ = PersistenceWriteTransaction.commit([
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: AppSettings.boardCountdownKey,
+                newValue: date
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: AppSettings.boardCountdownKey,
+                newValue: date
+            )
+        ])
     }
 
     static func usageDays(referenceDate: Date = .now) -> Int {
@@ -312,21 +791,28 @@ enum BingoBoardStore {
     }
 
     private static func sanitizeNamedBoardsSnapshot(_ snapshot: NamedBoardsSnapshot) -> NamedBoardsSnapshot {
+        let deletedBoardIDs = snapshot.effectiveDeletedBoardIDs
         var seenIDs = Set<UUID>()
         var sanitizedBoards: [NamedBoard] = []
         sanitizedBoards.reserveCapacity(snapshot.boards.count)
 
         for board in snapshot.boards {
+            guard !deletedBoardIDs.contains(board.id) else { continue }
             guard seenIDs.insert(board.id).inserted else { continue }
+            let normalizedBoard = normalizedBoardForPersistence(
+                board.board,
+                referenceDate: .now
+            )
             sanitizedBoards.append(
                 NamedBoard(
                     id: board.id,
                     name: board.name,
-                    board: board.board,
+                    board: normalizedBoard,
                     countdownEndsAt: board.countdownEndsAt,
                     taskResetMode: board.taskResetMode,
                     customResetMinutes: board.customResetMinutes,
                     lastTaskResetAppliedAt: board.lastTaskResetAppliedAt,
+                    origin: board.origin,
                     updatedAt: board.updatedAt
                 )
             )
@@ -338,6 +824,10 @@ enum BingoBoardStore {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let limited = String(trimmed.prefix(maxBoardNameLength))
             sanitizedBoards[index].name = limited.isEmpty ? L10n.boardDefaultName(fallbackIndex) : limited
+            sanitizedBoards[index].customResetMinutes = BoardResetRuleEngine.normalizedCustomResetMinutes(
+                sanitizedBoards[index].customResetMinutes,
+                mode: sanitizedBoards[index].taskResetMode
+            )
         }
 
         sanitizeCrossBoardCellIdentityReuse(in: &sanitizedBoards)
@@ -350,7 +840,11 @@ enum BingoBoardStore {
             selectedBoardID = sanitizedBoards.first?.id
         }
 
-        return NamedBoardsSnapshot(selectedBoardID: selectedBoardID, boards: sanitizedBoards)
+        return snapshotByRemovingRedundantStarterGuideBoards(NamedBoardsSnapshot(
+            selectedBoardID: selectedBoardID,
+            boards: sanitizedBoards,
+            deletedBoardIDs: deletedBoardIDs
+        ))
     }
 
     private static func sanitizeCrossBoardCellIdentityReuse(in boards: inout [NamedBoard]) {
@@ -666,12 +1160,111 @@ enum BingoBoardStore {
         sharedURL(for: boardsFileName)
     }
 
-    private static func persistSharedFile(_ data: Data) {
-        try? data.write(to: sharedFileURL, options: .atomic)
+    private static func preferredBoardDataCandidates(
+        fileData: Data?,
+        sharedData: Data?,
+        standardData: Data?
+    ) -> [Data] {
+        let defaultsData = sharedData ?? standardData
+        guard let fileData else {
+            return uniqueDataCandidates([defaultsData, standardData])
+        }
+        guard let defaultsData, defaultsData != fileData else {
+            return uniqueDataCandidates([fileData, sharedData, standardData])
+        }
+
+        let fileModifiedAt = try? sharedFileURL
+            .resourceValues(forKeys: [.contentModificationDateKey])
+            .contentModificationDate
+        let defaultsSavedAt = (sharedDefaults.object(forKey: lastSavedAtKey) as? Date)
+            ?? (UserDefaults.standard.object(forKey: lastSavedAtKey) as? Date)
+        let defaultsAreNewer = defaultsSavedAt.map { savedAt in
+            guard let fileModifiedAt else { return true }
+            return savedAt > fileModifiedAt
+        } ?? false
+
+        return defaultsAreNewer
+            ? uniqueDataCandidates([defaultsData, fileData, standardData])
+            : uniqueDataCandidates([fileData, defaultsData, standardData])
     }
 
-    private static func persistNamedBoardsFile(_ data: Data) {
-        try? data.write(to: namedBoardsFileURL, options: .atomic)
+    private static func uniqueDataCandidates(_ candidates: [Data?]) -> [Data] {
+        var seen = Set<Data>()
+        return candidates.compactMap { data in
+            guard let data, seen.insert(data).inserted else { return nil }
+            return data
+        }
+    }
+
+    private static func repairBoardPersistenceIfNeeded(_ data: Data) {
+        var steps: [PersistenceWriteStep] = []
+        if (try? Data(contentsOf: sharedFileURL)) != data {
+            guard let fileStep = PersistenceWriteTransaction.fileDataStep(
+                at: sharedFileURL,
+                newData: data
+            ) else { return }
+            steps.append(fileStep)
+        }
+        if sharedDefaults.data(forKey: saveKey) != data {
+            steps.append(PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: saveKey,
+                newValue: data
+            ))
+        }
+        if UserDefaults.standard.data(forKey: saveKey) != data {
+            steps.append(PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: saveKey,
+                newValue: data
+            ))
+        }
+        _ = PersistenceWriteTransaction.commit(steps)
+    }
+
+    private static func repairNamedBoardsPersistenceIfNeeded(_ data: Data) {
+        var steps: [PersistenceWriteStep] = []
+        if sharedDefaults.data(forKey: boardsSaveKey) != data {
+            steps.append(PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: boardsSaveKey,
+                newValue: data
+            ))
+        }
+        if UserDefaults.standard.data(forKey: boardsSaveKey) != data {
+            steps.append(PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: boardsSaveKey,
+                newValue: data
+            ))
+        }
+        _ = PersistenceWriteTransaction.commit(steps)
+    }
+
+    private static func repairStandardDefaultsValueIfNeeded(
+        _ value: Any,
+        forKey key: String
+    ) {
+        guard let current = UserDefaults.standard.object(forKey: key) as? NSObject,
+              !current.isEqual(value as AnyObject) else {
+            if UserDefaults.standard.object(forKey: key) == nil {
+                _ = PersistenceWriteTransaction.commit([
+                    PersistenceWriteTransaction.userDefaultsStep(
+                        defaults: .standard,
+                        key: key,
+                        newValue: value
+                    )
+                ])
+            }
+            return
+        }
+        _ = PersistenceWriteTransaction.commit([
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: key,
+                newValue: value
+            )
+        ])
     }
 
     private static func isNamedBoardsPersistenceCurrent(_ data: Data) -> Bool {

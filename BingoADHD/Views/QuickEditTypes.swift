@@ -90,6 +90,12 @@ struct QuickEditApplyPlan: Equatable {
     let targetGridSize: Int
 }
 
+struct QuickEditPreviewAppendResult: Equatable {
+    let updatedSlots: [QuickEditPreviewSlot]
+    let addedTaskCount: Int
+    let omittedTaskCount: Int
+}
+
 struct QuickEditPreviewEditingTarget: Identifiable, Equatable {
     let slotID: UUID
     var id: UUID { slotID }
@@ -248,15 +254,15 @@ func quickEditMakePreviewCellFromEdit(
     let trimmedText = limitedText.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedText.isEmpty else { return nil }
 
-    let normalizedStartVisibleAt = startVisibleAt
-    let normalizedEndVisibleAt = {
+    let submittedStartVisibleAt = startVisibleAt
+    let submittedEndVisibleAt = {
         guard let endVisibleAt else { return nil as Date? }
-        if let normalizedStartVisibleAt, endVisibleAt <= normalizedStartVisibleAt {
+        if let submittedStartVisibleAt, endVisibleAt <= submittedStartVisibleAt {
             return nil
         }
         return endVisibleAt
     }()
-    let recurrenceDefaultDate = normalizedStartVisibleAt ?? Date()
+    let recurrenceDefaultDate = submittedStartVisibleAt ?? Date()
     let normalizedRecurrenceRule = recurrenceRule?.normalized(
         defaultWeekday: Calendar.current.component(.weekday, from: recurrenceDefaultDate),
         defaultMonthDay: Calendar.current.component(.day, from: recurrenceDefaultDate),
@@ -269,6 +275,8 @@ func quickEditMakePreviewCellFromEdit(
         normalizedWeekdays = normalizedRecurrenceRule == nil ? Set(residentWeekdays.filter { (1...7).contains($0) }) : []
     }
     let hasRepeatingSchedule = normalizedRecurrenceRule.map { $0.kind != .none } ?? !normalizedWeekdays.isEmpty
+    let normalizedStartVisibleAt = hasRepeatingSchedule ? nil : submittedStartVisibleAt
+    let normalizedEndVisibleAt = hasRepeatingSchedule ? nil : submittedEndVisibleAt
     let allowsTaskCountdown = !hasRepeatingSchedule
     let normalizedEstimatedDurationMinutes = allowsTaskCountdown
         ? estimatedDurationMinutes.map { min(max($0, 1), BingoViewModel.maxCountdownMinutes) }
@@ -277,15 +285,12 @@ func quickEditMakePreviewCellFromEdit(
     let normalizedOneTimeVisibleDate = normalizedOneTimeTask
         ? (normalizedRecurrenceRule?.anchorDate ?? normalizedStartVisibleAt ?? Date())
         : nil
-    let normalizedReminderEnabled = normalizedStartVisibleAt != nil && normalizedEndVisibleAt != nil && startReminderEnabled
+    let normalizedReminderEnabled = !hasRepeatingSchedule &&
+        normalizedStartVisibleAt != nil &&
+        normalizedEndVisibleAt != nil &&
+        startReminderEnabled
     let normalizedReminderOffset = BingoCell.normalizedStartReminderOffsetMinutes(startReminderOffsetMinutes)
-    let normalizedUsesRecurringTimeWindow: Bool
-    if let recurrenceKind = normalizedRecurrenceRule?.kind {
-        normalizedUsesRecurringTimeWindow = recurrenceKind != .none &&
-            (normalizedStartVisibleAt != nil || normalizedEndVisibleAt != nil)
-    } else {
-        normalizedUsesRecurringTimeWindow = false
-    }
+    let normalizedUsesRecurringTimeWindow = false
     let usesStoredSchedule = normalizedRecurrenceRule != nil || !normalizedWeekdays.isEmpty || normalizedOneTimeTask || normalizedStartVisibleAt != nil || normalizedEndVisibleAt != nil
 
     var cell = existingCell ?? BingoCell()
@@ -710,6 +715,43 @@ func quickEditAddPreviewTask(
     return (slots, true)
 }
 
+func quickEditAppendTasksToPreview(
+    keys: [String],
+    candidateTaskMap: [String: MyTaskItem],
+    currentSlots: [QuickEditPreviewSlot]
+) -> QuickEditPreviewAppendResult {
+    var slots = currentSlots
+    var addedTaskCount = 0
+    var omittedTaskCount = 0
+
+    for key in keys {
+        guard let task = candidateTaskMap[key], task.isStartDateReached() else { continue }
+
+        if let existingIndex = slots.firstIndex(where: { $0.sourceTaskKey == key }) {
+            slots[existingIndex].cellState = quickEditMakePreviewCell(
+                from: task,
+                preserving: slots[existingIndex].cellState
+            )
+            continue
+        }
+
+        guard let emptyIndex = slots.firstIndex(where: { $0.task == nil }) else {
+            omittedTaskCount += 1
+            continue
+        }
+
+        slots[emptyIndex].cellState = quickEditMakePreviewCell(from: task)
+        slots[emptyIndex].sourceTaskKey = key
+        addedTaskCount += 1
+    }
+
+    return QuickEditPreviewAppendResult(
+        updatedSlots: slots,
+        addedTaskCount: addedTaskCount,
+        omittedTaskCount: omittedTaskCount
+    )
+}
+
 func quickEditRemovePreviewTask(
     key: String,
     currentSlots: [QuickEditPreviewSlot]
@@ -719,23 +761,6 @@ func quickEditRemovePreviewTask(
     slots[index].cellState = nil
     slots[index].sourceTaskKey = nil
     return slots
-}
-
-func quickEditRebuildPreviewSlots(
-    selectedTaskKeys: [String],
-    candidateTaskMap: [String: MyTaskItem],
-    totalGridSlots: Int
-) -> [QuickEditPreviewSlot] {
-    let activeSlots = selectedTaskKeys.compactMap { key -> QuickEditPreviewSlot? in
-        guard let task = candidateTaskMap[key], task.isStartDateReached() else { return nil }
-        return QuickEditPreviewSlot(cellState: quickEditMakePreviewCell(from: task), sourceTaskKey: key)
-    }
-
-    var result = Array(activeSlots.prefix(totalGridSlots))
-    if result.count < totalGridSlots {
-        result.append(contentsOf: quickEditEmptyPreviewSlots(count: totalGridSlots - result.count))
-    }
-    return result
 }
 
 func quickEditSyncPreviewSlotsWithLibrary(

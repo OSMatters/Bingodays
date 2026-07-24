@@ -458,7 +458,7 @@ struct LimitedTimeDiscountView: View {
 
     private var originalLifetimePrice: String {
         if let product = subscriptionManager.productsByID[SubscriptionManager.lifetimeProductID] {
-            return product.displayPrice
+            return subscriptionManager.displayPrice(for: product)
         }
 
         return subscriptionManager.displayPrice(for: SubscriptionManager.lifetimeProductID)
@@ -466,7 +466,7 @@ struct LimitedTimeDiscountView: View {
 
     private var discountedLifetimePrice: String {
         if let product = subscriptionManager.productsByID[SubscriptionManager.lifetimeEarlySupporterProductID] {
-            return product.displayPrice
+            return subscriptionManager.displayPrice(for: product)
         }
 
         let cachedDiscountPrice = subscriptionManager.displayPrice(for: SubscriptionManager.lifetimeEarlySupporterProductID)

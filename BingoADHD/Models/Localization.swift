@@ -170,7 +170,6 @@ enum L10n {
         case "Confirm restart?": return "やり直しますか？"
         case "View how to play?": return "遊び方を表示しますか？"
         case "Refresh pending tasks?": return "未完了タスクを更新しますか？"
-        case "You'll leave 2048 mode and current board progress won't be kept.": return "2048モードを終了します。現在のボード進捗は保存されません。"
         case "This will clear the board and generate tasks again.": return "ボードをクリアしてタスクを再生成します。"
         case "This will switch theme and reset the current board.": return "テーマを切り替えて現在のボードをリセットします。"
         case "This will open the how-to-play popup.": return "遊び方のポップアップを開きます。"
@@ -688,52 +687,6 @@ enum L10n {
     static var addTask: String { tr("Add Task", zhHans: "添加任务", ja: "タスクを追加") }
     static var addGroup: String { tr("Add Group", zhHans: "添加分组", ja: "グループを追加") }
     static var quickEdit: String { tr("Quick Edit", zhHans: "快速编辑", ja: "クイック編集") }
-    static var blackBoxMode: String { tr("Black Box Mode", zhHans: "黑盒模式", zhHant: "黑盒模式", ja: "ブラックボックスモード") }
-    static var blackBoxModeDescription: String {
-        tr(
-            "2048 x themed tasks mode is now available on this branch. Select a theme, complete tasks, and merge completed tiles into Bingo progress.",
-            zhHans: "2048 x 主题任务模式已在这个分支开启。选择主题、完成任务，并把已完成格子合并成 Bingo 进度。",
-            zhHant: "2048 x 主題任務模式已在這個分支開啟。選擇主題、完成任務，並把已完成格子合併成 Bingo 進度。"
-        )
-    }
-    static var blackBoxModeFeatureTheme: String {
-        tr("Generate random tasks by theme.", zhHans: "按主题生成随机任务。", zhHant: "按主題生成隨機任務。", ja: "テーマに沿ってランダムなタスクを生成します。")
-    }
-    static var blackBoxModeFeatureMerge: String {
-        tr("Merge completed tiles with 2048 rules.", zhHans: "按 2048 规则合并已完成格子。", zhHant: "按 2048 規則合併已完成格子。", ja: "2048のルールで完了したタイルを合成します。")
-    }
-    static var blackBoxModeFeatureBingo: String {
-        tr("Progressively build Bingo milestones.", zhHans: "逐步构建 Bingo 里程碑。", zhHant: "逐步建立 Bingo 里程碑。", ja: "Bingoのマイルストーンを段階的に作ります。")
-    }
-    static var blackBoxModeStart: String { tr("Start", zhHans: "开始", zhHant: "開始", ja: "開始") }
-    static var blackBoxModeHowToTitle: String { tr("How to Play", zhHans: "玩法说明", zhHant: "玩法說明", ja: "遊び方") }
-    static var blackBoxModeThemeTitle: String { tr("Theme", zhHans: "主题", zhHant: "主題", ja: "テーマ") }
-    static var blackBoxModeGridSizeTitle: String { tr("Grid", zhHans: "棋盘", zhHant: "棋盤", ja: "グリッド") }
-    static var blackBoxModeTapHint: String {
-        tr("Tap a tile to mark task completed.", zhHans: "点击任务格可切换完成状态。", zhHant: "點擊任務格可切換完成狀態。", ja: "タイルをタップしてタスクの完了状態を切り替えます。")
-    }
-    static var blackBoxModeSwipeHint: String {
-        tr("Swipe to move and merge completed tiles.", zhHans: "滑动棋盘可移动并合并已完成任务格。", zhHant: "滑動棋盤可移動並合併已完成任務格。", ja: "スワイプして完了タイルを移動・合成します。")
-    }
-    static var blackBoxModeRestart: String { tr("Restart", zhHans: "重开", zhHant: "重開", ja: "やり直す") }
-    static var blackBoxModeBackToIntro: String { tr("Intro", zhHans: "简介", zhHant: "簡介", ja: "概要") }
-    static var blackBoxModeMoves: String { tr("Moves", zhHans: "步数", zhHant: "步數", ja: "手数") }
-    static var blackBoxModeMerges: String { tr("Merges", zhHans: "合并", zhHant: "合併", ja: "合成") }
-    static var blackBoxModeBingos: String { tr("Bingos", zhHans: "Bingo", zhHant: "Bingo", ja: "Bingo") }
-    static var blackBoxModeGameOver: String { tr("No more moves", zhHans: "无可用移动", zhHant: "無可用移動", ja: "移動できません") }
-    static var blackBoxModeHealthTheme: String { tr("Healthy Life", zhHans: "健康生活", zhHant: "健康生活", ja: "健康生活") }
-    static var blackBoxModeFocusTheme: String { tr("Focus Sprint", zhHans: "专注冲刺", zhHant: "專注衝刺", ja: "集中スプリント") }
-    static var blackBoxModeHomeTheme: String { tr("Home Reset", zhHans: "居家整理", zhHant: "居家整理", ja: "部屋リセット") }
-    static var blackBoxModeTileDetailTitle: String { tr("Tile Details", zhHans: "格子详情", zhHant: "格子詳情", ja: "タイル詳細") }
-    static var blackBoxModeContainsTasks: String { tr("Contains", zhHans: "包含任务", zhHant: "包含任務", ja: "含まれるタスク") }
-    static var blackBoxModeCompletionCount: String { tr("Completion Count", zhHans: "完成次数", zhHant: "完成次數", ja: "完了回数") }
-    static var blackBoxModeTotalCompletions: String { tr("Total", zhHans: "总计", zhHant: "總計", ja: "合計") }
-    static func blackBoxModeTileScore(_ score: Int) -> String {
-        tr("\(score) pts", zhHans: "\(score)分", zhHant: "\(score)分", ja: "\(score) pt")
-    }
-    static func blackBoxModeThemeScore(themeTitle: String, score: Int) -> String {
-        tr("\(themeTitle) \(score) pts", zhHans: "\(themeTitle)\(score)分", zhHant: "\(themeTitle)\(score)分", ja: "\(themeTitle) \(score) pt")
-    }
     static var updateWhatsNewTitle: String { tr("What's New", zhHans: "版本更新", zhHant: "版本更新", ja: "新機能") }
     static func updateVersionTitle(_ version: String) -> String {
         tr("Bingodays \(version)", zhHans: "Bingodays \(version)", zhHant: "Bingodays \(version)", ja: "Bingodays \(version)")
@@ -785,8 +738,6 @@ enum L10n {
     }
     static var onboardingLetsBingo: String { tr("Let's Bingo", zhHans: "Let's Bingo", ja: "Bingoを始めよう") }
     static var onboardingLoginWelcomeTo: String { tr("Welcome to", zhHans: "Welcome to", ja: "ようこそ") }
-    static var onboardingContinueWithApple: String { tr("Continue with Apple", zhHans: "使用苹果登录", ja: "Appleで続ける") }
-    static var onboardingContinueWithGoogle: String { tr("Continue with Google", zhHans: "使用Google登录", ja: "Googleで続ける") }
     static var apply: String { tr("Apply", zhHans: "应用", ja: "適用") }
     static var selectAll: String { tr("Select All", zhHans: "全选", ja: "すべて選択") }
     static var deselectAll: String { tr("Deselect All", zhHans: "全取消", ja: "すべて解除") }
@@ -827,6 +778,14 @@ enum L10n {
     }
     static var quickEditGroupAppliedToPreview: String {
         tr("Group applied to preview", zhHans: "分组已应用到预览", ja: "グループをプレビューに適用しました")
+    }
+    static func quickEditGroupPartiallyApplied(_ count: Int) -> String {
+        tr(
+            "Not enough empty tiles. \(count) tasks weren't added.",
+            zhHans: "当前棋盘空位不足，\(count) 个任务未添加。",
+            zhHant: "目前棋盤空位不足，\(count) 個任務未加入。",
+            ja: "空きマスが足りないため、\(count)件のタスクを追加できませんでした。"
+        )
     }
     static var gridSize: String { tr("Grid Size", zhHans: "格子大小", ja: "グリッドサイズ") }
     static var gridSizePremiumLimitMessage: String {
@@ -1056,41 +1015,6 @@ enum L10n {
     static var recording: String { tr("Recording...", zhHans: "正在录音...", ja: "録音中...") }
     static var stopRecording: String { tr("Stop recording", zhHans: "结束录制", zhHant: "結束錄製", ja: "録音を終了") }
     static var quickAdd: String { tr("Quick Add", zhHans: "快速添加", ja: "クイック追加") }
-    static var shareBoardTemplate: String { tr("Share Template", zhHans: "分享模板", zhHant: "分享模板", ja: "テンプレートを共有") }
-    static var importBoardTemplate: String { tr("Import Template", zhHans: "导入模板", zhHant: "匯入模板", ja: "テンプレートをインポート") }
-    static var templateShareEmptyBoard: String { tr("Add a few tasks before sharing this board.", zhHans: "先添加一些任务，再分享这个棋盘。", zhHant: "先加入一些任務，再分享這個棋盤。", ja: "共有する前にタスクをいくつか追加してください。") }
-    static var templateShareSheetTitle: String { tr("Share template", zhHans: "分享模版", zhHant: "分享模版", ja: "テンプレートを共有") }
-    static var templateShareNamePlaceholder: String { tr("Focus starter", zhHans: "起步模板", zhHant: "起步模板", ja: "集中スタート") }
-    static var templateSharePreview: String { tr("Preview", zhHans: "预览", zhHant: "預覽", ja: "プレビュー") }
-    static var templateShareAction: String { tr("Share card", zhHans: "分享卡片", zhHant: "分享卡片", ja: "カードを共有") }
-    static var templateShareSaveImage: String { tr("Save image", zhHans: "保存图片", zhHant: "儲存圖片", ja: "画像を保存") }
-    static var templateShareImageSaved: String { tr("Image saved to Photos.", zhHans: "图片已保存到相册。", zhHant: "圖片已儲存到相簿。", ja: "画像を写真に保存しました。") }
-    static var templateShareImageSaveDenied: String { tr("Please allow Photos access in Settings.", zhHans: "请在设置中允许相册权限。", zhHant: "請在設定中允許相簿權限。", ja: "設定で写真へのアクセスを許可してください。") }
-    static var templateShareImageSaveFailed: String { tr("Unable to save image.", zhHans: "保存图片失败。", zhHant: "儲存圖片失敗。", ja: "画像を保存できませんでした。") }
-    static var templateShareFooterTitle: String { tr("Open in Bingodays", zhHans: "在 Bingodays 中打开", zhHant: "在 Bingodays 中打開", ja: "Bingodaysで開く") }
-    static var templateShareFooterSubtitle: String {
-        tr(
-            "Save to Photos, then long-press to scan the QR code and import this template in Bingodays.",
-            zhHans: "保存至相册，长按识别二维码，直接在Bingodays中打开导入此模版",
-            zhHant: "儲存到相簿後，長按識別二維碼，即可在 Bingodays 中打開並匯入此模板。"
-        )
-    }
-    static var templateImportTitle: String { tr("Import template", zhHans: "导入模板", zhHant: "匯入模板", ja: "テンプレートをインポート") }
-    static var templateImportSubtitle: String { tr("Review this board before adding it to Bingodays.", zhHans: "先预览这个棋盘，再导入到 Bingodays。", zhHant: "先預覽這個棋盤，再匯入到 Bingodays。", ja: "Bingodaysに追加する前にこのボードを確認してください。") }
-    static var templateImportInvalidLink: String { tr("Template link is invalid.", zhHans: "模板链接无效。", zhHant: "模板連結無效。", ja: "テンプレートリンクが無効です。") }
-    static var templateImportCreateBoard: String { tr("Create board copy", zhHans: "复制为新棋盘", zhHant: "複製為新棋盤", ja: "ボードのコピーを作成") }
-    static var templateImportReplaceBoard: String { tr("Use on current board", zhHans: "用于当前棋盘", zhHant: "用於目前棋盤", ja: "現在のボードで使用") }
-    static var templateImportAction: String { tr("Import", zhHans: "导入", zhHant: "導入", ja: "インポート") }
-    static var templateImportFreePlanHint: String { tr("Importing a template replaces your current board.", zhHans: "导入模板时，会替换当前棋盘。", zhHant: "匯入模板時，會取代目前棋盤。", ja: "テンプレートをインポートすると現在のボードが置き換えられます。") }
-    static var templateImportSuccessCreated: String { tr("Template copied to a new board.", zhHans: "模板已复制为新棋盘。", zhHant: "模板已複製為新棋盤。", ja: "テンプレートを新しいボードにコピーしました。") }
-    static var templateImportSuccessReplaced: String { tr("Template applied to the current board.", zhHans: "模板已应用到当前棋盘。", zhHant: "模板已套用到目前棋盤。", ja: "テンプレートを現在のボードに適用しました。") }
-    static func templateShareMessage(deepLink: String, appStoreLink: String) -> String {
-        tr(
-            "This Bingo board helped me start the first step.\n\nOpen template: \(deepLink)\nDownload Bingodays: \(appStoreLink)",
-            zhHans: "这个 Bingo 模板帮我开始第一步。\n\n打开模板：\(deepLink)\n下载 Bingodays：\(appStoreLink)",
-            zhHant: "這個 Bingo 模板幫我開始第一步。\n\n打開模板：\(deepLink)\n下載 Bingodays：\(appStoreLink)"
-        )
-    }
     static var editTask: String { tr("Edit Task", zhHans: "编辑任务", ja: "タスクを編集") }
     static var boardEditHintMessage: String {
         tr(

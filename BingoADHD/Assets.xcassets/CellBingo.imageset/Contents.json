@@ -1,8 +1,9 @@
 {
   "images" : [
     {
-      "filename" : "blackbg.png",
-      "idiom" : "universal"
+      "filename" : "ic_bingo.png",
+      "idiom" : "universal",
+      "scale" : "1x"
     }
   ],
   "info" : {

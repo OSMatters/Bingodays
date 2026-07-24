@@ -46,6 +46,7 @@ final class BoardSwitchAnimationStore: ObservableObject {
         boardWidth: CGFloat,
         namedBoards: [BingoBoardStore.NamedBoard],
         selectedBoardID: UUID?,
+        onTargetResolved: @escaping (UUID) -> Void,
         selectBoard: @escaping (UUID) -> Void
     ) {
         guard namedBoards.count > 1 else { return }
@@ -70,6 +71,7 @@ final class BoardSwitchAnimationStore: ObservableObject {
         let exitOffset = horizontalTranslation < 0 ? -offscreenDistance : offscreenDistance
         let enterOffset = -exitOffset
         let targetBoardID = namedBoards[targetIndex].id
+        onTargetResolved(targetBoardID)
 
         withAnimation(.easeOut(duration: swipeExitDuration)) {
             offsetX = exitOffset
@@ -92,6 +94,7 @@ final class BoardSwitchAnimationStore: ObservableObject {
         blockingState: SwipeBlockingState,
         namedBoards: [BingoBoardStore.NamedBoard],
         selectedBoardID: UUID?,
+        onTargetResolved: @escaping (UUID) -> Void,
         selectBoard: @escaping (UUID) -> Void
     ) {
         guard blockingState.allowsBoardSwipe else { return }
@@ -105,6 +108,7 @@ final class BoardSwitchAnimationStore: ObservableObject {
             boardWidth: boardWidth,
             namedBoards: namedBoards,
             selectedBoardID: selectedBoardID,
+            onTargetResolved: onTargetResolved,
             selectBoard: selectBoard
         )
     }

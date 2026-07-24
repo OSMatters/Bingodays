@@ -82,6 +82,34 @@ enum BoardEngine {
         }
     }
 
+    static func removingUnsupportedRecurringTiming(
+        from board: SavedBoard,
+        referenceDate: Date
+    ) -> SavedBoard {
+        var cache = expandedBoardCache(from: board)
+        var didChange = false
+
+        for row in cache.indices {
+            for col in cache[row].indices {
+                didChange = cache[row][col].removeUnsupportedRepeatingTiming() || didChange
+            }
+        }
+
+        guard didChange else { return board }
+        let gridSize = min(max(board.gridSize, 2), maxGridSize)
+        let visibleCells = projectVisibleCells(
+            from: cache,
+            size: gridSize,
+            referenceDate: referenceDate
+        )
+        return SavedBoard(
+            gridSize: gridSize,
+            cells: visibleCells,
+            completedLines: completedLines(in: visibleCells, size: gridSize),
+            fullBoardCells: cache
+        )
+    }
+
     static func hasActiveCountdownDisplay(
         in cells: [[BingoCell]],
         size: Int,
@@ -306,16 +334,6 @@ enum BoardEngine {
         return nil
     }
 
-    static func acknowledgeExpiredTaskCountdown(
-        in cells: [[BingoCell]],
-        candidate: ExpiredTaskCandidate
-    ) -> [[BingoCell]]? {
-        guard let position = expiredTaskPosition(in: cells, candidate: candidate) else { return nil }
-        var updatedCells = cells
-        updatedCells[position.row][position.col].countdownEndsAt = nil
-        return updatedCells
-    }
-
     static func scheduledTaskReplacementCandidate(
         in fullBoardCells: [[BingoCell]],
         size: Int,
@@ -373,8 +391,10 @@ enum BoardEngine {
                     cell.isEndVisibilityReached(on: now, calendar: calendar)
                 )
 
-            cell.isCompleted = true
-            registerCompletionIfNeeded(on: &cell, now: now, calendar: calendar)
+            if !cell.isCompleted {
+                cell.isCompleted = true
+                registerCompletion(on: &cell, now: now)
+            }
             cell.countdownEndsAt = nil
             cell.countdownPausedRemainingSeconds = nil
             cell.estimatedDurationMinutes = nil
@@ -440,8 +460,10 @@ enum BoardEngine {
             for row in updatedCells.indices {
                 for col in updatedCells[row].indices {
                     guard !updatedCells[row][col].isEmpty else { continue }
-                    updatedCells[row][col].isCompleted = true
-                    registerCompletionIfNeeded(on: &updatedCells[row][col], now: now, calendar: calendar)
+                    if !updatedCells[row][col].isCompleted {
+                        updatedCells[row][col].isCompleted = true
+                        registerCompletion(on: &updatedCells[row][col], now: now)
+                    }
                     updatedCells[row][col].countdownEndsAt = nil
                     updatedCells[row][col].countdownPausedRemainingSeconds = nil
                     updatedCells[row][col].estimatedDurationMinutes = nil
@@ -550,16 +572,11 @@ enum BoardEngine {
         return nil
     }
 
-    private static func registerCompletionIfNeeded(
+    private static func registerCompletion(
         on cell: inout BingoCell,
-        now: Date,
-        calendar: Calendar
+        now: Date
     ) {
         guard !cell.isEmpty else { return }
-        if let lastCompletedAt = cell.lastCompletedAt,
-           calendar.isDate(lastCompletedAt, inSameDayAs: now) {
-            return
-        }
 
         cell.completionStreakCount += 1
         cell.lastCompletedAt = now

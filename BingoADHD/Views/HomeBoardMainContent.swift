@@ -26,6 +26,7 @@ struct HomeBoardMainContent: View {
     let onCountdown: () -> Void
     let onEditActionsToggle: () -> Void
     let onDismissEditActions: () -> Void
+    let onBoardRules: () -> Void
     let onShuffle: () -> Void
     let onClearBoard: () -> Void
     let onGridSize: () -> Void
@@ -33,12 +34,13 @@ struct HomeBoardMainContent: View {
 
     @GestureState private var boardDragTranslationX: CGFloat = 0
     @State private var isCellReordering = false
+    @State private var displayedSelectedBoardID: UUID?
 
     var body: some View {
         VStack(spacing: 16) {
             BoardSwitcherControlsView(
                 boards: namedBoards,
-                selectedBoardID: selectedBoardID,
+                selectedBoardID: displayedSelectedBoardID ?? selectedBoardID,
                 contentWidth: contentWidth,
                 isPadLayout: isPadLayout,
                 shouldShowBoardEditHint: shouldShowBoardEditHint,
@@ -61,6 +63,7 @@ struct HomeBoardMainContent: View {
                 onCountdown: onCountdown,
                 onEditActionsToggle: onEditActionsToggle,
                 onDismissEditActions: onDismissEditActions,
+                onBoardRules: onBoardRules,
                 onShuffle: onShuffle,
                 onClearBoard: onClearBoard,
                 onGridSize: onGridSize,
@@ -71,6 +74,12 @@ struct HomeBoardMainContent: View {
         .frame(width: contentWidth)
         .padding(.top, 32)
         .offset(y: (usesPadLayout ? -35 : 0) - 65)
+        .onAppear {
+            displayedSelectedBoardID = selectedBoardID
+        }
+        .onChange(of: selectedBoardID) { _, newValue in
+            displayedSelectedBoardID = newValue
+        }
     }
 
     private var swipeableBoardView: some View {
@@ -112,6 +121,9 @@ struct HomeBoardMainContent: View {
                     blockingState: boardSwipeBlockingState,
                     namedBoards: namedBoards,
                     selectedBoardID: selectedBoardID,
+                    onTargetResolved: { targetBoardID in
+                        displayedSelectedBoardID = targetBoardID
+                    },
                     selectBoard: onSelectBoard
                 )
             }

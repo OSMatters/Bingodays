@@ -553,12 +553,20 @@ struct BingodaysMeScreen: View {
             )
             let contentX = geo.size.width / 2
             let yLift = isPadLayout ? max(0, (geo.size.height - 849 * layoutScale) * 0.18) : 0
+            let isPadDevice = UIDevice.current.userInterfaceIdiom == .pad
+            let isPadPortraitLayout = isPadDevice && geo.size.height > geo.size.width
+            let isPadLandscapeLayout = isPadDevice && geo.size.width > geo.size.height
+            let reviewBubbleHorizontalOffset: CGFloat = isPadPortraitLayout ? -60 : 0
+            let characterAndDiaryVerticalOffset: CGFloat = (isPadDevice ? 20 : 0)
+                + (isPadPortraitLayout ? 40 : 0)
+            let backgroundVerticalOffset: CGFloat = isPadLandscapeLayout ? -60 : 0
 
             ZStack(alignment: .top) {
                 Image("MeBackground")
                     .resizable()
                     .interpolation(.high)
                     .scaledToFill()
+                    .offset(y: backgroundVerticalOffset)
                     .frame(
                         width: geo.size.width,
                         height: geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom
@@ -574,20 +582,20 @@ struct BingodaysMeScreen: View {
                 .position(x: contentX, y: y(118, scale: layoutScale, lift: yLift))
 
                 if isPremiumMember {
-                    Button(action: onOpenPremium) {
-                        MeMembershipBadge(
-                            planKind: premiumPlanKind,
-                            isPadLayout: isPadLayout
-                        )
+                    if isPadDevice {
+                        membershipBadgeButton
+                            .padding(.trailing, 28)
+                            .frame(width: geo.size.width, alignment: .trailing)
+                            .position(x: geo.size.width / 2, y: 39)
+                            .zIndex(10)
+                    } else {
+                        membershipBadgeButton
+                            .position(
+                                x: contentX + contentWidth / 2 - scaled(66, pad: 76),
+                                y: y(39, scale: layoutScale, lift: yLift)
+                            )
+                            .zIndex(10)
                     }
-                    .buttonStyle(.plain)
-                    .contentShape(Capsule(style: .continuous))
-                    .accessibilityLabel(L10n.tr("Membership details", zhHans: "会员详情", zhHant: "會員詳情", ja: "メンバーシップ詳細"))
-                    .position(
-                        x: contentX + contentWidth / 2 - scaled(66, pad: 76),
-                        y: y(39, scale: layoutScale, lift: yLift)
-                    )
-                    .zIndex(10)
                 }
 
                 MeStreakCard(
@@ -620,7 +628,7 @@ struct BingodaysMeScreen: View {
                     .frame(width: scaled(392, pad: 424) * layoutScale)
                     .position(
                         x: contentX,
-                        y: y(476, scale: layoutScale, lift: yLift)
+                        y: y(476, scale: layoutScale, lift: yLift) + characterAndDiaryVerticalOffset
                     )
                     .accessibilityHidden(true)
 
@@ -631,7 +639,7 @@ struct BingodaysMeScreen: View {
                 .scaleEffect(layoutScale, anchor: .center)
                 .position(
                     x: contentX + contentWidth / 2 - 173 * layoutScale,
-                    y: y(557, scale: layoutScale, lift: yLift)
+                    y: y(557, scale: layoutScale, lift: yLift) + characterAndDiaryVerticalOffset
                 )
                 .zIndex(2)
 
@@ -642,8 +650,8 @@ struct BingodaysMeScreen: View {
                     )
                     .scaleEffect(layoutScale, anchor: .center)
                     .position(
-                        x: contentX - contentWidth / 2 + 125 * layoutScale,
-                        y: y(383, scale: layoutScale, lift: yLift)
+                        x: contentX - contentWidth / 2 + 125 * layoutScale + reviewBubbleHorizontalOffset,
+                        y: y(383, scale: layoutScale, lift: yLift) + characterAndDiaryVerticalOffset
                     )
                 }
 
@@ -654,12 +662,24 @@ struct BingodaysMeScreen: View {
                 .scaleEffect(layoutScale, anchor: .center)
                 .position(
                     x: contentX + contentWidth / 2 - (147 + 52) * layoutScale,
-                    y: y(623, scale: layoutScale, lift: yLift)
+                    y: y(623, scale: layoutScale, lift: yLift) + characterAndDiaryVerticalOffset
                 )
                 .zIndex(1)
             }
         }
         .background(MeScreenPalette.background.ignoresSafeArea())
+    }
+
+    private var membershipBadgeButton: some View {
+        Button(action: onOpenPremium) {
+            MeMembershipBadge(
+                planKind: premiumPlanKind,
+                isPadLayout: isPadLayout
+            )
+        }
+        .buttonStyle(.plain)
+        .contentShape(Capsule(style: .continuous))
+        .accessibilityLabel(L10n.tr("Membership details", zhHans: "会员详情", zhHant: "會員詳情", ja: "メンバーシップ詳細"))
     }
 
     private var titleBlock: some View {
@@ -1020,15 +1040,19 @@ private struct MeOutlinedPillButton: View {
 struct MeSettingsScreen: View {
     let isPadLayout: Bool
     let appShortVersion: String
+    let iCloudState: NativeICloudSyncCoordinator.State
+    let themeColor: Color
+    let isICloudSyncEnabled: Bool
     @Binding var isHapticsEnabled: Bool
     @Binding var isSoundEffectsEnabled: Bool
     @Binding var isWidgetGuideExpanded: Bool
     let onBack: () -> Void
     let onOpenLanguage: () -> Void
+    let onOpenICloud: () -> Void
+    let onSetICloudEnabled: (Bool) -> Void
     let onOpenTerms: () -> Void
     let onOpenPrivacy: () -> Void
     let onEncourageUs: () -> Void
-
     var body: some View {
         GeometryReader { geo in
             let contentWidth = min(geo.size.width - 32, isPadLayout ? 430 : 361)
@@ -1039,66 +1063,83 @@ struct MeSettingsScreen: View {
                     .padding(.top, topContentPadding)
                     .padding(.horizontal, 16)
 
-                VStack(spacing: 0) {
-                    MeSettingsToggleRow(
-                        title: L10n.haptics,
-                        isOn: $isHapticsEnabled,
-                        isPadLayout: isPadLayout
-                    )
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: scaled(14, pad: 18)) {
+                        VStack(spacing: 0) {
+                            MeICloudSettingsEntry(
+                                state: iCloudState,
+                                isPadLayout: isPadLayout,
+                                themeColor: themeColor,
+                                isEnabled: isICloudSyncEnabled,
+                                onSetEnabled: onSetICloudEnabled,
+                                action: onOpenICloud
+                            )
 
-                    MeSettingsToggleRow(
-                        title: L10n.soundEffects,
-                        isOn: $isSoundEffectsEnabled,
-                        isPadLayout: isPadLayout
-                    )
+                            MeSettingsToggleRow(
+                                title: L10n.haptics,
+                                isOn: $isHapticsEnabled,
+                                isPadLayout: isPadLayout
+                            )
 
-                    MeSettingsActionRow(
-                        title: L10n.homeWidget,
-                        isPadLayout: isPadLayout
-                    ) {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                            isWidgetGuideExpanded.toggle()
+                            MeSettingsToggleRow(
+                                title: L10n.soundEffects,
+                                isOn: $isSoundEffectsEnabled,
+                                isPadLayout: isPadLayout
+                            )
+
+                            MeSettingsActionRow(
+                                title: L10n.homeWidget,
+                                isPadLayout: isPadLayout
+                            ) {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                                    isWidgetGuideExpanded.toggle()
+                                }
+                            }
+
+                            if isWidgetGuideExpanded {
+                                Text(L10n.homeWidgetInstructions)
+                                    .font(.appSystem(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
+                                    .foregroundColor(MeScreenPalette.mutedText)
+                                    .multilineTextAlignment(.leading)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, scaled(18, pad: 22))
+                                    .padding(.bottom, scaled(12, pad: 14))
+                            }
+
+                            MeSettingsActionRow(
+                                title: L10n.language,
+                                isPadLayout: isPadLayout,
+                                action: onOpenLanguage
+                            )
+
+                            MeSettingsActionRow(
+                                title: L10n.encourageUs,
+                                isPadLayout: isPadLayout,
+                                action: onEncourageUs
+                            )
                         }
+                        .frame(width: contentWidth)
+                        .background(
+                            RoundedRectangle(cornerRadius: scaled(15, pad: 18), style: .continuous)
+                                .fill(Color.white.opacity(0.88))
+                        )
+
+                        settingsLegalLinks
+                            .padding(.top, scaled(16, pad: 22))
+                            .padding(.bottom, scaled(16, pad: 20))
                     }
-
-                    if isWidgetGuideExpanded {
-                        Text(L10n.homeWidgetInstructions)
-                            .font(.appSystem(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
-                            .foregroundColor(MeScreenPalette.mutedText)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, scaled(18, pad: 22))
-                            .padding(.bottom, scaled(12, pad: 14))
-                    }
-
-                    MeSettingsActionRow(
-                        title: L10n.language,
-                        isPadLayout: isPadLayout,
-                        action: onOpenLanguage
-                    )
-
-                    MeSettingsActionRow(
-                        title: L10n.encourageUs,
-                        isPadLayout: isPadLayout,
-                        action: onEncourageUs
-                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, scaled(24, pad: 32))
                 }
-                .frame(width: contentWidth)
-                .background(
-                    RoundedRectangle(cornerRadius: scaled(15, pad: 18), style: .continuous)
-                        .fill(Color.white.opacity(0.88))
-                )
-                .padding(.top, scaled(30, pad: 40))
-
-                Spacer(minLength: 24)
-
-                settingsLegalLinks
-                    .padding(.bottom, scaled(16, pad: 20))
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .background(MeScreenPalette.background.ignoresSafeArea())
         }
+    }
+
+    private var settingsToggleInactiveColor: Color {
+        Color(hex: "8F8F8F").opacity(0.62)
     }
 
     private var settingsHeader: some View {
@@ -1157,6 +1198,90 @@ struct MeSettingsScreen: View {
     }
 }
 
+private struct MeICloudSettingsEntry: View {
+    let state: NativeICloudSyncCoordinator.State
+    let isPadLayout: Bool
+    let themeColor: Color
+    let isEnabled: Bool
+    let onSetEnabled: (Bool) -> Void
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: action) {
+                HStack(spacing: 5) {
+                    Text(L10n.tr("iCloud Sync", zhHans: "iCloud 同步", zhHant: "iCloud 同步", ja: "iCloud同期"))
+                        .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
+                        .foregroundColor(MeScreenPalette.text)
+
+                    if let statusText {
+                        Text("(\(statusText))")
+                            .font(.appSystem(size: scaled(11, pad: 12.5), weight: .medium, design: .rounded))
+                            .foregroundColor(statusColor)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.78)
+                    }
+
+                    Spacer(minLength: 4)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Toggle("", isOn: Binding(get: { isEnabled }, set: onSetEnabled))
+                .labelsHidden()
+                .toggleStyle(
+                    SidebarGlassToggleStyle(
+                        accentColor: themeColor,
+                        inactiveColor: Color(hex: "8F8F8F").opacity(0.62)
+                    )
+                )
+        }
+        .frame(height: scaled(50, pad: 58))
+        .padding(.horizontal, scaled(18, pad: 22))
+    }
+
+    private var statusText: String? {
+        switch state {
+        case .disabled:
+            return nil
+        case .preparing:
+            return L10n.tr("Preparing", zhHans: "正在准备", zhHant: "正在準備", ja: "準備中")
+        case .syncing:
+            return L10n.tr("Syncing", zhHans: "正在同步", zhHant: "正在同步", ja: "同期中")
+        case .waitingForCloud:
+            return L10n.tr("Waiting", zhHans: "正在等待", zhHant: "正在等待", ja: "待機中")
+        case .ready:
+            return L10n.tr("Connected", zhHans: "已连接", zhHant: "已連接", ja: "接続済み")
+        case .accountChangeRequiresDecision:
+            return L10n.tr("Choose data", zhHans: "请选择数据", zhHant: "請選擇資料", ja: "データを選択")
+        case .unavailable:
+            return L10n.tr("Unavailable", zhHans: "暂不可用", zhHant: "暫不可用", ja: "利用不可")
+        case .failed:
+            return L10n.tr("Needs attention", zhHans: "需要检查", zhHant: "需要檢查", ja: "確認が必要")
+        }
+    }
+
+    private var statusColor: Color {
+        switch state {
+        case .ready:
+            return themeColor
+        case .waitingForCloud:
+            return themeColor
+        case .accountChangeRequiresDecision:
+            return themeColor
+        case .failed, .unavailable:
+            return Color(hex: "D26A5C")
+        default:
+            return MeScreenPalette.mutedText
+        }
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
 private struct MeSettingsToggleRow: View {
     let title: String
     @Binding var isOn: Bool
@@ -1172,7 +1297,12 @@ private struct MeSettingsToggleRow: View {
 
             Toggle("", isOn: $isOn)
                 .labelsHidden()
-                .toggleStyle(SidebarGlassToggleStyle(accentColor: MeScreenPalette.accent))
+                .toggleStyle(
+                    SidebarGlassToggleStyle(
+                        accentColor: MeScreenPalette.accent,
+                        inactiveColor: Color(hex: "8F8F8F").opacity(0.62)
+                    )
+                )
         }
         .frame(height: scaled(50, pad: 58))
         .padding(.horizontal, scaled(18, pad: 22))
@@ -1401,96 +1531,8 @@ struct SidebarProEntryRow: View {
     }
 }
 
-struct SidebarAccountSection: View {
-    let profile: AccountProfile
-    let errorMessage: String?
-    let themeColor: Color
-    let isPadLayout: Bool
-    let onSignOut: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(L10n.tr("Account", zhHans: "账户", zhHant: "帳戶", ja: "アカウント"))
-                .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-
-            Text(displayName)
-                .font(.appSystem(size: scaled(16, pad: 18), weight: .bold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-
-            if let email = profile.email, !email.isEmpty {
-                Text(email)
-                    .font(.appSystem(size: scaled(12.5, pad: 14.5), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.62))
-            }
-
-            Text(profile.providerIDs.map(providerDisplayName).joined(separator: " · "))
-                .font(.appSystem(size: scaled(12.5, pad: 14.5), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.52))
-
-            Button {
-                onSignOut()
-            } label: {
-                Text(L10n.tr("Sign Out", zhHans: "退出登录", zhHant: "登出", ja: "サインアウト"))
-                    .font(.appSystem(size: scaled(13.5, pad: 15.5), weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(themeColor.opacity(0.92))
-                    )
-            }
-            .buttonStyle(.plain)
-
-            if let errorMessage, !errorMessage.isEmpty {
-                Text(errorMessage)
-                    .font(.appSystem(size: scaled(11.5, pad: 13), weight: .medium, design: .rounded))
-                    .foregroundColor(Color.red.opacity(0.82))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(NeumorphicColors.background)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(themeColor.opacity(0.24), lineWidth: 1)
-                )
-        )
-        .listRowInsets(EdgeInsets(top: 8, leading: 22, bottom: 14, trailing: 22))
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-    }
-
-    private var displayName: String {
-        profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? profile.displayName!
-            : (profile.email ?? profile.uid)
-    }
-
-    private func providerDisplayName(_ providerID: String) -> String {
-        switch providerID {
-        case "apple.com":
-            return "Apple"
-        case "google.com":
-            return "Google"
-        case "password":
-            return "Email"
-        default:
-            return providerID
-        }
-    }
-
-    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
-        isPadLayout ? (pad ?? base * 1.15) : base
-    }
-}
-
 struct HomeSidebarView: View {
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
-    @EnvironmentObject private var accountSession: AccountSession
 
     let width: CGFloat
     let topInset: CGFloat
@@ -1508,7 +1550,6 @@ struct HomeSidebarView: View {
     @Binding var isSoundEffectsEnabled: Bool
     @Binding var themeRawValue: String
     let onOpenDiary: () -> Void
-    let onOpenBlackBoxMode: () -> Void
     let onOpenContact: () -> Void
     let onEncourageUs: () -> Void
     let onPresentPremiumPaywall: () -> Void
@@ -1531,10 +1572,6 @@ struct HomeSidebarView: View {
 
                     sidebarMenuButton(icon: "calendar", title: L10n.bingoDiary) {
                         closeAndRun(after: 0.16, action: onOpenDiary)
-                    }
-
-                    sidebarMenuButton(icon: "gamecontroller.fill", title: L10n.tr("2048", zhHans: "2048", zhHant: "2048")) {
-                        closeAndRun(after: 0.1, action: onOpenBlackBoxMode)
                     }
 
                     sidebarMenuButton(icon: "envelope", title: L10n.contactUs) {
@@ -1670,19 +1707,6 @@ struct HomeSidebarView: View {
         )
         #endif
 
-        if AppFeatureFlags.isAccountEnabled, let profile = accountSession.profile {
-            SidebarAccountSection(
-                profile: profile,
-                errorMessage: accountSession.errorMessage,
-                themeColor: themeColor,
-                isPadLayout: isPadLayout
-            ) {
-                accountSession.signOut()
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                    isPresented = false
-                }
-            }
-        }
     }
 
     private func sidebarMenuButton(icon: String, title: String, action: @escaping () -> Void) -> some View {

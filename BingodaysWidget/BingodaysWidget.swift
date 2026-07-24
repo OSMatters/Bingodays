@@ -7,6 +7,7 @@ private struct WidgetBoardPanel: Identifiable {
     let name: String
     let board: SavedBoard
     let countdownEndsAt: Date?
+    let nextResetAt: Date?
 }
 
 private struct BingodaysWidgetEntry: TimelineEntry {
@@ -46,7 +47,8 @@ private struct BingodaysWidgetProvider: TimelineProvider {
                     id: UUID(),
                     name: L10n.boardDefaultName(1),
                     board: .sample,
-                    countdownEndsAt: Calendar.current.date(byAdding: .hour, value: 3, to: .now)
+                    countdownEndsAt: Calendar.current.date(byAdding: .hour, value: 3, to: .now),
+                    nextResetAt: nil
                 )
             ],
             selectedPanelID: nil,
@@ -59,6 +61,9 @@ private struct BingodaysWidgetProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<BingodaysWidgetEntry>) -> Void) {
+        // The main app owns the CloudKit mirror and projects imported data into the
+        // App Group before reloading WidgetKit. Keeping the timeline provider read-only
+        // avoids opening a second CloudKit/Core Data stack for the same SQLite store.
         let now = Date()
         let entry = makeEntry(at: now)
         let nextRefresh = nextRefreshDate(for: entry, at: now)
@@ -66,7 +71,10 @@ private struct BingodaysWidgetProvider: TimelineProvider {
     }
 
     private func makeEntry(at date: Date) -> BingodaysWidgetEntry {
-        let snapshot = BingoBoardStore.loadNamedBoardsSnapshot()
+        let snapshot = WidgetTaskEventMerge.applying(
+            WidgetTaskSyncStore.load(),
+            to: BingoBoardStore.loadNamedBoardsSnapshot()
+        )
         let panels = snapshot.boards.map { makePanel(from: $0, at: date) }
 
         let resolvedPanels: [WidgetBoardPanel]
@@ -77,7 +85,12 @@ private struct BingodaysWidgetProvider: TimelineProvider {
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000001") ?? UUID(),
                     name: L10n.boardDefaultName(1),
                     board: projectedBoard(BingoBoardStore.loadBoard() ?? .sample, at: date),
-                    countdownEndsAt: BingoBoardStore.loadBoardCountdownEndsAt()
+                    countdownEndsAt: BingoBoardStore.loadBoardCountdownEndsAt(),
+                    nextResetAt: Calendar.current.date(
+                        byAdding: .day,
+                        value: 1,
+                        to: Calendar.current.startOfDay(for: date)
+                    )
                 )
             ]
             selectedPanelID = resolvedPanels.first?.id
@@ -108,7 +121,11 @@ private struct BingodaysWidgetProvider: TimelineProvider {
             id: preparedBoard.id,
             name: preparedBoard.name,
             board: projectedBoard(preparedBoard.board, at: date),
-            countdownEndsAt: preparedBoard.countdownEndsAt
+            countdownEndsAt: preparedBoard.countdownEndsAt,
+            nextResetAt: BoardResetRuleEngine.nextScheduledResetTime(
+                for: preparedBoard,
+                after: date
+            )
         )
     }
 
@@ -132,18 +149,20 @@ private struct BingodaysWidgetProvider: TimelineProvider {
 
     private func nextRefreshDate(for entry: BingodaysWidgetEntry, at date: Date) -> Date {
         var candidates: [Date] = [
-            Calendar.current.date(byAdding: .minute, value: 30, to: date) ?? date.addingTimeInterval(1800)
+            Calendar.current.date(byAdding: .minute, value: 15, to: date) ?? date.addingTimeInterval(900)
         ]
 
         if let countdownEndsAt = entry.boardCountdownEndsAt, countdownEndsAt > date {
             candidates.append(countdownEndsAt)
         }
 
+        candidates.append(contentsOf: entry.panels.compactMap(\.nextResetAt).filter { $0 > date })
+
         if let contentRefresh = nextBoardContentRefreshDate(in: entry.panels.map(\.board), after: date) {
             candidates.append(contentRefresh)
         }
 
-        return candidates.min() ?? date.addingTimeInterval(1800)
+        return candidates.min() ?? date.addingTimeInterval(900)
     }
 
     private func nextBoardContentRefreshDate(in boards: [SavedBoard], after date: Date) -> Date? {
@@ -183,7 +202,7 @@ struct BingodaysWidgets: WidgetBundle {
 }
 
 struct BingodaysCountdownWidget: Widget {
-    private let kind = "BingodaysCountdownWidget"
+    private let kind = BingodaysWidgetKind.countdown
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: BingodaysWidgetProvider()) { entry in
@@ -196,7 +215,7 @@ struct BingodaysCountdownWidget: Widget {
 }
 
 struct BingodaysLargeWidget: Widget {
-    private let kind = "BingodaysLargeWidget"
+    private let kind = BingodaysWidgetKind.board
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: BingodaysWidgetProvider()) { entry in
@@ -296,6 +315,19 @@ private struct BingodaysLargeWidgetView: View {
         guard entry.panels.indices.contains(panelIndex) else { return L10n.boardDefaultName(1) }
         return entry.panels[panelIndex].name
     }
+    private var widgetBackgroundColor: Color {
+        family == .systemLarge ? Color(hex: "FAF9F3") : NeumorphicColors.background
+    }
+    private var largeHorizontalPadding: CGFloat { 18 }
+    private var largeSwitchSideRail: CGFloat { 34 }
+    private var largeSwitchButtonSize: CGFloat { 30 }
+    private var largeSwitchOutwardOffset: CGFloat { 7 }
+    private var largeTitleFontSize: CGFloat { 14 }
+    private var largeTitleHeight: CGFloat { 18 }
+    private var largeTitleYOffset: CGFloat { -15 }
+    private var largePageIndicatorHeight: CGFloat { 6 }
+    private var largePageIndicatorYOffset: CGFloat { 25 }
+    private var largePanelSpacing: CGFloat { 8 }
     private var totalTasks: Int { board.cells.flatMap(\.self).filter { !$0.isEmpty }.count }
     private var completedTasks: Int {
         board.cells.flatMap(\.self).filter {
@@ -328,42 +360,74 @@ private struct BingodaysLargeWidgetView: View {
 
     var body: some View {
         ZStack {
-            NeumorphicColors.background
+            widgetBackgroundColor
 
             if family == .systemMedium {
                 mediumView
             } else {
-                VStack(spacing: hasMultiplePanels ? 8 : 0) {
-                    if hasMultiplePanels {
-                        HStack(spacing: 10) {
-                            boardSwitchButton(systemImage: "chevron.left", step: -1)
-
-                            Text(activePanelName)
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text.opacity(0.72))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                                .frame(maxWidth: .infinity)
-                                .invalidatableContent()
-
-                            boardSwitchButton(systemImage: "chevron.right", step: 1)
-                        }
-                    }
-
-                    boardView(for: board)
-
-                    if hasMultiplePanels {
-                        pageIndicator
-                            .invalidatableContent()
-                    }
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, hasMultiplePanels ? 12 : 18)
-                .padding(.bottom, hasMultiplePanels ? 12 : 18)
+                largeView
             }
         }
         .containerBackground(for: .widget) {
-            NeumorphicColors.background
+            widgetBackgroundColor
+        }
+    }
+
+    private var largeView: some View {
+        GeometryReader { proxy in
+            let topPadding: CGFloat = hasMultiplePanels ? 12 : 18
+            let bottomPadding: CGFloat = hasMultiplePanels ? 12 : 18
+            let maxBoardWidth = max(proxy.size.width - largeHorizontalPadding * 2, 0)
+            let maxBoardHeight = max(
+                proxy.size.height
+                    - topPadding
+                    - bottomPadding
+                    - (hasMultiplePanels ? largeTitleHeight + largePageIndicatorHeight + largePanelSpacing * 2 : 0),
+                0
+            )
+            let sideRailBoardWidth = hasMultiplePanels ? max(proxy.size.width - largeSwitchSideRail * 2, 0) : maxBoardWidth
+            let boardSide = max(min(min(maxBoardWidth, maxBoardHeight), sideRailBoardWidth), 0)
+            let boardMargin = max((proxy.size.width - boardSide) / 2, 0)
+            let switchCenterX = boardMargin / 2
+
+            ZStack {
+                VStack(spacing: hasMultiplePanels ? largePanelSpacing : 0) {
+                    if hasMultiplePanels {
+                        Text(activePanelName)
+                            .font(.system(size: largeTitleFontSize, weight: .bold, design: .rounded))
+                            .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: largeTitleHeight)
+                            .offset(y: largeTitleYOffset)
+                    }
+
+                    boardView(for: board)
+                        .frame(width: boardSide, height: boardSide)
+
+                    if hasMultiplePanels {
+                        pageIndicator
+                            .frame(height: largePageIndicatorHeight)
+                            .offset(y: largePageIndicatorYOffset)
+                    }
+                }
+                .frame(
+                    width: max(proxy.size.width - largeHorizontalPadding * 2, 0),
+                    height: max(proxy.size.height - topPadding - bottomPadding, 0)
+                )
+                .padding(.horizontal, largeHorizontalPadding)
+                .padding(.top, topPadding)
+                .padding(.bottom, bottomPadding)
+
+                if hasMultiplePanels {
+                    boardSwitchButton(systemImage: "chevron.left", step: -1)
+                        .position(x: switchCenterX - largeSwitchOutwardOffset, y: proxy.size.height / 2)
+
+                    boardSwitchButton(systemImage: "chevron.right", step: 1)
+                        .position(x: proxy.size.width - switchCenterX + largeSwitchOutwardOffset, y: proxy.size.height / 2)
+                }
+            }
         }
     }
 
@@ -474,7 +538,6 @@ private struct BingodaysLargeWidgetView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .invalidatableContent()
     }
 
     private func widgetCellButton(
@@ -515,17 +578,18 @@ private struct BingodaysLargeWidgetView: View {
     private func boardSwitchButton(systemImage: String, step: Int) -> some View {
         Button(intent: SwitchBoardIntent(step: step)) {
             Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 11, weight: .bold))
                 .foregroundColor(NeumorphicColors.text.opacity(0.72))
-                .frame(width: 32, height: 32)
+                .frame(width: largeSwitchButtonSize, height: largeSwitchButtonSize)
                 .background(
                     Circle()
-                        .fill(NeumorphicColors.background.opacity(0.96))
+                        .fill(widgetBackgroundColor.opacity(0.98))
                 )
                 .overlay(
                     Circle()
                         .stroke(Color.white.opacity(0.62), lineWidth: 1)
                 )
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
     }

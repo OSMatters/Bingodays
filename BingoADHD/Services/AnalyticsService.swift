@@ -2,8 +2,137 @@ import Foundation
 import FirebaseAnalytics
 import StoreKit
 
+enum PremiumAnalyticsFeature: String {
+    case boards
+    case tasks
+    case groupTasks = "group_tasks"
+    case groups
+    case tasksGroups = "tasks_groups"
+    case grid5x5 = "grid_5x5"
+    case customRewards = "custom_rewards"
+    case history
+    case customResetTime = "custom_reset_time"
+    case limitedOffer = "limited_offer"
+    case memberCenter = "member_center"
+    case other
+}
+
+enum CustomRewardVisualAnalyticsAction: String {
+    case create
+    case update
+}
+
+enum NativeICloudAnalyticsOperation: String {
+    case enable
+    case manualSync = "manual_sync"
+    case backgroundPush = "background_push"
+}
+
+enum NativeICloudAnalyticsResult: String {
+    case success
+    case waiting
+    case noData = "no_data"
+    case failed
+}
+
+struct CustomRewardVisualAnalyticsDescriptor: Equatable {
+    let type: String
+    let id: String
+}
+
+enum AnalyticsEventContract {
+    static func customRewardVisual(
+        emoji: String,
+        themeImageName: String?
+    ) -> CustomRewardVisualAnalyticsDescriptor {
+        if let themeImageName {
+            for themeID in 1...9 where themeImageName == "CustomRewardTheme\(themeID)" {
+                return CustomRewardVisualAnalyticsDescriptor(
+                    type: "theme",
+                    id: "theme_\(themeID)"
+                )
+            }
+            return CustomRewardVisualAnalyticsDescriptor(type: "theme", id: "theme_unknown")
+        }
+
+        let firstEmoji = emoji
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .first
+            .map(String.init) ?? ""
+        let normalizedEmoji = firstEmoji
+            .replacingOccurrences(of: "\u{FE0E}", with: "")
+            .replacingOccurrences(of: "\u{FE0F}", with: "")
+        let knownEmojiIDs = [
+            "😊": "emoji_smiling_face",
+            "🎁": "emoji_gift",
+            "⭐": "emoji_star",
+            "🏆": "emoji_trophy",
+            "🎉": "emoji_party_popper",
+            "🍰": "emoji_cake"
+        ]
+        return CustomRewardVisualAnalyticsDescriptor(
+            type: "emoji",
+            id: knownEmojiIDs[normalizedEmoji] ?? "emoji_custom"
+        )
+    }
+
+    static func premiumTasksGroupsFeature(forSource source: String) -> PremiumAnalyticsFeature {
+        let normalizedSource = source.lowercased()
+        if normalizedSource.contains("group_task") {
+            return .groupTasks
+        }
+        if normalizedSource.contains("standalone_task") || normalizedSource.contains("task_limit") {
+            return .tasks
+        }
+        if normalizedSource.contains("group_limit") {
+            return .groups
+        }
+        return .tasksGroups
+    }
+
+    static func premiumFeature(forSource source: String) -> PremiumAnalyticsFeature {
+        let normalizedSource = source.lowercased()
+        if normalizedSource.contains("limited_offer") {
+            return .limitedOffer
+        }
+        if normalizedSource.contains("reset") {
+            return .customResetTime
+        }
+        if normalizedSource.contains("custom_reward") || normalizedSource.contains("reward") {
+            return .customRewards
+        }
+        if normalizedSource.contains("history") {
+            return .history
+        }
+        if normalizedSource.contains("grid") || normalizedSource.contains("5x5") {
+            return .grid5x5
+        }
+        if normalizedSource.contains("group_task") {
+            return .groupTasks
+        }
+        if normalizedSource.contains("standalone_task") || normalizedSource.contains("task_limit") {
+            return .tasks
+        }
+        if normalizedSource.contains("group_limit") {
+            return .groups
+        }
+        if normalizedSource.contains("boards_limit") {
+            return .boards
+        }
+        if normalizedSource.contains("member_center") || normalizedSource.contains("me_pro") {
+            return .memberCenter
+        }
+        if normalizedSource.contains("quick_edit") {
+            return .tasksGroups
+        }
+        return .other
+    }
+}
+
 enum AnalyticsService {
     private static let loggedStoreKitTransactionIDsKey = "analytics.logged_storekit_transaction_ids"
+    private static let offerBannerViewLock = NSLock()
+    private static var viewedOfferBannerCampaignIDs = Set<String>()
 
     static func setCollectionEnabled(_ isEnabled: Bool) {
         Analytics.setAnalyticsCollectionEnabled(isEnabled)
@@ -35,11 +164,79 @@ enum AnalyticsService {
         syncThemeUserProperty(theme)
     }
 
+    static func logCustomRewardVisualUsed(
+        action: CustomRewardVisualAnalyticsAction,
+        emoji: String,
+        themeImageName: String?
+    ) {
+        let visual = AnalyticsEventContract.customRewardVisual(
+            emoji: emoji,
+            themeImageName: themeImageName
+        )
+        logCustomEvent("custom_reward_visual_used", parameters: [
+            "action": action.rawValue,
+            "visual_type": visual.type,
+            "visual_id": visual.id
+        ])
+    }
+
+    static func logOfferBannerViewed(campaignID: String, countdownStarted: Bool) {
+        let campaignID = sanitizedCampaignID(campaignID)
+        offerBannerViewLock.lock()
+        let isFirstViewThisSession = viewedOfferBannerCampaignIDs.insert(campaignID).inserted
+        offerBannerViewLock.unlock()
+        guard isFirstViewThisSession else { return }
+
+        logCustomEvent("offer_banner_viewed", parameters: [
+            "campaign_id": campaignID,
+            "countdown_started": countdownStarted ? 1 : 0
+        ])
+    }
+
+    static func logOfferBannerClicked(campaignID: String, countdownStarted: Bool) {
+        logCustomEvent("offer_banner_clicked", parameters: [
+            "campaign_id": sanitizedCampaignID(campaignID),
+            "countdown_started": countdownStarted ? 1 : 0
+        ])
+    }
+
+    static func logICloudSyncToggled(isEnabled: Bool) {
+        let enabledValue = isEnabled ? "true" : "false"
+        Analytics.setUserProperty(enabledValue, forName: "icloud_sync_enabled")
+        logCustomEvent("icloud_sync_toggled", parameters: [
+            "enabled": isEnabled ? 1 : 0
+        ])
+    }
+
+    static func logICloudSyncResult(
+        operation: NativeICloudAnalyticsOperation,
+        result: NativeICloudAnalyticsResult,
+        failureStage: String? = nil
+    ) {
+        var parameters: [String: Any] = [
+            "operation": operation.rawValue,
+            "result": result.rawValue
+        ]
+        if let failureStage {
+            parameters["failure_stage"] = failureStage
+        }
+        logCustomEvent("icloud_sync_result", parameters: parameters)
+    }
+
+    static func logPremiumRestoreStarted() {
+        logCustomEvent("premium_restore_started", parameters: [:])
+    }
+
+    static func logPremiumRestoreResult(_ result: String) {
+        logCustomEvent("premium_restore_result", parameters: ["result": result])
+    }
+
     static func logPremiumBoardsLimitHit(currentBoardCount: Int, source: String) {
         Analytics.logEvent("premium_limit_boards_hit", parameters: [
             "current_board_count": currentBoardCount,
             "source": source
         ])
+        logPremiumGateTriggered(feature: .boards, source: source)
     }
 
     static func logPremiumTasksGroupsLimitHit(
@@ -54,6 +251,10 @@ enum AnalyticsService {
             "group_count": groupCount,
             "group_task_count": groupTaskCount
         ])
+        logPremiumGateTriggered(
+            feature: AnalyticsEventContract.premiumTasksGroupsFeature(forSource: source),
+            source: source
+        )
     }
 
     static func logPremiumGrid5x5LimitHit(currentGridSize: Int, source: String) {
@@ -61,6 +262,7 @@ enum AnalyticsService {
             "current_grid_size": currentGridSize,
             "source": source
         ])
+        logPremiumGateTriggered(feature: .grid5x5, source: source)
     }
 
     static func logPremiumCustomRewardsLimitHit(currentRewardCount: Int, source: String) {
@@ -68,6 +270,7 @@ enum AnalyticsService {
             "current_reward_count": currentRewardCount,
             "source": source
         ])
+        logPremiumGateTriggered(feature: .customRewards, source: source)
     }
 
     static func logPremiumHistoryLimitHit(visibleHistoryCount: Int, totalHistoryCount: Int, source: String) {
@@ -76,10 +279,19 @@ enum AnalyticsService {
             "total_history_count": totalHistoryCount,
             "source": source
         ])
+        logPremiumGateTriggered(feature: .history, source: source)
     }
 
     static func logPremiumCustomResetTimeLimitHit(source: String) {
         Analytics.logEvent("premium_limit_custom_reset_time_hit", parameters: [
+            "source": source
+        ])
+        logPremiumGateTriggered(feature: .customResetTime, source: source)
+    }
+
+    private static func logPremiumGateTriggered(feature: PremiumAnalyticsFeature, source: String) {
+        logCustomEvent("premium_gate_triggered", parameters: [
+            "feature": feature.rawValue,
             "source": source
         ])
     }
@@ -96,6 +308,7 @@ enum AnalyticsService {
     ) {
         var parameters: [String: Any] = [
             "source": source,
+            "feature": AnalyticsEventContract.premiumFeature(forSource: source).rawValue,
             "plan": plan,
             "product_id": productID
         ]
@@ -163,6 +376,7 @@ enum AnalyticsService {
     static func logPremiumPaywallViewed(source: String, isMemberCenter: Bool) {
         Analytics.logEvent("premium_paywall_viewed", parameters: [
             "source": source,
+            "feature": AnalyticsEventContract.premiumFeature(forSource: source).rawValue,
             "is_member_center": isMemberCenter ? 1 : 0
         ])
     }
@@ -175,6 +389,7 @@ enum AnalyticsService {
     ) {
         var parameters: [String: Any] = [
             "source": source,
+            "feature": AnalyticsEventContract.premiumFeature(forSource: source).rawValue,
             "plan": plan,
             "product_id": productID
         ]
@@ -194,6 +409,7 @@ enum AnalyticsService {
     ) {
         var parameters: [String: Any] = [
             "source": source,
+            "feature": AnalyticsEventContract.premiumFeature(forSource: source).rawValue,
             "plan": plan,
             "product_id": productID,
             "result": result
@@ -205,38 +421,6 @@ enum AnalyticsService {
             parameters["attribution_age_seconds"] = attributionAgeSeconds
         }
         Analytics.logEvent("premium_purchase_result", parameters: parameters)
-    }
-
-    static func logTemplateShareOpen(source: String, gridSize: Int, isPremium: Bool) {
-        Analytics.logEvent("template_share_open", parameters: [
-            "source": source,
-            "grid_size": gridSize,
-            "is_premium": isPremium ? 1 : 0
-        ])
-    }
-
-    static func logTemplateShareSaveImageClick(source: String, gridSize: Int, isPremium: Bool) {
-        Analytics.logEvent("template_share_save_image_click", parameters: [
-            "source": source,
-            "grid_size": gridSize,
-            "is_premium": isPremium ? 1 : 0
-        ])
-    }
-
-    static func logTemplateImportPageOpen(source: String, gridSize: Int, createsNewBoard: Bool) {
-        Analytics.logEvent("template_import_page_open", parameters: [
-            "source": source,
-            "grid_size": gridSize,
-            "creates_new_board": createsNewBoard ? 1 : 0
-        ])
-    }
-
-    static func logTemplateImportSuccess(source: String, gridSize: Int, createsNewBoard: Bool) {
-        Analytics.logEvent("template_import_success", parameters: [
-            "source": source,
-            "grid_size": gridSize,
-            "creates_new_board": createsNewBoard ? 1 : 0
-        ])
     }
 
     static func syncMyTasksLibrary(_ library: MyTasksLibrary, shouldLogEvent: Bool = true) {
@@ -257,55 +441,24 @@ enum AnalyticsService {
         Analytics.setUserProperty(String(groupTaskCount), forName: "my_group_task_count")
     }
 
-    static func logBB2048SessionStart(themeID: String, gridSize: Int) {
-        Analytics.logEvent("bb2048_session_start", parameters: [
-            "theme_id": themeID,
-            "grid_size": gridSize
-        ])
-    }
-
-    static func logBB2048SessionEnd(
-        themeID: String,
-        gridSize: Int,
-        durationSeconds: Int,
-        finalScore: Int,
-        maxTileScore: Int,
-        moveCount: Int,
-        mergeCount: Int,
-        bingoCount: Int
-    ) {
-        Analytics.logEvent("bb2048_session_end", parameters: [
-            "theme_id": themeID,
-            "grid_size": gridSize,
-            "duration_seconds": max(durationSeconds, 0),
-            "final_score": finalScore,
-            "max_tile_score": maxTileScore,
-            "move_count": moveCount,
-            "merge_count": mergeCount,
-            "bingo_count": bingoCount
-        ])
-    }
-
-    static func logBB2048ScoreReached(
-        themeID: String,
-        gridSize: Int,
-        score: Int,
-        maxTileScore: Int,
-        moveCount: Int,
-        mergeCount: Int
-    ) {
-        Analytics.logEvent("bb2048_score_2048", parameters: [
-            "theme_id": themeID,
-            "grid_size": gridSize,
-            "score": score,
-            "max_tile_score": maxTileScore,
-            "move_count": moveCount,
-            "merge_count": mergeCount
-        ])
-    }
-
     private static func syncThemeUserProperty(_ theme: AppTheme) {
         Analytics.setUserProperty(theme.rawValue, forName: "selected_theme_color")
+    }
+
+    private static func sanitizedCampaignID(_ campaignID: String) -> String {
+        let trimmed = campaignID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "unknown" : String(trimmed.prefix(100))
+    }
+
+    private static func logCustomEvent(_ name: String, parameters: [String: Any]) {
+#if DEBUG
+        let summary = parameters
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: " ")
+        print("[Analytics] \(name) \(summary)")
+#endif
+        Analytics.logEvent(name, parameters: parameters)
     }
 
     @discardableResult

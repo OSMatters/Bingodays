@@ -73,6 +73,7 @@ struct HomeMainTabBarView: View {
                         .interpolation(.high)
                         .renderingMode(.original)
                         .scaledToFit()
+                        .opacity(selectedTab == tab ? 1 : 0.7)
                         .frame(
                             width: selectedTab == tab ? scaled(36, pad: 42) : scaled(30, pad: 36),
                             height: selectedTab == tab ? scaled(36, pad: 42) : scaled(30, pad: 36)
@@ -137,41 +138,51 @@ struct BoardSwitcherControlsView: View {
             }
 
             HStack(spacing: 10) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(boards) { board in
-                            let isSelected = board.id == selectedBoardID
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(boards) { board in
+                                let isSelected = board.id == selectedBoardID
 
-                            Button {
-                                onSelectBoard(board.id)
-                            } label: {
-                                Text(board.name)
-                                    .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                    .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text)
-                                    .padding(.horizontal, 14)
-                                    .frame(height: isPadLayout ? 38 : 36)
-                                    .overlay(
-                                        Capsule(style: .continuous)
-                                            .stroke(
-                                                isSelected ? NeumorphicColors.accent : NeumorphicColors.accent.opacity(0.22),
-                                                lineWidth: 1
-                                            )
-                                    )
+                                Button {
+                                    onSelectBoard(board.id)
+                                } label: {
+                                    Text(board.name)
+                                        .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text)
+                                        .padding(.horizontal, 14)
+                                        .frame(height: isPadLayout ? 38 : 36)
+                                        .overlay(
+                                            Capsule(style: .continuous)
+                                                .stroke(
+                                                    isSelected ? NeumorphicColors.accent : NeumorphicColors.accent.opacity(0.22),
+                                                    lineWidth: 1
+                                                )
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                                .id(board.id)
+                                .simultaneousGesture(
+                                    LongPressGesture(minimumDuration: 0.5)
+                                        .onEnded { _ in
+                                            onBoardLongPress(board.id)
+                                        }
+                                )
                             }
-                            .buttonStyle(.plain)
-                            .simultaneousGesture(
-                                LongPressGesture(minimumDuration: 0.5)
-                                    .onEnded { _ in
-                                        onBoardLongPress(board.id)
-                                    }
-                            )
                         }
+                        .padding(.vertical, 2)
+                        .padding(.horizontal, 1)
                     }
-                    .padding(.vertical, 2)
-                    .padding(.horizontal, 1)
+                    .onAppear {
+                        positionSelectedBoard(using: proxy, animated: false)
+                    }
+                    .onChange(of: selectedBoardID) { _, _ in
+                        positionSelectedBoard(using: proxy, animated: true)
+                    }
                 }
+                .frame(height: isPadLayout ? 42 : 40)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button(action: onCreateBoard) {
@@ -211,6 +222,31 @@ struct BoardSwitcherControlsView: View {
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
         isPadLayout ? (pad ?? base * 1.26) : base
+    }
+
+    private func positionSelectedBoard(using proxy: ScrollViewProxy, animated: Bool) {
+        guard let selectedBoardID,
+              let selectedIndex = boards.firstIndex(where: { $0.id == selectedBoardID }) else {
+            return
+        }
+        let anchor: UnitPoint
+        if selectedIndex == boards.startIndex {
+            anchor = .leading
+        } else if selectedIndex == boards.index(before: boards.endIndex) {
+            anchor = .trailing
+        } else {
+            anchor = .center
+        }
+
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+                    proxy.scrollTo(selectedBoardID, anchor: anchor)
+                }
+            } else {
+                proxy.scrollTo(selectedBoardID, anchor: anchor)
+            }
+        }
     }
 }
 
@@ -281,6 +317,8 @@ struct BoardActionsOverlayView: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
 
+    private var homeBottomBackgroundColor: Color { Color(hex: "FAF9F3") }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             Color.black.opacity(0.42)
@@ -295,21 +333,28 @@ struct BoardActionsOverlayView: View {
                 )
 
                 actionButton(
-                    title: L10n.tr("Edit", zhHans: "编辑", zhHant: "編輯"),
+                    title: L10n.tr("Rename Board", zhHans: "重命名面板", zhHant: "重新命名面板", ja: "ボード名を変更"),
                     color: NeumorphicColors.text,
                     action: onEdit
                 )
 
                 if canDelete {
                     actionButton(
-                        title: L10n.deleteConfirmationTitle,
+                        title: L10n.tr("Delete Board", zhHans: "删除面板", zhHant: "刪除面板", ja: "ボードを削除"),
                         color: Color.red.opacity(0.84),
                         action: onDelete
                     )
                 }
             }
             .frame(width: min(contentWidth, isPadLayout ? 460 : 353))
+            .padding(.top, 14)
             .padding(.bottom, max(bottomInset, 14) + 12)
+            .frame(maxWidth: .infinity)
+            .background(
+                homeBottomBackgroundColor
+                    .ignoresSafeArea(edges: .bottom)
+                    .onTapGesture(perform: onDismiss)
+            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
@@ -323,7 +368,7 @@ struct BoardActionsOverlayView: View {
                 .frame(height: 56)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(NeumorphicColors.background)
+                        .fill(homeBottomBackgroundColor)
                 )
         }
         .buttonStyle(.plain)
@@ -343,48 +388,50 @@ struct BoardBottomControlsView: View {
     let onCountdown: () -> Void
     let onEditActionsToggle: () -> Void
     let onDismissEditActions: () -> Void
+    let onBoardRules: () -> Void
     let onShuffle: () -> Void
     let onClearBoard: () -> Void
     let onGridSize: () -> Void
     let onQuickEdit: () -> Void
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            HStack(alignment: .center, spacing: 12) {
-                BoardMoreActionsTriggerView(
-                    isExpanded: isEditActionsExpanded,
+        HStack(alignment: .center, spacing: 12) {
+            BoardMoreActionsTriggerView(
+                isExpanded: isEditActionsExpanded,
+                isPadLayout: isPadLayout,
+                themeColor: themeColor,
+                onTap: onEditActionsToggle
+            )
+
+            Spacer(minLength: 0)
+
+            if let countdownText {
+                BoardCountdownTriggerView(
+                    text: countdownText,
                     isPadLayout: isPadLayout,
-                    themeColor: themeColor,
-                    onTap: onEditActionsToggle
+                    surfaceShadowColor: surfaceShadowColor,
+                    onTap: onCountdown
                 )
-
-                Spacer(minLength: 0)
-
-                if let countdownText {
-                    BoardCountdownTriggerView(
-                        text: countdownText,
-                        isPadLayout: isPadLayout,
-                        surfaceShadowColor: surfaceShadowColor,
-                        onTap: onCountdown
-                    )
-                    .offset(y: isPadLayout ? 4 : 3)
-                } else {
-                    Color.clear
-                        .frame(width: isPadLayout ? 170 : 140, height: isPadLayout ? 38 : 32)
-                }
-
-                Spacer(minLength: 0)
-
-                BoardQuickEditTriggerView(
-                    isPadLayout: isPadLayout,
-                    onTap: onQuickEdit
-                )
+                .offset(y: isPadLayout ? 4 : 3)
+            } else {
+                Color.clear
+                    .frame(width: isPadLayout ? 170 : 140, height: isPadLayout ? 38 : 32)
             }
 
+            Spacer(minLength: 0)
+
+            BoardQuickEditTriggerView(
+                isPadLayout: isPadLayout,
+                onTap: onQuickEdit
+            )
+        }
+        .frame(height: isPadLayout ? 44 : 38, alignment: .topLeading)
+        .overlay(alignment: .topLeading) {
             if isEditActionsExpanded {
                 BoardMoreActionsSidePanel(
                     isPadLayout: isPadLayout,
                     onDismiss: onDismissEditActions,
+                    onBoardRules: onBoardRules,
                     onShuffle: onShuffle,
                     onClearBoard: onClearBoard,
                     onGridSize: onGridSize
@@ -402,9 +449,9 @@ struct BoardBottomControlsView: View {
 
     private var moreActionsPanelOffsetY: CGFloat {
         let triggerSize: CGFloat = isPadLayout ? 44 : 38
-        let rowHeight: CGFloat = isPadLayout ? 40 : 34
+        let rowHeight: CGFloat = isPadLayout ? 54 : 52
         let verticalPadding: CGFloat = isPadLayout ? 6 : 5
-        let panelHeight = rowHeight * 3 + verticalPadding * 2
+        let panelHeight = rowHeight * 4 + verticalPadding * 2
 
         return triggerSize - panelHeight
     }
@@ -470,12 +517,14 @@ struct BoardQuickEditTriggerView: View {
 struct BoardMoreActionsSidePanel: View {
     let isPadLayout: Bool
     let onDismiss: () -> Void
+    let onBoardRules: () -> Void
     let onShuffle: () -> Void
     let onClearBoard: () -> Void
     let onGridSize: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            actionButton(L10n.tr("Board Rules", zhHans: "面板规则", zhHant: "面板規則"), action: onBoardRules)
             actionButton(L10n.tr("Shuffle", zhHans: "随机排序"), action: onShuffle)
             actionButton(L10n.clearBoard, action: onClearBoard)
             actionButton(L10n.tr("Grid Size", zhHans: "格子大小"), action: onGridSize)
@@ -507,8 +556,8 @@ struct BoardMoreActionsSidePanel: View {
                 .minimumScaleFactor(0.86)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)
-                .frame(height: scaled(34, pad: 40))
                 .padding(.horizontal, scaled(12, pad: 14))
+                .padding(.vertical, 16)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

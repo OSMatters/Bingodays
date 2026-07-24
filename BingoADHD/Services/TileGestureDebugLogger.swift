@@ -11,7 +11,6 @@ enum TileGestureDebugLogger {
         var hasExpiredBoardCountdownEvent = false
         var hasScheduledTaskReplacementEvent = false
         var hasTimeoutDelayPicker = false
-        var isTemplateImportPreviewPresented = false
         var isBoardRulesPresented = false
         var isBoardCountdownPresented = false
         var isGridSizeSheetPresented = false
@@ -27,7 +26,6 @@ enum TileGestureDebugLogger {
                 hasExpiredBoardCountdownEvent ? "board_timeout" : nil,
                 hasScheduledTaskReplacementEvent ? "scheduled_replace" : nil,
                 hasTimeoutDelayPicker ? "timeout_delay_picker" : nil,
-                isTemplateImportPreviewPresented ? "template_import_preview" : nil,
                 isBoardRulesPresented ? "board_rules_sheet" : nil,
                 isBoardCountdownPresented ? "board_countdown_sheet" : nil,
                 isGridSizeSheetPresented ? "grid_size_sheet" : nil

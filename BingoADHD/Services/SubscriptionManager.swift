@@ -54,6 +54,7 @@ final class SubscriptionManager: ObservableObject {
     @Published private(set) var hasCompletedEntitlementRefresh = false
 
     private var updatesTask: Task<Void, Never>?
+    private var entitlementRefreshTask: Task<Void, Never>?
     private var cachedDisplayPrices: [String: String] = [:]
     private static let cachedDisplayPricesKey = "subscription.cached_display_prices"
     private static let pendingPurchaseAttributionKey = "subscription.pending_purchase_attribution"
@@ -96,6 +97,21 @@ final class SubscriptionManager: ObservableObject {
     }
 
     func refreshEntitlements() async {
+        if let entitlementRefreshTask {
+            await entitlementRefreshTask.value
+            return
+        }
+
+        let refreshTask = Task { [weak self] in
+            guard let self else { return }
+            await self.performEntitlementRefresh()
+        }
+        entitlementRefreshTask = refreshTask
+        await refreshTask.value
+        entitlementRefreshTask = nil
+    }
+
+    private func performEntitlementRefresh() async {
         var collected: Set<String> = []
         let now = Date()
         var resolvedLifetime = false
@@ -125,15 +141,6 @@ final class SubscriptionManager: ObservableObject {
             }
         }
 
-        // Sandbox can occasionally lag on currentEntitlements right after purchase.
-        // Fallback to latest(for:) so activation does not appear to fail.
-        await mergeLatestTransactionsIntoEntitlements(
-            now: now,
-            collected: &collected,
-            resolvedLifetime: &resolvedLifetime,
-            resolvedAutoRenewablePlan: &resolvedAutoRenewablePlan,
-            resolvedAutoRenewableExpirationDate: &resolvedAutoRenewableExpirationDate
-        )
         mergeOptimisticEntitlementsIntoResolvedState(
             now: now,
             collected: &collected,
@@ -209,10 +216,41 @@ final class SubscriptionManager: ObservableObject {
     }
 
     func displayPrice(for productID: String) -> String {
-        if let livePrice = productsByID[productID]?.displayPrice {
-            return livePrice
+        if let product = productsByID[productID] {
+            return displayPrice(for: product)
         }
-        return cachedDisplayPrices[productID] ?? "--"
+        guard let cachedDisplayPrice = cachedDisplayPrices[productID] else {
+            return "--"
+        }
+        return Self.explicitCurrencyDisplayPrice(
+            cachedDisplayPrice,
+            currencyCode: storefrontCountryCode.uppercased() == "TW" ? "TWD" : ""
+        )
+    }
+
+    func displayPrice(for product: Product) -> String {
+        Self.explicitCurrencyDisplayPrice(
+            product.displayPrice,
+            currencyCode: product.priceFormatStyle.currencyCode
+        )
+    }
+
+    nonisolated static func explicitCurrencyDisplayPrice(
+        _ displayPrice: String,
+        currencyCode: String
+    ) -> String {
+        guard currencyCode.uppercased() == "TWD",
+              !displayPrice.localizedCaseInsensitiveContains("NT$") else {
+            return displayPrice
+        }
+
+        guard let dollarRange = displayPrice.range(of: "$") else {
+            return displayPrice
+        }
+
+        var explicitDisplayPrice = displayPrice
+        explicitDisplayPrice.replaceSubrange(dollarRange, with: "NT$")
+        return explicitDisplayPrice
     }
 
     var hasLoadedAllPaywallProducts: Bool {
@@ -413,12 +451,15 @@ final class SubscriptionManager: ObservableObject {
 
         isPurchasing = true
         defer { isPurchasing = false }
+        AnalyticsService.logPremiumRestoreStarted()
 
         do {
             try await AppStore.sync()
             let restored = await confirmPremiumActivationAfterPurchase()
+            AnalyticsService.logPremiumRestoreResult(restored ? "restored" : "not_found")
             return restored ? L10n.subscriptionRestoreSucceeded : L10n.subscriptionNotFound
         } catch {
+            AnalyticsService.logPremiumRestoreResult("failed")
             return L10n.subscriptionRestoreFailed
         }
     }
@@ -674,48 +715,9 @@ final class SubscriptionManager: ObservableObject {
         }
     }
 
-    private func mergeLatestTransactionsIntoEntitlements(
-        now: Date,
-        collected: inout Set<String>,
-        resolvedLifetime: inout Bool,
-        resolvedAutoRenewablePlan: inout PremiumPlanKind?,
-        resolvedAutoRenewableExpirationDate: inout Date?
-    ) async {
-        for productID in Self.allProductIDs {
-            guard let latestResult = await StoreKit.Transaction.latest(for: productID),
-                  let transaction = verified(latestResult) else {
-                continue
-            }
-
-            if transaction.revocationDate != nil { continue }
-            if let expirationDate = transaction.expirationDate, expirationDate <= now { continue }
-            guard let activatedProductID = activatedProductID(from: transaction),
-                  activatedProductID == productID else {
-                continue
-            }
-
-            collected.insert(activatedProductID)
-
-            if Self.isLifetimeProductID(activatedProductID) {
-                resolvedLifetime = true
-                continue
-            }
-
-            guard let expirationDate = transaction.expirationDate,
-                  let plan = planKind(for: activatedProductID) else {
-                continue
-            }
-
-            if resolvedAutoRenewableExpirationDate == nil || expirationDate > resolvedAutoRenewableExpirationDate! {
-                resolvedAutoRenewablePlan = plan
-                resolvedAutoRenewableExpirationDate = expirationDate
-            }
-        }
-    }
-
     private func cacheDisplayPrices(from mapped: [String: Product]) {
         for (productID, product) in mapped {
-            cachedDisplayPrices[productID] = product.displayPrice
+            cachedDisplayPrices[productID] = displayPrice(for: product)
         }
         UserDefaults.standard.set(cachedDisplayPrices, forKey: Self.cachedDisplayPricesKey)
     }

@@ -91,13 +91,23 @@ enum BingoTimeoutStore {
             .map { (task: $0.key, count: $0.value) }
     }
 
-    static func replacePayload(_ payload: [String: [String: Int]]) {
+    @discardableResult
+    static func replacePayload(_ payload: [String: [String: Int]]) -> Bool {
         persist(payload)
     }
 
     private static func loadPayload() -> [String: [String: Int]] {
         if let data = sharedDefaults.data(forKey: key),
            let payload = try? JSONDecoder().decode([String: [String: Int]].self, from: data) {
+            if UserDefaults.standard.data(forKey: key) != data {
+                _ = PersistenceWriteTransaction.commit([
+                    PersistenceWriteTransaction.userDefaultsStep(
+                        defaults: .standard,
+                        key: key,
+                        newValue: data
+                    )
+                ])
+            }
             return payload
         }
 
@@ -106,14 +116,31 @@ enum BingoTimeoutStore {
             return [:]
         }
 
-        sharedDefaults.set(data, forKey: key)
+        _ = PersistenceWriteTransaction.commit([
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: key,
+                newValue: data
+            )
+        ])
         return payload
     }
 
-    private static func persist(_ payload: [String: [String: Int]]) {
-        guard let data = try? JSONEncoder().encode(payload) else { return }
-        sharedDefaults.set(data, forKey: key)
-        UserDefaults.standard.set(data, forKey: key)
+    @discardableResult
+    private static func persist(_ payload: [String: [String: Int]]) -> Bool {
+        guard let data = try? JSONEncoder().encode(payload) else { return false }
+        return PersistenceWriteTransaction.commit([
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: key,
+                newValue: data
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: key,
+                newValue: data
+            )
+        ])
     }
 
     private static var sharedDefaults: UserDefaults {

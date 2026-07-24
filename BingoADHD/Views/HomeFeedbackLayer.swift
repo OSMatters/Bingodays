@@ -8,7 +8,7 @@ struct HomeFeedbackLayer: View {
     let safeAreaTop: CGFloat
     let contentWidth: CGFloat
     let isPadLayout: Bool
-    let onBoardCompletionAnimationFinished: () -> Void
+    let onBoardCompletionAnimationFinished: (UUID) -> Void
 
     var body: some View {
         ZStack {
@@ -16,10 +16,11 @@ struct HomeFeedbackLayer: View {
                 CelebrationView()
             }
 
-            if viewModel.showBoardCompletionAnimation {
+            if let animationID = viewModel.boardCompletionAnimationID {
                 PAGCompletionView(resourceName: "cat_bmp") {
-                    onBoardCompletionAnimationFinished()
+                    onBoardCompletionAnimationFinished(animationID)
                 }
+                .id(animationID)
                 .frame(
                     width: min(canvasSize.width * 0.5, 220),
                     height: min(canvasSize.width * 0.5, 220)

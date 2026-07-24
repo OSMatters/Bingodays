@@ -36,6 +36,7 @@ struct BingoBoardView: View {
     @State private var deletedCellSnapshot: DeletedCellSnapshot?
     @State private var undoDismissWorkItem: DispatchWorkItem?
     @State private var pendingDeleteTarget: EditingTarget?
+    @State private var pendingPadEditorTargetAfterActions: EditingTarget?
     @State private var editSheetSessionID = UUID()
     private let boardSurfaceColor = Color(hex: "EBEBEB")
 
@@ -59,6 +60,10 @@ struct BingoBoardView: View {
     }
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
+    }
+
+    private var isPadDevice: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
     }
 
     var body: some View {
@@ -120,9 +125,7 @@ struct BingoBoardView: View {
                                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
                                                     viewModel.toggleComplete(row: row, col: col, referenceDate: currentTime)
                                                 }
-                                                DispatchQueue.main.async {
-                                                    onCellCompletionToggled?()
-                                                }
+                                                onCellCompletionToggled?()
                                             }
                                         },
                                         onLongPressRelease: {
@@ -215,13 +218,23 @@ struct BingoBoardView: View {
                     .zIndex(3)
             }
         }
-        .sheet(item: $editingTarget) { target in
+        .adaptivePadBottomHalfSheet(
+            item: $editingTarget,
+            usePadPresentation: isPadDevice,
+            backgroundColor: Color(hex: "202020"),
+            contentMaxWidth: 720,
+            padHeightFraction: 0.7
+        ) { target in
             editTaskSheet(for: target)
                 .presentationDetents([.fraction(isPadLayout ? 0.66 : 0.74), .large])
                 .presentationDragIndicator(.visible)
-                .presentationBackground(Color(hex: "202020"))
+                .presentationBackground(isPadDevice ? Color.clear : Color(hex: "202020"))
         }
-        .fullScreenCover(item: $actionTarget) { target in
+        .fullScreenCover(item: $actionTarget, onDismiss: {
+            guard isPadDevice, let target = pendingPadEditorTargetAfterActions else { return }
+            pendingPadEditorTargetAfterActions = nil
+            presentEditor(for: target)
+        }) { target in
             taskActionsOverlay(for: target)
                 .background(Color.clear)
                 .presentationBackground(.clear)
@@ -301,6 +314,7 @@ struct BingoBoardView: View {
             startReminderOffsetMinutes: editingCell.startReminderOffsetMinutes,
             isCompletedTask: editingCell.isCompleted,
             estimatedDurationMinutes: viewModel.remainingTaskCountdownMinutes(row: target.row, col: target.col),
+            usesClearPresentationBackground: isPadDevice,
             onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, recurrenceRule, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes in
                 let scheduleNotice = residentVisibilityNotice(
                     text: newText,
@@ -342,7 +356,11 @@ struct BingoBoardView: View {
             isPadLayout: isPadLayout,
             onDismiss: dismissActionMenu,
             onEdit: {
-                presentEditor(for: target)
+                if isPadDevice {
+                    pendingPadEditorTargetAfterActions = target
+                } else {
+                    presentEditor(for: target)
+                }
             },
             onSetCountdown: {
                 countdownTarget = target
@@ -359,11 +377,12 @@ struct BingoBoardView: View {
     }
 
     private func taskCountdownSheet(for target: EditingTarget) -> some View {
+        let referenceDate = Date()
         let editingCell = viewModel.editingCell(row: target.row, col: target.col)
         let remainingMinutes = viewModel.remainingTaskCountdownMinutes(
             row: target.row,
             col: target.col,
-            referenceDate: currentTime
+            referenceDate: referenceDate
         )
         let isPaused = viewModel.isTaskCountdownPaused(row: target.row, col: target.col)
         return TaskCountdownSheetView(
@@ -375,23 +394,23 @@ struct BingoBoardView: View {
             canPauseOrResumeCountdown: viewModel.canPauseOrResumeTaskCountdown(
                 row: target.row,
                 col: target.col,
-                referenceDate: currentTime
+                referenceDate: referenceDate
             ),
             isPadLayout: isPadLayout,
             onSave: { minutes in
-                _ = viewModel.setTaskCountdown(row: target.row, col: target.col, minutes: minutes, referenceDate: currentTime)
+                _ = viewModel.setTaskCountdown(row: target.row, col: target.col, minutes: minutes)
                 countdownTarget = nil
             },
             onPauseToggle: {
                 if isPaused {
-                    _ = viewModel.resumeTaskCountdown(row: target.row, col: target.col, referenceDate: currentTime)
+                    _ = viewModel.resumeTaskCountdown(row: target.row, col: target.col)
                 } else {
-                    _ = viewModel.pauseTaskCountdown(row: target.row, col: target.col, referenceDate: currentTime)
+                    _ = viewModel.pauseTaskCountdown(row: target.row, col: target.col)
                 }
                 countdownTarget = nil
             },
             onCancelCountdown: {
-                _ = viewModel.cancelTaskCountdown(row: target.row, col: target.col, referenceDate: currentTime)
+                _ = viewModel.cancelTaskCountdown(row: target.row, col: target.col)
                 countdownTarget = nil
             }
         )

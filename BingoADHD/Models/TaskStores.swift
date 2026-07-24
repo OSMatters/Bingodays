@@ -30,10 +30,16 @@ enum CommonTasksStore {
         saveLibrary(library)
     }
 
-    static func saveLibrary(_ library: MyTasksLibrary) {
+    @discardableResult
+    static func saveLibrary(_ library: MyTasksLibrary) -> Bool {
         let sanitized = sanitize(library)
-        guard let data = try? JSONEncoder().encode(sanitized) else { return }
+        guard let data = try? JSONEncoder().encode(sanitized) else { return false }
         UserDefaults.standard.set(data, forKey: AppSettings.commonTasksKey)
+        let didSave = UserDefaults.standard.data(forKey: AppSettings.commonTasksKey) == data
+        if didSave {
+            NativeICloudLocalChangeReporter.secondaryStateDidChange()
+        }
+        return didSave
     }
 
     private static func sanitize(_ library: MyTasksLibrary) -> MyTasksLibrary {
@@ -80,10 +86,16 @@ enum TaskHistoryStore {
         return sanitize(records)
     }
 
-    static func save(_ records: [TaskHistoryRecord]) {
+    @discardableResult
+    static func save(_ records: [TaskHistoryRecord]) -> Bool {
         let sanitized = sanitize(records)
-        guard let data = try? JSONEncoder().encode(sanitized) else { return }
+        guard let data = try? JSONEncoder().encode(sanitized) else { return false }
         UserDefaults.standard.set(data, forKey: AppSettings.taskHistoryKey)
+        let didSave = UserDefaults.standard.data(forKey: AppSettings.taskHistoryKey) == data
+        if didSave {
+            NativeICloudLocalChangeReporter.secondaryStateDidChange()
+        }
+        return didSave
     }
 
     static func deleteRecord(withKey key: String) {
@@ -103,14 +115,55 @@ enum TaskHistoryStore {
         return "text:\(normalizedText)|\(startPart)|\(endPart)"
     }
 
-    static func upsert(task: MyTaskItem, sourceTaskID: UUID? = nil, at date: Date = .now) {
+    @discardableResult
+    static func upsert(task: MyTaskItem, sourceTaskID: UUID? = nil, at date: Date = .now) -> Bool {
+        var records = load()
+        guard upsert(task: task, sourceTaskID: sourceTaskID, at: date, into: &records) else {
+            return true
+        }
+        return save(records)
+    }
+
+    @discardableResult
+    static func upsertBoardTasks(_ tasks: [MyTaskItem], at date: Date = .now) -> Bool {
+        var records = load()
+        var didChange = false
+        for task in tasks {
+            didChange = upsert(task: task, sourceTaskID: nil, at: date, into: &records) || didChange
+        }
+        return !didChange || save(records)
+    }
+
+    @discardableResult
+    static func archive(board: SavedBoard, at date: Date = .now) -> Bool {
+        let boardCells = board.fullBoardCells ?? board.cells
+        let tasks = boardCells.flatMap { $0 }.compactMap { cell -> MyTaskItem? in
+            let text = cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            return MyTaskItem(
+                text: String(text.prefix(AppSettings.maxTaskLength)),
+                startAt: cell.startVisibleAt,
+                endAt: cell.endVisibleAt,
+                startMonth: cell.startVisibleMonth,
+                startDay: cell.startVisibleDay
+            )
+        }
+        return upsertBoardTasks(tasks, at: date)
+    }
+
+    @discardableResult
+    private static func upsert(
+        task: MyTaskItem,
+        sourceTaskID: UUID?,
+        at date: Date,
+        into records: inout [TaskHistoryRecord]
+    ) -> Bool {
         var sanitizedTask = task
         sanitizedTask.text = String(task.text.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
         sanitizedTask.normalizeVisibilityWindow()
-        guard !sanitizedTask.trimmedText.isEmpty else { return }
+        guard !sanitizedTask.trimmedText.isEmpty else { return false }
 
         let key = makeKey(for: sanitizedTask, sourceTaskID: sourceTaskID)
-        var records = load()
 
         if let index = records.firstIndex(where: { $0.key == key }) {
             records[index].text = sanitizedTask.trimmedText
@@ -135,19 +188,12 @@ enum TaskHistoryStore {
                 )
             )
         }
-
-        save(records)
+        return true
     }
 
     static func upsert(tasks: [MyTaskItem], at date: Date = .now) {
         for task in tasks {
             upsert(task: task, sourceTaskID: task.id, at: date)
-        }
-    }
-
-    static func upsertBoardTasks(_ tasks: [MyTaskItem], at date: Date = .now) {
-        for task in tasks {
-            upsert(task: task, sourceTaskID: nil, at: date)
         }
     }
 
