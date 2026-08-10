@@ -543,14 +543,29 @@ final class TaskStartReminderSyncStoreTests: XCTestCase {
         let scheduler = FakeTaskStartReminderScheduler(signature: "same", counter: counter)
         let store = TaskStartReminderSyncStore(scheduler: scheduler, debounceNanoseconds: 0)
 
-        store.scheduleSync(namedBoards: [], selectedBoardID: nil, activeBoard: nil)
+        let syncTask = store.scheduleSync(namedBoards: [], selectedBoardID: nil, activeBoard: nil)
         store.scheduleSync(namedBoards: [], selectedBoardID: nil, activeBoard: nil)
 
-        await Task.yield()
-        try? await Task.sleep(nanoseconds: 10_000_000)
+        await syncTask?.value
 
         let syncCount = await counter.value
         XCTAssertEqual(syncCount, 1)
+    }
+
+    @MainActor
+    func testCancelPendingSyncAllowsSameSignatureToBeScheduledAgain() async {
+        let counter = ReminderSyncCounter()
+        let scheduler = FakeTaskStartReminderScheduler(signature: "same", counter: counter)
+        let store = TaskStartReminderSyncStore(scheduler: scheduler, debounceNanoseconds: .max)
+
+        XCTAssertNotNil(store.scheduleSync(namedBoards: [], selectedBoardID: nil, activeBoard: nil))
+        store.cancelPendingSync()
+
+        XCTAssertNotNil(store.scheduleSync(namedBoards: [], selectedBoardID: nil, activeBoard: nil))
+        store.cancelPendingSync()
+
+        let syncCount = await counter.value
+        XCTAssertEqual(syncCount, 0)
     }
 }
 
@@ -4991,6 +5006,22 @@ final class LimitedOfferEntryEligibilityTests: XCTestCase {
         minimumAppVersion: "2.3.0"
     )
 
+    func testBundledFallbackKeepsCurrentCampaignAvailableWhenRemoteConfigIsUnreachable() {
+        XCTAssertTrue(LimitedTimeOfferConfig.bundledFallback.isEnabled)
+        XCTAssertEqual(
+            LimitedTimeOfferConfig.bundledFallback.campaignID,
+            LimitedTimeOfferConfig.defaultCampaignID
+        )
+        XCTAssertEqual(
+            LimitedTimeOfferConfig.bundledFallback.offerDuration,
+            LimitedTimeOfferConfig.defaultOfferDurationHours * 60 * 60
+        )
+        XCTAssertEqual(
+            LimitedTimeOfferConfig.bundledFallback.minimumAppVersion,
+            LimitedTimeOfferConfig.defaultMinimumAppVersion
+        )
+    }
+
     func testShowsEntryAfterPaywallExitForNonPremiumUser() {
         let now = makeDate(year: 2026, month: 6, day: 15, hour: 10)
 
@@ -5119,7 +5150,7 @@ final class LimitedOfferEntryEligibilityTests: XCTestCase {
         XCTAssertFalse(config.isEnabled(forAppVersion: "2.2.9"))
     }
 
-    func testPremiumAccessClearsHomeOfferState() {
+    func testPremiumAccessHidesButPreservesHomeOfferState() {
         let state = LimitedOfferHomeState(
             hasVisitedPaywallWithoutPurchase: true,
             hasLegacyExposure: true,
@@ -5128,16 +5159,16 @@ final class LimitedOfferEntryEligibilityTests: XCTestCase {
             isPresented: true
         )
 
-        let clearedState = LimitedOfferHomeRules.applyingPremiumAccess(
+        let hiddenState = LimitedOfferHomeRules.applyingPremiumAccess(
             to: state,
             hasPremiumAccess: true
         )
 
-        XCTAssertFalse(clearedState.hasVisitedPaywallWithoutPurchase)
-        XCTAssertFalse(clearedState.hasLegacyExposure)
-        XCTAssertEqual(clearedState.startedAt, 0)
-        XCTAssertEqual(clearedState.campaignID, "")
-        XCTAssertFalse(clearedState.isPresented)
+        XCTAssertTrue(hiddenState.hasVisitedPaywallWithoutPurchase)
+        XCTAssertTrue(hiddenState.hasLegacyExposure)
+        XCTAssertEqual(hiddenState.startedAt, state.startedAt)
+        XCTAssertEqual(hiddenState.campaignID, state.campaignID)
+        XCTAssertFalse(hiddenState.isPresented)
     }
 
     func testLegacyExposureMigrationPreservesExistingCountdownState() {
@@ -5180,6 +5211,129 @@ final class LimitedOfferEntryEligibilityTests: XCTestCase {
         XCTAssertEqual(
             LimitedOfferHomeRules.applyingCampaignSync(to: activeState, config: config).campaignID,
             "old_campaign"
+        )
+    }
+
+    func testPaywallExitWithoutPurchasePreservesAnActiveCountdown() {
+        let startedAt = makeDate(year: 2026, month: 6, day: 15, hour: 9).timeIntervalSince1970
+        let state = LimitedOfferHomeState(
+            hasVisitedPaywallWithoutPurchase: false,
+            hasLegacyExposure: true,
+            startedAt: startedAt,
+            campaignID: "campaign_a",
+            isPresented: false
+        )
+
+        let updatedState = LimitedOfferHomeRules.applyingPaywallExitWithoutPurchase(to: state)
+
+        XCTAssertTrue(updatedState.hasVisitedPaywallWithoutPurchase)
+        XCTAssertEqual(updatedState.startedAt, startedAt)
+        XCTAssertEqual(updatedState.campaignID, "campaign_a")
+    }
+
+    func testDiscountPagePresentationStartsCountdownOnlyOnce() {
+        let firstOpen = makeDate(year: 2026, month: 6, day: 15, hour: 9)
+        let secondOpen = makeDate(year: 2026, month: 6, day: 15, hour: 10)
+        let state = LimitedOfferHomeState(
+            hasVisitedPaywallWithoutPurchase: true,
+            hasLegacyExposure: false,
+            startedAt: 0,
+            campaignID: "",
+            isPresented: true
+        )
+
+        let started = LimitedOfferHomeRules.applyingDiscountPagePresentation(
+            to: state,
+            campaignID: "campaign_a",
+            now: firstOpen
+        )
+        let reopened = LimitedOfferHomeRules.applyingDiscountPagePresentation(
+            to: started,
+            campaignID: "campaign_a",
+            now: secondOpen
+        )
+
+        XCTAssertEqual(started.startedAt, firstOpen.timeIntervalSince1970)
+        XCTAssertEqual(reopened.startedAt, firstOpen.timeIntervalSince1970)
+        XCTAssertEqual(reopened.campaignID, "campaign_a")
+    }
+
+    func testConfirmedPurchaseClearsTheWholeOfferState() {
+        let state = LimitedOfferHomeState(
+            hasVisitedPaywallWithoutPurchase: true,
+            hasLegacyExposure: true,
+            startedAt: makeDate(year: 2026, month: 6, day: 15, hour: 9).timeIntervalSince1970,
+            campaignID: "campaign_a",
+            isPresented: true
+        )
+
+        let updatedState = LimitedOfferHomeRules.applyingConfirmedPurchase(to: state)
+
+        XCTAssertFalse(updatedState.hasVisitedPaywallWithoutPurchase)
+        XCTAssertFalse(updatedState.hasLegacyExposure)
+        XCTAssertEqual(updatedState.startedAt, 0)
+        XCTAssertEqual(updatedState.campaignID, "")
+        XCTAssertFalse(updatedState.isPresented)
+    }
+}
+
+final class SubscriptionPriceCacheTests: XCTestCase {
+    func testPriceCatalogLoadingStatesAreExplicit() {
+        XCTAssertTrue(PaywallPriceCatalogState.loading.isLoading)
+        XCTAssertTrue(PaywallPriceCatalogState.refreshing.isLoading)
+        XCTAssertFalse(PaywallPriceCatalogState.ready.isLoading)
+        XCTAssertFalse(PaywallPriceCatalogState.unavailable.isLoading)
+    }
+
+    func testRevenueCatConfigurationIsAvailableAtLaunch() {
+        XCTAssertTrue(SubscriptionManager.isRevenueCatConfigurationAllowed())
+    }
+
+    func testInitialStorefrontResolutionDoesNotInvalidateSameStorefrontCache() {
+        XCTAssertFalse(SubscriptionManager.didStorefrontChange(
+            previousStorefrontID: "--",
+            currentStorefrontID: "143470"
+        ))
+        XCTAssertTrue(SubscriptionManager.didStorefrontChange(
+            previousStorefrontID: "143470",
+            currentStorefrontID: "143443"
+        ))
+    }
+
+    func testRevenueCatCancelledPurchaseDoesNotBecomePendingOrActivated() {
+        XCTAssertEqual(
+            SubscriptionManager.purchaseOutcome(
+                userCancelled: true,
+                hasActivePremiumEntitlement: false
+            ),
+            .cancelled
+        )
+    }
+
+    func testOnlyAnActiveEntitlementCompletesPurchase() {
+        XCTAssertEqual(
+            SubscriptionManager.purchaseOutcome(
+                userCancelled: false,
+                hasActivePremiumEntitlement: true
+            ),
+            .activated
+        )
+        XCTAssertEqual(
+            SubscriptionManager.purchaseOutcome(
+                userCancelled: false,
+                hasActivePremiumEntitlement: false
+            ),
+            .pending
+        )
+    }
+
+    func testRevenueCatEntitlementActivatesEvenWhenTransactionIsUnavailable() {
+        XCTAssertEqual(
+            SubscriptionManager.purchaseOutcome(
+                userCancelled: false,
+                hasActivePremiumEntitlement: true
+            ),
+            .activated
         )
     }
 }
@@ -6150,6 +6304,32 @@ final class BoardOrderedCellsRuleEngineTests: XCTestCase {
     }
 }
 
+final class QuickEditGroupRenameTests: XCTestCase {
+    func testRenameGroupNormalizesNameAndKeepsTasks() {
+        let groupID = UUID()
+        let task = MyTaskItem(text: "Keep this task")
+        var library = MyTasksLibrary(
+            groups: [MyTaskGroup(id: groupID, name: "Original", tasks: [task])]
+        )
+
+        let result = quickEditRenameGroup(groupID, nameDraft: "  Updated name  ", library: &library)
+
+        XCTAssertEqual(result, .renamed)
+        XCTAssertEqual(library.groups.first?.name, "Updated name")
+        XCTAssertEqual(library.groups.first?.tasks, [task])
+    }
+
+    func testRenameGroupRejectsEmptyNameWithoutChangingGroup() {
+        let groupID = UUID()
+        var library = MyTasksLibrary(groups: [MyTaskGroup(id: groupID, name: "Original")])
+
+        let result = quickEditRenameGroup(groupID, nameDraft: "   ", library: &library)
+
+        XCTAssertEqual(result, .invalid)
+        XCTAssertEqual(library.groups.first?.name, "Original")
+    }
+}
+
 final class QuickEditPreviewAppendTests: XCTestCase {
     func testAppendingGroupTasksPreservesBoardTasksAndReportsOverflow() {
         let firstGroupTask = MyTaskItem(text: "Group task one")
@@ -6644,6 +6824,130 @@ final class BingoViewModelSideEffectCountTests: XCTestCase {
         XCTAssertEqual(viewModel.cells[0][1].storedTaskText, "Locked destination")
         XCTAssertEqual(cellsPublicationCount, 0)
         withExtendedLifetime(cellsCancellable) {}
+    }
+
+    func testTaskCompletionMotionUsesSingleTaskOnlyWhenNoBingoIsCreated() throws {
+        let now = makeDate(year: 2026, month: 8, day: 5, hour: 10)
+        let harness = makeInMemoryViewModelHarness(
+            savedBoard: makeSavedBoardForViewModel(
+                cell: BingoCell(text: "One task"),
+                referenceDate: now
+            ),
+            savedAt: now,
+            totalPoints: 0,
+            lifetimePoints: 0,
+            dailyRewardState: BingoRewardSettlement.emptyDailyRewardState(for: now)
+        )
+        let viewModel = BingoViewModel(persistenceDependencies: harness.dependencies)
+
+        viewModel.toggleComplete(row: 0, col: 0, referenceDate: now)
+
+        let motion = try XCTUnwrap(viewModel.taskCompletionMotion)
+        XCTAssertEqual(motion.kind, .singleTask)
+        XCTAssertEqual(motion.triggeringCell, .init(row: 0, col: 0))
+        XCTAssertTrue(motion.bingoCells.isEmpty)
+        XCTAssertNil(viewModel.boardCompletionAnimationID)
+    }
+
+    func testTaskCompletionMotionUsesNewBingoLineCells() throws {
+        let now = makeDate(year: 2026, month: 8, day: 5, hour: 11)
+        var fullBoardCells = BoardEngine.createEmptyGrid(size: BoardEngine.maxGridSize)
+        for row in 0..<3 {
+            for col in 0..<3 {
+                fullBoardCells[row][col] = BingoCell(
+                    text: "Task \(row)-\(col)",
+                    isCompleted: row == 0 && col < 2
+                )
+            }
+        }
+        let visibleCells = BoardEngine.projectVisibleCells(
+            from: fullBoardCells,
+            size: 3,
+            referenceDate: now
+        )
+        let savedBoard = SavedBoard(
+            gridSize: 3,
+            cells: visibleCells,
+            completedLines: BoardEngine.completedLines(in: visibleCells, size: 3),
+            fullBoardCells: fullBoardCells
+        )
+        let harness = makeInMemoryViewModelHarness(
+            savedBoard: savedBoard,
+            savedAt: now,
+            totalPoints: 0,
+            lifetimePoints: 0,
+            dailyRewardState: BingoRewardSettlement.emptyDailyRewardState(for: now)
+        )
+        let viewModel = BingoViewModel(persistenceDependencies: harness.dependencies)
+
+        viewModel.toggleComplete(row: 0, col: 2, referenceDate: now)
+
+        let motion = try XCTUnwrap(viewModel.taskCompletionMotion)
+        XCTAssertEqual(motion.kind, .bingo)
+        XCTAssertEqual(
+            motion.bingoCells,
+            Set((0..<3).map { .init(row: 0, col: $0) })
+        )
+        XCTAssertNil(viewModel.boardCompletionAnimationID)
+    }
+
+    func testFullBoardCompletionSuppressesCellMotionAndPresentsFullScreenFlow() {
+        let now = makeDate(year: 2026, month: 8, day: 5, hour: 12)
+        var fullBoardCells = BoardEngine.createEmptyGrid(size: BoardEngine.maxGridSize)
+        for row in 0..<2 {
+            for col in 0..<2 {
+                fullBoardCells[row][col] = BingoCell(
+                    text: "Task \(row)-\(col)",
+                    isCompleted: row != 1 || col != 1
+                )
+            }
+        }
+        let visibleCells = BoardEngine.projectVisibleCells(
+            from: fullBoardCells,
+            size: 2,
+            referenceDate: now
+        )
+        let savedBoard = SavedBoard(
+            gridSize: 2,
+            cells: visibleCells,
+            completedLines: BoardEngine.completedLines(in: visibleCells, size: 2),
+            fullBoardCells: fullBoardCells
+        )
+        let harness = makeInMemoryViewModelHarness(
+            savedBoard: savedBoard,
+            savedAt: now,
+            totalPoints: 0,
+            lifetimePoints: 0,
+            dailyRewardState: BingoRewardSettlement.emptyDailyRewardState(for: now)
+        )
+        let viewModel = BingoViewModel(persistenceDependencies: harness.dependencies)
+
+        viewModel.toggleComplete(row: 1, col: 1, referenceDate: now)
+
+        XCTAssertNil(viewModel.taskCompletionMotion)
+        XCTAssertNotNil(viewModel.boardCompletionAnimationID)
+    }
+
+    func testResizeGridCancelsInFlightTaskCompletionMotion() {
+        let now = makeDate(year: 2026, month: 8, day: 5, hour: 13)
+        let harness = makeInMemoryViewModelHarness(
+            savedBoard: makeSavedBoardForViewModel(
+                cell: BingoCell(text: "One task"),
+                referenceDate: now
+            ),
+            savedAt: now,
+            totalPoints: 0,
+            lifetimePoints: 0,
+            dailyRewardState: BingoRewardSettlement.emptyDailyRewardState(for: now)
+        )
+        let viewModel = BingoViewModel(persistenceDependencies: harness.dependencies)
+
+        viewModel.toggleComplete(row: 0, col: 0, referenceDate: now)
+        XCTAssertNotNil(viewModel.taskCompletionMotion)
+
+        viewModel.resizeGrid(to: 3)
+
+        XCTAssertNil(viewModel.taskCompletionMotion)
     }
 
     func testResizeGridClearsCelebrationWithoutChangingAccumulatedPoints() {
@@ -8253,24 +8557,34 @@ final class AnalyticsEventContractTests: XCTestCase {
 }
 
 final class SubscriptionPriceDisplayTests: XCTestCase {
-    func testTaiwanDollarUsesExplicitNTSymbol() {
+    func testRevenueCatDisplayPriceKeepsStoreFormattedValueUnchanged() {
         XCTAssertEqual(
-            SubscriptionManager.explicitCurrencyDisplayPrice("$890.00", currencyCode: "TWD"),
+            SubscriptionManager.revenueCatDisplayPrice(from: "NT$890.00"),
             "NT$890.00"
+        )
+        XCTAssertEqual(
+            SubscriptionManager.revenueCatDisplayPrice(from: "US$39.99"),
+            "US$39.99"
         )
     }
 
-    func testExistingExplicitTaiwanDollarSymbolIsUnchanged() {
-        XCTAssertEqual(
-            SubscriptionManager.explicitCurrencyDisplayPrice("NT$890.00", currencyCode: "TWD"),
-            "NT$890.00"
-        )
+    func testEmptyRevenueCatDisplayPriceIsNotUsableForPaywallUI() {
+        XCTAssertFalse(SubscriptionManager.hasUsableDisplayPrice(""))
+        XCTAssertFalse(SubscriptionManager.hasUsableDisplayPrice("   "))
+        XCTAssertFalse(SubscriptionManager.hasUsableDisplayPrice("--"))
+        XCTAssertTrue(SubscriptionManager.hasUsableDisplayPrice("NT$890.00"))
     }
 
-    func testOtherDollarCurrenciesRemainStoreKitFormatted() {
-        XCTAssertEqual(
-            SubscriptionManager.explicitCurrencyDisplayPrice("$4.99", currencyCode: "USD"),
-            "$4.99"
+    func testRevenueCatPriceSnapshotIsTheOnlyVisiblePriceSource() {
+        let snapshot = PaywallStoreProductPriceSnapshot(
+            displayPrice: "US$39.99",
+            price: Decimal(string: "39.99")!,
+            currencyCode: "USD",
+            source: "revenuecat_store_product"
         )
+
+        XCTAssertEqual(snapshot.source, "revenuecat_store_product")
+        XCTAssertEqual(snapshot.displayPrice, "US$39.99")
+        XCTAssertEqual(snapshot.currencyCode, "USD")
     }
 }

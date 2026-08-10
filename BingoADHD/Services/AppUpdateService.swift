@@ -18,6 +18,12 @@ struct LimitedTimeOfferConfig: Equatable {
         offerDuration: defaultOfferDurationHours * 60 * 60,
         minimumAppVersion: defaultMinimumAppVersion
     )
+    static let bundledFallback = LimitedTimeOfferConfig(
+        isEnabled: true,
+        campaignID: defaultCampaignID,
+        offerDuration: defaultOfferDurationHours * 60 * 60,
+        minimumAppVersion: defaultMinimumAppVersion
+    )
 
     let isEnabled: Bool
     let campaignID: String
@@ -86,13 +92,9 @@ enum LimitedOfferHomeRules {
         hasPremiumAccess: Bool
     ) -> LimitedOfferHomeState {
         guard hasPremiumAccess else { return state }
-        return LimitedOfferHomeState(
-            hasVisitedPaywallWithoutPurchase: false,
-            hasLegacyExposure: false,
-            startedAt: 0,
-            campaignID: "",
-            isPresented: false
-        )
+        var updatedState = state
+        updatedState.isPresented = false
+        return updatedState
     }
 
     static func applyingDebugReset(
@@ -133,6 +135,43 @@ enum LimitedOfferHomeRules {
         return updatedState
     }
 
+    static func applyingPaywallExitWithoutPurchase(
+        to state: LimitedOfferHomeState
+    ) -> LimitedOfferHomeState {
+        var updatedState = state
+        updatedState.hasVisitedPaywallWithoutPurchase = true
+        return updatedState
+    }
+
+    static func applyingDiscountPagePresentation(
+        to state: LimitedOfferHomeState,
+        campaignID: String,
+        now: Date
+    ) -> LimitedOfferHomeState {
+        var updatedState = state
+        if updatedState.campaignID.isEmpty {
+            updatedState.campaignID = campaignID
+        }
+
+        let timestamp = now.timeIntervalSince1970
+        if updatedState.startedAt <= 0 || updatedState.startedAt > timestamp {
+            updatedState.startedAt = timestamp
+        }
+        return updatedState
+    }
+
+    static func applyingConfirmedPurchase(
+        to state: LimitedOfferHomeState
+    ) -> LimitedOfferHomeState {
+        LimitedOfferHomeState(
+            hasVisitedPaywallWithoutPurchase: false,
+            hasLegacyExposure: false,
+            startedAt: 0,
+            campaignID: "",
+            isPresented: false
+        )
+    }
+
     static func shouldDismissPresentedOffer(
         config: LimitedTimeOfferConfig,
         appVersion: String,
@@ -158,7 +197,7 @@ enum LimitedTimeOfferRemoteConfigService {
 #if DEBUG
         return debugOfferConfig(overriding: .disabled)
 #else
-        var config = LimitedTimeOfferConfig.disabled
+        var config = LimitedTimeOfferConfig.bundledFallback
 #if canImport(FirebaseRemoteConfig)
         let remoteConfig = RemoteConfig.remoteConfig()
         let settings = RemoteConfigSettings()
@@ -166,16 +205,22 @@ enum LimitedTimeOfferRemoteConfigService {
         settings.fetchTimeout = 10
         remoteConfig.configSettings = settings
         remoteConfig.setDefaults([
-            isEnabledKey: NSNumber(value: false),
-            campaignIDKey: LimitedTimeOfferConfig.defaultCampaignID as NSObject,
-            durationHoursKey: NSNumber(value: LimitedTimeOfferConfig.defaultOfferDurationHours),
-            minimumAppVersionKey: LimitedTimeOfferConfig.defaultMinimumAppVersion as NSObject
+            isEnabledKey: NSNumber(value: LimitedTimeOfferConfig.bundledFallback.isEnabled),
+            campaignIDKey: LimitedTimeOfferConfig.bundledFallback.campaignID as NSObject,
+            durationHoursKey: NSNumber(
+                value: LimitedTimeOfferConfig.bundledFallback.offerDuration / 60 / 60
+            ),
+            minimumAppVersionKey: LimitedTimeOfferConfig.bundledFallback.minimumAppVersion as NSObject
         ])
 
         do {
             _ = try await remoteConfig.fetchAndActivate()
         } catch {
-            // Continue with cached/default values when Remote Config cannot be fetched.
+            // Continue with cached/bundled values when Remote Config is unreachable.
+            DiagnosticLogStore.recordWarning(
+                "limited_offer.remote_config_fetch_failed",
+                details: ["error": error.localizedDescription]
+            )
         }
 
         let campaignID = sanitizedCampaignID(
@@ -193,6 +238,14 @@ enum LimitedTimeOfferRemoteConfigService {
             campaignID: campaignID,
             offerDuration: durationHours * 60 * 60,
             minimumAppVersion: minimumAppVersion
+        )
+        DiagnosticLogStore.recordStateChange(
+            "limited_offer.remote_config_resolved",
+            details: [
+                "enabled": "\(config.isEnabled)",
+                "campaign": config.campaignID,
+                "minimum_version": config.minimumAppVersion
+            ]
         )
 #endif
 

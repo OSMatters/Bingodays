@@ -51,13 +51,16 @@ struct ContactUsSheet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(hex: "F7F2EE"))
         .clipShape(RoundedRectangle(cornerRadius: scaled(16, pad: 20), style: .continuous))
-        .presentationDetents([.height(isPadLayout ? 620 : 574)])
+        .presentationDetents([.height(isPadLayout ? 600 : 554)])
         .presentationDragIndicator(.hidden)
         .presentationBackground(Color(hex: "F7F2EE"))
     }
 
     private var heroSection: some View {
         GeometryReader { proxy in
+            let imageWidth = min(proxy.size.width, scaled(420, pad: 480))
+            let imageHeight = imageWidth * (366.0 / 786.0)
+
             ZStack(alignment: .topTrailing) {
                 Color(hex: "FFF0DE")
 
@@ -65,14 +68,8 @@ struct ContactUsSheet: View {
                     .resizable()
                     .interpolation(.high)
                     .scaledToFit()
-                    .frame(
-                        width: min(proxy.size.width * 0.74, scaled(300, pad: 344)),
-                        height: proxy.size.height * 0.84
-                    )
-                    .position(
-                        x: proxy.size.width / 2,
-                        y: proxy.size.height * 0.54 + scaled(8, pad: 9)
-                    )
+                    .frame(width: imageWidth, height: imageHeight)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .accessibilityHidden(true)
 
                 Button {

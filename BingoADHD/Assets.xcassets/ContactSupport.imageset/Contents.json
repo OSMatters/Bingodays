@@ -1,9 +1,17 @@
 {
   "images" : [
     {
-      "filename" : "img_support.png",
       "idiom" : "universal",
       "scale" : "1x"
+    },
+    {
+      "filename" : "img_support.png",
+      "idiom" : "universal",
+      "scale" : "2x"
+    },
+    {
+      "idiom" : "universal",
+      "scale" : "3x"
     }
   ],
   "info" : {

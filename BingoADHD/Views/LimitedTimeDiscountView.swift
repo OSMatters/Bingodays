@@ -80,16 +80,25 @@ struct LimitedTimeDiscountView: View {
     let entrySource: String
     let campaignID: String
     let offerDuration: TimeInterval
+    @Binding private var limitedOfferState: LimitedOfferHomeState
 
-    @AppStorage(AppSettings.hasVisitedPremiumPaywallWithoutPurchaseKey) private var hasVisitedPremiumPaywallWithoutPurchase = false
-    @AppStorage(AppSettings.hasLegacyLimitedTimeDiscountExposureKey) private var hasLegacyLimitedTimeDiscountExposure = false
-    @AppStorage(AppSettings.limitedTimeDiscountStartedAtKey) private var limitedTimeDiscountStartedAt = 0.0
-    @AppStorage(AppSettings.limitedTimeDiscountCampaignIDKey) private var limitedTimeDiscountCampaignID = ""
     @State private var feedbackMessage: String?
     @State private var didLogPaywallView = false
 
     private let designWidth: CGFloat = 393
     private let designHeight: CGFloat = 852
+
+    init(
+        entrySource: String,
+        campaignID: String,
+        offerDuration: TimeInterval,
+        limitedOfferState: Binding<LimitedOfferHomeState>
+    ) {
+        self.entrySource = entrySource
+        self.campaignID = campaignID
+        self.offerDuration = offerDuration
+        _limitedOfferState = limitedOfferState
+    }
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -120,7 +129,9 @@ struct LimitedTimeDiscountView: View {
         }
         .task {
             if await refreshAndCloseIfPremium() { return }
-            await subscriptionManager.warmupProductsForPaywall()
+            await subscriptionManager.warmupProductsForPaywall(
+                requiredProductIDs: SubscriptionManager.limitedOfferProductIDs
+            )
             _ = closeIfPremium()
         }
         .onChange(of: subscriptionManager.hasPremiumAccess) { _, hasPremiumAccess in
@@ -417,21 +428,21 @@ struct LimitedTimeDiscountView: View {
         Button {
             Task {
                 if await refreshAndCloseIfPremium() { return }
-                let message = await subscriptionManager.purchase(
+                let outcome = await subscriptionManager.purchase(
                     productID: SubscriptionManager.lifetimeEarlySupporterProductID,
                     analyticsSource: entrySource,
                     analyticsPlan: "limited_time_lifetime"
                 )
-                if isPurchaseSuccess(message) || subscriptionManager.hasPremiumAccess {
+                if outcome.completedPurchase {
                     clearLimitedOfferStateAfterPurchase()
                     NotificationCenter.default.post(name: .limitedOfferEligibilityDidChange, object: nil)
                     if subscriptionManager.hasPremiumAccess {
                         dismiss()
                     } else {
-                        feedbackMessage = message
+                        feedbackMessage = outcome.feedbackMessage
                     }
                 } else {
-                    feedbackMessage = message
+                    feedbackMessage = outcome.feedbackMessage
                 }
             }
         } label: {
@@ -452,46 +463,44 @@ struct LimitedTimeDiscountView: View {
                 }
         }
         .buttonStyle(.plain)
-        .disabled(subscriptionManager.isPurchasing)
-        .opacity(subscriptionManager.isPurchasing ? 0.9 : 1)
+        .disabled(
+            subscriptionManager.isPurchasing
+                || !subscriptionManager.isReadyToPurchase(
+                    productID: SubscriptionManager.lifetimeEarlySupporterProductID
+                )
+        )
+        .opacity(
+            subscriptionManager.isPurchasing
+                || !subscriptionManager.isReadyToPurchase(
+                    productID: SubscriptionManager.lifetimeEarlySupporterProductID
+                )
+                ? 0.9
+                : 1
+        )
     }
 
     private var originalLifetimePrice: String {
-        if let product = subscriptionManager.productsByID[SubscriptionManager.lifetimeProductID] {
-            return subscriptionManager.displayPrice(for: product)
-        }
-
         return subscriptionManager.displayPrice(for: SubscriptionManager.lifetimeProductID)
     }
 
     private var discountedLifetimePrice: String {
-        if let product = subscriptionManager.productsByID[SubscriptionManager.lifetimeEarlySupporterProductID] {
-            return subscriptionManager.displayPrice(for: product)
-        }
-
-        let cachedDiscountPrice = subscriptionManager.displayPrice(for: SubscriptionManager.lifetimeEarlySupporterProductID)
-        if cachedDiscountPrice != "--" {
-            return cachedDiscountPrice
-        }
-
-        return discountedPrice(from: originalLifetimePrice) ?? "--"
+        subscriptionManager.displayPrice(
+            for: SubscriptionManager.lifetimeEarlySupporterProductID
+        )
     }
 
     private func startCountdownIfNeeded() {
-        if limitedTimeDiscountCampaignID.isEmpty {
-            limitedTimeDiscountCampaignID = campaignID
-        }
-        let now = Date().timeIntervalSince1970
-        if limitedTimeDiscountStartedAt > now {
-            limitedTimeDiscountStartedAt = now
-            return
-        }
-        guard limitedTimeDiscountStartedAt <= 0 else { return }
-        limitedTimeDiscountStartedAt = now
+        limitedOfferState = LimitedOfferHomeRules.applyingDiscountPagePresentation(
+            to: limitedOfferState,
+            campaignID: campaignID,
+            now: .now
+        )
     }
 
     private func countdownComponents(now: Date) -> (hours: String, minutes: String, seconds: String) {
-        let storedStartedAt = limitedTimeDiscountStartedAt > 0 ? limitedTimeDiscountStartedAt : now.timeIntervalSince1970
+        let storedStartedAt = limitedOfferState.startedAt > 0
+            ? limitedOfferState.startedAt
+            : now.timeIntervalSince1970
         let startedAt = min(storedStartedAt, now.timeIntervalSince1970)
         let target = Date(timeIntervalSince1970: startedAt + offerDuration)
         let totalSeconds = max(0, Int(ceil(target.timeIntervalSince(now))))
@@ -513,15 +522,8 @@ struct LimitedTimeDiscountView: View {
         return "\(value)"
     }
 
-    private func isPurchaseSuccess(_ message: String) -> Bool {
-        message == L10n.subscriptionPurchaseSucceeded || message == L10n.subscriptionActivationPending
-    }
-
     private func clearLimitedOfferStateAfterPurchase() {
-        hasVisitedPremiumPaywallWithoutPurchase = false
-        hasLegacyLimitedTimeDiscountExposure = false
-        limitedTimeDiscountStartedAt = 0
-        limitedTimeDiscountCampaignID = ""
+        limitedOfferState = LimitedOfferHomeRules.applyingConfirmedPurchase(to: limitedOfferState)
     }
 
     @MainActor
@@ -534,7 +536,6 @@ struct LimitedTimeDiscountView: View {
     @MainActor
     private func closeIfPremium() -> Bool {
         guard subscriptionManager.hasPremiumAccess else { return false }
-        clearLimitedOfferStateAfterPurchase()
         NotificationCenter.default.post(name: .limitedOfferEligibilityDidChange, object: nil)
         dismiss()
         return true
@@ -553,82 +554,6 @@ struct LimitedTimeDiscountView: View {
         return "\(prefix) \(displayPrice[firstDigitIndex...])"
     }
 
-    private func formattedPrice(_ price: Decimal, from displayPrice: String) -> String {
-        guard let range = numericRange(in: displayPrice) else {
-            return decimalString(price, decimalSeparator: ".", fractionDigits: 2)
-        }
-
-        let prefix = String(displayPrice[..<range.lowerBound])
-        let suffixStart = displayPrice.index(after: range.upperBound)
-        let suffix = suffixStart < displayPrice.endIndex ? String(displayPrice[suffixStart...]) : ""
-        let numericText = String(displayPrice[range])
-        let decimalSeparator = decimalSeparator(in: numericText)
-        let fractionDigits = fractionDigits(in: numericText, decimalSeparator: decimalSeparator)
-
-        return "\(prefix)\(decimalString(price, decimalSeparator: decimalSeparator, fractionDigits: fractionDigits))\(suffix)"
-    }
-
-    private func discountedPrice(from displayPrice: String) -> String? {
-        guard displayPrice != "--",
-              let range = numericRange(in: displayPrice) else {
-            return nil
-        }
-
-        let numericText = String(displayPrice[range])
-        let decimalSeparator = decimalSeparator(in: numericText)
-        let normalized = normalizedDecimalText(numericText, decimalSeparator: decimalSeparator)
-        guard let originalPrice = Decimal(string: normalized, locale: Locale(identifier: "en_US_POSIX")) else {
-            return nil
-        }
-
-        let discountedPrice = NSDecimalNumber(decimal: originalPrice)
-            .multiplying(by: NSDecimalNumber(value: 0.8))
-            .decimalValue
-        return formattedPrice(discountedPrice, from: displayPrice)
-    }
-
-    private func numericRange(in text: String) -> ClosedRange<String.Index>? {
-        guard let firstDigit = text.firstIndex(where: { $0.isNumber }),
-              let lastDigit = text.lastIndex(where: { $0.isNumber }) else {
-            return nil
-        }
-
-        return firstDigit...lastDigit
-    }
-
-    private func decimalSeparator(in numericText: String) -> String {
-        if numericText.contains(",") && !numericText.contains(".") {
-            return ","
-        }
-
-        return "."
-    }
-
-    private func fractionDigits(in numericText: String, decimalSeparator: String) -> Int {
-        guard let separatorIndex = numericText.lastIndex(of: Character(decimalSeparator)) else {
-            return 0
-        }
-
-        return numericText.distance(from: numericText.index(after: separatorIndex), to: numericText.endIndex)
-    }
-
-    private func normalizedDecimalText(_ numericText: String, decimalSeparator: String) -> String {
-        let groupingSeparator = decimalSeparator == "," ? "." : ","
-        return numericText
-            .replacingOccurrences(of: groupingSeparator, with: "")
-            .replacingOccurrences(of: decimalSeparator, with: ".")
-    }
-
-    private func decimalString(_ value: Decimal, decimalSeparator: String, fractionDigits: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.groupingSeparator = ""
-        formatter.decimalSeparator = decimalSeparator
-        formatter.minimumFractionDigits = fractionDigits
-        formatter.maximumFractionDigits = fractionDigits
-        return formatter.string(from: value as NSDecimalNumber) ?? "\(value)"
-    }
 }
 
 private struct LimitedTimePaymentButtonSweep: View {

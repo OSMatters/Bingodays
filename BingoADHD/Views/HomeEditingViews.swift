@@ -2,6 +2,7 @@ import SwiftUI
 
 struct QuickEditView: View {
     @ObservedObject var viewModel: BingoViewModel
+    @Binding private var limitedOfferState: LimitedOfferHomeState
     let onSaveSuccess: (String) -> Void
     let onBoardApplied: () -> Void
 
@@ -34,6 +35,9 @@ struct QuickEditView: View {
     @State private var newTaskStartDayDraft = ""
     @State private var isAddingGroupModalPresented = false
     @State private var newGroupNameDraft = ""
+    @State private var groupActionTargetID: UUID?
+    @State private var groupRenameTargetID: UUID?
+    @State private var groupRenameDraft = ""
     @State private var pendingGroupDeleteFinalConfirmation: UUID?
     @State private var taskEditorDraft: QuickEditTaskEditorDraft?
     @State private var previewEditingTarget: QuickEditPreviewEditingTarget?
@@ -61,10 +65,12 @@ struct QuickEditView: View {
 
     init(
         viewModel: BingoViewModel,
+        limitedOfferState: Binding<LimitedOfferHomeState>,
         onSaveSuccess: @escaping (String) -> Void,
         onBoardApplied: @escaping () -> Void = {}
     ) {
         self.viewModel = viewModel
+        _limitedOfferState = limitedOfferState
         self.onSaveSuccess = onSaveSuccess
         self.onBoardApplied = onBoardApplied
     }
@@ -172,7 +178,10 @@ struct QuickEditView: View {
             adjustPreviewSlotCount()
         }
         .fullScreenCover(isPresented: $isPremiumPaywallPresented) {
-            PremiumPaywallView(entrySource: premiumPaywallSource)
+            PremiumPaywallView(
+                entrySource: premiumPaywallSource,
+                limitedOfferState: $limitedOfferState
+            )
         }
         .sheet(item: $previewEditingTarget) { target in
             previewEditTaskSheet(for: target.slotID)
@@ -316,8 +325,28 @@ struct QuickEditView: View {
 
     @ViewBuilder
     private var quickEditModalOverlays: some View {
+        if let groupID = groupActionTargetID,
+           library.groups.contains(where: { $0.id == groupID }) {
+            QuickEditGroupActionsOverlayView(
+                isPadLayout: isPadLayout,
+                onDismiss: dismissGroupActions,
+                onEdit: {
+                    beginGroupRename(groupID)
+                },
+                onDelete: {
+                    requestFinalGroupDeletion(groupID)
+                }
+            )
+            .transition(.opacity)
+        }
+
         if isAddingGroupModalPresented {
             addGroupModal
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+
+        if groupRenameTargetID != nil {
+            renameGroupModal
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
 
@@ -406,7 +435,9 @@ struct QuickEditView: View {
             },
             onLongPressGroup: { groupID in
                 focusedField = nil
-                deleteConfirmationTarget = .group(groupID)
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    groupActionTargetID = groupID
+                }
             },
             onAddGroup: presentAddGroupModal
         )
@@ -438,8 +469,7 @@ struct QuickEditView: View {
                 taskBackground: quickEditTaskFlatBackground,
                 onApplyGroup: applyActiveGroupToPreview,
                 onDeleteGroup: { groupID in
-                    focusedField = nil
-                    deleteConfirmationTarget = .group(groupID)
+                    requestFinalGroupDeletion(groupID)
                 }
             )
         } rows: {
@@ -574,15 +604,33 @@ struct QuickEditView: View {
 
     @ViewBuilder
     private var addGroupModal: some View {
-        QuickEditAddGroupModal(
+        QuickEditGroupNameModal(
+            title: L10n.quickEditAddGroupTitle,
             groupName: $newGroupNameDraft,
             focusedField: $focusedField,
+            focusField: .newGroupName,
             isPadLayout: isPadLayout,
             placeholderColor: quickEditPlaceholderColor,
             taskBackground: quickEditTaskFlatBackground,
             fieldStroke: quickEditFieldStroke,
             onDismiss: dismissAddGroupModal,
             onCommit: commitAddGroup
+        )
+    }
+
+    @ViewBuilder
+    private var renameGroupModal: some View {
+        QuickEditGroupNameModal(
+            title: L10n.quickEditEditGroupTitle,
+            groupName: $groupRenameDraft,
+            focusedField: $focusedField,
+            focusField: .editGroupName,
+            isPadLayout: isPadLayout,
+            placeholderColor: quickEditPlaceholderColor,
+            taskBackground: quickEditTaskFlatBackground,
+            fieldStroke: quickEditFieldStroke,
+            onDismiss: dismissGroupRename,
+            onCommit: commitGroupRename
         )
     }
 
@@ -926,6 +974,59 @@ struct QuickEditView: View {
         focusedField = nil
     }
 
+    private func beginGroupRename(_ groupID: UUID) {
+        guard library.groups.contains(where: { $0.id == groupID }) else {
+            dismissGroupActions()
+            return
+        }
+
+        performAfterDismissingGroupActions {
+            groupRenameTargetID = groupID
+            groupRenameDraft = quickEditGroupName(for: groupID, in: library)
+            focusedField = .editGroupName
+        }
+    }
+
+    private func dismissGroupRename() {
+        groupRenameTargetID = nil
+        groupRenameDraft = ""
+        focusedField = nil
+    }
+
+    private func commitGroupRename() {
+        guard let groupID = groupRenameTargetID else { return }
+
+        switch quickEditRenameGroup(groupID, nameDraft: groupRenameDraft, library: &library) {
+        case .renamed:
+            dismissGroupRename()
+            showLocalToast(L10n.quickEditGroupRenamedSuccess)
+        case .unchanged:
+            dismissGroupRename()
+        case .invalid:
+            break
+        }
+    }
+
+    private func requestFinalGroupDeletion(_ groupID: UUID) {
+        focusedField = nil
+        performAfterDismissingGroupActions {
+            pendingGroupDeleteFinalConfirmation = groupID
+        }
+    }
+
+    private func dismissGroupActions() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            groupActionTargetID = nil
+        }
+    }
+
+    private func performAfterDismissingGroupActions(_ action: @escaping () -> Void) {
+        dismissGroupActions()
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) {
+            action()
+        }
+    }
+
     private func commitAddGroup() {
         let result = quickEditCommitAddGroup(
             nameDraft: newGroupNameDraft,
@@ -1168,10 +1269,6 @@ private func confirmDelete(_ target: QuickEditDeleteTarget) {
         showLocalToast(successMessage)
         deleteConfirmationTarget = nil
         focusedField = nil
-    case .requestGroupDeletion(let groupID):
-        deleteConfirmationTarget = nil
-        focusedField = nil
-        pendingGroupDeleteFinalConfirmation = groupID
     case .historyItemRemoved(let historyItemID, let successMessage):
         guard let historyKey = quickEditHistoryRecordKey(from: historyItemID) else {
             deleteConfirmationTarget = nil

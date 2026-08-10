@@ -14,7 +14,11 @@ final class PointsAnimationStore: ObservableObject {
         clearFloatingDeltaWorkItem?.cancel()
     }
 
-    func handleAvailablePointsChange(from oldValue: Int, to newValue: Int) {
+    func handleAvailablePointsChange(
+        from oldValue: Int,
+        to newValue: Int,
+        playsSoundEffect: Bool = true
+    ) {
         let delta = newValue - oldValue
         guard delta != 0 else { return }
 
@@ -24,7 +28,7 @@ final class PointsAnimationStore: ObservableObject {
         animationTrigger += 1
         floatingDelta = delta
 
-        if delta > 0 {
+        if delta > 0, playsSoundEffect {
             PointsSoundPlayer.shared.play()
         }
 

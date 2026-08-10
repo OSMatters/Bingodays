@@ -560,7 +560,8 @@ private struct BingodaysLargeWidgetView: View {
             isInBingoLine: isInBingoLine,
             isLocked: isLocked,
             cellSize: cellSize,
-            isFirstCell: isFirstCell
+            isFirstCell: isFirstCell,
+            usesLargeCompletionArtwork: family == .systemLarge
         )
 
         guard isActive, let activePanelID, isToggleable else {
@@ -794,6 +795,7 @@ private struct WidgetBingoCellView: View {
     let isLocked: Bool
     let cellSize: CGFloat
     let isFirstCell: Bool
+    let usesLargeCompletionArtwork: Bool
 
     private static let scheduleDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -822,6 +824,10 @@ private struct WidgetBingoCellView: View {
                     largeCompletionIcon
                 } else {
                     ZStack(alignment: .bottom) {
+                        if cell.isCompleted && !isLocked && usesLargeCompletionArtwork {
+                            completionArtwork
+                        }
+
                         Text(cell.text)
                             .font(.system(size: dynamicFontSize, weight: .medium, design: .rounded))
                             .foregroundColor(cellTextColor)
@@ -845,7 +851,7 @@ private struct WidgetBingoCellView: View {
                                 .padding(.bottom, footerBottomInset)
                         }
 
-                        if cell.isCompleted && !isLocked {
+                        if cell.isCompleted && !isLocked && !usesLargeCompletionArtwork {
                             completionIcon
                                 .frame(height: footerSlotHeight)
                                 .padding(.bottom, footerBottomInset)
@@ -862,7 +868,7 @@ private struct WidgetBingoCellView: View {
     }
 
     private var textBottomPadding: CGFloat {
-        if hasFooterContent || (cell.isCompleted && !isLocked) {
+        if hasFooterContent || (cell.isCompleted && !isLocked && !usesLargeCompletionArtwork) {
             return footerSlotHeight + footerBottomInset + 2
         }
         return max(cellSize * 0.1, 7)
@@ -1015,6 +1021,16 @@ private struct WidgetBingoCellView: View {
             return selectedColor
         }
         return boardSurfaceColor
+    }
+
+    private var completionArtwork: some View {
+        Image(isInBingoLine ? "CellBingo" : "CellComplete")
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: cellSize * 0.76, height: cellSize * 0.76)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .allowsHitTesting(false)
     }
 
     private var completionIcon: some View {

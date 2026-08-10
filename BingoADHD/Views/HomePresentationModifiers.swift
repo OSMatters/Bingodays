@@ -1,6 +1,10 @@
 import SwiftUI
 import UIKit
 
+private struct BoardCompletionPresentation: Identifiable {
+    let id: UUID
+}
+
 struct HomePrimaryCoversModifier: ViewModifier {
     @Binding var isQuickEditPresented: Bool
     @Binding var isPointsFlowPresented: Bool
@@ -8,6 +12,7 @@ struct HomePrimaryCoversModifier: ViewModifier {
     @Binding var isDiaryPresented: Bool
     @Binding var isPremiumPaywallPresented: Bool
     @Binding var isLimitedTimeDiscountPresented: Bool
+    @Binding var limitedOfferState: LimitedOfferHomeState
 
     @ObservedObject var viewModel: BingoViewModel
     @ObservedObject var pointsFeatureStore: PointsFeatureStore
@@ -17,15 +22,19 @@ struct HomePrimaryCoversModifier: ViewModifier {
     let totalPoints: Int
     let premiumPaywallSource: String
     let limitedTimeOfferConfig: LimitedTimeOfferConfig
+    let boardCompletionAnimationID: UUID?
+    let boardCompletionBoardName: String
     let onQuickEditSuccess: (String) -> Void
     let onQuickEditBoardApplied: () -> Void
     let onPremiumPaywallDismiss: () -> Void
+    let onBoardCompletionDismiss: (UUID) -> Void
 
     func body(content: Content) -> some View {
         content
             .fullScreenCover(isPresented: $isQuickEditPresented) {
                 QuickEditView(
                     viewModel: viewModel,
+                    limitedOfferState: $limitedOfferState,
                     onSaveSuccess: onQuickEditSuccess,
                     onBoardApplied: onQuickEditBoardApplied
                 )
@@ -36,6 +45,7 @@ struct HomePrimaryCoversModifier: ViewModifier {
                     points: availablePoints,
                     totalPoints: totalPoints,
                     pointsFeatureStore: pointsFeatureStore,
+                    limitedOfferState: $limitedOfferState,
                     onAddStickerToHomeSuccess: {
                         selectedStickerID = nil
                         isPointsFlowPresented = false
@@ -46,15 +56,41 @@ struct HomePrimaryCoversModifier: ViewModifier {
                 BingoDiaryScreen()
             }
             .fullScreenCover(isPresented: $isPremiumPaywallPresented, onDismiss: onPremiumPaywallDismiss) {
-                PremiumPaywallView(entrySource: premiumPaywallSource)
+                PremiumPaywallView(
+                    entrySource: premiumPaywallSource,
+                    limitedOfferState: $limitedOfferState
+                )
             }
             .fullScreenCover(isPresented: $isLimitedTimeDiscountPresented) {
                 LimitedTimeDiscountView(
                     entrySource: "home_limited_offer",
                     campaignID: limitedTimeOfferConfig.campaignID,
-                    offerDuration: limitedTimeOfferConfig.offerDuration
+                    offerDuration: limitedTimeOfferConfig.offerDuration,
+                    limitedOfferState: $limitedOfferState
                 )
             }
+            .fullScreenCover(item: boardCompletionPresentationBinding) { presentation in
+                BoardAllBingoCompletionView(
+                    animationID: presentation.id,
+                    boardName: boardCompletionBoardName,
+                    onContinue: onBoardCompletionDismiss
+                )
+            }
+    }
+
+    private var boardCompletionPresentationBinding: Binding<BoardCompletionPresentation?> {
+        Binding(
+            get: {
+                boardCompletionAnimationID.map(BoardCompletionPresentation.init)
+            },
+            set: { presentation in
+                guard presentation == nil,
+                      let boardCompletionAnimationID else {
+                    return
+                }
+                onBoardCompletionDismiss(boardCompletionAnimationID)
+            }
+        )
     }
 }
 

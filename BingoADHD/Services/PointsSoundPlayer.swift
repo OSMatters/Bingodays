@@ -4,6 +4,9 @@ enum AppAudioSessionConfigurator {
     static func configureForSoundEffects() {
         let audioSession = AVAudioSession.sharedInstance()
         do {
+            // Keep completion and reward sounds alongside audio the person was already
+            // listening to. Deliberately do not activate the session here: activation is
+            // unnecessary for short UI sounds and can take ownership from another player.
             try audioSession.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
         } catch {
             // Sound effects are non-critical; never block app flow on audio session setup.

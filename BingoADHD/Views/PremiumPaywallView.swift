@@ -87,6 +87,7 @@ struct PremiumPaywallView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     let entrySource: String
+    @Binding private var limitedOfferState: LimitedOfferHomeState
 
     @State private var selectedPlan: PaywallPlan = .lifetime
     @State private var feedbackMessage: String?
@@ -96,10 +97,14 @@ struct PremiumPaywallView: View {
     @State private var selectedFeatureIndex = 0
     @State private var didSetInitialFeature = false
     @State private var didCompletePremiumPurchase = false
-    @AppStorage(AppSettings.hasVisitedPremiumPaywallWithoutPurchaseKey) private var hasVisitedPremiumPaywallWithoutPurchase = false
-    @AppStorage(AppSettings.hasLegacyLimitedTimeDiscountExposureKey) private var hasLegacyLimitedTimeDiscountExposure = false
-    @AppStorage(AppSettings.limitedTimeDiscountStartedAtKey) private var limitedTimeDiscountStartedAt = 0.0
-    @AppStorage(AppSettings.limitedTimeDiscountCampaignIDKey) private var limitedTimeDiscountCampaignID = ""
+
+    init(
+        entrySource: String,
+        limitedOfferState: Binding<LimitedOfferHomeState>
+    ) {
+        self.entrySource = entrySource
+        _limitedOfferState = limitedOfferState
+    }
 
     private let designWidth: CGFloat = 393
     private let designHeight: CGFloat = 852
@@ -149,8 +154,10 @@ struct PremiumPaywallView: View {
         return PaywallPlan(kind: kind)
     }
 
-    private var hasLoadedAllPaywallProducts: Bool {
-        subscriptionManager.hasLoadedAllPaywallProducts
+    private var hasResolvedPaywallPrices: Bool {
+        subscriptionManager.hasDisplayPrices(
+            for: SubscriptionManager.defaultPaywallProductIDs
+        )
     }
 
     private var usesLifetimeTheme: Bool {
@@ -367,11 +374,6 @@ struct PremiumPaywallView: View {
         .onChange(of: subscriptionManager.currentPlanKind) { _, _ in
             syncSelectedPlanWithCurrentStatus()
         }
-        .onChange(of: subscriptionManager.hasPremiumAccess) { _, hasPremiumAccess in
-            if hasPremiumAccess {
-                clearLimitedOfferStateAfterPurchase()
-            }
-        }
         .onAppear {
             if !didSetInitialFeature {
                 selectedFeatureIndex = initialFeatureIndexForEntrySource
@@ -399,19 +401,15 @@ struct PremiumPaywallView: View {
 
     @MainActor
     private func refreshProductsForPaywallIfNeeded(force: Bool = false) async {
-        guard force || !hasLoadedAllPaywallProducts else { return }
+        guard force || !hasResolvedPaywallPrices else { return }
         guard !isRetryingPriceLoad else { return }
 
         isRetryingPriceLoad = true
         defer { isRetryingPriceLoad = false }
 
-        for attempt in 0..<3 {
-            await subscriptionManager.refreshAll()
-            if hasLoadedAllPaywallProducts { break }
-            if attempt < 2 {
-                try? await Task.sleep(nanoseconds: 350_000_000)
-            }
-        }
+        await subscriptionManager.warmupProductsForPaywall(
+            requiredProductIDs: SubscriptionManager.defaultPaywallProductIDs
+        )
     }
 
     private var feedbackAlertBinding: Binding<Bool> {
@@ -716,7 +714,9 @@ struct PremiumPaywallView: View {
     }
 
     private var canPerformPrimaryMembershipAction: Bool {
-        !subscriptionManager.hasLifetimeAccess && currentPlan != selectedPlan
+        !subscriptionManager.hasLifetimeAccess
+            && currentPlan != selectedPlan
+            && subscriptionManager.isReadyToPurchase(productID: selectedPlan.productID)
     }
 
     private func syncSelectedPlanWithCurrentStatus() {
@@ -755,54 +755,49 @@ struct PremiumPaywallView: View {
 
         Task {
             let hadAutoRenewableBeforePurchase = subscriptionManager.hasActiveAutoRenewable
-            let message = await subscriptionManager.purchase(
+            let outcome = await subscriptionManager.purchase(
                 productID: selectedPlan.productID,
                 analyticsSource: entrySource,
                 analyticsPlan: selectedPlan.rawValue
             )
-            updateLimitedOfferEligibility(afterPurchaseMessage: message)
+            updateLimitedOfferEligibility(afterPurchaseOutcome: outcome)
 
             if selectedPlan == .lifetime,
-               shouldTrackPremiumPurchaseSuccess(for: message),
+               outcome.completedPurchase,
                hadAutoRenewableBeforePurchase {
                 feedbackMessage = L10n.paywallLifetimePurchaseReminder
                 return
             }
 
-            if shouldTrackPremiumPurchaseSuccess(for: message) {
+            if outcome.completedPurchase {
                 if subscriptionManager.hasPremiumAccess {
                     dismiss()
                 } else {
-                    feedbackMessage = message
+                    feedbackMessage = outcome.feedbackMessage
                 }
             } else {
-                feedbackMessage = message
+                feedbackMessage = outcome.feedbackMessage
             }
         }
     }
 
-    private func shouldTrackPremiumPurchaseSuccess(for message: String) -> Bool {
-        message == L10n.subscriptionPurchaseSucceeded || message == L10n.subscriptionActivationPending
-    }
-
-    private func updateLimitedOfferEligibility(afterPurchaseMessage message: String) {
-        if shouldTrackPremiumPurchaseSuccess(for: message) || subscriptionManager.hasPremiumAccess {
+    private func updateLimitedOfferEligibility(afterPurchaseOutcome outcome: SubscriptionPurchaseOutcome) {
+        if outcome.completedPurchase {
             clearLimitedOfferStateAfterPurchase()
         }
     }
 
     private func clearLimitedOfferStateAfterPurchase() {
         didCompletePremiumPurchase = true
-        hasVisitedPremiumPaywallWithoutPurchase = false
-        hasLegacyLimitedTimeDiscountExposure = false
-        limitedTimeDiscountStartedAt = 0
-        limitedTimeDiscountCampaignID = ""
+        limitedOfferState = LimitedOfferHomeRules.applyingConfirmedPurchase(to: limitedOfferState)
         NotificationCenter.default.post(name: .limitedOfferEligibilityDidChange, object: nil)
     }
 
     private func markLimitedOfferEligibleAfterPaywallExit() {
         if !subscriptionManager.hasPremiumAccess && !didCompletePremiumPurchase {
-            hasVisitedPremiumPaywallWithoutPurchase = true
+            limitedOfferState = LimitedOfferHomeRules.applyingPaywallExitWithoutPurchase(
+                to: limitedOfferState
+            )
             NotificationCenter.default.post(name: .limitedOfferEligibilityDidChange, object: nil)
 #if DEBUG
             print("[LimitedOffer] Marked eligible after paywall exit")
@@ -965,8 +960,16 @@ struct PremiumPaywallView: View {
             .frame(width: 200, height: 144)
         }
         .buttonStyle(.plain)
-        .disabled(subscriptionManager.isPurchasing)
-        .opacity(subscriptionManager.isPurchasing ? 0.92 : 1)
+        .disabled(
+            subscriptionManager.isPurchasing
+                || !subscriptionManager.isReadyToPurchase(productID: selectedPlan.productID)
+        )
+        .opacity(
+            subscriptionManager.isPurchasing
+                || !subscriptionManager.isReadyToPurchase(productID: selectedPlan.productID)
+                ? 0.92
+                : 1
+        )
     }
 
     private func planCardBackground(isSelected: Bool) -> some View {
@@ -1083,24 +1086,23 @@ struct PremiumPaywallView: View {
             Task {
                 await subscriptionManager.refreshEntitlements()
                 if subscriptionManager.hasPremiumAccess {
-                    clearLimitedOfferStateAfterPurchase()
                     dismiss()
                     return
                 }
-                let message = await subscriptionManager.purchase(
+                let outcome = await subscriptionManager.purchase(
                     productID: selectedPlan.productID,
                     analyticsSource: entrySource,
                     analyticsPlan: selectedPlan.rawValue
                 )
-                updateLimitedOfferEligibility(afterPurchaseMessage: message)
-                if shouldTrackPremiumPurchaseSuccess(for: message) {
+                updateLimitedOfferEligibility(afterPurchaseOutcome: outcome)
+                if outcome.completedPurchase {
                     if subscriptionManager.hasPremiumAccess {
                         dismiss()
                     } else {
-                        feedbackMessage = message
+                        feedbackMessage = outcome.feedbackMessage
                     }
                 } else {
-                    feedbackMessage = message
+                    feedbackMessage = outcome.feedbackMessage
                 }
             }
         } label: {
@@ -1238,11 +1240,11 @@ struct PremiumPaywallView: View {
         case .lifetime:
             return L10n.paywallEarlySupporterSubtitle
         case .yearly:
-            if let product = subscriptionManager.productsByID[plan.productID] {
-                let monthlyPrice = NSDecimalNumber(decimal: product.price).dividing(by: 12).decimalValue
+            if let yearlyPrice = subscriptionManager.price(for: plan.productID) {
+                let monthlyPrice = NSDecimalNumber(decimal: yearlyPrice).dividing(by: 12).decimalValue
                 let formattedMonthlyPrice = formattedMonthlyPrice(
                     monthlyPrice,
-                    from: subscriptionManager.displayPrice(for: product)
+                    from: price.displayPrice
                 )
                 return L10n.paywallOnlyMonthlyPriceSubtitle(formattedMonthlyPrice)
             }
@@ -1269,47 +1271,37 @@ struct PremiumPaywallView: View {
     }
 
     private func priceDisplay(for plan: PaywallPlan) -> PlanPriceDisplay {
-        if let product = subscriptionManager.productsByID[plan.productID] {
-            let subtitle: String?
-            switch plan {
-            case .yearly:
-                subtitle = yearlyPerMonthSubtitle(for: product)
-            case .lifetime:
-                subtitle = L10n.paywallOneTimePayment
-            case .monthly:
-                subtitle = nil
-            }
-            return PlanPriceDisplay(
-                displayPrice: subscriptionManager.displayPrice(for: product),
-                subtitle: subtitle
-            )
-        }
-
-        let cachedPrice = subscriptionManager.displayPrice(for: plan.productID)
-        let fallbackSubtitle: String?
+        let displayPrice = subscriptionManager.displayPrice(for: plan.productID)
+        let subtitle: String?
         switch plan {
         case .lifetime:
-            fallbackSubtitle = L10n.paywallOneTimePayment
+            subtitle = L10n.paywallOneTimePayment
         case .yearly:
-            fallbackSubtitle = yearlyMonthlySubtitle(from: cachedPrice)
+            if let yearlyPrice = subscriptionManager.price(for: plan.productID) {
+                subtitle = yearlyPerMonthSubtitle(
+                    yearlyPrice: yearlyPrice,
+                    displayPrice: displayPrice
+                )
+            } else {
+                subtitle = yearlyMonthlySubtitle(from: displayPrice)
+            }
         case .monthly:
-            fallbackSubtitle = nil
+            subtitle = nil
         }
-        return PlanPriceDisplay(displayPrice: cachedPrice, subtitle: fallbackSubtitle)
+        return PlanPriceDisplay(displayPrice: displayPrice, subtitle: subtitle)
     }
 
-    private func yearlyPerMonthSubtitle(for product: Product) -> String {
-        let monthlyPrice = NSDecimalNumber(decimal: product.price).dividing(by: 12).decimalValue
+    private func yearlyPerMonthSubtitle(yearlyPrice: Decimal, displayPrice: String) -> String {
+        let monthlyPrice = NSDecimalNumber(decimal: yearlyPrice).dividing(by: 12).decimalValue
         let formattedMonthlyPrice = formattedMonthlyPrice(
             monthlyPrice,
-            from: subscriptionManager.displayPrice(for: product)
+            from: displayPrice
         )
         return L10n.paywallPerMonth(formattedMonthlyPrice)
     }
 
     private func yearlyMonthlySubtitle(from displayPrice: String) -> String? {
-        guard displayPrice != "--",
-              let yearlyPrice = decimalPrice(from: displayPrice) else {
+        guard let yearlyPrice = decimalPrice(from: displayPrice) else {
             return nil
         }
         let monthlyPrice = NSDecimalNumber(decimal: yearlyPrice).dividing(by: 12).decimalValue

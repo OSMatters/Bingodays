@@ -4,6 +4,37 @@ import Combine
 class BingoViewModel: ObservableObject {
     typealias BingoCelebrationDismissScheduler = (TimeInterval, @escaping () -> Void) -> Void
 
+    /// A transient, user-initiated completion effect. This deliberately lives apart from the
+    /// persisted board state so an animation can never delay, replay, or undo a task mutation.
+    struct TaskCompletionMotion: Identifiable, Equatable {
+        enum Kind: Equatable {
+            case singleTask
+            case bingo
+        }
+
+        struct CellCoordinate: Hashable, Equatable {
+            let row: Int
+            let col: Int
+        }
+
+        let id: UUID
+        let kind: Kind
+        let triggeringCell: CellCoordinate
+        let bingoCells: Set<CellCoordinate>
+
+        init(
+            id: UUID = UUID(),
+            kind: Kind,
+            triggeringCell: CellCoordinate,
+            bingoCells: Set<CellCoordinate> = []
+        ) {
+            self.id = id
+            self.kind = kind
+            self.triggeringCell = triggeringCell
+            self.bingoCells = bingoCells
+        }
+    }
+
     static let maxGridSize = BoardEngine.maxGridSize
     static let defaultInitialGridSize = 3
     static let maxTaskLength = 20
@@ -107,6 +138,7 @@ class BingoViewModel: ObservableObject {
     @Published var expiredBoardCountdownEvent: ExpiredBoardCountdownEvent?
     @Published var scheduledTaskReplacementEvent: ScheduledTaskReplacementEvent?
     @Published private(set) var boardCompletionAnimationID: UUID?
+    @Published private(set) var taskCompletionMotion: TaskCompletionMotion?
     @Published var dailyResetNoticeID = 0
     private var fullBoardCells: [[BingoCell]]
     private var lifetimePoints: Int
@@ -293,11 +325,18 @@ class BingoViewModel: ObservableObject {
         syncFullBoardCacheFromVisibleCells()
         checkBingo()
         let isBoardNowFullyCompleted = isBoardFullyCompleted
+        let newlyCompletedLines = completedLines.subtracting(previousCompletedLines)
         if !wasBoardFullyCompleted && isBoardNowFullyCompleted {
             presentBoardCompletionAnimation()
         } else if !isBoardNowFullyCompleted {
             dismissBoardCompletionAnimation()
         }
+        updateTaskCompletionMotion(
+            taskIsNowCompleted: isNowCompleted,
+            triggeringCell: TaskCompletionMotion.CellCoordinate(row: row, col: col),
+            newlyCompletedLines: newlyCompletedLines,
+            isBoardNowFullyCompleted: isBoardNowFullyCompleted
+        )
         trackBingoCompletionIfNeeded(
             wasBoardFullyCompleted: wasBoardFullyCompleted,
             isBoardNowFullyCompleted: isBoardNowFullyCompleted
@@ -719,6 +758,7 @@ class BingoViewModel: ObservableObject {
             referenceDate: referenceDate
         )
         dismissBoardCompletionAnimation()
+        dismissTaskCompletionMotion()
         boardCountdownEndsAt = nil
         expiredTaskEvent = nil
         expiredBoardCountdownEvent = nil
@@ -739,6 +779,7 @@ class BingoViewModel: ObservableObject {
         )
         boardCountdownEndsAt = nil
         dismissBoardCompletionAnimation()
+        dismissTaskCompletionMotion()
         expiredTaskEvent = nil
         expiredBoardCountdownEvent = nil
         checkBingo(shouldCelebrateNewLines: false)
@@ -752,6 +793,7 @@ class BingoViewModel: ObservableObject {
         completedLines = []
         invalidateBingoCelebration()
         dismissBoardCompletionAnimation()
+        dismissTaskCompletionMotion()
         boardCountdownEndsAt = nil
         expiredTaskEvent = nil
         expiredBoardCountdownEvent = nil
@@ -794,6 +836,7 @@ class BingoViewModel: ObservableObject {
             referenceDate: referenceDate
         )
         dismissBoardCompletionAnimation()
+        dismissTaskCompletionMotion()
         boardCountdownEndsAt = countdownEndsAt
         expiredTaskEvent = nil
         expiredBoardCountdownEvent = nil
@@ -877,6 +920,72 @@ class BingoViewModel: ObservableObject {
 
     private func presentBoardCompletionAnimation() {
         boardCompletionAnimationID = UUID()
+    }
+
+    func dismissTaskCompletionMotion(id: UUID? = nil) {
+        guard let taskCompletionMotion else { return }
+        guard id == nil || taskCompletionMotion.id == id else { return }
+        self.taskCompletionMotion = nil
+    }
+
+    private func updateTaskCompletionMotion(
+        taskIsNowCompleted: Bool,
+        triggeringCell: TaskCompletionMotion.CellCoordinate,
+        newlyCompletedLines: Set<BingoLine>,
+        isBoardNowFullyCompleted: Bool
+    ) {
+        guard taskIsNowCompleted else {
+            dismissTaskCompletionMotion()
+            return
+        }
+
+        // A full-board completion owns the presentation. Do not layer the single-task or Bingo
+        // effects underneath its dedicated screen.
+        guard !isBoardNowFullyCompleted else {
+            dismissTaskCompletionMotion()
+            return
+        }
+
+        if newlyCompletedLines.isEmpty {
+            taskCompletionMotion = TaskCompletionMotion(
+                kind: .singleTask,
+                triggeringCell: triggeringCell
+            )
+            return
+        }
+
+        taskCompletionMotion = TaskCompletionMotion(
+            kind: .bingo,
+            triggeringCell: triggeringCell,
+            bingoCells: cellCoordinates(in: newlyCompletedLines)
+        )
+    }
+
+    private func cellCoordinates(in lines: Set<BingoLine>) -> Set<TaskCompletionMotion.CellCoordinate> {
+        var coordinates = Set<TaskCompletionMotion.CellCoordinate>()
+
+        for line in lines {
+            switch line {
+            case .row(let row):
+                for col in 0..<gridSize {
+                    coordinates.insert(TaskCompletionMotion.CellCoordinate(row: row, col: col))
+                }
+            case .column(let col):
+                for row in 0..<gridSize {
+                    coordinates.insert(TaskCompletionMotion.CellCoordinate(row: row, col: col))
+                }
+            case .diagonalMain:
+                for index in 0..<gridSize {
+                    coordinates.insert(TaskCompletionMotion.CellCoordinate(row: index, col: index))
+                }
+            case .diagonalAnti:
+                for row in 0..<gridSize {
+                    coordinates.insert(TaskCompletionMotion.CellCoordinate(row: row, col: gridSize - 1 - row))
+                }
+            }
+        }
+
+        return coordinates
     }
 
     func isInCompletedLine(row: Int, col: Int) -> Bool {
@@ -965,9 +1074,6 @@ class BingoViewModel: ObservableObject {
         let generation = bingoCelebrationGeneration
         newlyCompletedLines = Array(lines)
         showCelebration = true
-        if AppSettings.isHapticsEnabled {
-            AppHaptics.emphasis()
-        }
 
         bingoCelebrationDismissScheduler(Self.bingoCelebrationDuration) { [weak self] in
             guard let self, self.bingoCelebrationGeneration == generation else { return }

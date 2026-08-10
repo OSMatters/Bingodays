@@ -50,7 +50,7 @@ struct TimeoutDialogCard: View {
             Image("ClockTimeout")
                 .resizable()
                 .scaledToFit()
-                .frame(width: scaled(150, pad: 172), height: scaled(170, pad: 190))
+                .frame(width: scaled(300, pad: 344), height: scaled(170, pad: 190))
                 .padding(.top, -8)
 
             Text(headline)
@@ -59,7 +59,7 @@ struct TimeoutDialogCard: View {
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
                 .minimumScaleFactor(0.75)
-                .padding(.top, 8)
+                .padding(.top, 18)
                 .padding(.horizontal, 14)
 
             if let ruleReason, !ruleReason.isEmpty {
@@ -160,7 +160,7 @@ struct ScheduledTaskReplacementDialogCard: View {
             Image("ClockTimeout")
                 .resizable()
                 .scaledToFit()
-                .frame(width: scaled(132, pad: 148), height: scaled(142, pad: 160))
+                .frame(width: scaled(264, pad: 296), height: scaled(142, pad: 160))
                 .padding(.top, -6)
 
             Text(headline)

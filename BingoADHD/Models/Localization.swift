@@ -431,14 +431,16 @@ enum L10n {
     }
     static var subscriptionPleaseWait: String { tr("Please wait...", zhHans: "请稍候...", zhHant: "請稍候...", ja: "しばらくお待ちください...") }
     static var subscriptionProductUnavailable: String { tr("Product is unavailable.", zhHans: "商品暂不可用。", zhHant: "商品暫不可用。", ja: "商品を利用できません。") }
+    static var subscriptionPriceLoading: String { tr("Loading price…", zhHans: "正在加载价格…", zhHant: "正在載入價格…", ja: "価格を読み込み中…") }
+    static var subscriptionPriceUnavailable: String { tr("Price unavailable", zhHans: "价格暂不可用", zhHant: "價格暫不可用", ja: "価格を利用できません") }
     static var subscriptionVerificationFailed: String { tr("Verification failed.", zhHans: "购买校验失败。", zhHant: "購買校驗失敗。", ja: "検証に失敗しました。") }
     static var subscriptionPurchaseSucceeded: String { tr("Purchase successful.", zhHans: "购买成功。", zhHant: "購買成功。", ja: "購入が完了しました。") }
     static var subscriptionActivationPending: String {
         tr(
-            "Purchase successful. Premium status is syncing.",
-            zhHans: "购买成功，会员状态正在同步。",
-            zhHant: "購買成功，會員狀態正在同步。",
-            ja: "購入が完了しました。Premium状態を同期しています。"
+            "Checking purchase status. Please wait a moment.",
+            zhHans: "正在确认购买状态，请稍候。",
+            zhHant: "正在確認購買狀態，請稍候。",
+            ja: "購入状況を確認しています。しばらくお待ちください。"
         )
     }
     static var subscriptionPurchasePending: String { tr("Purchase is pending approval.", zhHans: "购买待确认。", zhHant: "購買待確認。", ja: "購入の承認待ちです。") }
@@ -751,6 +753,18 @@ enum L10n {
     }
     static var quickEditAddGroupTitle: String {
         tr("Add New Group", zhHans: "添加新分组", ja: "新しいグループを追加")
+    }
+    static var quickEditEditGroupTitle: String {
+        tr("Edit Group Name", zhHans: "编辑分组名称", zhHant: "編輯分組名稱", ja: "グループ名を編集")
+    }
+    static var quickEditEditGroupName: String {
+        tr("Edit Group Name", zhHans: "编辑分组名称", zhHant: "編輯分組名稱", ja: "グループ名を編集")
+    }
+    static var quickEditDeleteGroup: String {
+        tr("Delete Group", zhHans: "删除分组", zhHant: "刪除分組", ja: "グループを削除")
+    }
+    static var quickEditGroupRenamedSuccess: String {
+        tr("Group name updated", zhHans: "分组名称已更新", zhHant: "分組名稱已更新", ja: "グループ名を更新しました")
     }
     static var quickEditGroupNamePlaceholder: String {
         tr("Enter group name...", zhHans: "输入分组名称...", ja: "グループ名を入力...")

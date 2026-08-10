@@ -7,14 +7,17 @@ enum FocusedMyTaskField: Hashable {
     case newTaskStartMonth
     case newTaskStartDay
     case newGroupName
+    case editGroupName
     case taskEditorName
     case taskEditorMonth
     case taskEditorDay
 }
 
-struct QuickEditAddGroupModal: View {
+struct QuickEditGroupNameModal: View {
+    let title: String
     @Binding var groupName: String
     let focusedField: FocusState<FocusedMyTaskField?>.Binding
+    let focusField: FocusedMyTaskField
     let isPadLayout: Bool
     let placeholderColor: Color
     let taskBackground: Color
@@ -32,7 +35,7 @@ struct QuickEditAddGroupModal: View {
                 Spacer()
 
                 VStack(spacing: 0) {
-                    Text(L10n.quickEditAddGroupTitle)
+                    Text(title)
                         .font(.appSystem(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
                         .foregroundColor(NeumorphicColors.text)
                         .padding(.top, 18)
@@ -50,7 +53,7 @@ struct QuickEditAddGroupModal: View {
                         .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
                         .foregroundColor(NeumorphicColors.text)
                         .quickEditModalTextFieldSurface(background: taskBackground, stroke: fieldStroke)
-                        .focused(focusedField, equals: .newGroupName)
+                        .focused(focusedField, equals: focusField)
                         .onSubmit(onCommit)
 
                         HStack(spacing: 12) {
@@ -91,6 +94,67 @@ struct QuickEditAddGroupModal: View {
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
         isPadLayout ? (pad ?? base * 1.18) : base
+    }
+}
+
+struct QuickEditGroupActionsOverlayView: View {
+    let isPadLayout: Bool
+    let onDismiss: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    private let backgroundColor = Color(hex: "FAF9F3")
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(0.42)
+                    .ignoresSafeArea()
+                    .onTapGesture(perform: onDismiss)
+
+                VStack(spacing: 12) {
+                    actionButton(
+                        title: L10n.quickEditEditGroupName,
+                        color: NeumorphicColors.text,
+                        action: onEdit
+                    )
+                    actionButton(
+                        title: L10n.quickEditDeleteGroup,
+                        color: Color.red.opacity(0.84),
+                        action: onDelete
+                    )
+                }
+                .frame(width: min(proxy.size.width - 40, isPadLayout ? 460 : 353))
+                .padding(.top, 14)
+                .padding(.bottom, max(proxy.safeAreaInsets.bottom, 14) + 12)
+                .frame(maxWidth: .infinity)
+                .background(
+                    backgroundColor
+                        .ignoresSafeArea(edges: .bottom)
+                        .onTapGesture(perform: onDismiss)
+                )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        }
+    }
+
+    private func actionButton(title: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.appSystem(size: scaled(16, pad: 18), weight: .semibold, design: .rounded))
+                .foregroundColor(color)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(backgroundColor)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.26) : base
     }
 }
 

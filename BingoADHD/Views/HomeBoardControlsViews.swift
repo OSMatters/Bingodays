@@ -75,8 +75,8 @@ struct HomeMainTabBarView: View {
                         .scaledToFit()
                         .opacity(selectedTab == tab ? 1 : 0.7)
                         .frame(
-                            width: selectedTab == tab ? scaled(36, pad: 42) : scaled(30, pad: 36),
-                            height: selectedTab == tab ? scaled(36, pad: 42) : scaled(30, pad: 36)
+                            width: selectedTab == tab ? scaled(40, pad: 46) : scaled(30, pad: 36),
+                            height: selectedTab == tab ? scaled(40, pad: 46) : scaled(30, pad: 36)
                         )
                         .scaleEffect(bouncingTab == tab ? 1.08 : 1)
                         .offset(y: bouncingTab == tab ? scaled(-3, pad: -4) : 0)

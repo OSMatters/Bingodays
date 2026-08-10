@@ -6,6 +6,7 @@ struct PointsFlowPresenter: View {
     let points: Int
     let totalPoints: Int
     @ObservedObject var pointsFeatureStore: PointsFeatureStore
+    @Binding var limitedOfferState: LimitedOfferHomeState
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     var showsCloseButton = true
     var bottomContentPadding: CGFloat = 32
@@ -15,6 +16,7 @@ struct PointsFlowPresenter: View {
         PointsFlowSheet(
             isPadLayout: isPadLayout,
             points: points,
+            limitedOfferState: $limitedOfferState,
             showsCloseButton: showsCloseButton,
             bottomContentPadding: bottomContentPadding,
             onSubpagePresentationChange: onSubpagePresentationChange,
@@ -72,6 +74,7 @@ struct PointsFlowSheet: View {
 
     let isPadLayout: Bool
     let points: Int
+    @Binding var limitedOfferState: LimitedOfferHomeState
     let showsCloseButton: Bool
     let bottomContentPadding: CGFloat
     let onSubpagePresentationChange: (Bool) -> Void
@@ -173,7 +176,10 @@ struct PointsFlowSheet: View {
             }
         }
         .fullScreenCover(isPresented: $isPremiumPaywallPresented) {
-            PremiumPaywallView(entrySource: premiumPaywallSource)
+            PremiumPaywallView(
+                entrySource: premiumPaywallSource,
+                limitedOfferState: $limitedOfferState
+            )
         }
         .alert(
             L10n.tr("Unable to save reward", zhHans: "无法保存奖励", zhHant: "無法儲存獎勵", ja: "報酬を保存できません"),
@@ -507,6 +513,8 @@ private struct PointsDetailSheet: View {
                                 .padding(.top, scaled(118, pad: 150))
                         } else {
                             LazyVGrid(columns: rewardGridColumns, spacing: scaled(8, pad: 12)) {
+                                addRewardCard
+
                                 ForEach(rewards) { reward in
                                     rewardCard(reward)
                                 }
@@ -523,7 +531,7 @@ private struct PointsDetailSheet: View {
                     .padding(
                         .bottom,
                         max(
-                            selectedTab == .rewards && !rewards.isEmpty ? scaled(112, pad: 132) : 32,
+                            32,
                             bottomContentPadding
                         )
                     )
@@ -537,17 +545,6 @@ private struct PointsDetailSheet: View {
                         }
                     }
                 )
-
-                if selectedTab == .rewards && !rewards.isEmpty {
-                    VStack {
-                        Spacer()
-                        floatingAddRewardButton
-                            .padding(.bottom, floatingAddRewardBottomPadding)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea(.keyboard, edges: .bottom)
-                    .zIndex(1)
-                }
 
                 pointsHeader
                     .frame(maxWidth: contentMaxWidth)
@@ -837,6 +834,49 @@ private struct PointsDetailSheet: View {
         }
     }
 
+    private var addRewardCard: some View {
+        Button(action: onRequestCreateReward) {
+            ZStack {
+                Image("CustomRewardAddCard")
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .shadow(
+                        color: Color(red: 0.67, green: 0.48, blue: 0.23).opacity(0.14),
+                        radius: 12,
+                        x: 0,
+                        y: 8
+                    )
+
+                VStack(spacing: 0) {
+                    Color.clear
+                        .frame(height: scaled(118, pad: 150))
+                        .offset(y: scaled(4, pad: 6))
+
+                    Spacer(minLength: scaled(8, pad: 10))
+
+                    Text(L10n.addRewards)
+                        .font(.appSystem(size: scaled(15, pad: 27), weight: .heavy, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text.opacity(0.62))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, scaled(14, pad: 18))
+                        .offset(y: scaled(-11, pad: 34))
+
+                    Spacer(minLength: scaled(32, pad: 40))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity)
+            .aspectRatio(187.0 / 227.0, contentMode: .fit)
+            .scaleEffect(1.05)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.addRewards)
+    }
+
     @ViewBuilder
     private func rewardCardEmoji(_ emoji: String, canRedeem: Bool) -> some View {
         if isPadDevice {
@@ -870,26 +910,6 @@ private struct PointsDetailSheet: View {
                 .saturation(canRedeem ? 1 : 0)
                 .opacity(canRedeem ? 1 : 0.55)
         }
-    }
-
-    private var floatingAddRewardButton: some View {
-        Button {
-            onRequestCreateReward()
-        } label: {
-            HStack(spacing: scaled(8, pad: 10)) {
-                Text(L10n.addRewards)
-                    .font(.appSystem(size: scaled(16, pad: 16), weight: .heavy, design: .rounded))
-            }
-            .foregroundColor(NeumorphicColors.text)
-            .frame(width: scaled(158, pad: 196), height: scaled(42, pad: 52))
-            .appLiquidGlass(in: Capsule(style: .continuous), interactive: true)
-            .contentShape(Capsule(style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var floatingAddRewardBottomPadding: CGFloat {
-        max(scaled(26, pad: 34), bottomContentPadding + scaled(14, pad: 18))
     }
 
     private func rewardActionOverlay(for reward: CustomReward) -> some View {

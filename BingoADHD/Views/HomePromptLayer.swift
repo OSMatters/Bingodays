@@ -316,8 +316,8 @@ private struct CustomResetDowngradeOverlay: View {
     private var cardWidth: CGFloat { isPadLayout ? 520 : 322 }
     private var imageSize: CGSize {
         isPadLayout
-            ? CGSize(width: 190, height: 236)
-            : CGSize(width: 150, height: 186)
+            ? CGSize(width: 380, height: 236)
+            : CGSize(width: 300, height: 186)
     }
 
     var body: some View {

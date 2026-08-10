@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BingoBoardView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     struct EditingTarget: Identifiable, Equatable {
         let row: Int
@@ -98,7 +99,14 @@ struct BingoBoardView: View {
                                         isScheduledInactive: isScheduledInactive
                                     )
 
-                                    BingoCellView(
+                                    ZStack {
+                                        taskCompletionEffect(
+                                            for: target,
+                                            cellSize: cellSize
+                                        )
+                                        .zIndex(0)
+
+                                        BingoCellView(
                                         cell: viewModel.cells[row][col],
                                         currentTime: currentTime,
                                         isScheduledInactive: isScheduledInactive,
@@ -183,7 +191,10 @@ struct BingoBoardView: View {
                                             }
                                             onCellReorderActiveChanged?(false)
                                         }
-                                    )
+                                        )
+                                        .zIndex(1)
+                                    }
+                                    .frame(width: cellSize, height: cellSize)
                                 }
                             }
                         }
@@ -200,7 +211,9 @@ struct BingoBoardView: View {
             .background(
                 boardContainerSurface
             )
-            .clipShape(RoundedRectangle(cornerRadius: boardCornerRadius, style: .continuous))
+            // The rounded shape belongs to the board surface only.  Do not clip the content
+            // layer here: a top-row completion effect is intentionally larger than its card and
+            // needs to burst above the board edge.
         }
         .aspectRatio(1, contentMode: .fit)
         .onDisappear {
@@ -208,6 +221,16 @@ struct BingoBoardView: View {
                 dragState = nil
                 onCellReorderActiveChanged?(false)
             }
+        }
+        .onChange(of: viewModel.taskCompletionMotion?.id) { _, motionID in
+            guard reduceMotion, let motionID else { return }
+            if viewModel.taskCompletionMotion?.kind == .singleTask {
+#if canImport(libpag)
+                PAGRewardSoundPlayer.shared.play(resourceName: "complete_once", fileExtension: "mp3")
+#endif
+                AppHaptics.completion()
+            }
+            viewModel.dismissTaskCompletionMotion(id: motionID)
         }
         .overlay(alignment: .top) {
             if deletedCellSnapshot != nil {
@@ -544,6 +567,54 @@ struct BingoBoardView: View {
             x: origin + CGFloat(target.col) * stride,
             y: origin + CGFloat(target.row) * stride
         )
+    }
+
+    @ViewBuilder
+    private func taskCompletionEffect(
+        for target: EditingTarget,
+        cellSize: CGFloat
+    ) -> some View {
+        if !reduceMotion, let motion = viewModel.taskCompletionMotion {
+            let coordinate = BingoViewModel.TaskCompletionMotion.CellCoordinate(
+                row: target.row,
+                col: target.col
+            )
+            let isSingleTaskTarget = motion.kind == .singleTask && motion.triggeringCell == coordinate
+            let isBingoTarget = motion.kind == .bingo && motion.bingoCells.contains(coordinate)
+            // Both effects are authored as large visual canvases around one card.  Keeping the
+            // canvas local to each winning cell lets Bingo effects overlap naturally while the
+            // task card itself remains at its normal size above the animation.
+            let effectCanvasScale: CGFloat = 2.8
+
+            if isSingleTaskTarget || isBingoTarget {
+                PAGCompletionView(
+                    resourceName: isSingleTaskTarget
+                        ? "complete_once_bmp"
+                        : "complete_bingo_background_bmp",
+                    // A line Bingo owns its audio at the later top-level Bingo reveal. The card
+                    // background effect must stay silent so it never plays the one-task sound
+                    // before the dedicated complete_bingo.mp3 track begins.
+                    playsSound: isSingleTaskTarget,
+                    soundResourceName: isSingleTaskTarget ? "complete_once" : nil,
+                    soundFileExtension: "mp3",
+                    playsHaptic: isSingleTaskTarget,
+                    cacheAllFrames: isSingleTaskTarget,
+                    renderScale: 1,
+                    maxFrameRate: isSingleTaskTarget ? 60 : 24,
+                    playbackRate: 1,
+                    onFinished: {
+                        guard isSingleTaskTarget else { return }
+                        viewModel.dismissTaskCompletionMotion(id: motion.id)
+                    }
+                )
+                .id("\(motion.id.uuidString)-\(target.row)-\(target.col)")
+                // The card remains cellSize. The one-task effect has a deliberately larger
+                // canvas so its stars and arcs emerge around the card rather than being hidden
+                // by the card's opaque center.
+                .frame(width: cellSize * effectCanvasScale, height: cellSize * effectCanvasScale)
+                .allowsHitTesting(false)
+            }
+        }
     }
 
     private func destinationTarget(

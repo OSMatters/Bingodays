@@ -103,7 +103,6 @@ struct QuickEditPreviewEditingTarget: Identifiable, Equatable {
 
 enum QuickEditDeleteTarget: Equatable {
     case task(Int)
-    case group(UUID)
     case groupTask(UUID, Int)
     case history(String)
 
@@ -119,8 +118,6 @@ enum QuickEditDeleteTarget: Equatable {
             return L10n.deleteTaskConfirmationMessage
         case .history:
             return L10n.deleteTaskConfirmationMessage
-        case .group:
-            return L10n.deleteGroupConfirmationMessage
         }
     }
 
@@ -132,8 +129,6 @@ enum QuickEditDeleteTarget: Equatable {
             return L10n.taskDeletedSuccess
         case .history:
             return L10n.taskDeletedSuccess
-        case .group:
-            return L10n.groupDeletedSuccess
         }
     }
 }
@@ -857,7 +852,6 @@ func quickEditTaskFromEditorDraft(
 
 enum QuickEditDeleteResolution {
     case libraryTaskRemoved(task: MyTaskItem, successMessage: String)
-    case requestGroupDeletion(UUID)
     case historyItemRemoved(historyItemID: String, successMessage: String)
     case invalid
 }
@@ -872,8 +866,6 @@ func quickEditResolveDeleteTarget(
         let task = library.tasks[index]
         library.tasks.remove(at: index)
         return .libraryTaskRemoved(task: task, successMessage: target.successMessage)
-    case .group(let groupID):
-        return .requestGroupDeletion(groupID)
     case .groupTask(let groupID, let index):
         guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }),
               library.groups[groupIndex].tasks.indices.contains(index) else { return .invalid }
@@ -1058,6 +1050,30 @@ enum QuickEditAddGroupCommitResult {
     case noOp
     case paywall(String)
     case appended(MyTaskGroup)
+}
+
+enum QuickEditGroupRenameResult: Equatable {
+    case renamed
+    case unchanged
+    case invalid
+}
+
+func quickEditRenameGroup(
+    _ groupID: UUID,
+    nameDraft: String,
+    library: inout MyTasksLibrary
+) -> QuickEditGroupRenameResult {
+    guard let groupIndex = library.groups.firstIndex(where: { $0.id == groupID }) else {
+        return .invalid
+    }
+
+    let name = String(nameDraft.prefix(AppSettings.maxTaskLength))
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty else { return .invalid }
+    guard library.groups[groupIndex].name != name else { return .unchanged }
+
+    library.groups[groupIndex].name = name
+    return .renamed
 }
 
 func quickEditCommitAddGroup(

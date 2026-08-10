@@ -92,11 +92,38 @@ struct HomeLifecycleObserversModifier: ViewModifier {
     private func startDeferredHomePreloadsIfNeeded() {
         guard !hasStartedDeferredHomePreloads else { return }
         hasStartedDeferredHomePreloads = true
+        // This tiny, tap-triggered effect must already be decoded before the user can complete
+        // their first task. The remaining larger effects stay deferred.
+        PAGCompletionView.preload(
+            resourceName: "complete_once_bmp",
+            playsSound: true,
+            soundResourceName: "complete_once",
+            soundFileExtension: "mp3",
+            cacheAllFrames: true,
+            renderScale: 1,
+            maxFrameRate: 60
+        )
         // Stagger startup work so first-frame home rendering does not compete with preloads.
         Task(priority: .utility) {
             try? await Task.sleep(nanoseconds: 900_000_000)
-            PAGCompletionView.preload(resourceName: "cat_bmp")
-            PointsSoundPlayer.shared.preload()
+            await MainActor.run {
+                PAGCompletionView.preload(resourceName: "complete_bingo_background_bmp")
+                PAGCompletionView.preload(
+                    resourceName: "complete_bingo_bmp",
+                    playsSound: true,
+                    soundResourceName: "complete_bingo",
+                    soundFileExtension: "mp3"
+                )
+                PAGRewardSoundPlayer.shared.preload(
+                    resourceName: "complete_bingo_background",
+                    fileExtension: "mp3"
+                )
+                PAGRewardSoundPlayer.shared.preload(
+                    resourceName: "complete_allbingo",
+                    fileExtension: "mp3"
+                )
+                PointsSoundPlayer.shared.preload()
+            }
         }
     }
 

@@ -6,7 +6,8 @@ final class TaskStartReminderSyncStore: ObservableObject {
     private let scheduler: any TaskStartReminderScheduling
     private let debounceNanoseconds: UInt64
     private var syncTask: Task<Void, Never>?
-    private var lastSyncSignature: String?
+    private var pendingSyncSignature: String?
+    private var lastCompletedSyncSignature: String?
 
     init(
         scheduler: any TaskStartReminderScheduling = LiveTaskStartReminderScheduler(),
@@ -16,12 +17,13 @@ final class TaskStartReminderSyncStore: ObservableObject {
         self.debounceNanoseconds = debounceNanoseconds
     }
 
+    @discardableResult
     func scheduleSync(
         namedBoards: [BingoBoardStore.NamedBoard],
         selectedBoardID: UUID?,
         activeBoard: SavedBoard?,
         now: Date = .now
-    ) {
+    ) -> Task<Void, Never>? {
         let syncSignature = scheduler.syncSignature(
             namedBoards: namedBoards,
             selectedBoardID: selectedBoardID,
@@ -29,11 +31,14 @@ final class TaskStartReminderSyncStore: ObservableObject {
             now: now
         )
 
-        guard syncSignature != lastSyncSignature else { return }
-        lastSyncSignature = syncSignature
+        guard syncSignature != pendingSyncSignature,
+              syncSignature != lastCompletedSyncSignature else {
+            return syncTask
+        }
 
         syncTask?.cancel()
-        syncTask = Task { [scheduler, debounceNanoseconds] in
+        pendingSyncSignature = syncSignature
+        let task = Task { [scheduler, debounceNanoseconds, syncSignature] in
             try? await Task.sleep(nanoseconds: debounceNanoseconds)
             guard !Task.isCancelled else { return }
             await scheduler.syncReminders(
@@ -42,11 +47,20 @@ final class TaskStartReminderSyncStore: ObservableObject {
                 activeBoard: activeBoard,
                 now: now
             )
+            await MainActor.run {
+                guard pendingSyncSignature == syncSignature else { return }
+                lastCompletedSyncSignature = syncSignature
+                pendingSyncSignature = nil
+                syncTask = nil
+            }
         }
+        syncTask = task
+        return task
     }
 
     func cancelPendingSync() {
         syncTask?.cancel()
         syncTask = nil
+        pendingSyncSignature = nil
     }
 }

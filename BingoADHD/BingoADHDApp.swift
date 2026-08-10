@@ -485,6 +485,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         AnalyticsService.setCollectionEnabled(true)
         UNUserNotificationCenter.current().delegate = self
         AppFontRegistrar.registerIfNeeded()
+        AppAudioSessionConfigurator.configureForSoundEffects()
         AnalyticsService.bootstrap()
         DiagnosticLogStore.recordStateChange("app.launch")
         NativeICloudWidgetRefreshScheduler.register()
@@ -510,6 +511,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
+        // Restore the non-intrusive UI-sound policy after returning from another app or
+        // after a recording session, before any Bingo sound effect can be played.
+        AppAudioSessionConfigurator.configureForSoundEffects()
         DiagnosticLogStore.recordStateChange("app.did_become_active")
         scheduleLegacyNotificationCleanup()
     }
@@ -582,8 +586,7 @@ struct BingoADHDApp: App {
                     iCloudSyncCoordinator.startIfEnabled()
                     guard !hasStartedDeferredBootstrap else { return }
                     hasStartedDeferredBootstrap = true
-                    try? await Task.sleep(nanoseconds: 1_200_000_000)
-                    await subscriptionManager.refreshEntitlements()
+                    await subscriptionManager.bootstrap()
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     guard newPhase == .active else { return }

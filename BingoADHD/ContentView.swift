@@ -235,6 +235,10 @@ struct ContentView: View {
             "board_count": "\(namedBoards.count)",
             "grid_size": "\(viewModel.gridSize)",
             "has_premium": "\(subscriptionManager.hasPremiumAccess)",
+            "entitlement_refresh_complete": "\(subscriptionManager.hasCompletedEntitlementRefresh)",
+            "limited_offer_enabled": "\(limitedTimeOfferConfig.isEnabled(forAppVersion: appShortVersion))",
+            "limited_offer_eligible": "\(hasUnlockedLimitedOfferEntry)",
+            "limited_offer_should_show": "\(shouldShowLimitedOfferEntry)",
             "sidebar": "\(isSidebarPresented)",
             "edit_actions": "\(isEditActionsExpanded)",
             "points_flow": "\(isPointsFlowPresented)",
@@ -646,11 +650,9 @@ struct ContentView: View {
                     HomeFeedbackLayer(
                     viewModel: viewModel,
                     toastStore: toastStore,
-                    canvasSize: geo.size,
                     safeAreaTop: geo.safeAreaInsets.top,
                     contentWidth: contentWidth,
-                    isPadLayout: isPadLayout,
-                    onBoardCompletionAnimationFinished: handleBoardCompletionAnimationFinished
+                    isPadLayout: isPadLayout
                 )
 
                     HomePromptLayer(
@@ -696,7 +698,7 @@ struct ContentView: View {
                 )
 
                     HomeTimeoutOverlayLayer(
-                    viewModel: viewModel,
+                        viewModel: viewModel,
                     countdownNow: countdownNow,
                     selectedBoardName: selectedBoardName,
                     isPadLayout: isPadLayout,
@@ -704,8 +706,8 @@ struct ContentView: View {
                     boardTimeoutDelayMinutes: $boardTimeoutDelayMinutes,
                     timeoutDelayPickerContext: $timeoutDelayPickerContext,
                     timeoutDelayPickerHours: $timeoutDelayPickerHours,
-                    timeoutDelayPickerMinutes: $timeoutDelayPickerMinutes,
-                    onToast: showCommonTasksToast
+                        timeoutDelayPickerMinutes: $timeoutDelayPickerMinutes,
+                        onToast: showCommonTasksToast
                     )
                 } else if selectedMainTab == .points {
                     pointsTabContent(bottomInset: geo.safeAreaInsets.bottom)
@@ -727,6 +729,15 @@ struct ContentView: View {
                     .zIndex(5)
                 }
 
+                if let completionMotion = viewModel.taskCompletionMotion,
+                   completionMotion.kind == .bingo {
+                    BingoTopCompletionEffect(
+                        motion: completionMotion,
+                        onFinished: viewModel.dismissTaskCompletionMotion
+                    )
+                    .zIndex(20)
+                }
+
             }
         }
     }
@@ -737,6 +748,7 @@ struct ContentView: View {
             points: availablePoints,
             totalPoints: viewModel.totalPoints,
             pointsFeatureStore: pointsFeatureStore,
+            limitedOfferState: limitedOfferStateBinding,
             showsCloseButton: false,
             bottomContentPadding: max(bottomInset, 0) + scaled(116, pad: 136),
             onSubpagePresentationChange: { isPresented in
@@ -946,6 +958,13 @@ struct ContentView: View {
         )
     }
 
+    private var limitedOfferStateBinding: Binding<LimitedOfferHomeState> {
+        Binding(
+            get: { limitedOfferHomeState },
+            set: { applyLimitedOfferHomeState($0) }
+        )
+    }
+
     private func applyLimitedOfferHomeState(_ state: LimitedOfferHomeState) {
         guard state != limitedOfferHomeState else { return }
         hasVisitedPremiumPaywallWithoutPurchase = state.hasVisitedPaywallWithoutPurchase
@@ -965,6 +984,7 @@ struct ContentView: View {
                     isDiaryPresented: $isDiaryPresented,
                     isPremiumPaywallPresented: $isPremiumPaywallPresented,
                     isLimitedTimeDiscountPresented: $isLimitedTimeDiscountPresented,
+                    limitedOfferState: limitedOfferStateBinding,
                     viewModel: viewModel,
                     pointsFeatureStore: pointsFeatureStore,
                     isPadLayout: isPadLayout,
@@ -972,9 +992,12 @@ struct ContentView: View {
                     totalPoints: viewModel.totalPoints,
                     premiumPaywallSource: premiumPaywallSource,
                     limitedTimeOfferConfig: limitedTimeOfferConfig,
+                    boardCompletionAnimationID: viewModel.boardCompletionAnimationID,
+                    boardCompletionBoardName: selectedBoardName,
                     onQuickEditSuccess: showCommonTasksToast,
                     onQuickEditBoardApplied: syncSelectedBoardSnapshotIfNeeded,
-                    onPremiumPaywallDismiss: handlePremiumPaywallDismiss
+                    onPremiumPaywallDismiss: handlePremiumPaywallDismiss,
+                    onBoardCompletionDismiss: handleBoardCompletionAnimationFinished
                 )
             )
             .modifier(
@@ -1255,9 +1278,15 @@ struct ContentView: View {
                                     "derived_spent": "\(max(viewModel.totalPoints - newValue, 0))"
                                 ]
                             )
+                            // A Bingo has a dedicated celebration track. Keep the normal point
+                            // chime for ordinary task completion, but never layer it before the
+                            // single-line or full-board Bingo sound begins.
+                            let isBingoCelebration = viewModel.taskCompletionMotion?.kind == .bingo
+                                || viewModel.showBoardCompletionAnimation
                             pointsAnimationStore.handleAvailablePointsChange(
                                 from: oldValue,
-                                to: newValue
+                                to: newValue,
+                                playsSoundEffect: !isBingoCelebration
                             )
                         },
                         onShowDailyReset: toastStore.showDailyReset,

@@ -53,12 +53,16 @@ struct BingoCellView: View {
     @AppStorage(AppSettings.hapticsEnabledKey) private var isHapticsEnabled = true
     @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isTouching = false
     @State private var isLongPressRecognized = false
     @State private var didStartDrag = false
     @State private var touchStartDate: Date?
     @State private var cancelledLongPressByMovement = false
     @State private var longPressRecognitionWorkItem: DispatchWorkItem?
+    @State private var completionPulseScale: CGFloat = 1
+    @State private var completionPulseGeneration = 0
+    @State private var completionPulseWorkItem: DispatchWorkItem?
 
     private let boardSurfaceColor = Color(hex: "F4F4F4")
     private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
@@ -86,20 +90,31 @@ struct BingoCellView: View {
             }
         }
         .frame(width: cellSize, height: cellSize)
-        .scaleEffect(interactionScale)
+        // Keep the press response and the completion pulse independent.  The completion
+        // pulse is driven directly from the successful tap below, so it is always applied
+        // to this exact cell before the model publishes its new completion state.
+        .scaleEffect(touchScale)
+        .scaleEffect(completionPulseScale)
         .opacity(isDragSource ? 0.18 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: cell.isCompleted)
         .animation(.easeInOut(duration: 0.45), value: isTaskHiddenFaceVisible)
-        .animation(.interactiveSpring(response: 0.22, dampingFraction: 0.8), value: interactionScale)
+        .animation(.interactiveSpring(response: 0.22, dampingFraction: 0.8), value: touchScale)
         .animation(.easeInOut(duration: 0.18), value: isDragSource)
         .animation(.easeInOut(duration: 0.18), value: isDropTarget)
         .contentShape(RoundedRectangle(cornerRadius: cellCornerRadius))
+        .onChange(of: cell.isCompleted) { _, isCompleted in
+            // Undoing a completion must not leave a transient scale on the cell.
+            if !isCompleted {
+                cancelCompletionPulse()
+            }
+        }
 
         if isInteractive {
             baseView
                 .highPriorityGesture(primaryTouchGesture)
                 .onDisappear {
                     cancelLongPressRecognition()
+                    cancelCompletionPulse()
                     isTouching = false
                     touchStartDate = nil
                     cancelledLongPressByMovement = false
@@ -108,6 +123,7 @@ struct BingoCellView: View {
             baseView
                 .onDisappear {
                     cancelLongPressRecognition()
+                    cancelCompletionPulse()
                     isTouching = false
                     touchStartDate = nil
                     cancelledLongPressByMovement = false
@@ -202,22 +218,26 @@ struct BingoCellView: View {
                 }
 
                 let willComplete = !cell.isCompleted
-                if willComplete && isHapticsEnabled {
-                    AppHaptics.completion()
+                if willComplete {
+                    // Start before mutating the board model: waiting for an `onChange` here
+                    // is visibly late once the grid has been re-rendered.
+                    runCompletionPulse()
                 }
                 debugGesture("tap -> toggle complete")
                 onTap()
             }
     }
 
-    private var interactionScale: CGFloat {
+    private var touchScale: CGFloat {
+        let scale: CGFloat
         if didStartDrag {
-            return 1.05
+            scale = 1.05
+        } else if isLongPressRecognized {
+            scale = 1.03
+        } else {
+            scale = (isTouching && !isLocked) ? 0.98 : 1.0
         }
-        if isLongPressRecognized {
-            return 1.03
-        }
-        return (isTouching && !isLocked) ? 0.98 : 1.0
+        return scale
     }
 
     private var dynamicFontSize: CGFloat {
@@ -510,6 +530,11 @@ struct BingoCellView: View {
             .interpolation(.high)
             .scaledToFit()
             .frame(width: cellSize * 0.76, height: cellSize * 0.76)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .center
+            )
             .allowsHitTesting(false)
     }
 
@@ -584,6 +609,40 @@ struct BingoCellView: View {
     private func cancelLongPressRecognition() {
         longPressRecognitionWorkItem?.cancel()
         longPressRecognitionWorkItem = nil
+    }
+
+    private func runCompletionPulse() {
+        cancelCompletionPulse()
+        guard !reduceMotion else {
+            completionPulseScale = 1
+            return
+        }
+
+        completionPulseGeneration &+= 1
+        let generation = completionPulseGeneration
+        // The 70% shrink is intentionally immediate. This makes the following spring read as
+        // a quick rebound instead of a nearly imperceptible change during the grid refresh.
+        var shrinkTransaction = Transaction(animation: nil)
+        shrinkTransaction.disablesAnimations = true
+        withTransaction(shrinkTransaction) {
+            completionPulseScale = 0.70
+        }
+
+        let workItem = DispatchWorkItem {
+            guard completionPulseGeneration == generation else { return }
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.58)) {
+                completionPulseScale = 1
+            }
+        }
+        completionPulseWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04, execute: workItem)
+    }
+
+    private func cancelCompletionPulse() {
+        completionPulseWorkItem?.cancel()
+        completionPulseWorkItem = nil
+        completionPulseGeneration &+= 1
+        completionPulseScale = 1
     }
 
     private func recognizeLongPress(source: String) {
