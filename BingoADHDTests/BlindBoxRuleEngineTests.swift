@@ -276,6 +276,32 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         )
     }
 
+    func testLegacyStickerPreviewMapsEveryKnownAssetWithoutDroppingCounts() {
+        let legacyInventory = Dictionary(
+            uniqueKeysWithValues: StickerKind.allCases.map { ($0.rawValue, 1) }
+        )
+
+        let preview = BlindBoxLegacyStickerMigration.preview(inventoryCounts: legacyInventory)
+
+        XCTAssertEqual(preview.unmappedLegacyStickerIDs, [])
+        XCTAssertEqual(preview.migratedStickerTotal, legacyInventory.count)
+        XCTAssertEqual(preview.migratedOwnedStickerCounts["pets_11"], 2)
+        XCTAssertEqual(preview.migratedOwnedStickerCounts["pets_12"], 2)
+        XCTAssertEqual(preview.migratedOwnedStickerCounts["pets_01"], 1)
+        XCTAssertEqual(preview.migratedOwnedStickerCounts["pets_10"], 1)
+    }
+
+    func testLegacyStickerPreviewReportsUnknownIDsInsteadOfDiscardingThem() {
+        let preview = BlindBoxLegacyStickerMigration.preview(inventoryCounts: [
+            StickerKind.akita.rawValue: 1,
+            "future_legacy_sticker": 2,
+            StickerKind.orangeCat.rawValue: 0
+        ])
+
+        XCTAssertEqual(preview.migratedOwnedStickerCounts, ["pets_01": 1])
+        XCTAssertEqual(preview.unmappedLegacyStickerIDs, ["future_legacy_sticker"])
+    }
+
     func testTicketDailyGrantHonorsTheTwentyTicketCap() {
         XCTAssertEqual(
             BlindBoxTicketPolicy.dailyGrant(currentBalance: 19, hasPremiumAccess: false),
