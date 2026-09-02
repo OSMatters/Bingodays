@@ -276,6 +276,111 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         )
     }
 
+    func testRemoteCatalogReleaseRequiresValidatedPresentationAndKeepsActiveOrder() throws {
+        let normalOne = BlindBoxStickerDefinition(
+            id: BlindBoxStickerID(rawValue: "remote_normal_one"),
+            assetName: "remote_normal_one",
+            isHidden: false
+        )
+        let normalTwo = BlindBoxStickerDefinition(
+            id: BlindBoxStickerID(rawValue: "remote_normal_two"),
+            assetName: "remote_normal_two",
+            isHidden: false
+        )
+        let hidden = BlindBoxStickerDefinition(
+            id: BlindBoxStickerID(rawValue: "remote_hidden"),
+            assetName: "remote_hidden",
+            isHidden: true
+        )
+        let remoteTheme = BlindBoxThemeDefinition(
+            id: BlindBoxThemeID(rawValue: "remote_theme"),
+            catalogVersion: 4,
+            stickers: [normalOne, normalTwo, hidden],
+            presentation: BlindBoxThemePresentation(collectionPlacements: [
+                BlindBoxCollectionPlacement(
+                    stickerID: hidden.id,
+                    centerX: 196.5,
+                    centerY: 365,
+                    displaySize: 128,
+                    isSpecialSlot: true
+                ),
+                BlindBoxCollectionPlacement(
+                    stickerID: normalOne.id,
+                    centerX: 104,
+                    centerY: 490,
+                    displaySize: 72
+                ),
+                BlindBoxCollectionPlacement(
+                    stickerID: normalTwo.id,
+                    centerX: 290,
+                    centerY: 490,
+                    displaySize: 72
+                )
+            ])
+        )
+        let retiredTheme = BlindBoxThemeDefinition(
+            id: BlindBoxThemeID(rawValue: "retired_theme"),
+            catalogVersion: 2,
+            stickers: [
+                BlindBoxStickerDefinition(
+                    id: BlindBoxStickerID(rawValue: "retired_normal"),
+                    assetName: "retired_normal",
+                    isHidden: false
+                ),
+                BlindBoxStickerDefinition(
+                    id: BlindBoxStickerID(rawValue: "retired_hidden"),
+                    assetName: "retired_hidden",
+                    isHidden: true
+                )
+            ],
+            presentation: BlindBoxThemePresentation(collectionPlacements: [
+                BlindBoxCollectionPlacement(
+                    stickerID: BlindBoxStickerID(rawValue: "retired_hidden"),
+                    centerX: 196.5,
+                    centerY: 365,
+                    displaySize: 128,
+                    isSpecialSlot: true
+                ),
+                BlindBoxCollectionPlacement(
+                    stickerID: BlindBoxStickerID(rawValue: "retired_normal"),
+                    centerX: 196.5,
+                    centerY: 500,
+                    displaySize: 72
+                )
+            ])
+        )
+        let release = BlindBoxCatalogRelease(
+            releaseID: "release-2026-09-03",
+            catalogSchemaVersion: 1,
+            minimumAppBuild: 0,
+            publishedAt: Date(timeIntervalSince1970: 1_000),
+            activeThemeIDs: [remoteTheme.id],
+            themes: [retiredTheme, remoteTheme]
+        )
+
+        XCTAssertNil(release.validationError())
+        XCTAssertEqual(release.activeThemes.map(\.id), [remoteTheme.id])
+
+        let decodedRelease = try JSONDecoder().decode(
+            BlindBoxCatalogRelease.self,
+            from: JSONEncoder().encode(release)
+        )
+        XCTAssertEqual(decodedRelease, release)
+
+        let presentationlessRelease = BlindBoxCatalogRelease(
+            releaseID: "invalid-release",
+            catalogSchemaVersion: 1,
+            minimumAppBuild: 0,
+            publishedAt: .now,
+            activeThemeIDs: [petsTheme.id],
+            themes: [petsTheme]
+        )
+        XCTAssertEqual(
+            presentationlessRelease.validationError(),
+            .missingPresentation(petsTheme.id)
+        )
+    }
+
     func testLegacyStickerPreviewMapsEveryKnownAssetWithoutDroppingCounts() {
         let legacyInventory = Dictionary(
             uniqueKeysWithValues: StickerKind.allCases.map { ($0.rawValue, 1) }

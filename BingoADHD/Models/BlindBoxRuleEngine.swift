@@ -144,7 +144,20 @@ struct BlindBoxThemeDefinition: Codable, Equatable, Identifiable, Sendable {
     }
 
     func validationError() -> BlindBoxThemeValidationError? {
+        guard !id.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .invalidThemeID
+        }
         guard catalogVersion > 0 else { return .invalidCatalogVersion }
+        guard stickers.allSatisfy({
+            !$0.id.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else {
+            return .invalidStickerID
+        }
+        guard stickers.allSatisfy({
+            !$0.assetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else {
+            return .invalidAssetName
+        }
         guard !normalStickers.isEmpty else { return .missingNormalSticker }
         guard hiddenSticker != nil else { return .missingHiddenSticker }
         guard stickers.filter(\.isHidden).count == 1 else { return .multipleHiddenStickers }
@@ -166,7 +179,10 @@ struct BlindBoxThemeDefinition: Codable, Equatable, Identifiable, Sendable {
 }
 
 enum BlindBoxThemeValidationError: Error, Equatable {
+    case invalidThemeID
     case invalidCatalogVersion
+    case invalidStickerID
+    case invalidAssetName
     case missingNormalSticker
     case missingHiddenSticker
     case multipleHiddenStickers
@@ -174,6 +190,90 @@ enum BlindBoxThemeValidationError: Error, Equatable {
     case duplicateAssetName
     case tooManyNormalStickers(maximum: Int)
     case invalidPresentation(BlindBoxThemePresentationValidationError)
+}
+
+/// Immutable, remotely publishable catalog payload. The current app keeps its
+/// built-in catalog as a fallback, while future CloudKit releases use this type
+/// to validate a complete candidate before it becomes active on-device.
+struct BlindBoxCatalogRelease: Codable, Equatable, Sendable {
+    let releaseID: String
+    let catalogSchemaVersion: Int
+    let minimumAppBuild: Int
+    let publishedAt: Date
+    let activeThemeIDs: [BlindBoxThemeID]
+    let themes: [BlindBoxThemeDefinition]
+
+    init(
+        releaseID: String,
+        catalogSchemaVersion: Int,
+        minimumAppBuild: Int,
+        publishedAt: Date,
+        activeThemeIDs: [BlindBoxThemeID],
+        themes: [BlindBoxThemeDefinition]
+    ) {
+        self.releaseID = releaseID
+        self.catalogSchemaVersion = catalogSchemaVersion
+        self.minimumAppBuild = minimumAppBuild
+        self.publishedAt = publishedAt
+        self.activeThemeIDs = activeThemeIDs
+        self.themes = themes
+    }
+
+    /// Active themes retain the publisher's explicit order. Retired themes may
+    /// remain in `themes` so historical batches and My Box can still resolve
+    /// their IDs without making them candidates again.
+    var activeThemes: [BlindBoxThemeDefinition] {
+        let themesByID = Dictionary(
+            themes.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return activeThemeIDs.compactMap { themesByID[$0] }
+    }
+
+    func validationError() -> BlindBoxCatalogReleaseValidationError? {
+        guard !releaseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .invalidReleaseID
+        }
+        guard catalogSchemaVersion > 0 else { return .invalidCatalogSchemaVersion }
+        guard minimumAppBuild >= 0 else { return .invalidMinimumAppBuild }
+        guard Set(themes.map(\.id)).count == themes.count else { return .duplicateThemeID }
+        guard Set(activeThemeIDs).count == activeThemeIDs.count else {
+            return .duplicateActiveThemeID
+        }
+
+        let allStickerIDs = themes.flatMap { $0.stickers.map(\.id) }
+        guard Set(allStickerIDs).count == allStickerIDs.count else {
+            return .duplicateStickerID
+        }
+
+        let knownThemeIDs = Set(themes.map(\.id))
+        for activeThemeID in activeThemeIDs where !knownThemeIDs.contains(activeThemeID) {
+            return .activeThemeMissingDefinition(activeThemeID)
+        }
+
+        for theme in themes {
+            guard let themeError = theme.validationError() else {
+                if theme.presentation == nil {
+                    return .missingPresentation(theme.id)
+                }
+                continue
+            }
+            return .invalidTheme(themeID: theme.id, error: themeError)
+        }
+        return nil
+    }
+}
+
+enum BlindBoxCatalogReleaseValidationError: Error, Equatable {
+    case invalidReleaseID
+    case invalidCatalogSchemaVersion
+    case invalidMinimumAppBuild
+    case duplicateThemeID
+    case duplicateStickerID
+    case duplicateActiveThemeID
+    case activeThemeMissingDefinition(BlindBoxThemeID)
+    case missingPresentation(BlindBoxThemeID)
+    case invalidTheme(themeID: BlindBoxThemeID, error: BlindBoxThemeValidationError)
 }
 
 enum BlindBoxProbabilityMode: String, Codable, CaseIterable, Sendable {
