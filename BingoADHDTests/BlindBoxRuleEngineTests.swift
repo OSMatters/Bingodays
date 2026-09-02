@@ -381,6 +381,52 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         )
     }
 
+    func testCatalogCacheKeepsLastKnownGoodReleaseWhenNewInputIsRejected() throws {
+        let suiteName = "BlindBoxCatalogCacheTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let validRelease = makeCacheableCatalogRelease(releaseID: "release-one")
+        XCTAssertEqual(
+            BlindBoxCatalogCache.save(validRelease, defaults: defaults, currentBuild: 1),
+            .saved
+        )
+        XCTAssertEqual(
+            BlindBoxCatalogCache.load(defaults: defaults, currentBuild: 1),
+            validRelease
+        )
+
+        let invalidRelease = BlindBoxCatalogRelease(
+            releaseID: " ",
+            catalogSchemaVersion: validRelease.catalogSchemaVersion,
+            minimumAppBuild: validRelease.minimumAppBuild,
+            publishedAt: validRelease.publishedAt,
+            activeThemeIDs: validRelease.activeThemeIDs,
+            themes: validRelease.themes
+        )
+        XCTAssertEqual(
+            BlindBoxCatalogCache.save(invalidRelease, defaults: defaults, currentBuild: 1),
+            .rejectedInvalidRelease(.invalidReleaseID)
+        )
+
+        let incompatibleRelease = BlindBoxCatalogRelease(
+            releaseID: "release-future",
+            catalogSchemaVersion: validRelease.catalogSchemaVersion,
+            minimumAppBuild: 2,
+            publishedAt: validRelease.publishedAt,
+            activeThemeIDs: validRelease.activeThemeIDs,
+            themes: validRelease.themes
+        )
+        XCTAssertEqual(
+            BlindBoxCatalogCache.save(incompatibleRelease, defaults: defaults, currentBuild: 1),
+            .rejectedIncompatibleBuild(required: 2, current: 1)
+        )
+        XCTAssertEqual(
+            BlindBoxCatalogCache.load(defaults: defaults, currentBuild: 1),
+            validRelease
+        )
+    }
+
     func testLegacyStickerPreviewMapsEveryKnownAssetWithoutDroppingCounts() {
         let legacyInventory = Dictionary(
             uniqueKeysWithValues: StickerKind.allCases.map { ($0.rawValue, 1) }
@@ -576,6 +622,47 @@ final class BlindBoxRuleEngineTests: XCTestCase {
 
     private var cozyDailyTheme: BlindBoxThemeDefinition {
         BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "cozy_daily" }!
+    }
+
+    private func makeCacheableCatalogRelease(releaseID: String) -> BlindBoxCatalogRelease {
+        let normal = BlindBoxStickerDefinition(
+            id: BlindBoxStickerID(rawValue: "cache_normal"),
+            assetName: "cache_normal",
+            isHidden: false
+        )
+        let hidden = BlindBoxStickerDefinition(
+            id: BlindBoxStickerID(rawValue: "cache_hidden"),
+            assetName: "cache_hidden",
+            isHidden: true
+        )
+        let theme = BlindBoxThemeDefinition(
+            id: BlindBoxThemeID(rawValue: "cache_theme"),
+            catalogVersion: 1,
+            stickers: [normal, hidden],
+            presentation: BlindBoxThemePresentation(collectionPlacements: [
+                BlindBoxCollectionPlacement(
+                    stickerID: hidden.id,
+                    centerX: 196.5,
+                    centerY: 365,
+                    displaySize: 128,
+                    isSpecialSlot: true
+                ),
+                BlindBoxCollectionPlacement(
+                    stickerID: normal.id,
+                    centerX: 196.5,
+                    centerY: 500,
+                    displaySize: 72
+                )
+            ])
+        )
+        return BlindBoxCatalogRelease(
+            releaseID: releaseID,
+            catalogSchemaVersion: 1,
+            minimumAppBuild: 1,
+            publishedAt: Date(timeIntervalSince1970: 1_000),
+            activeThemeIDs: [theme.id],
+            themes: [theme]
+        )
     }
 }
 

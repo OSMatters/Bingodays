@@ -1313,6 +1313,7 @@ enum AppSettings {
     static let redeemedStickerOrderKey = "redeemed_sticker_order_v1"
     static let stickerInventoryCountsKey = "sticker_inventory_counts_v1"
     static let blindBoxLocalStateKey = "blind_box_local_state_v1"
+    static let blindBoxCatalogReleaseKey = "blind_box_catalog_release_v1"
     static let homeStickerPlacementsKey = "home_sticker_placements_v1"
     static let customRewardsKey = "custom_rewards_v1"
     static let pointRedemptionHistoryKey = "point_redemption_history_v1"
