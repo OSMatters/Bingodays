@@ -123,20 +123,26 @@ struct BlindBoxFlowView: View {
     }
 
     private func openSingle(batchID: UUID, positionIndex: Int) {
-        do {
-            let result = try store.openSingle(batchID: batchID, positionIndex: positionIndex)
-            route = .reveal(result)
-        } catch {
-            presentFailure(error)
-        }
+        open(
+            .single(
+                batchID: batchID,
+                positionIndex: positionIndex
+            )
+        )
     }
 
     private func openWholeBox(batchID: UUID) {
-        do {
-            let result = try store.openWholeBox(batchID: batchID)
-            route = .reveal(result)
-        } catch {
-            presentFailure(error)
+        open(.wholeBox(batchID: batchID))
+    }
+
+    private func open(_ request: BlindBoxDrawRequest) {
+        Task {
+            do {
+                let result = try await store.open(request)
+                route = .reveal(result)
+            } catch {
+                presentFailure(error)
+            }
         }
     }
 

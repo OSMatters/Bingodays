@@ -580,6 +580,56 @@ final class BlindBoxRuleEngineTests: XCTestCase {
 }
 
 final class BlindBoxStateMachineTests: XCTestCase {
+    @MainActor
+    func testPreviewDrawRepositoryReturnsTheOriginalResultForAnIdempotencyRetry() async throws {
+        let store = BlindBoxPreviewStore(referenceDate: Date(timeIntervalSince1970: 1_000))
+        let batchID = UUID(uuidString: "A0000000-0000-4000-8000-000000000001")!
+        let idempotencyKey = UUID(uuidString: "FACEFEED-0000-4000-8000-000000000001")!
+        let request = BlindBoxDrawRequest.single(
+            idempotencyKey: idempotencyKey,
+            batchID: batchID,
+            positionIndex: 0
+        )
+
+        let firstResult = try await store.open(request)
+        let stateAfterFirstOpen = store.state
+        let retryResult = try await store.open(request)
+
+        XCTAssertEqual(retryResult, firstResult)
+        XCTAssertEqual(store.state, stateAfterFirstOpen)
+
+        let conflictingRequest = BlindBoxDrawRequest.single(
+            idempotencyKey: idempotencyKey,
+            batchID: batchID,
+            positionIndex: 1
+        )
+        do {
+            _ = try await store.open(conflictingRequest)
+            XCTFail("A reused idempotency key must not be accepted for another draw.")
+        } catch {
+            XCTAssertEqual(error as? BlindBoxDrawRepositoryError, .idempotencyKeyConflict)
+        }
+    }
+
+    func testDrawRequestRejectsInvalidModeAndPositionCombinations() {
+        let batchID = UUID(uuidString: "BEEFF00D-0000-4000-8000-000000000001")!
+        let malformedSingle = BlindBoxDrawRequest(
+            idempotencyKey: UUID(),
+            batchID: batchID,
+            mode: .single,
+            positionIndex: nil
+        )
+        let malformedWholeBox = BlindBoxDrawRequest(
+            idempotencyKey: UUID(),
+            batchID: batchID,
+            mode: .wholeBox,
+            positionIndex: 0
+        )
+
+        XCTAssertEqual(malformedSingle.validationError(), .missingPositionIndex)
+        XCTAssertEqual(malformedWholeBox.validationError(), .unexpectedPositionIndex)
+    }
+
     func testSingleOpenDeductsOneTicketAndRecordsDuplicateOwnership() throws {
         let plan = makePlan()
         var state = BlindBoxAccountState(

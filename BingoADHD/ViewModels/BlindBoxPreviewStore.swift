@@ -5,9 +5,16 @@ import SwiftUI
 /// The later CloudKit repository will replace this object at the same view-model
 /// boundary rather than changing the view hierarchy.
 @MainActor
-final class BlindBoxPreviewStore: ObservableObject {
+final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
+    private struct CompletedDraw {
+        let request: BlindBoxDrawRequest
+        let result: BlindBoxOpenResult
+    }
+
     @Published private(set) var state: BlindBoxAccountState
     @Published private(set) var lastOpenResult: BlindBoxOpenResult?
+
+    private var completedDraws: [UUID: CompletedDraw] = [:]
 
     let themes: [BlindBoxThemeDefinition]
 
@@ -45,6 +52,39 @@ final class BlindBoxPreviewStore: ObservableObject {
             openedAt: openedAt
         )
         lastOpenResult = result
+        return result
+    }
+
+    func open(_ request: BlindBoxDrawRequest) async throws -> BlindBoxOpenResult {
+        if let completedDraw = completedDraws[request.idempotencyKey] {
+            guard completedDraw.request == request else {
+                throw BlindBoxDrawRepositoryError.idempotencyKeyConflict
+            }
+            return completedDraw.result
+        }
+
+        if let validationError = request.validationError() {
+            throw validationError
+        }
+
+        let result: BlindBoxOpenResult
+        switch request.mode {
+        case .single:
+            guard let positionIndex = request.positionIndex else {
+                throw BlindBoxDrawRequestValidationError.missingPositionIndex
+            }
+            result = try openSingle(
+                batchID: request.batchID,
+                positionIndex: positionIndex
+            )
+        case .wholeBox:
+            result = try openWholeBox(batchID: request.batchID)
+        }
+
+        completedDraws[request.idempotencyKey] = CompletedDraw(
+            request: request,
+            result: result
+        )
         return result
     }
 

@@ -121,6 +121,77 @@ struct BlindBoxOpenResult: Codable, Equatable, Sendable {
     let restockAt: Date?
 }
 
+enum BlindBoxDrawMode: String, Codable, Equatable, Sendable {
+    case single
+    case wholeBox
+}
+
+/// A user-visible draw intent. The UUID is created before the network request
+/// and must be reused after a timeout or app relaunch, so the authoritative
+/// repository can return the original result instead of charging twice.
+struct BlindBoxDrawRequest: Codable, Equatable, Sendable, Identifiable {
+    let idempotencyKey: UUID
+    let batchID: UUID
+    let mode: BlindBoxDrawMode
+    let positionIndex: Int?
+
+    var id: UUID { idempotencyKey }
+
+    static func single(
+        idempotencyKey: UUID = UUID(),
+        batchID: UUID,
+        positionIndex: Int
+    ) -> BlindBoxDrawRequest {
+        BlindBoxDrawRequest(
+            idempotencyKey: idempotencyKey,
+            batchID: batchID,
+            mode: .single,
+            positionIndex: positionIndex
+        )
+    }
+
+    static func wholeBox(
+        idempotencyKey: UUID = UUID(),
+        batchID: UUID
+    ) -> BlindBoxDrawRequest {
+        BlindBoxDrawRequest(
+            idempotencyKey: idempotencyKey,
+            batchID: batchID,
+            mode: .wholeBox,
+            positionIndex: nil
+        )
+    }
+
+    func validationError() -> BlindBoxDrawRequestValidationError? {
+        switch mode {
+        case .single:
+            guard let positionIndex else { return .missingPositionIndex }
+            guard positionIndex >= 0 else { return .invalidPositionIndex }
+        case .wholeBox:
+            guard positionIndex == nil else { return .unexpectedPositionIndex }
+        }
+        return nil
+    }
+}
+
+enum BlindBoxDrawRequestValidationError: Error, Equatable {
+    case missingPositionIndex
+    case invalidPositionIndex
+    case unexpectedPositionIndex
+}
+
+enum BlindBoxDrawRepositoryError: Error, Equatable {
+    case idempotencyKeyConflict
+}
+
+/// The CloudKit implementation will perform the command as one atomic record
+/// zone operation. The preview implementation conforms too, allowing the UI to
+/// use the exact same request and retry contract before real assets are wired.
+@MainActor
+protocol BlindBoxDrawRepository: AnyObject {
+    func open(_ request: BlindBoxDrawRequest) async throws -> BlindBoxOpenResult
+}
+
 enum BlindBoxOpenError: Error, Equatable {
     case batchNotFound
     case positionNotFound
