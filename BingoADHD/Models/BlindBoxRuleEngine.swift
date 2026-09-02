@@ -1,0 +1,425 @@
+import Foundation
+
+/// Identifies a remotely configurable sticker theme without tying the blind-box
+/// domain to the legacy direct-redemption `StickerKind` enum.
+struct BlindBoxThemeID: RawRepresentable, Codable, Hashable, Identifiable, Sendable {
+    let rawValue: String
+
+    init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    var id: String { rawValue }
+}
+
+/// Identifies one sticker inside a blind-box theme. IDs remain stable even when
+/// display text or artwork is changed by remote configuration.
+struct BlindBoxStickerID: RawRepresentable, Codable, Hashable, Identifiable, Sendable {
+    let rawValue: String
+
+    init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    var id: String { rawValue }
+}
+
+struct BlindBoxStickerDefinition: Codable, Equatable, Hashable, Identifiable, Sendable {
+    let id: BlindBoxStickerID
+    let assetName: String
+    let isHidden: Bool
+
+    init(id: BlindBoxStickerID, assetName: String, isHidden: Bool) {
+        self.id = id
+        self.assetName = assetName
+        self.isHidden = isHidden
+    }
+}
+
+struct BlindBoxThemeDefinition: Codable, Equatable, Identifiable, Sendable {
+    let id: BlindBoxThemeID
+    let catalogVersion: Int
+    let stickers: [BlindBoxStickerDefinition]
+
+    init(
+        id: BlindBoxThemeID,
+        catalogVersion: Int,
+        stickers: [BlindBoxStickerDefinition]
+    ) {
+        self.id = id
+        self.catalogVersion = catalogVersion
+        self.stickers = stickers
+    }
+
+    var normalStickers: [BlindBoxStickerDefinition] {
+        stickers.filter { !$0.isHidden }
+    }
+
+    var hiddenSticker: BlindBoxStickerDefinition? {
+        stickers.first(where: \.isHidden)
+    }
+
+    var collectionSize: Int {
+        stickers.count
+    }
+
+    func validationError() -> BlindBoxThemeValidationError? {
+        guard catalogVersion > 0 else { return .invalidCatalogVersion }
+        guard !normalStickers.isEmpty else { return .missingNormalSticker }
+        guard hiddenSticker != nil else { return .missingHiddenSticker }
+        guard stickers.filter(\.isHidden).count == 1 else { return .multipleHiddenStickers }
+        guard Set(stickers.map(\.id)).count == stickers.count else { return .duplicateStickerID }
+        guard Set(stickers.map(\.assetName)).count == stickers.count else { return .duplicateAssetName }
+        guard normalStickers.count <= BlindBoxRuleConfiguration.maximumNormalStickerCount else {
+            return .tooManyNormalStickers(maximum: BlindBoxRuleConfiguration.maximumNormalStickerCount)
+        }
+        return nil
+    }
+}
+
+enum BlindBoxThemeValidationError: Error, Equatable {
+    case invalidCatalogVersion
+    case missingNormalSticker
+    case missingHiddenSticker
+    case multipleHiddenStickers
+    case duplicateStickerID
+    case duplicateAssetName
+    case tooManyNormalStickers(maximum: Int)
+}
+
+enum BlindBoxProbabilityMode: String, Codable, CaseIterable, Sendable {
+    case standard
+    case hiddenHunt
+
+    var hiddenStickerProbability: Double {
+        switch self {
+        case .standard: return BlindBoxRuleConfiguration.standardHiddenStickerProbability
+        case .hiddenHunt: return BlindBoxRuleConfiguration.hiddenHuntStickerProbability
+        }
+    }
+
+    /// Each batch has nine positions and holds at most one hidden sticker. This
+    /// preserves the displayed per-position hidden chance exactly.
+    var hiddenInclusionProbability: Double {
+        hiddenStickerProbability * Double(BlindBoxRuleConfiguration.batchPositionCount)
+    }
+}
+
+enum BlindBoxRuleConfiguration {
+    static let batchPositionCount = 9
+    static let freeCandidateCount = 4
+    static let premiumCandidateCount = 6
+    static let freeDailyTicketAllowance = 1
+    static let premiumDailyTicketAllowance = 3
+    static let maximumTicketBalance = 20
+    static let pointExchangePrice = 100
+    static let maximumPointExchangesPerGrantDay = 1
+    static let standardHiddenStickerProbability = 0.01
+    static let hiddenHuntStickerProbability = 0.05
+    static let minimumAutomaticOpenInterval: TimeInterval = 45 * 60
+    static let maximumAutomaticOpenInterval: TimeInterval = 180 * 60
+    static let restockDelay: TimeInterval = 24 * 60 * 60
+    static let maximumNormalStickerCount = 18
+}
+
+struct BlindBoxProbabilityDisclosure: Equatable, Sendable {
+    let mode: BlindBoxProbabilityMode
+    let hiddenStickerProbability: Double
+    let normalStickerProbability: Double
+    let hiddenInclusionProbabilityPerBatch: Double
+}
+
+enum BlindBoxProbabilityEngine {
+    static func mode(
+        for theme: BlindBoxThemeDefinition,
+        ownedCounts: [BlindBoxStickerID: Int]
+    ) -> BlindBoxProbabilityMode {
+        guard let hiddenSticker = theme.hiddenSticker,
+              (ownedCounts[hiddenSticker.id] ?? 0) == 0,
+              theme.normalStickers.allSatisfy({ (ownedCounts[$0.id] ?? 0) > 0 }) else {
+            return .standard
+        }
+        return .hiddenHunt
+    }
+
+    static func disclosure(
+        for theme: BlindBoxThemeDefinition,
+        mode: BlindBoxProbabilityMode
+    ) throws -> BlindBoxProbabilityDisclosure {
+        if let validationError = theme.validationError() {
+            throw validationError
+        }
+
+        let normalProbability = (1 - mode.hiddenStickerProbability) /
+            Double(theme.normalStickers.count)
+        return BlindBoxProbabilityDisclosure(
+            mode: mode,
+            hiddenStickerProbability: mode.hiddenStickerProbability,
+            normalStickerProbability: normalProbability,
+            hiddenInclusionProbabilityPerBatch: mode.hiddenInclusionProbability
+        )
+    }
+}
+
+protocol BlindBoxRandomNumberGenerating {
+    mutating func nextUnitInterval() -> Double
+}
+
+struct SystemBlindBoxRandomNumberGenerator: BlindBoxRandomNumberGenerating {
+    private var generator = SystemRandomNumberGenerator()
+
+    mutating func nextUnitInterval() -> Double {
+        Double.random(in: 0..<1, using: &generator)
+    }
+}
+
+struct BlindBoxPositionPlan: Codable, Equatable, Identifiable, Sendable {
+    let id: UUID
+    let index: Int
+    let stickerID: BlindBoxStickerID
+
+    init(id: UUID = UUID(), index: Int, stickerID: BlindBoxStickerID) {
+        self.id = id
+        self.index = index
+        self.stickerID = stickerID
+    }
+}
+
+/// A generated plan is immutable. Future CloudKit work stores this exact plan
+/// before exposing a batch, so opening animations never decide the reward.
+struct BlindBoxBatchPlan: Codable, Equatable, Identifiable, Sendable {
+    let id: UUID
+    let themeID: BlindBoxThemeID
+    let catalogVersion: Int
+    let probabilityMode: BlindBoxProbabilityMode
+    let createdAt: Date
+    let positions: [BlindBoxPositionPlan]
+
+    init(
+        id: UUID = UUID(),
+        themeID: BlindBoxThemeID,
+        catalogVersion: Int,
+        probabilityMode: BlindBoxProbabilityMode,
+        createdAt: Date,
+        positions: [BlindBoxPositionPlan]
+    ) {
+        self.id = id
+        self.themeID = themeID
+        self.catalogVersion = catalogVersion
+        self.probabilityMode = probabilityMode
+        self.createdAt = createdAt
+        self.positions = positions
+    }
+}
+
+enum BlindBoxBatchGenerationError: Error, Equatable {
+    case invalidTheme(BlindBoxThemeValidationError)
+    case invalidRandomValue
+}
+
+enum BlindBoxBatchGenerator {
+    static func generate<Generator: BlindBoxRandomNumberGenerating>(
+        theme: BlindBoxThemeDefinition,
+        ownedCounts: [BlindBoxStickerID: Int],
+        batchID: UUID = UUID(),
+        createdAt: Date = .now,
+        generator: inout Generator
+    ) throws -> BlindBoxBatchPlan {
+        if let validationError = theme.validationError() {
+            throw BlindBoxBatchGenerationError.invalidTheme(validationError)
+        }
+
+        let probabilityMode = BlindBoxProbabilityEngine.mode(for: theme, ownedCounts: ownedCounts)
+        let containsHidden = try draw(
+            probability: probabilityMode.hiddenInclusionProbability,
+            generator: &generator
+        )
+        var stickerIDs = try normalStickerIDs(
+            from: theme.normalStickers.map(\.id),
+            count: BlindBoxRuleConfiguration.batchPositionCount - (containsHidden ? 1 : 0),
+            generator: &generator
+        )
+
+        if containsHidden, let hiddenID = theme.hiddenSticker?.id {
+            let insertionIndex = try randomIndex(upperBound: stickerIDs.count + 1, generator: &generator)
+            stickerIDs.insert(hiddenID, at: insertionIndex)
+        }
+
+        let positions = stickerIDs.enumerated().map { index, stickerID in
+            BlindBoxPositionPlan(index: index, stickerID: stickerID)
+        }
+        return BlindBoxBatchPlan(
+            id: batchID,
+            themeID: theme.id,
+            catalogVersion: theme.catalogVersion,
+            probabilityMode: probabilityMode,
+            createdAt: createdAt,
+            positions: positions
+        )
+    }
+
+    private static func normalStickerIDs<Generator: BlindBoxRandomNumberGenerating>(
+        from normalStickerIDs: [BlindBoxStickerID],
+        count: Int,
+        generator: inout Generator
+    ) throws -> [BlindBoxStickerID] {
+        var shuffled = normalStickerIDs
+        try shuffle(&shuffled, generator: &generator)
+
+        guard count > shuffled.count else {
+            return Array(shuffled.prefix(count))
+        }
+
+        var result = shuffled
+        while result.count < count {
+            let index = try randomIndex(upperBound: normalStickerIDs.count, generator: &generator)
+            result.append(normalStickerIDs[index])
+        }
+        try shuffle(&result, generator: &generator)
+        return result
+    }
+
+    private static func shuffle<Generator: BlindBoxRandomNumberGenerating>(
+        _ values: inout [BlindBoxStickerID],
+        generator: inout Generator
+    ) throws {
+        guard values.count > 1 else { return }
+        for index in stride(from: values.count - 1, through: 1, by: -1) {
+            let swapIndex = try randomIndex(upperBound: index + 1, generator: &generator)
+            values.swapAt(index, swapIndex)
+        }
+    }
+
+    private static func draw<Generator: BlindBoxRandomNumberGenerating>(
+        probability: Double,
+        generator: inout Generator
+    ) throws -> Bool {
+        try nextUnitInterval(using: &generator) < probability
+    }
+
+    private static func randomIndex<Generator: BlindBoxRandomNumberGenerating>(
+        upperBound: Int,
+        generator: inout Generator
+    ) throws -> Int {
+        precondition(upperBound > 0)
+        let value = try nextUnitInterval(using: &generator)
+        return min(Int(value * Double(upperBound)), upperBound - 1)
+    }
+
+    private static func nextUnitInterval<Generator: BlindBoxRandomNumberGenerating>(
+        using generator: inout Generator
+    ) throws -> Double {
+        let value = generator.nextUnitInterval()
+        guard value >= 0, value < 1 else {
+            throw BlindBoxBatchGenerationError.invalidRandomValue
+        }
+        return value
+    }
+}
+
+enum BlindBoxTicketGrantResult: Equatable {
+    case granted(amount: Int, resultingBalance: Int)
+    case atCapacity
+}
+
+enum BlindBoxTicketPolicy {
+    static func candidateCount(hasPremiumAccess: Bool) -> Int {
+        hasPremiumAccess
+            ? BlindBoxRuleConfiguration.premiumCandidateCount
+            : BlindBoxRuleConfiguration.freeCandidateCount
+    }
+
+    static func dailyAllowance(hasPremiumAccess: Bool) -> Int {
+        hasPremiumAccess
+            ? BlindBoxRuleConfiguration.premiumDailyTicketAllowance
+            : BlindBoxRuleConfiguration.freeDailyTicketAllowance
+    }
+
+    static func dailyGrant(
+        currentBalance: Int,
+        hasPremiumAccess: Bool
+    ) -> BlindBoxTicketGrantResult {
+        let normalizedBalance = min(
+            max(currentBalance, 0),
+            BlindBoxRuleConfiguration.maximumTicketBalance
+        )
+        let amount = min(
+            dailyAllowance(hasPremiumAccess: hasPremiumAccess),
+            BlindBoxRuleConfiguration.maximumTicketBalance - normalizedBalance
+        )
+        guard amount > 0 else { return .atCapacity }
+        return .granted(amount: amount, resultingBalance: normalizedBalance + amount)
+    }
+
+    static func restockDate(soldOutAt: Date) -> Date {
+        soldOutAt.addingTimeInterval(BlindBoxRuleConfiguration.restockDelay)
+    }
+
+    static func automaticOpenDelay<Generator: BlindBoxRandomNumberGenerating>(
+        generator: inout Generator
+    ) -> TimeInterval? {
+        let unitInterval = generator.nextUnitInterval()
+        guard unitInterval >= 0, unitInterval < 1 else { return nil }
+        let range = BlindBoxRuleConfiguration.maximumAutomaticOpenInterval -
+            BlindBoxRuleConfiguration.minimumAutomaticOpenInterval
+        return BlindBoxRuleConfiguration.minimumAutomaticOpenInterval + (range * unitInterval)
+    }
+}
+
+enum BlindBoxPointExchangeEligibility: Equatable {
+    case eligible
+    case insufficientPoints(required: Int, current: Int)
+    case ticketBalanceAtCapacity
+    case grantDayLimitReached
+}
+
+enum BlindBoxPointExchangePolicy {
+    static func eligibility(
+        availablePoints: Int,
+        ticketBalance: Int,
+        exchangesUsedThisGrantDay: Int
+    ) -> BlindBoxPointExchangeEligibility {
+        guard ticketBalance < BlindBoxRuleConfiguration.maximumTicketBalance else {
+            return .ticketBalanceAtCapacity
+        }
+        guard exchangesUsedThisGrantDay < BlindBoxRuleConfiguration.maximumPointExchangesPerGrantDay else {
+            return .grantDayLimitReached
+        }
+        guard availablePoints >= BlindBoxRuleConfiguration.pointExchangePrice else {
+            return .insufficientPoints(
+                required: BlindBoxRuleConfiguration.pointExchangePrice,
+                current: availablePoints
+            )
+        }
+        return .eligible
+    }
+}
+
+enum BlindBoxCatalog {
+    /// The local fallback mirrors the assets exported from the user-supplied Figma
+    /// page. Remote catalog work later replaces this list without changing IDs.
+    static let builtInThemes: [BlindBoxThemeDefinition] = [
+        BlindBoxThemeDefinition(
+            id: BlindBoxThemeID(rawValue: "pets"),
+            catalogVersion: 1,
+            stickers: (1...12).map { index in
+                BlindBoxStickerDefinition(
+                    id: BlindBoxStickerID(rawValue: "pets_\(String(format: "%02d", index))"),
+                    assetName: "sticker_pets_\(String(format: "%02d", index))",
+                    isHidden: index == 12
+                )
+            }
+        ),
+        BlindBoxThemeDefinition(
+            id: BlindBoxThemeID(rawValue: "cozy_daily"),
+            catalogVersion: 1,
+            stickers: (1...9).map { index in
+                BlindBoxStickerDefinition(
+                    id: BlindBoxStickerID(rawValue: "cozy_\(String(format: "%02d", index))"),
+                    assetName: "sticker_cozy_\(String(format: "%02d", index))",
+                    isHidden: index == 9
+                )
+            }
+        )
+    ]
+}
