@@ -13,6 +13,7 @@ struct BlindBoxFlowView: View {
     @StateObject private var store = BlindBoxPreviewStore()
     @State private var route: Route = .lobby
     @State private var toastMessage: String?
+    @State private var pendingOpenRequest: BlindBoxOpenRequest?
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @Environment(\.dismiss) private var dismiss
 
@@ -54,14 +55,16 @@ struct BlindBoxFlowView: View {
                             route = .lobby
                         },
                         onOpenPosition: { position in
-                            openSingle(batchID: batchID, positionIndex: position)
+                            pendingOpenRequest = .position(batchID: batchID, positionIndex: position)
                         },
                         onOpenRandom: {
-                            guard let position = batch.unopenedPositionPlans.randomElement() else { return }
-                            openSingle(batchID: batchID, positionIndex: position.index)
+                            pendingOpenRequest = .random(batchID: batchID)
                         },
                         onOpenWholeBox: {
-                            openWholeBox(batchID: batchID)
+                            pendingOpenRequest = .wholeBox(
+                                batchID: batchID,
+                                ticketCost: batch.remainingPositionCount
+                            )
                         }
                     )
                 } else {
@@ -95,6 +98,20 @@ struct BlindBoxFlowView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(5)
             }
+
+            if let pendingOpenRequest {
+                BlindBoxOpenConfirmation(
+                    ticketCost: pendingOpenRequest.ticketCost,
+                    isWholeBox: pendingOpenRequest.isWholeBox,
+                    onCancel: {
+                        self.pendingOpenRequest = nil
+                    },
+                    onConfirm: {
+                        confirm(pendingOpenRequest)
+                    }
+                )
+                .zIndex(10)
+            }
         }
         .animation(.easeInOut(duration: 0.22), value: routeDescription)
     }
@@ -126,6 +143,23 @@ struct BlindBoxFlowView: View {
         }
     }
 
+    private func confirm(_ request: BlindBoxOpenRequest) {
+        pendingOpenRequest = nil
+        switch request {
+        case .position(let batchID, let positionIndex):
+            openSingle(batchID: batchID, positionIndex: positionIndex)
+        case .random(let batchID):
+            guard let batch = store.state.candidateBatches.first(where: { $0.id == batchID }),
+                  let position = batch.unopenedPositionPlans.randomElement() else {
+                presentFailure(BlindBoxOpenError.batchSoldOut)
+                return
+            }
+            openSingle(batchID: batchID, positionIndex: position.index)
+        case .wholeBox(let batchID, _):
+            openWholeBox(batchID: batchID)
+        }
+    }
+
     private func presentFailure(_ error: Error) {
         let message: String
         switch error as? BlindBoxOpenError {
@@ -146,6 +180,35 @@ struct BlindBoxFlowView: View {
                 toastMessage = nil
             }
         }
+    }
+}
+
+private enum BlindBoxOpenRequest: Identifiable {
+    case position(batchID: UUID, positionIndex: Int)
+    case random(batchID: UUID)
+    case wholeBox(batchID: UUID, ticketCost: Int)
+
+    var id: String {
+        switch self {
+        case .position(let batchID, let positionIndex):
+            return "position-\(batchID.uuidString)-\(positionIndex)"
+        case .random(let batchID):
+            return "random-\(batchID.uuidString)"
+        case .wholeBox(let batchID, _):
+            return "whole-\(batchID.uuidString)"
+        }
+    }
+
+    var ticketCost: Int {
+        switch self {
+        case .wholeBox(_, let ticketCost): return ticketCost
+        case .position, .random: return 1
+        }
+    }
+
+    var isWholeBox: Bool {
+        if case .wholeBox = self { return true }
+        return false
     }
 }
 
@@ -804,6 +867,56 @@ private struct BlindBoxEmptyState: View {
                     Button("Back", action: onBack)
                         .buttonStyle(.borderedProminent)
                 }
+            }
+        }
+    }
+}
+
+/// Small states were intentionally not prescribed by the main Figma frames.
+/// This confirmation protects the eventual CloudKit transaction from accidental
+/// taps while retaining the existing warm, rounded Blind Box visual language.
+private struct BlindBoxOpenConfirmation: View {
+    let ticketCost: Int
+    let isWholeBox: Bool
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.38)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                Text(isWholeBox ? "Open the whole box?" : "Open this blind box?")
+                    .font(.appSystem(size: 22, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: "5A412C"))
+
+                Text("Use \(ticketCost) Blind Box ticket\(ticketCost == 1 ? "" : "s")")
+                    .font(.appSystem(size: 15, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color(hex: "8A6E59"))
+
+                HStack(spacing: 12) {
+                    Button("Cancel", action: onCancel)
+                        .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: "A46D4C"))
+                        .frame(width: 118, height: 44)
+                        .background(.white, in: Capsule())
+
+                    Button("Open", action: onConfirm)
+                        .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(width: 118, height: 44)
+                        .background(Color(hex: "DCAF7A"), in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.vertical, 24)
+            .padding(.horizontal, 20)
+            .frame(width: 300)
+            .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24)
+                    .stroke(Color(hex: "E7B880"), lineWidth: 2)
             }
         }
     }
