@@ -405,7 +405,9 @@ enum BlindBoxCatalog {
             stickers: (1...12).map { index in
                 BlindBoxStickerDefinition(
                     id: BlindBoxStickerID(rawValue: "pets_\(String(format: "%02d", index))"),
-                    assetName: "sticker_pets_\(String(format: "%02d", index))",
+                    assetName: index == 12
+                        ? "sticker_pets_12_hidden"
+                        : "sticker_pets_\(String(format: "%02d", index))",
                     isHidden: index == 12
                 )
             }
@@ -416,7 +418,9 @@ enum BlindBoxCatalog {
             stickers: (1...9).map { index in
                 BlindBoxStickerDefinition(
                     id: BlindBoxStickerID(rawValue: "cozy_\(String(format: "%02d", index))"),
-                    assetName: "sticker_cozy_\(String(format: "%02d", index))",
+                    assetName: index == 9
+                        ? "sticker_cozy_09_hidden"
+                        : "sticker_cozy_\(String(format: "%02d", index))",
                     isHidden: index == 9
                 )
             }

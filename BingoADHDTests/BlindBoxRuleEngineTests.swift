@@ -8,11 +8,13 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         let pets = BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "pets" }
         XCTAssertEqual(pets?.normalStickers.count, 11)
         XCTAssertEqual(pets?.hiddenSticker?.id.rawValue, "pets_12")
+        XCTAssertEqual(pets?.hiddenSticker?.assetName, "sticker_pets_12_hidden")
         XCTAssertNil(pets?.validationError())
 
         let cozyDaily = BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "cozy_daily" }
         XCTAssertEqual(cozyDaily?.normalStickers.count, 8)
         XCTAssertEqual(cozyDaily?.hiddenSticker?.id.rawValue, "cozy_09")
+        XCTAssertEqual(cozyDaily?.hiddenSticker?.assetName, "sticker_cozy_09_hidden")
         XCTAssertNil(cozyDaily?.validationError())
     }
 
