@@ -77,9 +77,6 @@ struct BlindBoxFlowView: View {
                     themes: store.themes,
                     onContinue: {
                         route = .detail(result.batchID)
-                    },
-                    onShowCollection: {
-                        route = .myBox
                     }
                 )
 
@@ -586,7 +583,6 @@ private struct BlindBoxRevealView: View {
     let result: BlindBoxOpenResult
     let themes: [BlindBoxThemeDefinition]
     let onContinue: () -> Void
-    let onShowCollection: () -> Void
 
     private var openedSticker: BlindBoxOpenedSticker? {
         result.openedStickers.first
@@ -657,31 +653,42 @@ private struct BlindBoxRevealView: View {
     }
 
     private var wholeBoxReveal: some View {
-        VStack(spacing: 16) {
-            Text("Your box is open!")
+        ZStack {
+            Text("Congratulations on\nreceiving the stickers!")
+                .multilineTextAlignment(.center)
                 .font(.appSystem(size: 29, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
-                .padding(.top, 126)
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(76), spacing: 12), count: 3), spacing: 12) {
-                ForEach(result.openedStickers, id: \.positionIndex) { sticker in
-                    if let definition = themes
-                        .flatMap(\.stickers)
-                        .first(where: { $0.id == sticker.stickerID }) {
-                        BlindBoxImage(definition.assetName)
-                            .frame(width: 70, height: 70)
-                    }
+                .position(x: 196.5, y: 170)
+
+            BlindBoxImage("BlindBoxRevealLight")
+                .frame(width: 195.6, height: 195.6)
+                .position(x: 293.8, y: 289.8)
+
+            let positions: [(CGFloat, CGFloat)] = [
+                (99.2, 290.4), (195.2, 290.4), (294.2, 290.4),
+                (101.4, 396.2), (195.2, 396.2), (294.2, 396.2),
+                (99.2, 499.9), (195.2, 503.5), (294.2, 504)
+            ]
+            ForEach(Array(result.openedStickers.prefix(positions.count).enumerated()), id: \.element.positionIndex) { index, sticker in
+                if let definition = themes
+                    .flatMap(\.stickers)
+                    .first(where: { $0.id == sticker.stickerID }) {
+                    BlindBoxImage(definition.assetName)
+                        .frame(width: 86.4, height: 86.4)
+                        .scaledToFit()
+                        .position(x: positions[index].0, y: positions[index].1)
                 }
             }
-            Spacer()
-            Button(action: onShowCollection) {
-                Text("See My Box")
+
+            Button(action: onContinue) {
+                Text("Great!")
                     .font(.appSystem(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
-                    .frame(width: 170, height: 48)
+                    .frame(width: 157.5, height: 42)
                     .background(Color(hex: "DCAF7A"), in: Capsule())
             }
             .buttonStyle(.plain)
-            .padding(.bottom, 136)
+            .position(x: 196.75, y: 623)
         }
         .frame(width: 393, height: 852)
     }
