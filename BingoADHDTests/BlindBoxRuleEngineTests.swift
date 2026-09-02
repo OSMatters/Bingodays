@@ -367,6 +367,183 @@ final class BlindBoxStateMachineTests: XCTestCase {
     }
 }
 
+final class BlindBoxCandidateCoordinatorTests: XCTestCase {
+    func testReconciliationFillsExactlyFourOrSixThemeBatchesAndAllowsRepeatedThemes() throws {
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0.99])
+        var state = BlindBoxAccountState()
+        let now = Date(timeIntervalSince1970: 2_000)
+
+        let freeResult = try BlindBoxCandidateCoordinator.reconcile(
+            state: &state,
+            themes: BlindBoxCatalog.builtInThemes,
+            hasPremiumAccess: false,
+            reason: .initialLoad,
+            now: now,
+            generator: &generator
+        )
+
+        XCTAssertEqual(freeResult.candidateCount, 4)
+        XCTAssertEqual(state.candidateBatches.count, 4)
+        XCTAssertTrue(state.candidateBatches.allSatisfy {
+            ["pets", "cozy_daily"].contains($0.plan.themeID.rawValue)
+        })
+
+        let premiumResult = try BlindBoxCandidateCoordinator.reconcile(
+            state: &state,
+            themes: BlindBoxCatalog.builtInThemes,
+            hasPremiumAccess: true,
+            reason: .membershipChanged,
+            now: now,
+            generator: &generator
+        )
+
+        XCTAssertEqual(premiumResult.candidateCount, 6)
+        XCTAssertEqual(state.candidateBatches.count, 6)
+    }
+
+    func testCompletedThemeIsRemovedAndDoesNotReturnToCandidates() throws {
+        let pets = BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "pets" }!
+        let cozy = BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "cozy_daily" }!
+        let petsPlan = makePlan(theme: pets, identifier: "C0FFEE00-0000-4000-8000-000000000001")
+        let cozyPlan = makePlan(theme: cozy, identifier: "C0FFEE00-0000-4000-8000-000000000002")
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0.99])
+        var state = BlindBoxAccountState(
+            ownedStickerCounts: Dictionary(uniqueKeysWithValues: pets.stickers.map { ($0.id.rawValue, 1) }),
+            candidateBatches: [
+                BlindBoxCandidateBatch(plan: petsPlan),
+                BlindBoxCandidateBatch(plan: cozyPlan)
+            ]
+        )
+
+        let result = try BlindBoxCandidateCoordinator.reconcile(
+            state: &state,
+            themes: [pets, cozy],
+            hasPremiumAccess: false,
+            reason: .themeCompleted,
+            now: Date(timeIntervalSince1970: 2_000),
+            generator: &generator
+        )
+
+        XCTAssertTrue(result.removedBatchIDs.contains(petsPlan.id))
+        XCTAssertEqual(state.candidateBatches.count, 4)
+        XCTAssertTrue(state.candidateBatches.allSatisfy { $0.plan.themeID == cozy.id })
+    }
+
+    func testSoldOutCandidateRestocksAsANewImmutableBatchAfterTwentyFourHours() throws {
+        let pets = BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "pets" }!
+        let plan = makePlan(theme: pets, identifier: "C0FFEE00-0000-4000-8000-000000000003")
+        let soldOutAt = Date(timeIntervalSince1970: 2_000)
+        let allPositions = Set(0..<BlindBoxRuleConfiguration.batchPositionCount)
+        var state = BlindBoxAccountState(
+            candidateBatches: [
+                BlindBoxCandidateBatch(
+                    plan: plan,
+                    openedPositionIndices: allPositions,
+                    systemOpenedPositionIndices: allPositions,
+                    soldOutAt: soldOutAt
+                )
+            ]
+        )
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0.99])
+
+        let result = try BlindBoxCandidateCoordinator.reconcile(
+            state: &state,
+            themes: [pets],
+            hasPremiumAccess: false,
+            reason: .restockCompleted,
+            now: BlindBoxTicketPolicy.restockDate(soldOutAt: soldOutAt),
+            generator: &generator
+        )
+
+        XCTAssertEqual(result.restockedBatchIDs, [plan.id])
+        XCTAssertNotEqual(state.candidateBatches[0].id, plan.id)
+        XCTAssertEqual(state.candidateBatches[0].remainingPositionCount, 9)
+        XCTAssertNil(state.candidateBatches[0].firstPresentedAt)
+        XCTAssertNil(state.candidateBatches[0].nextSystemOpenAt)
+    }
+
+    func testAutomaticOpenStartsAfterFirstPresentationAndNeverGrantsUserSticker() {
+        let pets = BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "pets" }!
+        let plan = makePlan(theme: pets, identifier: "C0FFEE00-0000-4000-8000-000000000004")
+        let shownAt = Date(timeIntervalSince1970: 2_000)
+        var state = BlindBoxAccountState(candidateBatches: [BlindBoxCandidateBatch(plan: plan)])
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0])
+
+        BlindBoxCandidateCoordinator.recordFirstPresentation(
+            state: &state,
+            visibleBatchIDs: [plan.id],
+            presentedAt: shownAt,
+            generator: &generator
+        )
+
+        XCTAssertEqual(state.candidateBatches[0].firstPresentedAt, shownAt)
+        XCTAssertEqual(
+            state.candidateBatches[0].nextSystemOpenAt,
+            shownAt.addingTimeInterval(BlindBoxRuleConfiguration.minimumAutomaticOpenInterval)
+        )
+
+        let result = BlindBoxCandidateCoordinator.processOneAutomaticOpen(
+            state: &state,
+            now: shownAt.addingTimeInterval(BlindBoxRuleConfiguration.minimumAutomaticOpenInterval),
+            generator: &generator
+        )
+
+        XCTAssertEqual(result?.batchID, plan.id)
+        XCTAssertEqual(state.ownedStickerCounts, [:])
+        XCTAssertEqual(state.candidateBatches[0].systemOpenedPositionIndices.count, 1)
+        XCTAssertEqual(state.candidateBatches[0].openedPositionIndices.count, 1)
+        XCTAssertNotNil(state.candidateBatches[0].nextSystemOpenAt)
+    }
+
+    func testAutomaticOpenPreservesTheFinalOpenPositionInCandidateZone() {
+        let pets = BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "pets" }!
+        let plan = makePlan(theme: pets, identifier: "C0FFEE00-0000-4000-8000-000000000005")
+        let finalPosition = BlindBoxRuleConfiguration.batchPositionCount - 1
+        let shownAt = Date(timeIntervalSince1970: 2_000)
+        var state = BlindBoxAccountState(
+            candidateBatches: [
+                BlindBoxCandidateBatch(
+                    plan: plan,
+                    openedPositionIndices: Set(0..<finalPosition),
+                    systemOpenedPositionIndices: Set(0..<finalPosition),
+                    firstPresentedAt: shownAt,
+                    nextSystemOpenAt: shownAt
+                )
+            ]
+        )
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0])
+
+        XCTAssertNil(
+            BlindBoxCandidateCoordinator.processOneAutomaticOpen(
+                state: &state,
+                now: shownAt,
+                generator: &generator
+            )
+        )
+        XCTAssertEqual(state.candidateBatches[0].remainingPositionCount, 1)
+        XCTAssertFalse(state.candidateBatches[0].openedPositionIndices.contains(finalPosition))
+    }
+
+    private func makePlan(
+        theme: BlindBoxThemeDefinition,
+        identifier: String
+    ) -> BlindBoxBatchPlan {
+        BlindBoxBatchPlan(
+            id: UUID(uuidString: identifier)!,
+            themeID: theme.id,
+            catalogVersion: theme.catalogVersion,
+            probabilityMode: .standard,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            positions: (0..<BlindBoxRuleConfiguration.batchPositionCount).map { index in
+                BlindBoxPositionPlan(
+                    index: index,
+                    stickerID: theme.normalStickers[index % theme.normalStickers.count].id
+                )
+            }
+        )
+    }
+}
+
 private struct ScriptedBlindBoxRandomNumberGenerator: BlindBoxRandomNumberGenerating {
     private var values: [Double]
     private var nextIndex = 0
