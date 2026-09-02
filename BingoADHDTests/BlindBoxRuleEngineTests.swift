@@ -104,6 +104,33 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         XCTAssertFalse(stickers.contains(cozyDailyTheme.hiddenSticker!.id))
     }
 
+    func testNormalFillBalancesRepeatsForSmallerRemoteTheme() throws {
+        let theme = BlindBoxThemeDefinition(
+            id: BlindBoxThemeID(rawValue: "five_normals"),
+            catalogVersion: 1,
+            stickers: (1...5).map { index in
+                BlindBoxStickerDefinition(
+                    id: BlindBoxStickerID(rawValue: "normal_\(index)"),
+                    assetName: "normal_\(index)",
+                    isHidden: false
+                )
+            } + [
+                BlindBoxStickerDefinition(
+                    id: BlindBoxStickerID(rawValue: "hidden"), assetName: "hidden", isHidden: true)
+            ]
+        )
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0.99])
+
+        let plan = try BlindBoxBatchGenerator.generate(
+            theme: theme,
+            ownedCounts: [:],
+            generator: &generator
+        )
+
+        let counts = Dictionary(grouping: plan.positions.map(\.stickerID), by: { $0 }).mapValues(\.count)
+        XCTAssertEqual(counts.values.sorted(), [1, 2, 2, 2, 2])
+    }
+
     func testInvalidRemoteThemeCannotGenerateBatch() {
         let invalidTheme = BlindBoxThemeDefinition(
             id: BlindBoxThemeID(rawValue: "too_many_normals"),
@@ -222,6 +249,121 @@ final class BlindBoxRuleEngineTests: XCTestCase {
 
     private var cozyDailyTheme: BlindBoxThemeDefinition {
         BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "cozy_daily" }!
+    }
+}
+
+final class BlindBoxStateMachineTests: XCTestCase {
+    func testSingleOpenDeductsOneTicketAndRecordsDuplicateOwnership() throws {
+        let plan = makePlan()
+        var state = BlindBoxAccountState(
+            ticketBalance: 2,
+            ownedStickerCounts: ["pets_01": 1],
+            candidateBatches: [BlindBoxCandidateBatch(plan: plan)]
+        )
+
+        let result = try BlindBoxStateMachine.openSingle(
+            state: &state,
+            batchID: plan.id,
+            positionIndex: 0,
+            openedAt: Date(timeIntervalSince1970: 1_000)
+        )
+
+        XCTAssertEqual(result.ticketCost, 1)
+        XCTAssertEqual(result.resultingTicketBalance, 1)
+        XCTAssertEqual(result.openedStickers.count, 1)
+        XCTAssertTrue(result.openedStickers[0].isDuplicate)
+        XCTAssertEqual(result.openedStickers[0].resultingOwnedCount, 2)
+        XCTAssertEqual(state.ticketBalance, 1)
+        XCTAssertEqual(state.ownedStickerCounts["pets_01"], 2)
+        XCTAssertEqual(state.candidateBatches[0].openedPositionIndices, Set([0]))
+    }
+
+    func testWholeBoxChargesOnlyRemainingPositionsAndStartsTwentyFourHourRestock() throws {
+        let plan = makePlan()
+        let openedIndices: Set<Int> = [0, 1, 2, 3]
+        var state = BlindBoxAccountState(
+            ticketBalance: 5,
+            candidateBatches: [
+                BlindBoxCandidateBatch(
+                    plan: plan,
+                    openedPositionIndices: openedIndices,
+                    systemOpenedPositionIndices: openedIndices
+                )
+            ]
+        )
+        let openedAt = Date(timeIntervalSince1970: 1_000)
+
+        let result = try BlindBoxStateMachine.openWholeBox(
+            state: &state,
+            batchID: plan.id,
+            openedAt: openedAt
+        )
+
+        XCTAssertEqual(result.ticketCost, 5)
+        XCTAssertEqual(result.openedStickers.count, 5)
+        XCTAssertEqual(result.resultingTicketBalance, 0)
+        XCTAssertEqual(result.restockAt, openedAt.addingTimeInterval(24 * 60 * 60))
+        XCTAssertEqual(state.candidateBatches[0].remainingPositionCount, 0)
+        XCTAssertEqual(state.candidateBatches[0].soldOutAt, openedAt)
+    }
+
+    func testOpenDoesNotMutateStateWhenTheTicketBalanceIsInsufficient() {
+        let plan = makePlan()
+        var state = BlindBoxAccountState(
+            ticketBalance: 0,
+            candidateBatches: [BlindBoxCandidateBatch(plan: plan)]
+        )
+        let originalState = state
+
+        XCTAssertThrowsError(
+            try BlindBoxStateMachine.openSingle(
+                state: &state,
+                batchID: plan.id,
+                positionIndex: 0,
+                openedAt: .now
+            )
+        ) { error in
+            XCTAssertEqual(error as? BlindBoxOpenError, .insufficientTickets(required: 1, current: 0))
+        }
+        XCTAssertEqual(state, originalState)
+    }
+
+    func testGrantDayRollsOverAtFourAM() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let dateFormatter = ISO8601DateFormatter()
+
+        XCTAssertEqual(
+            BlindBoxGrantDay.identifier(
+                for: dateFormatter.date(from: "2026-09-02T03:59:00Z")!,
+                calendar: calendar
+            ),
+            "2026-09-01"
+        )
+        XCTAssertEqual(
+            BlindBoxGrantDay.identifier(
+                for: dateFormatter.date(from: "2026-09-02T04:00:00Z")!,
+                calendar: calendar
+            ),
+            "2026-09-02"
+        )
+    }
+
+    private func makePlan() -> BlindBoxBatchPlan {
+        BlindBoxBatchPlan(
+            id: UUID(uuidString: "BEEFF00D-0000-4000-8000-000000000001")!,
+            themeID: BlindBoxThemeID(rawValue: "pets"),
+            catalogVersion: 1,
+            probabilityMode: .standard,
+            createdAt: Date(timeIntervalSince1970: 500),
+            positions: (0..<BlindBoxRuleConfiguration.batchPositionCount).map { index in
+                BlindBoxPositionPlan(
+                    id: UUID(uuidString: String(format: "BEEFF00D-0000-4000-8000-%012d", index + 10))!,
+                    index: index,
+                    stickerID: BlindBoxStickerID(rawValue: "pets_\(String(format: "%02d", index + 1))")
+                )
+            }
+        )
     }
 }
 

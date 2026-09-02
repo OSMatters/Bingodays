@@ -263,17 +263,12 @@ enum BlindBoxBatchGenerator {
         count: Int,
         generator: inout Generator
     ) throws -> [BlindBoxStickerID] {
-        var shuffled = normalStickerIDs
-        try shuffle(&shuffled, generator: &generator)
-
-        guard count > shuffled.count else {
-            return Array(shuffled.prefix(count))
-        }
-
-        var result = shuffled
+        var result: [BlindBoxStickerID] = []
         while result.count < count {
-            let index = try randomIndex(upperBound: normalStickerIDs.count, generator: &generator)
-            result.append(normalStickerIDs[index])
+            var shuffledCycle = normalStickerIDs
+            try shuffle(&shuffledCycle, generator: &generator)
+            let remainingCount = count - result.count
+            result.append(contentsOf: shuffledCycle.prefix(remainingCount))
         }
         try shuffle(&result, generator: &generator)
         return result
