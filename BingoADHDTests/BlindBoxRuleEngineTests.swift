@@ -544,6 +544,119 @@ final class BlindBoxCandidateCoordinatorTests: XCTestCase {
     }
 }
 
+final class BlindBoxWalletStateMachineTests: XCTestCase {
+    func testDailyTicketRefreshBackfillsMissedDaysButNeverExceedsTwentyTickets() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let formatter = ISO8601DateFormatter()
+        var state = BlindBoxAccountState(
+            ticketBalance: 17,
+            lastTicketGrantDayIdentifier: "2026-08-28"
+        )
+
+        let result = BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state,
+            hasPremiumAccess: true,
+            now: formatter.date(from: "2026-09-02T04:01:00Z")!,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(result.processedGrantDays, 5)
+        XCTAssertEqual(result.grantedTicketCount, 3)
+        XCTAssertEqual(result.resultingTicketBalance, 20)
+        XCTAssertEqual(state.lastTicketGrantDayIdentifier, "2026-09-02")
+
+        let noRetroactiveGrant = BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state,
+            hasPremiumAccess: true,
+            now: formatter.date(from: "2026-09-02T04:02:00Z")!,
+            calendar: calendar
+        )
+        XCTAssertEqual(noRetroactiveGrant.processedGrantDays, 0)
+        XCTAssertEqual(noRetroactiveGrant.grantedTicketCount, 0)
+    }
+
+    func testFirstDailyTicketRefreshStartsWithOnlyTodayAllowance() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        var state = BlindBoxAccountState()
+
+        let result = BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state,
+            hasPremiumAccess: false,
+            now: Date(timeIntervalSince1970: 1_000),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(result.processedGrantDays, 1)
+        XCTAssertEqual(result.grantedTicketCount, 1)
+        XCTAssertEqual(result.resultingTicketBalance, 1)
+    }
+
+    func testPointExchangeChargesOneHundredAndResetsAtFourAM() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let formatter = ISO8601DateFormatter()
+        var state = BlindBoxAccountState(ticketBalance: 2)
+
+        let first = try BlindBoxWalletStateMachine.exchangePointsForOneTicket(
+            state: &state,
+            availablePoints: 100,
+            now: formatter.date(from: "2026-09-02T03:59:00Z")!,
+            calendar: calendar
+        )
+        XCTAssertEqual(first.deductedPoints, 100)
+        XCTAssertEqual(first.grantedTickets, 1)
+        XCTAssertEqual(state.ticketBalance, 3)
+
+        XCTAssertThrowsError(
+            try BlindBoxWalletStateMachine.exchangePointsForOneTicket(
+                state: &state,
+                availablePoints: 100,
+                now: formatter.date(from: "2026-09-02T03:59:30Z")!,
+                calendar: calendar
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? BlindBoxWalletError,
+                .pointExchange(.grantDayLimitReached)
+            )
+        }
+
+        let afterReset = try BlindBoxWalletStateMachine.exchangePointsForOneTicket(
+            state: &state,
+            availablePoints: 100,
+            now: formatter.date(from: "2026-09-02T04:00:00Z")!,
+            calendar: calendar
+        )
+        XCTAssertEqual(afterReset.resultingTicketBalance, 4)
+        XCTAssertEqual(state.pointExchangesUsedOnLastGrantDay, 1)
+        XCTAssertEqual(state.lastPointExchangeDayIdentifier, "2026-09-02")
+    }
+
+    func testPointExchangeDoesNotMutateWalletOnFailure() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let original = BlindBoxAccountState(ticketBalance: 20)
+        var state = original
+
+        XCTAssertThrowsError(
+            try BlindBoxWalletStateMachine.exchangePointsForOneTicket(
+                state: &state,
+                availablePoints: 1_000,
+                now: Date(timeIntervalSince1970: 1_000),
+                calendar: calendar
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? BlindBoxWalletError,
+                .pointExchange(.ticketBalanceAtCapacity)
+            )
+        }
+        XCTAssertEqual(state, original)
+    }
+}
+
 private struct ScriptedBlindBoxRandomNumberGenerator: BlindBoxRandomNumberGenerating {
     private var values: [Double]
     private var nextIndex = 0

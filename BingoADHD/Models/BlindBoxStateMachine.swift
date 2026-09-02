@@ -235,6 +235,134 @@ enum BlindBoxGrantDay {
     }
 }
 
+struct BlindBoxDailyTicketRefreshResult: Equatable, Sendable {
+    /// The number of 04:00 grant days processed by this refresh. An account's
+    /// first refresh processes one day; it never receives an unbounded backlog.
+    let processedGrantDays: Int
+    let grantedTicketCount: Int
+    let resultingTicketBalance: Int
+}
+
+struct BlindBoxPointExchangeResult: Equatable, Sendable {
+    let deductedPoints: Int
+    let grantedTickets: Int
+    let resultingTicketBalance: Int
+}
+
+enum BlindBoxWalletError: Error, Equatable {
+    case pointExchange(BlindBoxPointExchangeEligibility)
+}
+
+/// Currency transitions are intentionally pure and do not own the app's point
+/// wallet. In production the CloudKit repository performs the returned point
+/// deduction and this state change in the same idempotent transaction.
+enum BlindBoxWalletStateMachine {
+    @discardableResult
+    static func refreshDailyTickets(
+        state: inout BlindBoxAccountState,
+        hasPremiumAccess: Bool,
+        now: Date,
+        calendar: Calendar
+    ) -> BlindBoxDailyTicketRefreshResult {
+        let currentGrantDay = BlindBoxGrantDay.identifier(for: now, calendar: calendar)
+        let processedGrantDays: Int
+        if let lastGrantDay = state.lastTicketGrantDayIdentifier,
+           let elapsedDays = elapsedGrantDays(
+               from: lastGrantDay,
+               to: currentGrantDay,
+               calendar: calendar
+           ) {
+            processedGrantDays = max(elapsedDays, 0)
+        } else {
+            // A newly created account starts with today's allowance only.
+            processedGrantDays = 1
+        }
+
+        guard processedGrantDays > 0 else {
+            return BlindBoxDailyTicketRefreshResult(
+                processedGrantDays: 0,
+                grantedTicketCount: 0,
+                resultingTicketBalance: state.ticketBalance
+            )
+        }
+
+        let allowance = BlindBoxTicketPolicy.dailyAllowance(hasPremiumAccess: hasPremiumAccess)
+        let availableCapacity = BlindBoxRuleConfiguration.maximumTicketBalance - state.ticketBalance
+        let requestedTickets = allowance.multipliedReportingOverflow(by: processedGrantDays)
+        let grantedTickets = min(
+            max(availableCapacity, 0),
+            requestedTickets.overflow ? BlindBoxRuleConfiguration.maximumTicketBalance : requestedTickets.partialValue
+        )
+
+        state.ticketBalance += grantedTickets
+        // Update this even when capped: skipped tickets are intentionally not
+        // banked to be granted retroactively after a later box opening.
+        state.lastTicketGrantDayIdentifier = currentGrantDay
+
+        return BlindBoxDailyTicketRefreshResult(
+            processedGrantDays: processedGrantDays,
+            grantedTicketCount: grantedTickets,
+            resultingTicketBalance: state.ticketBalance
+        )
+    }
+
+    @discardableResult
+    static func exchangePointsForOneTicket(
+        state: inout BlindBoxAccountState,
+        availablePoints: Int,
+        now: Date,
+        calendar: Calendar
+    ) throws -> BlindBoxPointExchangeResult {
+        let currentGrantDay = BlindBoxGrantDay.identifier(for: now, calendar: calendar)
+        let exchangesUsedToday = state.lastPointExchangeDayIdentifier == currentGrantDay
+            ? state.pointExchangesUsedOnLastGrantDay
+            : 0
+        let eligibility = BlindBoxPointExchangePolicy.eligibility(
+            availablePoints: availablePoints,
+            ticketBalance: state.ticketBalance,
+            exchangesUsedThisGrantDay: exchangesUsedToday
+        )
+        guard eligibility == .eligible else {
+            throw BlindBoxWalletError.pointExchange(eligibility)
+        }
+
+        state.ticketBalance += 1
+        state.lastPointExchangeDayIdentifier = currentGrantDay
+        state.pointExchangesUsedOnLastGrantDay = exchangesUsedToday + 1
+        return BlindBoxPointExchangeResult(
+            deductedPoints: BlindBoxRuleConfiguration.pointExchangePrice,
+            grantedTickets: 1,
+            resultingTicketBalance: state.ticketBalance
+        )
+    }
+
+    private static func elapsedGrantDays(
+        from startIdentifier: String,
+        to endIdentifier: String,
+        calendar: Calendar
+    ) -> Int? {
+        guard let startDate = date(forGrantDayIdentifier: startIdentifier, calendar: calendar),
+              let endDate = date(forGrantDayIdentifier: endIdentifier, calendar: calendar) else {
+            return nil
+        }
+        return calendar.dateComponents([.day], from: startDate, to: endDate).day
+    }
+
+    private static func date(
+        forGrantDayIdentifier identifier: String,
+        calendar: Calendar
+    ) -> Date? {
+        let pieces = identifier.split(separator: "-")
+        guard pieces.count == 3,
+              let year = Int(pieces[0]),
+              let month = Int(pieces[1]),
+              let day = Int(pieces[2]) else {
+            return nil
+        }
+        return calendar.date(from: DateComponents(year: year, month: month, day: day))
+    }
+}
+
 /// The reason candidates were reconciled. The repository records this alongside
 /// a CloudKit operation later; keeping it explicit makes refreshes auditable and
 /// prevents a UI refresh from silently changing a live batch.
