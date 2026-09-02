@@ -302,6 +302,97 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         XCTAssertEqual(preview.unmappedLegacyStickerIDs, ["future_legacy_sticker"])
     }
 
+    func testLegacyMigrationAddsConfirmedHiddenRagdollsExactlyOnce() {
+        var state = BlindBoxAccountState(ownedStickerCounts: ["pets_12": 3])
+        var completedVersions: Set<Int> = []
+        let legacyInventory = [
+            StickerKind.ragdollCat.rawValue: 1,
+            StickerKind.ragdollCatStar.rawValue: 1,
+            StickerKind.cowCat.rawValue: 1
+        ]
+
+        let firstResult = BlindBoxLegacyStickerMigration.apply(
+            legacyInventoryCounts: legacyInventory,
+            to: &state,
+            completedMigrationVersions: &completedVersions
+        )
+
+        guard case let .applied(preview) = firstResult else {
+            return XCTFail("Expected confirmed legacy stickers to migrate")
+        }
+        XCTAssertEqual(preview.migratedOwnedStickerCounts["pets_12"], 2)
+        XCTAssertEqual(state.ownedStickerCounts["pets_12"], 5)
+        XCTAssertEqual(state.ownedStickerCounts["pets_11"], 1)
+        XCTAssertEqual(
+            completedVersions,
+            [BlindBoxLegacyStickerMigration.initialCatalogMigrationVersion]
+        )
+
+        let migratedState = state
+        XCTAssertEqual(
+            BlindBoxLegacyStickerMigration.apply(
+                legacyInventoryCounts: legacyInventory,
+                to: &state,
+                completedMigrationVersions: &completedVersions
+            ),
+            .alreadyApplied
+        )
+        XCTAssertEqual(state, migratedState)
+    }
+
+    func testLegacyMigrationDoesNotMutateStateWhenAnIDNeedsReview() {
+        var state = BlindBoxAccountState(ownedStickerCounts: ["pets_01": 2])
+        var completedVersions: Set<Int> = []
+        let originalState = state
+
+        XCTAssertEqual(
+            BlindBoxLegacyStickerMigration.apply(
+                legacyInventoryCounts: [
+                    StickerKind.akita.rawValue: 1,
+                    "unmapped_legacy_sticker": 1
+                ],
+                to: &state,
+                completedMigrationVersions: &completedVersions
+            ),
+            .requiresManualReview(unmappedLegacyStickerIDs: ["unmapped_legacy_sticker"])
+        )
+        XCTAssertEqual(state, originalState)
+        XCTAssertTrue(completedVersions.isEmpty)
+    }
+
+    func testLocalMigrationPreservesLegacyInventoryAndPersistsItsVersionAtomically() throws {
+        let suiteName = "BlindBoxLegacyMigrationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let legacyInventory = [
+            StickerKind.ragdollCat.rawValue: 1,
+            StickerKind.ragdollCatStar.rawValue: 1,
+            StickerKind.cowCatStar.rawValue: 1
+        ]
+        let legacyData = try JSONEncoder().encode(legacyInventory)
+        defaults.set(legacyData, forKey: AppSettings.stickerInventoryCountsKey)
+
+        let firstResult = BlindBoxLocalStateStore.migrateLegacyInventoryIfNeeded(defaults: defaults)
+        guard case let .applied(preview) = firstResult else {
+            return XCTFail("Expected the persisted migration to apply")
+        }
+        XCTAssertEqual(preview.migratedOwnedStickerCounts["pets_12"], 2)
+        XCTAssertEqual(BlindBoxLocalStateStore.load(defaults: defaults).ownedStickerCounts["pets_12"], 2)
+        XCTAssertEqual(BlindBoxLocalStateStore.load(defaults: defaults).ownedStickerCounts["pets_11"], 1)
+        XCTAssertEqual(
+            defaults.data(forKey: AppSettings.stickerInventoryCountsKey),
+            legacyData,
+            "Migrating Blind Box ownership must not rewrite old StickerStore data."
+        )
+
+        XCTAssertEqual(
+            BlindBoxLocalStateStore.migrateLegacyInventoryIfNeeded(defaults: defaults),
+            .alreadyApplied
+        )
+        XCTAssertEqual(BlindBoxLocalStateStore.load(defaults: defaults).ownedStickerCounts["pets_12"], 2)
+    }
+
     func testTicketDailyGrantHonorsTheTwentyTicketCap() {
         XCTAssertEqual(
             BlindBoxTicketPolicy.dailyGrant(currentBalance: 19, hasPremiumAccess: false),

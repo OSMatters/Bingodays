@@ -596,14 +596,84 @@ enum BlindBoxCandidateCoordinator {
     }
 }
 
+enum BlindBoxLocalMigrationPersistenceResult: Equatable, Sendable {
+    case applied(BlindBoxLegacyInventoryMigrationPreview)
+    case alreadyApplied
+    case requiresManualReview(unmappedLegacyStickerIDs: [String])
+    case persistenceFailed
+}
+
 /// Local persistence is only the development/mock implementation. Production
 /// opening and currency changes will move to an idempotent CloudKit repository.
+/// The envelope still records one-time migration versions atomically with its
+/// local state, so a pre-launch migration cannot be applied twice after an app
+/// interruption between separate UserDefaults writes.
 enum BlindBoxLocalStateStore {
-    static func load(defaults: UserDefaults = .standard) -> BlindBoxAccountState {
-        guard let data = defaults.data(forKey: AppSettings.blindBoxLocalStateKey),
-              let state = try? JSONDecoder().decode(BlindBoxAccountState.self, from: data) else {
-            return BlindBoxAccountState()
+    private struct PersistedEnvelope: Codable {
+        var accountState: BlindBoxAccountState
+        var completedLegacyMigrationVersions: Set<Int>
+
+        init(
+            accountState: BlindBoxAccountState,
+            completedLegacyMigrationVersions: Set<Int> = []
+        ) {
+            self.accountState = accountState
+            self.completedLegacyMigrationVersions = completedLegacyMigrationVersions
         }
+    }
+
+    static func load(defaults: UserDefaults = .standard) -> BlindBoxAccountState {
+        normalizedState(loadEnvelope(defaults: defaults).accountState)
+    }
+
+    /// Copies legacy ownership into the separate Blind Box state. It never
+    /// writes the old StickerStore keys or alters home-screen placements.
+    @discardableResult
+    static func migrateLegacyInventoryIfNeeded(
+        defaults: UserDefaults = .standard
+    ) -> BlindBoxLocalMigrationPersistenceResult {
+        var envelope = loadEnvelope(defaults: defaults)
+        let result = BlindBoxLegacyStickerMigration.apply(
+            legacyInventoryCounts: BlindBoxLegacyInventoryReader.loadInventoryCounts(defaults: defaults),
+            to: &envelope.accountState,
+            completedMigrationVersions: &envelope.completedLegacyMigrationVersions
+        )
+
+        switch result {
+        case let .applied(preview):
+            guard saveEnvelope(envelope, defaults: defaults) else {
+                return .persistenceFailed
+            }
+            return .applied(preview)
+        case .alreadyApplied:
+            return .alreadyApplied
+        case let .requiresManualReview(unmappedLegacyStickerIDs):
+            return .requiresManualReview(unmappedLegacyStickerIDs: unmappedLegacyStickerIDs)
+        }
+    }
+
+    private static func loadEnvelope(defaults: UserDefaults) -> PersistedEnvelope {
+        guard let data = defaults.data(forKey: AppSettings.blindBoxLocalStateKey) else {
+            return PersistedEnvelope(accountState: BlindBoxAccountState())
+        }
+
+        if let envelope = try? JSONDecoder().decode(PersistedEnvelope.self, from: data) {
+            return PersistedEnvelope(
+                accountState: normalizedState(envelope.accountState),
+                completedLegacyMigrationVersions: envelope.completedLegacyMigrationVersions
+            )
+        }
+
+        // Preserve local development state written before migration tracking
+        // was introduced; it will be wrapped on the next successful save.
+        if let legacyState = try? JSONDecoder().decode(BlindBoxAccountState.self, from: data) {
+            return PersistedEnvelope(accountState: normalizedState(legacyState))
+        }
+
+        return PersistedEnvelope(accountState: BlindBoxAccountState())
+    }
+
+    private static func normalizedState(_ state: BlindBoxAccountState) -> BlindBoxAccountState {
         return BlindBoxAccountState(
             schemaVersion: state.schemaVersion,
             ticketBalance: state.ticketBalance,
@@ -620,9 +690,18 @@ enum BlindBoxLocalStateStore {
         _ state: BlindBoxAccountState,
         defaults: UserDefaults = .standard
     ) -> Bool {
+        var envelope = loadEnvelope(defaults: defaults)
+        envelope.accountState = normalizedState(state)
+        return saveEnvelope(envelope, defaults: defaults)
+    }
+
+    private static func saveEnvelope(
+        _ envelope: PersistedEnvelope,
+        defaults: UserDefaults
+    ) -> Bool {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(state) else { return false }
+        guard let data = try? encoder.encode(envelope) else { return false }
         guard defaults.data(forKey: AppSettings.blindBoxLocalStateKey) != data else { return true }
         defaults.set(data, forKey: AppSettings.blindBoxLocalStateKey)
         return defaults.data(forKey: AppSettings.blindBoxLocalStateKey) == data
