@@ -36,19 +36,99 @@ struct BlindBoxStickerDefinition: Codable, Equatable, Hashable, Identifiable, Se
     }
 }
 
+/// A catalog-owned coordinate for one sticker in My Box. Keeping the display
+/// order in content configuration lets newly published themes choose a layout
+/// without requiring an app release or a new hard-coded switch statement.
+struct BlindBoxCollectionPlacement: Codable, Equatable, Hashable, Identifiable, Sendable {
+    let stickerID: BlindBoxStickerID
+    let centerX: Double
+    let centerY: Double
+    let displaySize: Double
+    let isSpecialSlot: Bool
+
+    var id: BlindBoxStickerID { stickerID }
+
+    init(
+        stickerID: BlindBoxStickerID,
+        centerX: Double,
+        centerY: Double,
+        displaySize: Double,
+        isSpecialSlot: Bool = false
+    ) {
+        self.stickerID = stickerID
+        self.centerX = centerX
+        self.centerY = centerY
+        self.displaySize = displaySize
+        self.isSpecialSlot = isSpecialSlot
+    }
+}
+
+struct BlindBoxThemePresentation: Codable, Equatable, Hashable, Sendable {
+    let collectionPlacements: [BlindBoxCollectionPlacement]
+
+    init(collectionPlacements: [BlindBoxCollectionPlacement]) {
+        self.collectionPlacements = collectionPlacements
+    }
+
+    func validationError(
+        stickerIDs: [BlindBoxStickerID],
+        hiddenStickerID: BlindBoxStickerID
+    ) -> BlindBoxThemePresentationValidationError? {
+        guard collectionPlacements.count == stickerIDs.count else {
+            return .incorrectStickerCount(expected: stickerIDs.count, actual: collectionPlacements.count)
+        }
+        guard Set(collectionPlacements.map(\.stickerID)).count == collectionPlacements.count else {
+            return .duplicateStickerPlacement
+        }
+        guard Set(collectionPlacements.map(\.stickerID)) == Set(stickerIDs) else {
+            return .placementsDoNotMatchTheme
+        }
+
+        let specialPlacements = collectionPlacements.filter(\.isSpecialSlot)
+        guard specialPlacements.count == 1 else {
+            return .incorrectSpecialSlotCount(actual: specialPlacements.count)
+        }
+        guard specialPlacements[0].stickerID == hiddenStickerID else {
+            return .specialSlotMustContainHiddenSticker
+        }
+        guard collectionPlacements.allSatisfy({
+            $0.centerX >= 0 && $0.centerX <= 393 &&
+            $0.centerY >= 0 && $0.centerY <= 852 &&
+            $0.displaySize > 0
+        }) else {
+            return .invalidCoordinate
+        }
+        return nil
+    }
+}
+
+enum BlindBoxThemePresentationValidationError: Equatable, Sendable {
+    case incorrectStickerCount(expected: Int, actual: Int)
+    case duplicateStickerPlacement
+    case placementsDoNotMatchTheme
+    case incorrectSpecialSlotCount(actual: Int)
+    case specialSlotMustContainHiddenSticker
+    case invalidCoordinate
+}
+
 struct BlindBoxThemeDefinition: Codable, Equatable, Identifiable, Sendable {
     let id: BlindBoxThemeID
     let catalogVersion: Int
     let stickers: [BlindBoxStickerDefinition]
+    /// Optional only for the built-in development fallback. A remotely
+    /// published theme must provide and pass this presentation validation.
+    let presentation: BlindBoxThemePresentation?
 
     init(
         id: BlindBoxThemeID,
         catalogVersion: Int,
-        stickers: [BlindBoxStickerDefinition]
+        stickers: [BlindBoxStickerDefinition],
+        presentation: BlindBoxThemePresentation? = nil
     ) {
         self.id = id
         self.catalogVersion = catalogVersion
         self.stickers = stickers
+        self.presentation = presentation
     }
 
     var normalStickers: [BlindBoxStickerDefinition] {
@@ -73,6 +153,14 @@ struct BlindBoxThemeDefinition: Codable, Equatable, Identifiable, Sendable {
         guard normalStickers.count <= BlindBoxRuleConfiguration.maximumNormalStickerCount else {
             return .tooManyNormalStickers(maximum: BlindBoxRuleConfiguration.maximumNormalStickerCount)
         }
+        if let presentation,
+           let hiddenSticker,
+           let error = presentation.validationError(
+               stickerIDs: stickers.map(\.id),
+               hiddenStickerID: hiddenSticker.id
+           ) {
+            return .invalidPresentation(error)
+        }
         return nil
     }
 }
@@ -85,6 +173,7 @@ enum BlindBoxThemeValidationError: Error, Equatable {
     case duplicateStickerID
     case duplicateAssetName
     case tooManyNormalStickers(maximum: Int)
+    case invalidPresentation(BlindBoxThemePresentationValidationError)
 }
 
 enum BlindBoxProbabilityMode: String, Codable, CaseIterable, Sendable {

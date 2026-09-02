@@ -12,57 +12,72 @@ struct PointsFlowPresenter: View {
     var bottomContentPadding: CGFloat = 32
     var onSubpagePresentationChange: (Bool) -> Void = { _ in }
     let onAddStickerToHomeSuccess: () -> Void
+
+    @State private var isShowingBlindBoxPreview = AppDebugFlags.blindBoxPreviewEnabled
+
     var body: some View {
-        PointsFlowSheet(
-            isPadLayout: isPadLayout,
-            points: points,
-            limitedOfferState: $limitedOfferState,
-            showsCloseButton: showsCloseButton,
-            bottomContentPadding: bottomContentPadding,
-            onSubpagePresentationChange: onSubpagePresentationChange,
-            inventoryCounts: pointsFeatureStore.stickerInventoryCounts,
-            usedCounts: pointsFeatureStore.currentStickerUsageCounts,
-            rewards: pointsFeatureStore.activeRewards,
-            redemptionHistory: pointsFeatureStore.redemptionHistory,
-            onRedeemSticker: { kind in
-                pointsFeatureStore.redeemSticker(kind, totalPoints: totalPoints)
-            },
-            onAddStickerToHome: { kind in
-                if pointsFeatureStore.addStickerToHome(kind) {
-                    onAddStickerToHomeSuccess()
-                }
-            },
-            onDeleteReward: { reward in
-                pointsFeatureStore.archiveReward(reward)
-            },
-            onRedeemReward: { reward in
-                pointsFeatureStore.redeemReward(reward, totalPoints: totalPoints)
-            },
-            onCreateReward: { title, requiredPoints, emoji, themeImageName in
-                pointsFeatureStore.createReward(
-                    title: title,
-                    requiredPoints: requiredPoints,
-                    emoji: emoji,
-                    themeImageName: themeImageName,
-                    hasPremiumAccess: subscriptionManager.hasPremiumAccess
-                )
-            },
-            onUpdateReward: { reward, title, requiredPoints, emoji, themeImageName in
-                pointsFeatureStore.updateReward(
-                    CustomReward(
-                        id: reward.id,
+        if isShowingBlindBoxPreview {
+            BlindBoxFlowView(onSelectCustomRewards: {
+                isShowingBlindBoxPreview = false
+            })
+            .onAppear {
+                onSubpagePresentationChange(true)
+            }
+            .onDisappear {
+                onSubpagePresentationChange(false)
+            }
+        } else {
+            PointsFlowSheet(
+                isPadLayout: isPadLayout,
+                points: points,
+                limitedOfferState: $limitedOfferState,
+                showsCloseButton: showsCloseButton,
+                bottomContentPadding: bottomContentPadding,
+                onSubpagePresentationChange: onSubpagePresentationChange,
+                inventoryCounts: pointsFeatureStore.stickerInventoryCounts,
+                usedCounts: pointsFeatureStore.currentStickerUsageCounts,
+                rewards: pointsFeatureStore.activeRewards,
+                redemptionHistory: pointsFeatureStore.redemptionHistory,
+                onRedeemSticker: { kind in
+                    pointsFeatureStore.redeemSticker(kind, totalPoints: totalPoints)
+                },
+                onAddStickerToHome: { kind in
+                    if pointsFeatureStore.addStickerToHome(kind) {
+                        onAddStickerToHomeSuccess()
+                    }
+                },
+                onDeleteReward: { reward in
+                    pointsFeatureStore.archiveReward(reward)
+                },
+                onRedeemReward: { reward in
+                    pointsFeatureStore.redeemReward(reward, totalPoints: totalPoints)
+                },
+                onCreateReward: { title, requiredPoints, emoji, themeImageName in
+                    pointsFeatureStore.createReward(
                         title: title,
                         requiredPoints: requiredPoints,
                         emoji: emoji,
                         themeImageName: themeImageName,
-                        cardStyleVersion: CustomReward.currentCardStyleVersion,
-                        redemptionCount: reward.redemptionCount,
-                        totalSpentPoints: reward.totalSpentPoints,
-                        isArchived: reward.isArchived
+                        hasPremiumAccess: subscriptionManager.hasPremiumAccess
                     )
-                )
-            }
-        )
+                },
+                onUpdateReward: { reward, title, requiredPoints, emoji, themeImageName in
+                    pointsFeatureStore.updateReward(
+                        CustomReward(
+                            id: reward.id,
+                            title: title,
+                            requiredPoints: requiredPoints,
+                            emoji: emoji,
+                            themeImageName: themeImageName,
+                            cardStyleVersion: CustomReward.currentCardStyleVersion,
+                            redemptionCount: reward.redemptionCount,
+                            totalSpentPoints: reward.totalSpentPoints,
+                            isArchived: reward.isArchived
+                        )
+                    )
+                }
+            )
+        }
     }
 }
 

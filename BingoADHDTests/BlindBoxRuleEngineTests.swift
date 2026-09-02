@@ -171,6 +171,111 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         }
     }
 
+    func testRemoteCollectionPresentationRequiresEveryStickerAndHiddenSpecialSlot() {
+        let normalOne = BlindBoxStickerDefinition(
+            id: BlindBoxStickerID(rawValue: "normal_one"),
+            assetName: "normal_one",
+            isHidden: false
+        )
+        let normalTwo = BlindBoxStickerDefinition(
+            id: BlindBoxStickerID(rawValue: "normal_two"),
+            assetName: "normal_two",
+            isHidden: false
+        )
+        let hidden = BlindBoxStickerDefinition(
+            id: BlindBoxStickerID(rawValue: "hidden"),
+            assetName: "hidden",
+            isHidden: true
+        )
+
+        let validPresentation = BlindBoxThemePresentation(collectionPlacements: [
+            BlindBoxCollectionPlacement(
+                stickerID: normalOne.id,
+                centerX: 90,
+                centerY: 450,
+                displaySize: 72
+            ),
+            BlindBoxCollectionPlacement(
+                stickerID: normalTwo.id,
+                centerX: 180,
+                centerY: 450,
+                displaySize: 72
+            ),
+            BlindBoxCollectionPlacement(
+                stickerID: hidden.id,
+                centerX: 164,
+                centerY: 360,
+                displaySize: 138,
+                isSpecialSlot: true
+            )
+        ])
+        let validTheme = BlindBoxThemeDefinition(
+            id: BlindBoxThemeID(rawValue: "configured_theme"),
+            catalogVersion: 1,
+            stickers: [normalOne, normalTwo, hidden],
+            presentation: validPresentation
+        )
+        XCTAssertNil(validTheme.validationError())
+
+        let missingStickerPresentation = BlindBoxThemePresentation(collectionPlacements: [
+            BlindBoxCollectionPlacement(
+                stickerID: normalOne.id,
+                centerX: 90,
+                centerY: 450,
+                displaySize: 72
+            ),
+            BlindBoxCollectionPlacement(
+                stickerID: hidden.id,
+                centerX: 164,
+                centerY: 360,
+                displaySize: 138,
+                isSpecialSlot: true
+            )
+        ])
+        let invalidTheme = BlindBoxThemeDefinition(
+            id: BlindBoxThemeID(rawValue: "missing_placement"),
+            catalogVersion: 1,
+            stickers: [normalOne, normalTwo, hidden],
+            presentation: missingStickerPresentation
+        )
+        XCTAssertEqual(
+            invalidTheme.validationError(),
+            .invalidPresentation(.incorrectStickerCount(expected: 3, actual: 2))
+        )
+
+        let wrongSpecialPresentation = BlindBoxThemePresentation(collectionPlacements: [
+            BlindBoxCollectionPlacement(
+                stickerID: normalOne.id,
+                centerX: 90,
+                centerY: 450,
+                displaySize: 72,
+                isSpecialSlot: true
+            ),
+            BlindBoxCollectionPlacement(
+                stickerID: normalTwo.id,
+                centerX: 180,
+                centerY: 450,
+                displaySize: 72
+            ),
+            BlindBoxCollectionPlacement(
+                stickerID: hidden.id,
+                centerX: 164,
+                centerY: 360,
+                displaySize: 138
+            )
+        ])
+        let wrongSpecialTheme = BlindBoxThemeDefinition(
+            id: BlindBoxThemeID(rawValue: "wrong_special"),
+            catalogVersion: 1,
+            stickers: [normalOne, normalTwo, hidden],
+            presentation: wrongSpecialPresentation
+        )
+        XCTAssertEqual(
+            wrongSpecialTheme.validationError(),
+            .invalidPresentation(.specialSlotMustContainHiddenSticker)
+        )
+    }
+
     func testTicketDailyGrantHonorsTheTwentyTicketCap() {
         XCTAssertEqual(
             BlindBoxTicketPolicy.dailyGrant(currentBalance: 19, hasPremiumAccess: false),

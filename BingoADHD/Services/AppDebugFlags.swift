@@ -53,6 +53,16 @@ enum AppDebugFlags {
 #endif
     }
 
+    /// Enables the isolated Blind Box fixture flow for visual and interaction
+    /// testing. It deliberately never reads or writes production wallet data.
+    static var blindBoxPreviewEnabled: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-DebugBlindBoxPreview")
+#else
+        false
+#endif
+    }
+
     static var tileGestureDebugEnabled: Bool {
 #if DEBUG
         ProcessInfo.processInfo.arguments.contains("-DebugTileGestures")
