@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Blind Box Catalog Admin</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header>
+        <div>
+          <p class="eyebrow">Bingo this · local only</p>
+          <h1>Blind Box Catalog</h1>
+          <p class="lede">Build a validated theme release before it reaches CloudKit.</p>
+        </div>
+        <div class="header-actions">
+          <label class="button secondary">
+            Import release.json
+            <input id="import-release" type="file" accept="application/json" hidden />
+          </label>
+          <button id="download-release" class="button secondary" type="button">Download JSON</button>
+          <button id="save-to-checkout" class="button primary" type="button">Save to checkout…</button>
+        </div>
+      </header>
+
+      <section class="notice">
+        This page runs on your Mac only. It never receives the CloudKit private key and cannot publish a release.
+      </section>
+
+      <section class="panel metadata-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Release</p>
+            <h2>Catalog metadata</h2>
+          </div>
+          <button id="reset-draft" class="text-button" type="button">Start over</button>
+        </div>
+        <div class="form-grid">
+          <label>Release ID<input data-meta="releaseID" placeholder="2026-09-pets-v1" /></label>
+          <label>Minimum app build<input data-meta="minimumAppBuild" type="number" min="0" /></label>
+          <label>Published at<input data-meta="publishedAt" type="datetime-local" /></label>
+          <label>Schema version<input data-meta="catalogSchemaVersion" type="number" min="1" /></label>
+        </div>
+      </section>
+
+      <section class="themes-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Theme library</p>
+            <h2>Active and retired themes</h2>
+          </div>
+          <button id="add-theme" class="button secondary" type="button">+ Add theme</button>
+        </div>
+        <p class="helper">Uncheck Active to retire a theme. Keep it in this file—existing users still need its My Box artwork.</p>
+        <div id="themes" class="theme-list"></div>
+      </section>
+
+      <footer class="status-bar" aria-live="polite">
+        <span id="status">Add a theme or import a release to begin.</span>
+      </footer>
+    </main>
+    <template id="theme-template">
+      <article class="theme-card">
+        <div class="theme-heading">
+          <label class="toggle"><input data-field="active" type="checkbox" /><span>Active</span></label>
+          <input data-field="id" class="theme-title" placeholder="theme_id" aria-label="Theme ID" />
+          <button data-action="remove-theme" class="icon-button danger" type="button" title="Remove theme">×</button>
+        </div>
+        <div class="form-grid compact">
+          <label>Catalog version<input data-field="catalogVersion" type="number" min="1" /></label>
+        </div>
+        <div class="artwork-grid">
+          <h3>Theme packaging artwork <span>all PNG</span></h3>
+          <div data-artwork-fields class="artwork-fields"></div>
+        </div>
+        <div class="sticker-heading">
+          <div><h3>Collection stickers</h3><p>Exactly one Hidden sticker; its placement becomes the Special slot.</p></div>
+          <button data-action="add-sticker" class="button small secondary" type="button">+ Sticker</button>
+        </div>
+        <div data-stickers class="sticker-list"></div>
+      </article>
+    </template>
+    <template id="artwork-template">
+      <label class="asset-field">
+        <span data-label></span>
+        <input data-asset-name placeholder="asset_key" />
+        <input data-asset-file type="file" accept="image/png" />
+      </label>
+    </template>
+    <template id="sticker-template">
+      <div class="sticker-row">
+        <input data-field="id" placeholder="sticker_id" aria-label="Sticker ID" />
+        <input data-field="assetName" placeholder="asset_key" aria-label="Asset key" />
+        <label class="mini-toggle"><input data-field="isHidden" type="checkbox" />Hidden</label>
+        <label>X<input data-field="centerX" type="number" min="0" max="393" step="0.5" /></label>
+        <label>Y<input data-field="centerY" type="number" min="0" max="852" step="0.5" /></label>
+        <label>Size<input data-field="displaySize" type="number" min="1" step="0.5" /></label>
+        <input data-asset-file type="file" accept="image/png" aria-label="Sticker PNG" />
+        <button data-action="remove-sticker" class="icon-button danger" type="button" title="Remove sticker">×</button>
+      </div>
+    </template>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
