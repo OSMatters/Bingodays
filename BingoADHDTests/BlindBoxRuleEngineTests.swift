@@ -1228,6 +1228,77 @@ private final class InMemoryBlindBoxCloudRecordDatabase: BlindBoxCloudRecordData
 }
 
 final class BlindBoxCandidateCoordinatorTests: XCTestCase {
+    func testAccountMaintenanceGrantsTicketsFillsCandidatesAndStartsSchedulesOnlyAfterPresentation() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = Date(timeIntervalSince1970: 2_000)
+        var state = BlindBoxAccountState()
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0])
+
+        let firstPass = try BlindBoxAccountMaintenance.apply(
+            state: &state,
+            themes: BlindBoxCatalog.builtInThemes,
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: false,
+            now: now,
+            calendar: calendar,
+            generator: &generator
+        )
+
+        XCTAssertEqual(firstPass.dailyTicketRefresh.grantedTicketCount, 1)
+        XCTAssertEqual(state.ticketBalance, 1)
+        XCTAssertEqual(state.candidateBatches.count, 4)
+        XCTAssertTrue(state.candidateBatches.allSatisfy { $0.firstPresentedAt == nil })
+
+        let secondPass = try BlindBoxAccountMaintenance.apply(
+            state: &state,
+            themes: BlindBoxCatalog.builtInThemes,
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: true,
+            now: now,
+            calendar: calendar,
+            generator: &generator
+        )
+
+        XCTAssertEqual(secondPass.dailyTicketRefresh.grantedTicketCount, 0)
+        XCTAssertTrue(state.candidateBatches.allSatisfy { $0.firstPresentedAt == now })
+        XCTAssertTrue(state.candidateBatches.allSatisfy {
+            $0.nextSystemOpenAt == now.addingTimeInterval(45 * 60)
+        })
+    }
+
+    func testAccountMaintenanceProcessesOnlyOneDueAutomaticOpen() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let pets = BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "pets" }!
+        let plan = makePlan(theme: pets, identifier: "C0FFEE00-0000-4000-8000-000000000006")
+        let now = Date(timeIntervalSince1970: 2_000)
+        var state = BlindBoxAccountState(
+            candidateBatches: [
+                BlindBoxCandidateBatch(
+                    plan: plan,
+                    firstPresentedAt: now.addingTimeInterval(-60 * 60),
+                    nextSystemOpenAt: now.addingTimeInterval(-1)
+                )
+            ]
+        )
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0])
+
+        let result = try BlindBoxAccountMaintenance.apply(
+            state: &state,
+            themes: [pets],
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: false,
+            now: now,
+            calendar: calendar,
+            generator: &generator
+        )
+
+        XCTAssertNotNil(result.automaticOpen)
+        XCTAssertEqual(state.candidateBatches.reduce(0) { $0 + $1.openedPositionIndices.count }, 1)
+        XCTAssertEqual(state.ownedStickerCounts, [:])
+    }
+
     func testReconciliationFillsExactlyFourOrSixThemeBatchesAndAllowsRepeatedThemes() throws {
         var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0.99])
         var state = BlindBoxAccountState()

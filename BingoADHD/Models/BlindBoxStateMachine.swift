@@ -459,6 +459,68 @@ struct BlindBoxAutomaticOpenResult: Equatable, Sendable {
     let nextSystemOpenAt: Date?
 }
 
+/// One safe, repeatable maintenance pass over a Blind Box account. It is run
+/// when the feature becomes available online, not by a timer while the app is
+/// terminated. A due automatic opening is therefore processed at the next
+/// eligible maintenance pass, one position at a time.
+struct BlindBoxAccountMaintenanceResult: Equatable, Sendable {
+    let dailyTicketRefresh: BlindBoxDailyTicketRefreshResult
+    let candidateReconciliation: BlindBoxCandidateReconciliationResult
+    let automaticOpen: BlindBoxAutomaticOpenResult?
+}
+
+enum BlindBoxAccountMaintenance {
+    /// Applies every time-based transition that does not require another
+    /// user-owned currency. `candidateZoneWasPresented` must only be true once
+    /// the candidate rows are actually visible; this prevents unseen batches
+    /// from beginning their automatic-open schedules.
+    static func apply<Generator: BlindBoxRandomNumberGenerating>(
+        state: inout BlindBoxAccountState,
+        themes: [BlindBoxThemeDefinition],
+        hasPremiumAccess: Bool,
+        candidateZoneWasPresented: Bool,
+        now: Date,
+        calendar: Calendar,
+        reason: BlindBoxCandidateRefreshReason = .initialLoad,
+        generator: inout Generator
+    ) throws -> BlindBoxAccountMaintenanceResult {
+        let dailyTicketRefresh = BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state,
+            hasPremiumAccess: hasPremiumAccess,
+            now: now,
+            calendar: calendar
+        )
+        let candidateReconciliation = try BlindBoxCandidateCoordinator.reconcile(
+            state: &state,
+            themes: themes,
+            hasPremiumAccess: hasPremiumAccess,
+            reason: reason,
+            now: now,
+            generator: &generator
+        )
+        let automaticOpen = BlindBoxCandidateCoordinator.processOneAutomaticOpen(
+            state: &state,
+            now: now,
+            generator: &generator
+        )
+
+        if candidateZoneWasPresented {
+            BlindBoxCandidateCoordinator.recordFirstPresentation(
+                state: &state,
+                visibleBatchIDs: Set(state.candidateBatches.map(\.id)),
+                presentedAt: now,
+                generator: &generator
+            )
+        }
+
+        return BlindBoxAccountMaintenanceResult(
+            dailyTicketRefresh: dailyTicketRefresh,
+            candidateReconciliation: candidateReconciliation,
+            automaticOpen: automaticOpen
+        )
+    }
+}
+
 enum BlindBoxCandidateCoordinatorError: Error, Equatable {
     case batchGeneration(BlindBoxBatchGenerationError)
 }
