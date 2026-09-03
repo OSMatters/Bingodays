@@ -758,26 +758,18 @@ GitHub Actions 工作流：
 
 ## 14. 埋点
 
-至少记录：
+首版已经接入的事件：
 
-- `blind_box_lobby_viewed`
-- `blind_box_theme_opened`
-- `blind_box_ticket_granted`
-- `blind_box_ticket_exchange_viewed`
-- `blind_box_ticket_exchange_confirmed`
-- `blind_box_ticket_exchange_succeeded`
-- `blind_box_ticket_exchange_failed`
-- `blind_box_draw_started`
-- `blind_box_draw_succeeded`
-- `blind_box_draw_duplicate`
-- `blind_box_draw_failed`
-- `blind_box_sold_out_viewed`
-- `blind_box_refresh_returned`
-- `my_box_viewed`
-- `sticker_collection_completed`
-- `blind_box_no_ticket_paywall_viewed`
+- `blind_box_lobby_viewed`：券余额、可见候选数量、是否会员。
+- `blind_box_batch_viewed`：主题 ID、目录版本、剩余盒位、该批次锁定的概率模式。
+- `blind_box_rules_viewed`、`blind_box_collection_viewed`：规则与 My Box 的入口使用情况。
+- `blind_box_opened`：单抽/端盒、主题/目录版本、隐藏款数量、重复数量、扣券数、抽后券余额和是否完成主题。
+- `blind_box_point_ticket_exchanged`：积分成本、获得券数和兑换后券余额。
+- `blind_box_action_failed`：操作类型（开盒/积分换券）及离线、售罄、券不足、当日兑换次数已用、CloudKit 并发等归类原因。
 
-参数包含 `theme_id`、`batch_id`、`ticket_balance`、`collection_progress`、`is_premium`、`was_new`、`rarity`、`points_cost`、`points_balance_before/after`、`economy_config_version`、`exchange_failure_reason`，但不要上传可识别个人身份的数据。
+这些事件只记录聚合的玩法数据。**不得**上传抽取请求 UUID、CloudKit record ID、贴纸图片/资源名、完整持有历史、设备或 iCloud 身份标识。主题 ID 是运营配置的稳定、不含个人信息的内容 ID；控制在 100 个字符内。
+
+上线后可在不改变上述隐私边界的前提下补充发券、自动开启、补货和远程目录加载的服务端/CloudKit 监控；这些系统事件与用户行为事件分开看，才能判断是玩法效果还是基础设施故障。
 
 ## 15. 验收标准
 

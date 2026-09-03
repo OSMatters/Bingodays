@@ -83,6 +83,9 @@ struct BlindBoxFlowView: View {
                         batch: batch,
                         theme: theme,
                         ticketBalance: store.state.ticketBalance,
+                        dailyTicketAllowance: BlindBoxTicketPolicy.dailyAllowance(
+                            hasPremiumAccess: subscriptionManager.hasPremiumAccess
+                        ),
                         onBack: {
                             route = .lobby
                         },
@@ -450,15 +453,23 @@ struct BlindBoxLiveFlowView: View {
                 hasCollectedEveryActiveTheme: store.hasCollectedEveryActiveTheme,
                 onSelectCustomRewards: onSelectCustomRewards,
                 onShowRules: {
+                    AnalyticsService.logBlindBoxRulesViewed()
                     isShowingRules = true
                 },
                 onSelectTicketBalance: {
                     isShowingTicketExchange = true
                 },
                 onSelectBatch: { batchID in
+                    if let batch = store.accountState.candidateBatches.first(where: { $0.id == batchID }) {
+                        AnalyticsService.logBlindBoxBatchViewed(batch)
+                    }
                     route = .detail(batchID)
                 },
                 onShowMyBox: {
+                    AnalyticsService.logBlindBoxCollectionViewed(
+                        themeCount: store.themes.count,
+                        ownedStickerTypeCount: store.accountState.ownedStickerCounts.count
+                    )
                     route = .myBox
                 },
                 onDismiss: {
@@ -466,6 +477,13 @@ struct BlindBoxLiveFlowView: View {
                 }
             )
             .onAppear {
+                AnalyticsService.logBlindBoxLobbyViewed(
+                    ticketBalance: store.accountState.ticketBalance,
+                    candidateCount: store.candidates(
+                        hasPremiumAccess: subscriptionManager.hasPremiumAccess
+                    ).count,
+                    hasPremiumAccess: subscriptionManager.hasPremiumAccess
+                )
                 Task {
                     await store.refresh(
                         hasPremiumAccess: subscriptionManager.hasPremiumAccess,
@@ -482,6 +500,9 @@ struct BlindBoxLiveFlowView: View {
                     batch: batch,
                     theme: theme,
                     ticketBalance: store.accountState.ticketBalance,
+                    dailyTicketAllowance: BlindBoxTicketPolicy.dailyAllowance(
+                        hasPremiumAccess: subscriptionManager.hasPremiumAccess
+                    ),
                     onBack: {
                         route = .lobby
                     },
@@ -605,18 +626,36 @@ struct BlindBoxLiveFlowView: View {
 
     private func open(_ request: BlindBoxDrawRequest) {
         guard connectivity.status.canMakeNetworkRequests else {
+            AnalyticsService.logBlindBoxActionFailed(
+                action: .open,
+                reason: connectivityFailureReason
+            )
             presentToast(connectivity.status.unavailableMessage)
             return
         }
+        let openedBatch = store.accountState.candidateBatches.first { $0.id == request.batchID }
+        let openedTheme = openedBatch.flatMap { store.theme(for: $0.plan.themeID) }
         Task {
             do {
                 let result = try await store.open(
                     request,
                     hasPremiumAccess: subscriptionManager.hasPremiumAccess
                 )
+                if let openedBatch, let openedTheme {
+                    AnalyticsService.logBlindBoxOpened(
+                        request: request,
+                        result: result,
+                        theme: openedTheme,
+                        probabilityMode: openedBatch.plan.probabilityMode,
+                        didCompleteTheme: BlindBoxCandidateCoordinator.isThemeComplete(
+                            openedTheme,
+                            ownedStickerCounts: store.accountState.ownedStickerCounts
+                        )
+                    )
+                }
                 route = .reveal(result)
             } catch {
-                presentFailure(error)
+                presentFailure(error, action: .open)
             }
         }
     }
@@ -641,24 +680,44 @@ struct BlindBoxLiveFlowView: View {
     private func confirmTicketExchange() {
         isConfirmingTicketExchange = false
         guard connectivity.status.canMakeNetworkRequests else {
+            AnalyticsService.logBlindBoxActionFailed(
+                action: .pointExchange,
+                reason: connectivityFailureReason
+            )
             presentToast(connectivity.status.unavailableMessage)
             return
         }
         Task {
             do {
-                _ = try await store.exchangePointsForOneTicket(
+                let result = try await store.exchangePointsForOneTicket(
                     availablePoints: pointsFeatureStore.availablePoints(totalPoints: totalPoints)
                 )
+                AnalyticsService.logBlindBoxPointTicketExchanged(result: result)
                 pointsFeatureStore.reloadAfterExternalDataChange()
                 isShowingTicketExchange = false
                 presentToast("1 Blind Box ticket added.")
             } catch {
-                presentFailure(error)
+                presentFailure(error, action: .pointExchange)
             }
         }
     }
 
-    private func presentFailure(_ error: Error) {
+    private var connectivityFailureReason: BlindBoxAnalyticsFailureReason {
+        switch connectivity.status {
+        case .offline:
+            return .offline
+        case .checking:
+            return .connectionChecking
+        case .online:
+            return .requestFailed
+        }
+    }
+
+    private func presentFailure(_ error: Error, action: BlindBoxAnalyticsAction = .open) {
+        AnalyticsService.logBlindBoxActionFailed(
+            action: action,
+            reason: analyticsFailureReason(for: error)
+        )
         if let walletError = error as? BlindBoxWalletError {
             switch walletError {
             case let .pointExchange(eligibility):
@@ -679,6 +738,49 @@ struct BlindBoxLiveFlowView: View {
             message = "Unable to open this box. Please try again."
         }
         presentToast(message)
+    }
+
+    private func analyticsFailureReason(for error: Error) -> BlindBoxAnalyticsFailureReason {
+        if let walletError = error as? BlindBoxWalletError {
+            switch walletError {
+            case let .pointExchange(eligibility):
+                switch eligibility {
+                case .eligible:
+                    return .requestFailed
+                case .insufficientPoints:
+                    return .pointBalance
+                case .ticketBalanceAtCapacity:
+                    return .ticketCap
+                case .grantDayLimitReached:
+                    return .grantDayLimit
+                }
+            }
+        }
+
+        switch error as? BlindBoxOpenError {
+        case .insufficientTickets:
+            return .insufficientTickets
+        case .batchSoldOut:
+            return .soldOut
+        case .positionAlreadyOpened:
+            return .positionAlreadyOpened
+        default:
+            break
+        }
+
+        switch error as? BlindBoxFeatureStoreError {
+        case .accountUnavailable:
+            return .accountUnavailable
+        default:
+            break
+        }
+
+        switch error as? BlindBoxCloudKitRepositoryError {
+        case .contentionRetryLimitReached:
+            return .accountContention
+        default:
+            return .requestFailed
+        }
     }
 
     private func ticketExchangeFailureMessage(
@@ -982,6 +1084,7 @@ private struct BlindBoxDetailView: View {
     let batch: BlindBoxCandidateBatch
     let theme: BlindBoxThemeDefinition
     let ticketBalance: Int
+    let dailyTicketAllowance: Int
     let onBack: () -> Void
     let onOpenPosition: (Int) -> Void
     let onOpenRandom: () -> Void
@@ -1024,11 +1127,17 @@ private struct BlindBoxDetailView: View {
                         font: .appSystem(size: 14, weight: .bold, design: .rounded),
                         foregroundColor: Color(hex: "88644C")
                     )
-                    .position(x: 196, y: 741)
-                }
-
-                actionButtons
                     .position(x: 196, y: 714.5)
+                } else {
+                    actionButtons
+                        .position(x: 196, y: 714.5)
+
+                    Text(nextTicketText)
+                        .font(.appSystem(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(hex: "88644C"))
+                        .position(x: 196, y: 757)
+                        .accessibilityLabel(nextTicketText)
+                }
             }
         }
     }
@@ -1091,6 +1200,11 @@ private struct BlindBoxDetailView: View {
     private var boardAssetName: String {
         theme.artwork?.detailBoardAssetName ??
             (theme.id.rawValue == "pets" ? "BlindBoxPetsBoard" : "BlindBoxCozyBoard")
+    }
+
+    private var nextTicketText: String {
+        let noun = dailyTicketAllowance == 1 ? "ticket" : "tickets"
+        return "Next 4 AM: +\(dailyTicketAllowance) \(noun)"
     }
 
 }
