@@ -1,3 +1,4 @@
+import CloudKit
 import XCTest
 @testable import Bingodays
 
@@ -707,6 +708,179 @@ final class BlindBoxStateMachineTests: XCTestCase {
         XCTAssertEqual(try BlindBoxCloudKitRecordCodec.decodeAccountRecord(accountRecord), accountEnvelope)
         XCTAssertEqual(drawRecord.recordID, BlindBoxCloudKitRecordCodec.drawRecordID(for: request.idempotencyKey))
         XCTAssertEqual(try BlindBoxCloudKitRecordCodec.decodeDrawRecord(drawRecord), drawEnvelope)
+
+        let updatedAccount = BlindBoxCloudAccountEnvelope(
+            accountState: BlindBoxAccountState(ticketBalance: 6),
+            completedLegacyMigrationVersions: [1]
+        )
+        try BlindBoxCloudKitRecordCodec.updateAccountRecord(accountRecord, with: updatedAccount)
+        XCTAssertEqual(try BlindBoxCloudKitRecordCodec.decodeAccountRecord(accountRecord), updatedAccount)
+    }
+
+    func testCloudDrawTransactionCommitsOnceAndReturnsPriorResultForARetry() throws {
+        let plan = makePlan()
+        let request = BlindBoxDrawRequest.single(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000003")!,
+            batchID: plan.id,
+            positionIndex: 0
+        )
+        let originalAccount = BlindBoxCloudAccountEnvelope(
+            accountState: BlindBoxAccountState(
+                ticketBalance: 2,
+                candidateBatches: [BlindBoxCandidateBatch(plan: plan)]
+            )
+        )
+        let committedAt = Date(timeIntervalSince1970: 1_000)
+
+        let firstDecision = try BlindBoxCloudDrawTransaction.plan(
+            request: request,
+            account: originalAccount,
+            existingDraw: nil,
+            committedAt: committedAt
+        )
+        guard case let .commit(updatedAccount, draw) = firstDecision else {
+            return XCTFail("A new command must produce an atomic account-and-draw commit.")
+        }
+        XCTAssertEqual(updatedAccount.accountState.ticketBalance, 1)
+        XCTAssertEqual(updatedAccount.accountState.ownedStickerCounts["pets_01"], 1)
+        XCTAssertEqual(draw.result.ticketCost, 1)
+        XCTAssertEqual(originalAccount.accountState.ticketBalance, 2)
+
+        let retryDecision = try BlindBoxCloudDrawTransaction.plan(
+            request: request,
+            account: updatedAccount,
+            existingDraw: draw,
+            committedAt: committedAt.addingTimeInterval(60)
+        )
+        XCTAssertEqual(retryDecision, .priorResult(draw.result))
+    }
+
+    func testCloudDrawTransactionRejectsAConflictingReuseOfAnIdempotencyKey() throws {
+        let plan = makePlan()
+        let originalRequest = BlindBoxDrawRequest.single(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000004")!,
+            batchID: plan.id,
+            positionIndex: 0
+        )
+        let conflictingRequest = BlindBoxDrawRequest.single(
+            idempotencyKey: originalRequest.idempotencyKey,
+            batchID: plan.id,
+            positionIndex: 1
+        )
+        let account = BlindBoxCloudAccountEnvelope(
+            accountState: BlindBoxAccountState(
+                ticketBalance: 2,
+                candidateBatches: [BlindBoxCandidateBatch(plan: plan)]
+            )
+        )
+        let committed = try BlindBoxCloudDrawTransaction.plan(
+            request: originalRequest,
+            account: account,
+            existingDraw: nil,
+            committedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        guard case let .commit(_, draw) = committed else {
+            return XCTFail("Expected a new draw commit.")
+        }
+
+        XCTAssertThrowsError(
+            try BlindBoxCloudDrawTransaction.plan(
+                request: conflictingRequest,
+                account: account,
+                existingDraw: draw,
+                committedAt: Date(timeIntervalSince1970: 1_100)
+            )
+        ) { error in
+            XCTAssertEqual(error as? BlindBoxDrawRepositoryError, .idempotencyKeyConflict)
+        }
+    }
+
+    @MainActor
+    func testCloudDrawRepositoryAtomicallyCommitsAndReturnsThePriorResultForARetry() async throws {
+        let plan = makePlan()
+        let request = BlindBoxDrawRequest.single(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000005")!,
+            batchID: plan.id,
+            positionIndex: 0
+        )
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        let account = BlindBoxCloudAccountEnvelope(
+            accountState: BlindBoxAccountState(
+                ticketBalance: 2,
+                candidateBatches: [BlindBoxCandidateBatch(plan: plan)]
+            )
+        )
+        try database.seed(BlindBoxCloudKitRecordCodec.makeAccountRecord(account))
+        let repository = BlindBoxCloudKitDrawRepository(
+            database: database,
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+
+        let firstResult = try await repository.open(request)
+        let retryResult = try await repository.open(request)
+
+        XCTAssertEqual(retryResult, firstResult)
+        XCTAssertTrue(database.zoneWasCreated)
+        XCTAssertEqual(database.saveAttemptCount, 1)
+        let storedAccount = try XCTUnwrap(database.record(for: BlindBoxCloudKitRecordCodec.accountRecordID))
+        XCTAssertEqual(
+            try BlindBoxCloudKitRecordCodec.decodeAccountRecord(storedAccount).accountState.ticketBalance,
+            1
+        )
+        XCTAssertNotNil(database.record(for: BlindBoxCloudKitRecordCodec.drawRecordID(for: request.idempotencyKey)))
+    }
+
+    @MainActor
+    func testCloudDrawRepositoryRetriesAConcurrentAccountConflict() async throws {
+        let plan = makePlan()
+        let request = BlindBoxDrawRequest.single(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000006")!,
+            batchID: plan.id,
+            positionIndex: 0
+        )
+        let database = InMemoryBlindBoxCloudRecordDatabase(conflictingSaveAttempts: 1)
+        try database.seed(
+            BlindBoxCloudKitRecordCodec.makeAccountRecord(
+                BlindBoxCloudAccountEnvelope(
+                    accountState: BlindBoxAccountState(
+                        ticketBalance: 2,
+                        candidateBatches: [BlindBoxCandidateBatch(plan: plan)]
+                    )
+                )
+            )
+        )
+        let repository = BlindBoxCloudKitDrawRepository(
+            database: database,
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+
+        let result = try await repository.open(request)
+
+        XCTAssertEqual(result.ticketCost, 1)
+        XCTAssertEqual(database.saveAttemptCount, 2)
+        let storedAccount = try XCTUnwrap(database.record(for: BlindBoxCloudKitRecordCodec.accountRecordID))
+        XCTAssertEqual(
+            try BlindBoxCloudKitRecordCodec.decodeAccountRecord(storedAccount).accountState.ticketBalance,
+            1
+        )
+    }
+
+    @MainActor
+    func testCloudDrawRepositoryNeverCreatesAnEmptyAccountDuringAnOpen() async throws {
+        let plan = makePlan()
+        let repository = BlindBoxCloudKitDrawRepository(
+            database: InMemoryBlindBoxCloudRecordDatabase(),
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+
+        do {
+            _ = try await repository.open(
+                BlindBoxDrawRequest.single(batchID: plan.id, positionIndex: 0)
+            )
+            XCTFail("Opening before account bootstrap must be rejected.")
+        } catch {
+            XCTAssertEqual(error as? BlindBoxCloudKitRepositoryError, .accountNotInitialized)
+        }
     }
 
     @MainActor
@@ -909,6 +1083,84 @@ final class BlindBoxStateMachineTests: XCTestCase {
                 )
             }
         )
+    }
+}
+
+@MainActor
+private final class InMemoryBlindBoxCloudRecordDatabase: BlindBoxCloudRecordDatabase {
+    private var storedRecords: [CKRecord.ID: CKRecord] = [:]
+    private var hasZone = false
+    private var conflictingSaveAttempts: Int
+
+    private(set) var saveAttemptCount = 0
+
+    var zoneWasCreated: Bool {
+        hasZone
+    }
+
+    init(conflictingSaveAttempts: Int = 0) {
+        self.conflictingSaveAttempts = conflictingSaveAttempts
+    }
+
+    func seed(_ record: CKRecord) throws {
+        storedRecords[record.recordID] = try clone(record)
+    }
+
+    func record(for recordID: CKRecord.ID) -> CKRecord? {
+        guard let record = storedRecords[recordID] else { return nil }
+        return try? clone(record)
+    }
+
+    func fetchZone(_ zoneID: CKRecordZone.ID) async throws -> CKRecordZone? {
+        hasZone ? CKRecordZone(zoneID: zoneID) : nil
+    }
+
+    func createZone(_ zoneID: CKRecordZone.ID) async throws {
+        hasZone = true
+    }
+
+    func fetchRecords(_ recordIDs: [CKRecord.ID]) async throws -> [CKRecord.ID: CKRecord] {
+        var fetched: [CKRecord.ID: CKRecord] = [:]
+        for recordID in recordIDs {
+            if let record = storedRecords[recordID] {
+                fetched[recordID] = try clone(record)
+            }
+        }
+        return fetched
+    }
+
+    func saveRecordsAtomically(_ records: [CKRecord]) async throws {
+        saveAttemptCount += 1
+        if conflictingSaveAttempts > 0 {
+            conflictingSaveAttempts -= 1
+            throw NSError(
+                domain: CKErrorDomain,
+                code: CKError.Code.serverRecordChanged.rawValue
+            )
+        }
+
+        var nextRecords = storedRecords
+        for record in records {
+            nextRecords[record.recordID] = try clone(record)
+        }
+        storedRecords = nextRecords
+    }
+
+    private func clone(_ record: CKRecord) throws -> CKRecord {
+        switch record.recordType {
+        case BlindBoxCloudKitRecordCodec.accountRecordType:
+            return try BlindBoxCloudKitRecordCodec.makeAccountRecord(
+                BlindBoxCloudKitRecordCodec.decodeAccountRecord(record),
+                recordID: record.recordID
+            )
+        case BlindBoxCloudKitRecordCodec.drawRecordType:
+            return try BlindBoxCloudKitRecordCodec.makeDrawRecord(
+                BlindBoxCloudKitRecordCodec.decodeDrawRecord(record),
+                recordID: record.recordID
+            )
+        default:
+            throw BlindBoxCloudKitRepositoryError.incompleteCloudKitResponse
+        }
     }
 }
 

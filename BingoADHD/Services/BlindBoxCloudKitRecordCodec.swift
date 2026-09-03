@@ -86,6 +86,19 @@ enum BlindBoxCloudKitRecordCodec {
         return record
     }
 
+    /// Mutates the record that was fetched from CloudKit rather than creating a
+    /// replacement record. Keeping that instance preserves its server change
+    /// tag, so `.ifServerRecordUnchanged` can detect a competing account
+    /// mutation instead of silently overwriting it.
+    static func updateAccountRecord(
+        _ record: CKRecord,
+        with envelope: BlindBoxCloudAccountEnvelope
+    ) throws {
+        try validate(record, recordType: accountRecordType)
+        try setPayload(envelope, on: record)
+        record[schemaVersionField] = NSNumber(value: envelope.schemaVersion)
+    }
+
     static func decodeAccountRecord(_ record: CKRecord) throws -> BlindBoxCloudAccountEnvelope {
         try validate(record, recordType: accountRecordType)
         return try decodedPayload(from: record, as: BlindBoxCloudAccountEnvelope.self)
