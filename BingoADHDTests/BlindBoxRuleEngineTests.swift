@@ -1129,7 +1129,9 @@ final class BlindBoxStateMachineTests: XCTestCase {
         XCTAssertEqual(store.accountState.ticketBalance, 1)
         let batch = try XCTUnwrap(store.accountState.candidateBatches.first)
         let result = try await store.open(
-            .single(batchID: batch.id, positionIndex: batch.unopenedPositionPlans[0].index)
+            .single(batchID: batch.id, positionIndex: batch.unopenedPositionPlans[0].index),
+            now: now,
+            calendar: calendar
         )
 
         XCTAssertEqual(result.ticketCost, 1)
@@ -1872,6 +1874,100 @@ final class BlindBoxCandidateCoordinatorTests: XCTestCase {
                     stickerID: theme.normalStickers[index % theme.normalStickers.count].id
                 )
             }
+        )
+    }
+}
+
+final class BlindBoxForegroundMaintenanceScheduleTests: XCTestCase {
+    func testNextMaintenanceUsesTheEarliestAutomaticOpenOrRestockDate() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(
+            timeZone: calendar.timeZone,
+            year: 2026,
+            month: 9,
+            day: 1,
+            hour: 3
+        ))!
+        let plan = BlindBoxBatchPlan(
+            themeID: BlindBoxThemeID(rawValue: "pets"),
+            catalogVersion: 1,
+            probabilityMode: .standard,
+            createdAt: now,
+            positions: []
+        )
+        let automaticOpenDate = now.addingTimeInterval(20 * 60)
+        let soldOutDate = now.addingTimeInterval(-23 * 60 * 60 - 30 * 60)
+        let state = BlindBoxAccountState(candidateBatches: [
+            BlindBoxCandidateBatch(plan: plan, nextSystemOpenAt: automaticOpenDate),
+            BlindBoxCandidateBatch(
+                plan: BlindBoxBatchPlan(
+                    themeID: BlindBoxThemeID(rawValue: "cozy_daily"),
+                    catalogVersion: 1,
+                    probabilityMode: .standard,
+                    createdAt: now,
+                    positions: []
+                ),
+                soldOutAt: soldOutDate
+            )
+        ])
+
+        XCTAssertEqual(
+            BlindBoxForegroundMaintenanceSchedule.nextMaintenanceDate(
+                for: state,
+                now: now,
+                calendar: calendar
+            ),
+            automaticOpenDate
+        )
+    }
+
+    func testNextMaintenanceFallsBackToTheNextFourAMTicketBoundary() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(
+            timeZone: calendar.timeZone,
+            year: 2026,
+            month: 9,
+            day: 1,
+            hour: 5,
+            minute: 30
+        ))!
+        let expected = calendar.date(from: DateComponents(
+            timeZone: calendar.timeZone,
+            year: 2026,
+            month: 9,
+            day: 2,
+            hour: 4
+        ))!
+
+        XCTAssertEqual(
+            BlindBoxForegroundMaintenanceSchedule.nextMaintenanceDate(
+                for: BlindBoxAccountState(),
+                now: now,
+                calendar: calendar
+            ),
+            expected
+        )
+    }
+
+    func testRestockCountdownUsesTheExactTwentyFourHourWindow() {
+        let now = Date(timeIntervalSince1970: 2_000)
+
+        XCTAssertEqual(
+            BlindBoxRestockCountdown.text(
+                restockAt: now.addingTimeInterval(90),
+                now: now
+            ),
+            "00:01:30"
+        )
+        XCTAssertEqual(BlindBoxRestockCountdown.text(restockAt: nil, now: now), "24:00:00")
+        XCTAssertEqual(
+            BlindBoxRestockCountdown.text(
+                restockAt: now.addingTimeInterval(-1),
+                now: now
+            ),
+            "00:00:00"
         )
     }
 }

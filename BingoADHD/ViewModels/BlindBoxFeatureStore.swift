@@ -88,6 +88,18 @@ final class BlindBoxFeatureStore: ObservableObject {
         ))
     }
 
+    /// Retired themes remain visible in My Box, but only active themes define
+    /// whether the candidate shelf has reached its current completion state.
+    var hasCollectedEveryActiveTheme: Bool {
+        guard !candidateThemes.isEmpty else { return false }
+        return candidateThemes.allSatisfy {
+            BlindBoxCandidateCoordinator.isThemeComplete(
+                $0,
+                ownedStickerCounts: accountState.ownedStickerCounts
+            )
+        }
+    }
+
     /// Call only after the app's Native iCloud coordinator has finished its
     /// initial primary import. The store does no CloudKit work while waiting,
     /// which protects old sticker ownership from a stale local cache.

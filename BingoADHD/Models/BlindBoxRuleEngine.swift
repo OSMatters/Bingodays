@@ -625,6 +625,23 @@ enum BlindBoxTicketPolicy {
     }
 }
 
+/// Formats the fixed 24-hour sold-out window without consulting the device's
+/// locale calendar. The restock instant is still persisted as a Date; this is
+/// only the small, user-facing countdown representation.
+enum BlindBoxRestockCountdown {
+    static func text(restockAt: Date?, now: Date = .now) -> String {
+        let defaultInterval = BlindBoxRuleConfiguration.restockDelay
+        let interval = restockAt?.timeIntervalSince(now) ?? defaultInterval
+        let remainingSeconds = max(0, Int(interval))
+        return String(
+            format: "%02d:%02d:%02d",
+            remainingSeconds / 3_600,
+            (remainingSeconds % 3_600) / 60,
+            remainingSeconds % 60
+        )
+    }
+}
+
 enum BlindBoxPointExchangeEligibility: Equatable {
     case eligible
     case insufficientPoints(required: Int, current: Int)

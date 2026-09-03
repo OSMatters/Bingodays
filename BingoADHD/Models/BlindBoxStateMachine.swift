@@ -630,6 +630,41 @@ enum BlindBoxAccountMaintenance {
     }
 }
 
+/// Chooses the next foreground moment at which a safe, server-authoritative
+/// maintenance pass may be useful. The app still performs no state transition
+/// while offline: this value merely avoids polling every few minutes while a
+/// user keeps the Blind Box screen open.
+enum BlindBoxForegroundMaintenanceSchedule {
+    static func nextMaintenanceDate(
+        for state: BlindBoxAccountState,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> Date {
+        let automaticOpenDates = state.candidateBatches.compactMap(\.nextSystemOpenAt)
+        let restockDates = state.candidateBatches.compactMap { $0.restockAt() }
+        let nextTicketGrant = nextTicketGrantDate(after: now, calendar: calendar)
+
+        return (automaticOpenDates + restockDates + [nextTicketGrant])
+            .min() ?? nextTicketGrant
+    }
+
+    private static func nextTicketGrantDate(
+        after date: Date,
+        calendar: Calendar
+    ) -> Date {
+        let todayAtFour = calendar.date(
+            bySettingHour: 4,
+            minute: 0,
+            second: 0,
+            of: date
+        ) ?? date
+        guard todayAtFour > date else {
+            return calendar.date(byAdding: .day, value: 1, to: todayAtFour) ?? todayAtFour
+        }
+        return todayAtFour
+    }
+}
+
 enum BlindBoxCandidateCoordinatorError: Error, Equatable {
     case batchGeneration(BlindBoxBatchGenerationError)
 }

@@ -51,6 +51,12 @@ struct BlindBoxFlowView: View {
                     candidates: store.candidates(hasPremiumAccess: subscriptionManager.hasPremiumAccess),
                     themes: store.themes,
                     isPremium: subscriptionManager.hasPremiumAccess,
+                    hasCollectedEveryActiveTheme: store.themes.allSatisfy {
+                        BlindBoxCandidateCoordinator.isThemeComplete(
+                            $0,
+                            ownedStickerCounts: store.state.ownedStickerCounts
+                        )
+                    },
                     onSelectCustomRewards: onSelectCustomRewards,
                     onSelectTicketBalance: {
                         isShowingTicketExchange = true
@@ -306,6 +312,7 @@ struct BlindBoxLiveFlowView: View {
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @EnvironmentObject private var iCloudSyncCoordinator: NativeICloudSyncCoordinator
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -342,6 +349,9 @@ struct BlindBoxLiveFlowView: View {
                 nativeICloudInitialImportComplete: nativeICloudInitialImportComplete
             )
         }
+        .task(id: foregroundMaintenanceScheduleIdentifier) {
+            await runForegroundMaintenanceWhenDue()
+        }
         .animation(.easeInOut(duration: 0.22), value: routeDescription)
     }
 
@@ -356,11 +366,61 @@ struct BlindBoxLiveFlowView: View {
         "\(subscriptionManager.hasPremiumAccess)-\(nativeICloudInitialImportComplete)"
     }
 
+    private var foregroundMaintenanceScheduleIdentifier: String {
+        guard case .ready = store.availability,
+              nativeICloudInitialImportComplete,
+              connectivity.status.canMakeNetworkRequests,
+              scenePhase == .active else {
+            return "inactive-\(store.availability)-\(connectivity.status)-\(scenePhase)"
+        }
+        let nextDate = BlindBoxForegroundMaintenanceSchedule.nextMaintenanceDate(
+            for: store.accountState
+        )
+        return String(format: "active-%.3f", nextDate.timeIntervalSinceReferenceDate)
+    }
+
     private var isDisplayingLobby: Bool {
         if case .lobby = route {
             return true
         }
         return false
+    }
+
+    /// Keeps the simulated public openings, the 24-hour restock and the 04:00
+    /// ticket grant moving while this screen is foregrounded. A single sleep is
+    /// cancelled automatically when the scene becomes inactive, connectivity
+    /// changes or the authoritative account state changes; the next task then
+    /// recalculates the earliest relevant date rather than polling CloudKit.
+    private func runForegroundMaintenanceWhenDue() async {
+        guard case .ready = store.availability,
+              nativeICloudInitialImportComplete,
+              connectivity.status.canMakeNetworkRequests,
+              scenePhase == .active else {
+            return
+        }
+
+        let nextDate = BlindBoxForegroundMaintenanceSchedule.nextMaintenanceDate(
+            for: store.accountState
+        )
+        let secondsUntilMaintenance = max(nextDate.timeIntervalSinceNow, 1)
+        let nanoseconds = UInt64(secondsUntilMaintenance * 1_000_000_000)
+        do {
+            try await Task.sleep(nanoseconds: nanoseconds)
+        } catch {
+            return
+        }
+
+        guard !Task.isCancelled,
+              nativeICloudInitialImportComplete,
+              connectivity.status.canMakeNetworkRequests,
+              scenePhase == .active else {
+            return
+        }
+        await store.refresh(
+            hasPremiumAccess: subscriptionManager.hasPremiumAccess,
+            candidateZoneWasPresented: isDisplayingLobby,
+            nativeICloudInitialImportComplete: nativeICloudInitialImportComplete
+        )
     }
 
     private var liveFlow: some View {
@@ -372,6 +432,7 @@ struct BlindBoxLiveFlowView: View {
                 candidates: store.candidates(hasPremiumAccess: subscriptionManager.hasPremiumAccess),
                 themes: store.themes,
                 isPremium: subscriptionManager.hasPremiumAccess,
+                hasCollectedEveryActiveTheme: store.hasCollectedEveryActiveTheme,
                 onSelectCustomRewards: onSelectCustomRewards,
                 onSelectTicketBalance: {
                     isShowingTicketExchange = true
@@ -428,7 +489,9 @@ struct BlindBoxLiveFlowView: View {
                 result: result,
                 themes: store.themes,
                 onContinue: {
-                    route = .detail(result.batchID)
+                    route = store.accountState.candidateBatches.contains(where: {
+                        $0.id == result.batchID
+                    }) ? .detail(result.batchID) : .lobby
                 }
             )
 
@@ -649,6 +712,7 @@ private struct BlindBoxLobbyView: View {
     let candidates: [BlindBoxCandidateBatch]
     let themes: [BlindBoxThemeDefinition]
     let isPremium: Bool
+    let hasCollectedEveryActiveTheme: Bool
     let onSelectCustomRewards: (() -> Void)?
     let onSelectTicketBalance: () -> Void
     let onSelectBatch: (UUID) -> Void
@@ -693,6 +757,11 @@ private struct BlindBoxLobbyView: View {
                     .position(x: 196, y: 516)
 
                 lobbyCandidates
+
+                if hasCollectedEveryActiveTheme, candidates.isEmpty {
+                    BlindBoxCollectionCompleteNotice(onShowMyBox: onShowMyBox)
+                        .position(x: 196, y: 495)
+                }
 
                 if !isPremium {
                     premiumPlaceholders
@@ -786,6 +855,42 @@ private struct BlindBoxLobbyView: View {
     }
 }
 
+/// This is the agreed post-completion destination until content operations add
+/// another active theme. It intentionally keeps My Box available so duplicate
+/// counts and every completed theme remain reviewable.
+private struct BlindBoxCollectionCompleteNotice: View {
+    let onShowMyBox: () -> Void
+
+    var body: some View {
+        VStack(spacing: 9) {
+            Text("All themes complete!")
+                .font(.appSystem(size: 18, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: "6A4B33"))
+            Text("New sticker themes will arrive here soon.")
+                .font(.appSystem(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(Color(hex: "8A6E59"))
+                .multilineTextAlignment(.center)
+            Button(action: onShowMyBox) {
+                Text("View My Box")
+                    .font(.appSystem(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(width: 122, height: 32)
+                    .background(Color(hex: "DCAF7A"), in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 16)
+        .frame(width: 248)
+        .background(Color(hex: "FFF8EC").opacity(0.96), in: RoundedRectangle(cornerRadius: 22))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(Color(hex: "E7B880"), lineWidth: 2)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("All current Blind Box themes are complete. New themes will arrive soon.")
+    }
+}
+
 private struct BlindBoxLobbyCard: View {
     let batch: BlindBoxCandidateBatch
     let theme: BlindBoxThemeDefinition
@@ -812,9 +917,18 @@ private struct BlindBoxLobbyCard: View {
                     .fill(.white)
                     .frame(width: batch.isSoldOut ? 100 : 83, height: 22)
                     .overlay {
-                        Text(statusText)
-                            .font(.appSystem(size: 10, weight: .medium, design: .rounded))
-                            .foregroundStyle(Color(hex: "594A3D"))
+                        if batch.isSoldOut {
+                            BlindBoxRestockCountdownLabel(
+                                restockAt: batch.restockAt(),
+                                prefix: "Refresh in",
+                                font: .appSystem(size: 10, weight: .medium, design: .rounded),
+                                foregroundColor: Color(hex: "594A3D")
+                            )
+                        } else {
+                            Text(statusText)
+                                .font(.appSystem(size: 10, weight: .medium, design: .rounded))
+                                .foregroundStyle(Color(hex: "594A3D"))
+                        }
                     }
                     .offset(y: 11)
             }
@@ -831,9 +945,6 @@ private struct BlindBoxLobbyCard: View {
     }
 
     private var statusText: String {
-        if batch.isSoldOut {
-            return "Refresh in 21:00"
-        }
         return "Left: \(batch.remainingPositionCount)/9"
     }
 }
@@ -878,10 +989,13 @@ private struct BlindBoxDetailView: View {
                 positionGrid
 
                 if batch.isSoldOut {
-                    Text("Restocks in \(restockText)")
-                        .font(.appSystem(size: 14, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(hex: "88644C"))
-                        .position(x: 196, y: 741)
+                    BlindBoxRestockCountdownLabel(
+                        restockAt: batch.restockAt(),
+                        prefix: "Restocks in",
+                        font: .appSystem(size: 14, weight: .bold, design: .rounded),
+                        foregroundColor: Color(hex: "88644C")
+                    )
+                    .position(x: 196, y: 741)
                 }
 
                 actionButtons
@@ -950,10 +1064,21 @@ private struct BlindBoxDetailView: View {
             (theme.id.rawValue == "pets" ? "BlindBoxPetsBoard" : "BlindBoxCozyBoard")
     }
 
-    private var restockText: String {
-        guard let date = batch.restockAt() else { return "24:00:00" }
-        let interval = max(0, Int(date.timeIntervalSinceNow))
-        return String(format: "%02d:%02d:%02d", interval / 3600, (interval % 3600) / 60, interval % 60)
+}
+
+private struct BlindBoxRestockCountdownLabel: View {
+    let restockAt: Date?
+    let prefix: String
+    let font: Font
+    let foregroundColor: Color
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            Text("\(prefix) \(BlindBoxRestockCountdown.text(restockAt: restockAt, now: context.date))")
+                .font(font)
+                .foregroundStyle(foregroundColor)
+        }
+        .accessibilityLabel("\(prefix) \(BlindBoxRestockCountdown.text(restockAt: restockAt))")
     }
 }
 
