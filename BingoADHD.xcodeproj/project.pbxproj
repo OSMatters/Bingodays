@@ -49,6 +49,7 @@
 		B1120000000000000000000B /* BlindBoxConnectivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1120000000000000000000A /* BlindBoxConnectivityMonitor.swift */; };
 		B1130000000000000000000B /* BlindBoxCloudKitRecordCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1130000000000000000000A /* BlindBoxCloudKitRecordCodec.swift */; };
 		B1140000000000000000000B /* BlindBoxCloudKitRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1140000000000000000000A /* BlindBoxCloudKitRepository.swift */; };
+		B1150000000000000000000B /* BlindBoxFeatureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1150000000000000000000A /* BlindBoxFeatureStore.swift */; };
 		B0A1D2E3F4A5061728394E01 /* TaskStartReminderSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394E00 /* TaskStartReminderSyncStore.swift */; };
 		B0A1D2E3F4A5061728394F01 /* HomeBoardSnapshotSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394F00 /* HomeBoardSnapshotSyncStore.swift */; };
 		B0A1D2E3F4A5061728395001 /* HomeLifecycleWorkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728395000 /* HomeLifecycleWorkStore.swift */; };
@@ -257,6 +258,7 @@
 		B1120000000000000000000A /* BlindBoxConnectivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxConnectivityMonitor.swift; sourceTree = "<group>"; };
 		B1130000000000000000000A /* BlindBoxCloudKitRecordCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCloudKitRecordCodec.swift; sourceTree = "<group>"; };
 		B1140000000000000000000A /* BlindBoxCloudKitRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCloudKitRepository.swift; sourceTree = "<group>"; };
+		B1150000000000000000000A /* BlindBoxFeatureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxFeatureStore.swift; sourceTree = "<group>"; };
 				AA20000000000000000034 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 				AA20000000000000000035 /* PointsStores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointsStores.swift; sourceTree = "<group>"; };
 				AA20000000000000000036 /* TaskStores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskStores.swift; sourceTree = "<group>"; };
@@ -551,6 +553,7 @@
 				DD90FB57756C4FB6849FC680 /* PointsAnimationStore.swift */,
 				AA20000000000000000018 /* PointsFeatureStore.swift */,
 				B10E0000000000000000000A /* BlindBoxPreviewStore.swift */,
+				B1150000000000000000000A /* BlindBoxFeatureStore.swift */,
 					E4FD4267FD4245D696BC64DE /* TimeoutDelayPickerStore.swift */,
 				);
 			path = ViewModels;
@@ -881,6 +884,7 @@
 				B1120000000000000000000B /* BlindBoxConnectivityMonitor.swift in Sources */,
 				B1130000000000000000000B /* BlindBoxCloudKitRecordCodec.swift in Sources */,
 				B1140000000000000000000B /* BlindBoxCloudKitRepository.swift in Sources */,
+				B1150000000000000000000B /* BlindBoxFeatureStore.swift in Sources */,
 				B0A1D2E3F4A5061728394B51 /* BoardEngine.swift in Sources */,
 				B0A1D2E3F4A5061728394B61 /* BoardResetRuleEngine.swift in Sources */,
 				B0A1D2E3F4A5061728394B71 /* BingoDiaryStore.swift in Sources */,

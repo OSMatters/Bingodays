@@ -888,6 +888,58 @@ final class BlindBoxStateMachineTests: XCTestCase {
     }
 
     @MainActor
+    func testFeatureStoreWaitsForInitialICloudImportWithoutCreatingAnAccount() async throws {
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        let store = BlindBoxFeatureStore(
+            themes: BlindBoxCatalog.builtInThemes,
+            database: database,
+            legacyInventoryProvider: { [StickerKind.cowCat.rawValue: 1] }
+        )
+
+        await store.refresh(
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: true,
+            nativeICloudInitialImportComplete: false
+        )
+
+        XCTAssertEqual(store.availability, .waitingForICloudInitialImport)
+        XCTAssertEqual(database.saveAttemptCount, 0)
+        XCTAssertNil(database.record(for: BlindBoxCloudKitRecordCodec.accountRecordID))
+    }
+
+    @MainActor
+    func testFeatureStoreBootstrapsMaintainsAndUsesTheCloudDrawRepository() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = Date(timeIntervalSince1970: 2_000)
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        let store = BlindBoxFeatureStore(
+            themes: BlindBoxCatalog.builtInThemes,
+            database: database,
+            legacyInventoryProvider: { [:] }
+        )
+
+        await store.refresh(
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: true,
+            nativeICloudInitialImportComplete: true,
+            now: now,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(store.availability, .ready)
+        XCTAssertEqual(store.accountState.ticketBalance, 1)
+        let batch = try XCTUnwrap(store.accountState.candidateBatches.first)
+        let result = try await store.open(
+            .single(batchID: batch.id, positionIndex: batch.unopenedPositionPlans[0].index)
+        )
+
+        XCTAssertEqual(result.ticketCost, 1)
+        XCTAssertEqual(store.accountState.ticketBalance, 0)
+        XCTAssertEqual(store.accountState.ownedStickerCounts.count, 1)
+    }
+
+    @MainActor
     func testCloudDrawRepositoryAtomicallyCommitsAndReturnsThePriorResultForARetry() async throws {
         let plan = makePlan()
         let request = BlindBoxDrawRequest.single(
