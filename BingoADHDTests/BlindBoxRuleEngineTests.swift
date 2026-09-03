@@ -668,6 +668,18 @@ final class BlindBoxRuleEngineTests: XCTestCase {
 
 final class BlindBoxStateMachineTests: XCTestCase {
     @MainActor
+    func testForcedOfflineConnectivityGateBlocksNetworkOperations() {
+        let monitor = BlindBoxConnectivityMonitor(forceOffline: true)
+
+        XCTAssertEqual(monitor.status, .offline)
+        XCTAssertFalse(monitor.status.canMakeNetworkRequests)
+        XCTAssertEqual(
+            monitor.status.unavailableMessage,
+            "You're offline. Connect to the internet and try again."
+        )
+    }
+
+    @MainActor
     func testPreviewDrawRepositoryReturnsTheOriginalResultForAnIdempotencyRetry() async throws {
         let store = BlindBoxPreviewStore(referenceDate: Date(timeIntervalSince1970: 1_000))
         let batchID = UUID(uuidString: "A0000000-0000-4000-8000-000000000001")!
@@ -696,6 +708,33 @@ final class BlindBoxStateMachineTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? BlindBoxDrawRepositoryError, .idempotencyKeyConflict)
         }
+    }
+
+    @MainActor
+    func testPreviewTicketExchangeOnlyChangesItsOwnDevelopmentPoints() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let store = BlindBoxPreviewStore(
+            previewAvailablePoints: 100,
+            referenceDate: Date(timeIntervalSince1970: 1_000)
+        )
+
+        let result = try store.exchangePointsForOneTicket(
+            now: Date(timeIntervalSince1970: 1_000),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(result.deductedPoints, 100)
+        XCTAssertEqual(result.grantedTickets, 1)
+        XCTAssertEqual(store.previewAvailablePoints, 0)
+        XCTAssertEqual(store.state.ticketBalance, BlindBoxRuleConfiguration.maximumTicketBalance)
+        XCTAssertEqual(
+            store.pointExchangeEligibility(
+                now: Date(timeIntervalSince1970: 1_000),
+                calendar: calendar
+            ),
+            .ticketBalanceAtCapacity
+        )
     }
 
     func testDrawRequestRejectsInvalidModeAndPositionCombinations() {

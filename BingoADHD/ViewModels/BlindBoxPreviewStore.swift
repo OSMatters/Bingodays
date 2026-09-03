@@ -13,6 +13,7 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
 
     @Published private(set) var state: BlindBoxAccountState
     @Published private(set) var lastOpenResult: BlindBoxOpenResult?
+    @Published private(set) var previewAvailablePoints: Int
 
     private var completedDraws: [UUID: CompletedDraw] = [:]
 
@@ -20,9 +21,11 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
 
     init(
         themes: [BlindBoxThemeDefinition] = BlindBoxCatalog.builtInThemes,
+        previewAvailablePoints: Int = 320,
         referenceDate: Date = .now
     ) {
         self.themes = themes
+        self.previewAvailablePoints = max(previewAvailablePoints, 0)
         self.state = Self.makeFixture(themes: themes, referenceDate: referenceDate)
     }
 
@@ -92,6 +95,36 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
         state.ownedCount(for: stickerID)
     }
 
+    func pointExchangeEligibility(
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> BlindBoxPointExchangeEligibility {
+        let currentGrantDay = BlindBoxGrantDay.identifier(for: now, calendar: calendar)
+        let exchangesUsed = state.lastPointExchangeDayIdentifier == currentGrantDay
+            ? state.pointExchangesUsedOnLastGrantDay
+            : 0
+        return BlindBoxPointExchangePolicy.eligibility(
+            availablePoints: previewAvailablePoints,
+            ticketBalance: state.ticketBalance,
+            exchangesUsedThisGrantDay: exchangesUsed
+        )
+    }
+
+    @discardableResult
+    func exchangePointsForOneTicket(
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) throws -> BlindBoxPointExchangeResult {
+        let result = try BlindBoxWalletStateMachine.exchangePointsForOneTicket(
+            state: &state,
+            availablePoints: previewAvailablePoints,
+            now: now,
+            calendar: calendar
+        )
+        previewAvailablePoints -= result.deductedPoints
+        return result
+    }
+
     private static func makeFixture(
         themes: [BlindBoxThemeDefinition],
         referenceDate: Date
@@ -140,7 +173,7 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
 
         let allIndices = Set(0..<BlindBoxRuleConfiguration.batchPositionCount)
         return BlindBoxAccountState(
-            ticketBalance: BlindBoxRuleConfiguration.maximumTicketBalance,
+            ticketBalance: BlindBoxRuleConfiguration.maximumTicketBalance - 1,
             ownedStickerCounts: [
                 "pets_02": 1,
                 "pets_03": 1,

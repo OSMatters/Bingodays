@@ -63,6 +63,16 @@ enum AppDebugFlags {
 #endif
     }
 
+    /// Lets the development-only Blind Box preview verify the offline toast
+    /// without disabling the simulator's or device's network globally.
+    static var blindBoxPreviewForcesOffline: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-DebugBlindBoxOffline")
+#else
+        false
+#endif
+    }
+
     static var tileGestureDebugEnabled: Bool {
 #if DEBUG
         ProcessInfo.processInfo.arguments.contains("-DebugTileGestures")

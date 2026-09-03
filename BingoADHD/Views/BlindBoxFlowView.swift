@@ -10,10 +10,13 @@ struct BlindBoxFlowView: View {
         case myBox
     }
 
-    @StateObject private var store = BlindBoxPreviewStore()
+    @StateObject private var store: BlindBoxPreviewStore
+    @StateObject private var connectivity: BlindBoxConnectivityMonitor
     @State private var route: Route = .lobby
     @State private var toastMessage: String?
     @State private var pendingOpenRequest: BlindBoxOpenRequest?
+    @State private var isShowingTicketExchange = false
+    @State private var isConfirmingTicketExchange = false
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @Environment(\.dismiss) private var dismiss
 
@@ -22,6 +25,21 @@ struct BlindBoxFlowView: View {
     /// the integration pass so it cannot affect a release before this feature is
     /// enabled.
     var onSelectCustomRewards: (() -> Void)?
+
+    init(
+        previewAvailablePoints: Int = 320,
+        onSelectCustomRewards: (() -> Void)? = nil
+    ) {
+        _store = StateObject(
+            wrappedValue: BlindBoxPreviewStore(previewAvailablePoints: previewAvailablePoints)
+        )
+        _connectivity = StateObject(
+            wrappedValue: BlindBoxConnectivityMonitor(
+                forceOffline: AppDebugFlags.blindBoxPreviewForcesOffline
+            )
+        )
+        self.onSelectCustomRewards = onSelectCustomRewards
+    }
 
     var body: some View {
         ZStack {
@@ -33,6 +51,9 @@ struct BlindBoxFlowView: View {
                     themes: store.themes,
                     isPremium: subscriptionManager.hasPremiumAccess,
                     onSelectCustomRewards: onSelectCustomRewards,
+                    onSelectTicketBalance: {
+                        isShowingTicketExchange = true
+                    },
                     onSelectBatch: { batchID in
                         route = .detail(batchID)
                     },
@@ -109,6 +130,33 @@ struct BlindBoxFlowView: View {
                 )
                 .zIndex(10)
             }
+
+            if isShowingTicketExchange {
+                BlindBoxTicketExchangeSheet(
+                    availablePoints: store.previewAvailablePoints,
+                    ticketBalance: store.state.ticketBalance,
+                    eligibility: store.pointExchangeEligibility(),
+                    onClose: {
+                        isShowingTicketExchange = false
+                    },
+                    onRequestExchange: {
+                        isConfirmingTicketExchange = true
+                    }
+                )
+                .zIndex(10)
+            }
+
+            if isConfirmingTicketExchange {
+                BlindBoxTicketExchangeConfirmation(
+                    onCancel: {
+                        isConfirmingTicketExchange = false
+                    },
+                    onConfirm: {
+                        confirmTicketExchange()
+                    }
+                )
+                .zIndex(11)
+            }
         }
         .animation(.easeInOut(duration: 0.22), value: routeDescription)
     }
@@ -136,6 +184,10 @@ struct BlindBoxFlowView: View {
     }
 
     private func open(_ request: BlindBoxDrawRequest) {
+        guard connectivity.status.canMakeNetworkRequests else {
+            presentToast(connectivity.status.unavailableMessage)
+            return
+        }
         Task {
             do {
                 let result = try await store.open(request)
@@ -163,7 +215,30 @@ struct BlindBoxFlowView: View {
         }
     }
 
+    private func confirmTicketExchange() {
+        isConfirmingTicketExchange = false
+        guard connectivity.status.canMakeNetworkRequests else {
+            presentToast(connectivity.status.unavailableMessage)
+            return
+        }
+        do {
+            _ = try store.exchangePointsForOneTicket()
+            isShowingTicketExchange = false
+            presentToast("1 Blind Box ticket added.")
+        } catch {
+            presentFailure(error)
+        }
+    }
+
     private func presentFailure(_ error: Error) {
+        if let walletError = error as? BlindBoxWalletError {
+            switch walletError {
+            case let .pointExchange(eligibility):
+                presentToast(ticketExchangeFailureMessage(for: eligibility))
+            }
+            return
+        }
+
         let message: String
         switch error as? BlindBoxOpenError {
         case .insufficientTickets:
@@ -175,9 +250,26 @@ struct BlindBoxFlowView: View {
         default:
             message = "Unable to open this box. Please try again."
         }
-        withAnimation {
-            toastMessage = message
+        presentToast(message)
+    }
+
+    private func ticketExchangeFailureMessage(
+        for eligibility: BlindBoxPointExchangeEligibility
+    ) -> String {
+        switch eligibility {
+        case let .insufficientPoints(required, current):
+            return "You need \(max(required - current, 0)) more points."
+        case .ticketBalanceAtCapacity:
+            return "Your Blind Box ticket balance is full."
+        case .grantDayLimitReached:
+            return "You already exchanged a ticket today."
+        case .eligible:
+            return "Unable to exchange points. Please try again."
         }
+    }
+
+    private func presentToast(_ message: String) {
+        withAnimation { toastMessage = message }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
             withAnimation {
                 toastMessage = nil
@@ -221,6 +313,7 @@ private struct BlindBoxLobbyView: View {
     let themes: [BlindBoxThemeDefinition]
     let isPremium: Bool
     let onSelectCustomRewards: (() -> Void)?
+    let onSelectTicketBalance: () -> Void
     let onSelectBatch: (UUID) -> Void
     let onShowMyBox: () -> Void
     let onDismiss: () -> Void
@@ -307,20 +400,24 @@ private struct BlindBoxLobbyView: View {
     }
 
     private var ticketBadge: some View {
-        ZStack(alignment: .leading) {
-            Capsule()
-                .fill(Color(hex: "E3A65E"))
-                .frame(width: 78, height: 28)
-                .offset(x: 14)
-            Text("\(ticketBalance)")
-                .font(.appSystem(size: 16, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(width: 44)
-                .offset(x: 42)
-            BlindBoxImage("BlindBoxTicketIcon")
-                .frame(width: 42, height: 42)
+        Button(action: onSelectTicketBalance) {
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color(hex: "E3A65E"))
+                    .frame(width: 78, height: 28)
+                    .offset(x: 14)
+                Text("\(ticketBalance)")
+                    .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(width: 44)
+                    .offset(x: 42)
+                BlindBoxImage("BlindBoxTicketIcon")
+                    .frame(width: 42, height: 42)
+            }
+            .frame(width: 92, height: 43)
         }
-        .frame(width: 92, height: 43)
+        .buttonStyle(.plain)
+        .accessibilityLabel("Blind Box tickets: \(ticketBalance). Get more tickets")
     }
 
     @ViewBuilder
@@ -916,6 +1013,141 @@ private struct BlindBoxOpenConfirmation: View {
                         .background(.white, in: Capsule())
 
                     Button("Open", action: onConfirm)
+                        .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(width: 118, height: 44)
+                        .background(Color(hex: "DCAF7A"), in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.vertical, 24)
+            .padding(.horizontal, 20)
+            .frame(width: 300)
+            .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24)
+                    .stroke(Color(hex: "E7B880"), lineWidth: 2)
+            }
+        }
+    }
+}
+
+/// The Figma board does not prescribe this small state. It is intentionally a
+/// compact continuation of the ticket badge rather than a new primary screen.
+private struct BlindBoxTicketExchangeSheet: View {
+    let availablePoints: Int
+    let ticketBalance: Int
+    let eligibility: BlindBoxPointExchangeEligibility
+    let onClose: () -> Void
+    let onRequestExchange: () -> Void
+
+    private var canExchange: Bool {
+        eligibility == .eligible
+    }
+
+    private var statusMessage: String {
+        switch eligibility {
+        case .eligible:
+            return "Available once each day. Resets at 4:00 AM."
+        case let .insufficientPoints(required, current):
+            return "Need \(max(required - current, 0)) more points."
+        case .ticketBalanceAtCapacity:
+            return "Your ticket balance is full."
+        case .grantDayLimitReached:
+            return "You already exchanged a ticket today."
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.38)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onClose)
+
+            VStack(spacing: 14) {
+                HStack {
+                    Text("Get tickets")
+                        .font(.appSystem(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: "5A412C"))
+                    Spacer()
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Color(hex: "8A6E59"))
+                            .frame(width: 32, height: 32)
+                            .background(.white.opacity(0.75), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
+                }
+
+                VStack(spacing: 8) {
+                    Text("100 points  →  1 ticket")
+                        .font(.appSystem(size: 19, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: "A46D4C"))
+                    Text("You have \(availablePoints) points · \(ticketBalance)/20 tickets")
+                        .font(.appSystem(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(hex: "8A6E59"))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(Color.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 18))
+
+                Text(statusMessage)
+                    .font(.appSystem(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(canExchange ? Color(hex: "8A6E59") : Color(hex: "B56D56"))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button("Exchange 100 points", action: onRequestExchange)
+                    .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(
+                        canExchange ? Color(hex: "DCAF7A") : Color(hex: "C9B9A8"),
+                        in: Capsule()
+                    )
+                    .buttonStyle(.plain)
+                    .disabled(!canExchange)
+                    .accessibilityHint("Exchanges 100 points for one Blind Box ticket")
+            }
+            .padding(22)
+            .frame(width: 330)
+            .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24)
+                    .stroke(Color(hex: "E7B880"), lineWidth: 2)
+            }
+        }
+    }
+}
+
+private struct BlindBoxTicketExchangeConfirmation: View {
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.42)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                Text("Exchange 100 points?")
+                    .font(.appSystem(size: 22, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: "5A412C"))
+                Text("You will receive 1 Blind Box ticket. This exchange can’t be undone.")
+                    .font(.appSystem(size: 15, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color(hex: "8A6E59"))
+                    .multilineTextAlignment(.center)
+
+                HStack(spacing: 12) {
+                    Button("Cancel", action: onCancel)
+                        .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: "A46D4C"))
+                        .frame(width: 118, height: 44)
+                        .background(.white, in: Capsule())
+
+                    Button("Exchange", action: onConfirm)
                         .font(.appSystem(size: 16, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .frame(width: 118, height: 44)

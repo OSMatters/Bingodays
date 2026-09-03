@@ -17,7 +17,7 @@ struct PointsFlowPresenter: View {
 
     var body: some View {
         if isShowingBlindBoxPreview {
-            BlindBoxFlowView(onSelectCustomRewards: {
+            BlindBoxFlowView(previewAvailablePoints: points, onSelectCustomRewards: {
                 isShowingBlindBoxPreview = false
             })
             .onAppear {
