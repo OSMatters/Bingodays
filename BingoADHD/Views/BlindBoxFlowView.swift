@@ -1089,6 +1089,7 @@ private struct BlindBoxDetailView: View {
     let onOpenPosition: (Int) -> Void
     let onOpenRandom: () -> Void
     let onOpenWholeBox: () -> Void
+    @State private var isShowingOdds = false
 
     var body: some View {
         BlindBoxCanvas {
@@ -1137,6 +1138,32 @@ private struct BlindBoxDetailView: View {
                         .foregroundStyle(Color(hex: "88644C"))
                         .position(x: 196, y: 757)
                         .accessibilityLabel(nextTicketText)
+
+                    Button {
+                        isShowingOdds = true
+                    } label: {
+                        Text("Odds · Hidden \(hiddenStickerPercent)%")
+                            .font(.appSystem(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(hex: "A46A45"))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 5)
+                            .background(.white.opacity(0.9), in: Capsule())
+                            .overlay {
+                                Capsule().stroke(Color(hex: "F1C079"), lineWidth: 1)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("View this box's odds. Hidden sticker chance is \(hiddenStickerPercent) percent.")
+                    .position(x: 196, y: 784)
+                }
+
+                if isShowingOdds {
+                    BlindBoxBatchOddsSheet(
+                        theme: theme,
+                        probabilityMode: batch.plan.probabilityMode,
+                        onClose: { isShowingOdds = false }
+                    )
+                    .zIndex(10)
                 }
             }
         }
@@ -1205,6 +1232,10 @@ private struct BlindBoxDetailView: View {
     private var nextTicketText: String {
         let noun = dailyTicketAllowance == 1 ? "ticket" : "tickets"
         return "Next 4 AM: +\(dailyTicketAllowance) \(noun)"
+    }
+
+    private var hiddenStickerPercent: Int {
+        Int((batch.plan.probabilityMode.hiddenStickerProbability * 100).rounded())
     }
 
 }
@@ -1686,6 +1717,101 @@ private struct BlindBoxLiveStatusView: View {
                 }
             }
         }
+    }
+}
+
+/// Each batch records the mode that generated it. The sheet deliberately
+/// discloses that mode and its published odds without inspecting or revealing
+/// any unopened position in the already-locked batch.
+private struct BlindBoxBatchOddsSheet: View {
+    let theme: BlindBoxThemeDefinition
+    let probabilityMode: BlindBoxProbabilityMode
+    let onClose: () -> Void
+
+    private var hiddenPerPositionPercent: String {
+        percent(probabilityMode.hiddenStickerProbability)
+    }
+
+    private var hiddenPerBoxPercent: String {
+        percent(probabilityMode.hiddenInclusionProbability)
+    }
+
+    private var normalPerPositionPercent: String {
+        let probability = (1 - probabilityMode.hiddenStickerProbability) /
+            Double(max(theme.normalStickers.count, 1))
+        return percent(probability)
+    }
+
+    private var modeName: String {
+        switch probabilityMode {
+        case .standard:
+            return "Standard mode"
+        case .hiddenHunt:
+            return "Hidden hunt mode"
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.38)
+                .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("This box's odds")
+                        .font(.appSystem(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: "5A412C"))
+                    Spacer()
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.appSystem(size: 13, weight: .bold))
+                            .foregroundStyle(Color(hex: "8A6E59"))
+                            .frame(width: 30, height: 30)
+                            .background(.white.opacity(0.78), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close this box's odds")
+                }
+
+                Text(modeName)
+                    .font(.appSystem(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: "A46A45"))
+
+                BlindBoxRuleRow(
+                    title: "Hidden sticker",
+                    detail: "\(hiddenPerPositionPercent) per position equivalent. This 9-position box has a \(hiddenPerBoxPercent) chance to include exactly one Hidden sticker."
+                )
+                BlindBoxRuleRow(
+                    title: "Normal stickers",
+                    detail: "Each of this theme's \(theme.normalStickers.count) normal stickers starts at \(normalPerPositionPercent) per position. Repeats can still happen."
+                )
+                BlindBoxRuleRow(
+                    title: "Locked before opening",
+                    detail: "The 9 results were generated when this box appeared. Choosing a position does not reroll its reward. Opened positions may help you decide which remaining position to choose."
+                )
+
+                Button(action: onClose) {
+                    Text("Got it")
+                        .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Color(hex: "DCAF7A"), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+            }
+            .padding(20)
+            .frame(width: 330)
+            .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24)
+                    .stroke(Color(hex: "E7B880"), lineWidth: 2)
+            }
+        }
+    }
+
+    private func percent(_ value: Double) -> String {
+        String(format: "%.2f%%", value * 100)
     }
 }
 
