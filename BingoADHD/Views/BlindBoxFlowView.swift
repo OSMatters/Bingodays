@@ -18,6 +18,7 @@ struct BlindBoxFlowView: View {
     @State private var pendingOpenRequest: BlindBoxOpenRequest?
     @State private var isShowingTicketExchange = false
     @State private var isConfirmingTicketExchange = false
+    @State private var isShowingRules = false
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @Environment(\.dismiss) private var dismiss
 
@@ -58,6 +59,9 @@ struct BlindBoxFlowView: View {
                         )
                     },
                     onSelectCustomRewards: onSelectCustomRewards,
+                    onShowRules: {
+                        isShowingRules = true
+                    },
                     onSelectTicketBalance: {
                         isShowingTicketExchange = true
                     },
@@ -135,6 +139,13 @@ struct BlindBoxFlowView: View {
                         confirm(pendingOpenRequest)
                     }
                 )
+                .zIndex(10)
+            }
+
+            if isShowingRules {
+                BlindBoxRulesSheet(onClose: {
+                    isShowingRules = false
+                })
                 .zIndex(10)
             }
 
@@ -309,6 +320,7 @@ struct BlindBoxLiveFlowView: View {
     @State private var pendingOpenRequest: BlindBoxOpenRequest?
     @State private var isShowingTicketExchange = false
     @State private var isConfirmingTicketExchange = false
+    @State private var isShowingRules = false
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @EnvironmentObject private var iCloudSyncCoordinator: NativeICloudSyncCoordinator
     @Environment(\.dismiss) private var dismiss
@@ -434,6 +446,9 @@ struct BlindBoxLiveFlowView: View {
                 isPremium: subscriptionManager.hasPremiumAccess,
                 hasCollectedEveryActiveTheme: store.hasCollectedEveryActiveTheme,
                 onSelectCustomRewards: onSelectCustomRewards,
+                onShowRules: {
+                    isShowingRules = true
+                },
                 onSelectTicketBalance: {
                     isShowingTicketExchange = true
                 },
@@ -522,6 +537,13 @@ struct BlindBoxLiveFlowView: View {
                         confirm(pendingOpenRequest)
                     }
                 )
+                .zIndex(10)
+            }
+
+            if isShowingRules {
+                BlindBoxRulesSheet(onClose: {
+                    isShowingRules = false
+                })
                 .zIndex(10)
             }
 
@@ -714,6 +736,7 @@ private struct BlindBoxLobbyView: View {
     let isPremium: Bool
     let hasCollectedEveryActiveTheme: Bool
     let onSelectCustomRewards: (() -> Void)?
+    let onShowRules: () -> Void
     let onSelectTicketBalance: () -> Void
     let onSelectBatch: (UUID) -> Void
     let onShowMyBox: () -> Void
@@ -741,7 +764,7 @@ private struct BlindBoxLobbyView: View {
                 .accessibilityLabel("My Box")
                 .position(x: 360, y: 223)
 
-                Button(action: {}) {
+                Button(action: onShowRules) {
                     BlindBoxImage("BlindBoxRulesIcon")
                         .frame(width: 22, height: 22)
                 }
@@ -1543,6 +1566,108 @@ private struct BlindBoxLiveStatusView: View {
                 }
             }
         }
+    }
+}
+
+/// The main Figma screens include a rules affordance but no corresponding
+/// panel. This compact sheet makes the agreed odds and wallet constraints
+/// inspectable before a ticket is spent.
+private struct BlindBoxRulesSheet: View {
+    let onClose: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.38)
+                .ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 11) {
+                    HStack {
+                        Text("Blind Box Rules")
+                            .font(.appSystem(size: 22, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(hex: "5A412C"))
+                        Spacer()
+                        Button(action: onClose) {
+                            Image(systemName: "xmark")
+                                .font(.appSystem(size: 13, weight: .bold))
+                                .foregroundStyle(Color(hex: "8A6E59"))
+                                .frame(width: 30, height: 30)
+                                .background(.white.opacity(0.78), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Close Blind Box rules")
+                    }
+
+                    BlindBoxRuleRow(
+                        title: "Daily tickets",
+                        detail: "At 4:00 AM, Free receives 1 ticket and Premium receives 3. Missed days top up only until the 20-ticket limit."
+                    )
+                    BlindBoxRuleRow(
+                        title: "Opening a box",
+                        detail: "Each themed box has 9 positions. A chosen or random position costs 1 ticket; Whole box costs every remaining position."
+                    )
+                    BlindBoxRuleRow(
+                        title: "Hidden sticker odds",
+                        detail: "A 9-position box has a 9% chance to contain one Hidden sticker (1% per slot equivalent). After all normal stickers are owned but Hidden is missing, this becomes 45% (5% per slot equivalent). A box holds at most one Hidden sticker."
+                    )
+                    BlindBoxRuleRow(
+                        title: "Duplicates",
+                        detail: "Duplicates remain in My Box as ×N. They do not convert to fragments, points, or a replacement draw."
+                    )
+                    BlindBoxRuleRow(
+                        title: "Availability",
+                        detail: "After a box is first shown, positions can become opened over time. Sold-out boxes stay in their slot and restock after exactly 24 hours."
+                    )
+                    BlindBoxRuleRow(
+                        title: "Tickets for points",
+                        detail: "100 points exchanges for 1 ticket, once per grant day. The exchange cannot be undone."
+                    )
+                    BlindBoxRuleRow(
+                        title: "Connection",
+                        detail: "Opening requires internet. If you are offline, the opening fails and no ticket is used."
+                    )
+
+                    Button(action: onClose) {
+                        Text("Got it")
+                            .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(Color(hex: "DCAF7A"), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 4)
+                }
+                .padding(20)
+            }
+            .frame(width: 330, height: 650)
+            .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24)
+                    .stroke(Color(hex: "E7B880"), lineWidth: 2)
+            }
+            .padding(.vertical, 32)
+        }
+    }
+}
+
+private struct BlindBoxRuleRow: View {
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.appSystem(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: "6A4B33"))
+            Text(detail)
+                .font(.appSystem(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(Color(hex: "8A6E59"))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 8)
+        .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
