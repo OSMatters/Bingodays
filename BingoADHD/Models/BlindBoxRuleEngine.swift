@@ -111,6 +111,67 @@ enum BlindBoxThemePresentationValidationError: Equatable, Sendable {
     case invalidCoordinate
 }
 
+/// The non-sticker artwork a theme needs to render in the shared Figma layout.
+/// Remote releases supply these as cache keys for image files that travel with
+/// the catalog bundle; built-in development themes continue to use the fixed
+/// asset-catalog artwork until the remote catalog is enabled for release.
+struct BlindBoxThemeArtwork: Codable, Equatable, Hashable, Sendable {
+    let lobbyCardAssetName: String
+    let detailHeaderAssetName: String
+    let detailBoardAssetName: String
+    let collectionPickerAssetName: String
+
+    init(
+        lobbyCardAssetName: String,
+        detailHeaderAssetName: String,
+        detailBoardAssetName: String,
+        collectionPickerAssetName: String
+    ) {
+        self.lobbyCardAssetName = lobbyCardAssetName
+        self.detailHeaderAssetName = detailHeaderAssetName
+        self.detailBoardAssetName = detailBoardAssetName
+        self.collectionPickerAssetName = collectionPickerAssetName
+    }
+
+    var assetNames: [String] {
+        [
+            lobbyCardAssetName,
+            detailHeaderAssetName,
+            detailBoardAssetName,
+            collectionPickerAssetName
+        ]
+    }
+
+    func validationError() -> BlindBoxThemeArtworkValidationError? {
+        guard assetNames.allSatisfy(BlindBoxAssetName.isValid) else {
+            return .invalidAssetName
+        }
+        guard Set(assetNames).count == assetNames.count else {
+            return .duplicateAssetName
+        }
+        return nil
+    }
+}
+
+enum BlindBoxThemeArtworkValidationError: Equatable, Sendable {
+    case invalidAssetName
+    case duplicateAssetName
+}
+
+/// Keeps remotely supplied filenames safe to use as keys in the app's catalog
+/// cache. Artwork is always addressed by an opaque key rather than a path.
+enum BlindBoxAssetName {
+    static func isValid(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= 120 else { return false }
+        return value.unicodeScalars.allSatisfy {
+            ($0.value >= 48 && $0.value <= 57) ||
+            ($0.value >= 65 && $0.value <= 90) ||
+            ($0.value >= 97 && $0.value <= 122) ||
+            $0 == "_" || $0 == "-"
+        }
+    }
+}
+
 struct BlindBoxThemeDefinition: Codable, Equatable, Identifiable, Sendable {
     let id: BlindBoxThemeID
     let catalogVersion: Int
@@ -118,17 +179,22 @@ struct BlindBoxThemeDefinition: Codable, Equatable, Identifiable, Sendable {
     /// Optional only for the built-in development fallback. A remotely
     /// published theme must provide and pass this presentation validation.
     let presentation: BlindBoxThemePresentation?
+    /// Required by remotely published themes. Built-in development themes may
+    /// omit it while they use the fixed Figma-exported artwork in Assets.xcassets.
+    let artwork: BlindBoxThemeArtwork?
 
     init(
         id: BlindBoxThemeID,
         catalogVersion: Int,
         stickers: [BlindBoxStickerDefinition],
-        presentation: BlindBoxThemePresentation? = nil
+        presentation: BlindBoxThemePresentation? = nil,
+        artwork: BlindBoxThemeArtwork? = nil
     ) {
         self.id = id
         self.catalogVersion = catalogVersion
         self.stickers = stickers
         self.presentation = presentation
+        self.artwork = artwork
     }
 
     var normalStickers: [BlindBoxStickerDefinition] {
@@ -174,6 +240,10 @@ struct BlindBoxThemeDefinition: Codable, Equatable, Identifiable, Sendable {
            ) {
             return .invalidPresentation(error)
         }
+        if let artwork,
+           let error = artwork.validationError() {
+            return .invalidArtwork(error)
+        }
         return nil
     }
 }
@@ -190,6 +260,7 @@ enum BlindBoxThemeValidationError: Error, Equatable {
     case duplicateAssetName
     case tooManyNormalStickers(maximum: Int)
     case invalidPresentation(BlindBoxThemePresentationValidationError)
+    case invalidArtwork(BlindBoxThemeArtworkValidationError)
 }
 
 /// Immutable, remotely publishable catalog payload. The current app keeps its
@@ -256,6 +327,9 @@ struct BlindBoxCatalogRelease: Codable, Equatable, Sendable {
                 if theme.presentation == nil {
                     return .missingPresentation(theme.id)
                 }
+                if theme.artwork == nil {
+                    return .missingArtwork(theme.id)
+                }
                 continue
             }
             return .invalidTheme(themeID: theme.id, error: themeError)
@@ -273,6 +347,7 @@ enum BlindBoxCatalogReleaseValidationError: Error, Equatable {
     case duplicateActiveThemeID
     case activeThemeMissingDefinition(BlindBoxThemeID)
     case missingPresentation(BlindBoxThemeID)
+    case missingArtwork(BlindBoxThemeID)
     case invalidTheme(themeID: BlindBoxThemeID, error: BlindBoxThemeValidationError)
 }
 

@@ -317,7 +317,8 @@ final class BlindBoxRuleEngineTests: XCTestCase {
                     centerY: 490,
                     displaySize: 72
                 )
-            ])
+            ]),
+            artwork: remoteArtwork(prefix: "remote")
         )
         let retiredTheme = BlindBoxThemeDefinition(
             id: BlindBoxThemeID(rawValue: "retired_theme"),
@@ -348,7 +349,8 @@ final class BlindBoxRuleEngineTests: XCTestCase {
                     centerY: 500,
                     displaySize: 72
                 )
-            ])
+            ]),
+            artwork: remoteArtwork(prefix: "retired")
         )
         let release = BlindBoxCatalogRelease(
             releaseID: "release-2026-09-03",
@@ -426,6 +428,116 @@ final class BlindBoxRuleEngineTests: XCTestCase {
             BlindBoxCatalogCache.load(defaults: defaults, currentBuild: 1),
             validRelease
         )
+    }
+
+    func testRemoteCatalogBundleRequiresEveryReferencedArtworkFile() throws {
+        let release = makeCacheableCatalogRelease(releaseID: "bundle-release")
+        let assetNames = Set(release.themes.flatMap { theme in
+            theme.stickers.map(\.assetName) + (theme.artwork?.assetNames ?? [])
+        })
+        let artworkFiles = assetNames.sorted().map { assetName in
+            BlindBoxCatalogArtworkFile(assetName: assetName, data: Data(assetName.utf8))
+        }
+        let validBundle = BlindBoxCatalogBundle(
+            release: release,
+            artworkFiles: artworkFiles
+        )
+        XCTAssertNil(validBundle.validationError())
+
+        let missingAssetName = try XCTUnwrap(assetNames.sorted().first)
+        let incompleteBundle = BlindBoxCatalogBundle(
+            release: release,
+            artworkFiles: artworkFiles.filter { $0.assetName != missingAssetName }
+        )
+        XCTAssertEqual(
+            incompleteBundle.validationError(),
+            .missingArtworkFile(missingAssetName)
+        )
+    }
+
+    func testCatalogBundleCachePromotesOnlyCompleteBundlesAndFallsBackToPreviousRelease() throws {
+        let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "BlindBoxCatalogBundleCacheTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+
+        let firstBundle = makeCacheableCatalogBundle(releaseID: "bundle-one")
+        XCTAssertEqual(
+            BlindBoxCatalogBundleCache.install(
+                firstBundle,
+                currentBuild: 1,
+                rootDirectory: rootDirectory
+            ),
+            .installed
+        )
+        XCTAssertEqual(
+            BlindBoxCatalogBundleCache.load(currentBuild: 1, rootDirectory: rootDirectory)?.release,
+            firstBundle.release
+        )
+
+        let secondBundle = makeCacheableCatalogBundle(releaseID: "bundle-two")
+        XCTAssertEqual(
+            BlindBoxCatalogBundleCache.install(
+                secondBundle,
+                currentBuild: 1,
+                rootDirectory: rootDirectory
+            ),
+            .installed
+        )
+        let artworkName = try XCTUnwrap(secondBundle.artworkFiles.first?.assetName)
+        let currentArtworkURL = try XCTUnwrap(
+            BlindBoxCatalogBundleCache.artworkURL(
+                named: artworkName,
+                currentBuild: 1,
+                rootDirectory: rootDirectory
+            )
+        )
+        try Data("corrupted".utf8).write(to: currentArtworkURL, options: .atomic)
+
+        XCTAssertEqual(
+            BlindBoxCatalogBundleCache.load(currentBuild: 1, rootDirectory: rootDirectory)?.release,
+            firstBundle.release
+        )
+
+        let missingAssetBundle = BlindBoxCatalogBundle(
+            release: secondBundle.release,
+            artworkFiles: Array(secondBundle.artworkFiles.dropFirst())
+        )
+        XCTAssertNotEqual(
+            BlindBoxCatalogBundleCache.install(
+                missingAssetBundle,
+                currentBuild: 1,
+                rootDirectory: rootDirectory
+            ),
+            .installed
+        )
+        XCTAssertEqual(
+            BlindBoxCatalogBundleCache.load(currentBuild: 1, rootDirectory: rootDirectory)?.release,
+            firstBundle.release
+        )
+    }
+
+    @MainActor
+    func testPublicCloudKitCatalogRepositoryDecodesThePublishedBundle() async throws {
+        let bundle = makeCacheableCatalogBundle(releaseID: "public-catalog")
+        let assetURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "BlindBoxCatalogPointer-\(UUID().uuidString).json"
+        )
+        defer { try? FileManager.default.removeItem(at: assetURL) }
+        try JSONEncoder().encode(bundle).write(to: assetURL, options: .atomic)
+
+        let record = CKRecord(
+            recordType: BlindBoxCloudKitCatalogRepository.pointerRecordType,
+            recordID: BlindBoxCloudKitCatalogRepository.pointerRecordID
+        )
+        record[BlindBoxCloudKitCatalogRepository.bundleField] = CKAsset(fileURL: assetURL)
+        let repository = BlindBoxCloudKitCatalogRepository(
+            database: InMemoryBlindBoxCatalogPublicRecordDatabase(record: record)
+        )
+
+        let fetchedBundle = try await repository.fetchLatestBundle()
+        XCTAssertEqual(fetchedBundle, bundle)
     }
 
     func testLegacyStickerPreviewMapsEveryKnownAssetWithoutDroppingCounts() {
@@ -654,7 +766,8 @@ final class BlindBoxRuleEngineTests: XCTestCase {
                     centerY: 500,
                     displaySize: 72
                 )
-            ])
+            ]),
+            artwork: remoteArtwork(prefix: "cache")
         )
         return BlindBoxCatalogRelease(
             releaseID: releaseID,
@@ -663,6 +776,28 @@ final class BlindBoxRuleEngineTests: XCTestCase {
             publishedAt: Date(timeIntervalSince1970: 1_000),
             activeThemeIDs: [theme.id],
             themes: [theme]
+        )
+    }
+
+    private func makeCacheableCatalogBundle(releaseID: String) -> BlindBoxCatalogBundle {
+        let release = makeCacheableCatalogRelease(releaseID: releaseID)
+        let assetNames = Set(release.themes.flatMap { theme in
+            theme.stickers.map(\.assetName) + (theme.artwork?.assetNames ?? [])
+        })
+        return BlindBoxCatalogBundle(
+            release: release,
+            artworkFiles: assetNames.sorted().map { assetName in
+                BlindBoxCatalogArtworkFile(assetName: assetName, data: Data(assetName.utf8))
+            }
+        )
+    }
+
+    private func remoteArtwork(prefix: String) -> BlindBoxThemeArtwork {
+        BlindBoxThemeArtwork(
+            lobbyCardAssetName: "\(prefix)_lobby",
+            detailHeaderAssetName: "\(prefix)_header",
+            detailBoardAssetName: "\(prefix)_board",
+            collectionPickerAssetName: "\(prefix)_picker"
         )
     }
 }
@@ -1344,6 +1479,20 @@ final class BlindBoxStateMachineTests: XCTestCase {
                 )
             }
         )
+    }
+}
+
+@MainActor
+private final class InMemoryBlindBoxCatalogPublicRecordDatabase: BlindBoxCatalogPublicRecordDatabase {
+    private let record: CKRecord?
+
+    init(record: CKRecord?) {
+        self.record = record
+    }
+
+    func fetchRecord(_ recordID: CKRecord.ID) async throws -> CKRecord? {
+        guard record?.recordID == recordID else { return nil }
+        return record
     }
 }
 

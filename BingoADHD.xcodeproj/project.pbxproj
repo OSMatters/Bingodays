@@ -50,6 +50,10 @@
 		B1130000000000000000000B /* BlindBoxCloudKitRecordCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1130000000000000000000A /* BlindBoxCloudKitRecordCodec.swift */; };
 		B1140000000000000000000B /* BlindBoxCloudKitRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1140000000000000000000A /* BlindBoxCloudKitRepository.swift */; };
 		B1150000000000000000000B /* BlindBoxFeatureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1150000000000000000000A /* BlindBoxFeatureStore.swift */; };
+		B1160000000000000000000B /* BlindBoxCatalogBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1160000000000000000000A /* BlindBoxCatalogBundle.swift */; };
+		B1170000000000000000000B /* BlindBoxCatalogBundleCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1170000000000000000000A /* BlindBoxCatalogBundleCache.swift */; };
+		B1180000000000000000000B /* BlindBoxCatalogArtworkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1180000000000000000000A /* BlindBoxCatalogArtworkStore.swift */; };
+		B1190000000000000000000B /* BlindBoxCloudKitCatalogRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1190000000000000000000A /* BlindBoxCloudKitCatalogRepository.swift */; };
 		B0A1D2E3F4A5061728394E01 /* TaskStartReminderSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394E00 /* TaskStartReminderSyncStore.swift */; };
 		B0A1D2E3F4A5061728394F01 /* HomeBoardSnapshotSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394F00 /* HomeBoardSnapshotSyncStore.swift */; };
 		B0A1D2E3F4A5061728395001 /* HomeLifecycleWorkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728395000 /* HomeLifecycleWorkStore.swift */; };
@@ -259,6 +263,10 @@
 		B1130000000000000000000A /* BlindBoxCloudKitRecordCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCloudKitRecordCodec.swift; sourceTree = "<group>"; };
 		B1140000000000000000000A /* BlindBoxCloudKitRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCloudKitRepository.swift; sourceTree = "<group>"; };
 		B1150000000000000000000A /* BlindBoxFeatureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxFeatureStore.swift; sourceTree = "<group>"; };
+		B1160000000000000000000A /* BlindBoxCatalogBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCatalogBundle.swift; sourceTree = "<group>"; };
+		B1170000000000000000000A /* BlindBoxCatalogBundleCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCatalogBundleCache.swift; sourceTree = "<group>"; };
+		B1180000000000000000000A /* BlindBoxCatalogArtworkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCatalogArtworkStore.swift; sourceTree = "<group>"; };
+		B1190000000000000000000A /* BlindBoxCloudKitCatalogRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCloudKitCatalogRepository.swift; sourceTree = "<group>"; };
 				AA20000000000000000034 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 				AA20000000000000000035 /* PointsStores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointsStores.swift; sourceTree = "<group>"; };
 				AA20000000000000000036 /* TaskStores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskStores.swift; sourceTree = "<group>"; };
@@ -428,6 +436,9 @@
 				D1A900000000000000000002 /* DiagnosticLogStore.swift */,
 				92C0A86195B344B18448B7F3 /* AppDebugFlags.swift */,
 				B1110000000000000000000A /* BlindBoxCatalogCache.swift */,
+				B1170000000000000000000A /* BlindBoxCatalogBundleCache.swift */,
+				B1180000000000000000000A /* BlindBoxCatalogArtworkStore.swift */,
+				B1190000000000000000000A /* BlindBoxCloudKitCatalogRepository.swift */,
 				B1120000000000000000000A /* BlindBoxConnectivityMonitor.swift */,
 				B1130000000000000000000A /* BlindBoxCloudKitRecordCodec.swift */,
 				B1140000000000000000000A /* BlindBoxCloudKitRepository.swift */,
@@ -519,6 +530,7 @@
 				children = (
 				AA20000000000000000003 /* BingoModels.swift */,
 				B10B0000000000000000000A /* BlindBoxRuleEngine.swift */,
+				B1160000000000000000000A /* BlindBoxCatalogBundle.swift */,
 				B10D0000000000000000000A /* BlindBoxStateMachine.swift */,
 				B1100000000000000000000A /* BlindBoxLegacyMigration.swift */,
 					B0A1D2E3F4A5061728394B50 /* BoardEngine.swift */,
@@ -885,6 +897,10 @@
 				B1130000000000000000000B /* BlindBoxCloudKitRecordCodec.swift in Sources */,
 				B1140000000000000000000B /* BlindBoxCloudKitRepository.swift in Sources */,
 				B1150000000000000000000B /* BlindBoxFeatureStore.swift in Sources */,
+				B1160000000000000000000B /* BlindBoxCatalogBundle.swift in Sources */,
+				B1170000000000000000000B /* BlindBoxCatalogBundleCache.swift in Sources */,
+				B1180000000000000000000B /* BlindBoxCatalogArtworkStore.swift in Sources */,
+				B1190000000000000000000B /* BlindBoxCloudKitCatalogRepository.swift in Sources */,
 				B0A1D2E3F4A5061728394B51 /* BoardEngine.swift in Sources */,
 				B0A1D2E3F4A5061728394B61 /* BoardResetRuleEngine.swift in Sources */,
 				B0A1D2E3F4A5061728394B71 /* BingoDiaryStore.swift in Sources */,

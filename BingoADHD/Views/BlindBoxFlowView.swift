@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The Figma-backed, development-only blind-box flow. It intentionally uses a
 /// separate preview store until the CloudKit transaction repository is ready.
@@ -825,7 +826,8 @@ private struct BlindBoxLobbyCard: View {
     }
 
     private var lobbyAssetName: String {
-        theme.id.rawValue == "pets" ? "BlindBoxPetsMyBox" : "BlindBoxCozyMyBox"
+        theme.artwork?.lobbyCardAssetName ??
+            (theme.id.rawValue == "pets" ? "BlindBoxPetsMyBox" : "BlindBoxCozyMyBox")
     }
 
     private var statusText: String {
@@ -937,13 +939,15 @@ private struct BlindBoxDetailView: View {
     }
 
     private var headerAssetName: String {
-        theme.id.rawValue == "pets"
-            ? "BlindBoxPetsHeaderComposite"
-            : "BlindBoxCozyHeaderComposite"
+        theme.artwork?.detailHeaderAssetName ??
+            (theme.id.rawValue == "pets"
+                ? "BlindBoxPetsHeaderComposite"
+                : "BlindBoxCozyHeaderComposite")
     }
 
     private var boardAssetName: String {
-        theme.id.rawValue == "pets" ? "BlindBoxPetsBoard" : "BlindBoxCozyBoard"
+        theme.artwork?.detailBoardAssetName ??
+            (theme.id.rawValue == "pets" ? "BlindBoxPetsBoard" : "BlindBoxCozyBoard")
     }
 
     private var restockText: String {
@@ -1204,7 +1208,12 @@ private struct BlindBoxCollectionView: View {
                 Button {
                     selectedThemeID = theme.id
                 } label: {
-                    BlindBoxImage(theme.id.rawValue == "pets" ? "BlindBoxPetsLobbySet" : "BlindBoxCozyLobbySet")
+                    BlindBoxImage(
+                        theme.artwork?.collectionPickerAssetName ??
+                            (theme.id.rawValue == "pets"
+                                ? "BlindBoxPetsLobbySet"
+                                : "BlindBoxCozyLobbySet")
+                    )
                         .frame(width: 59.21, height: 75)
                         .background {
                             if selectedThemeID == theme.id {
@@ -1589,8 +1598,14 @@ private struct BlindBoxImage: View {
     }
 
     var body: some View {
-        Image(name)
-            .resizable()
-            .scaledToFit()
+        if let remoteImage = BlindBoxCatalogArtworkStore.shared.image(named: name) {
+            Image(uiImage: remoteImage)
+                .resizable()
+                .scaledToFit()
+        } else {
+            Image(name)
+                .resizable()
+                .scaledToFit()
+        }
     }
 }
