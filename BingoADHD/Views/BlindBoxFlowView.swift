@@ -1149,14 +1149,15 @@ private struct BlindBoxLobbyCard: View {
             ZStack(alignment: .bottom) {
                 BlindBoxThemeMiniBox(theme: theme)
                     .frame(width: 131, height: 149)
+                    .offset(y: -8)
 
                 if batch.isSoldOut {
                     ZStack {
                         BlindBoxImage("BlindBoxRestockingIcon")
                             .frame(width: 64, height: 64)
                         Text("Restocking")
-                            .font(.appSystem(size: 11, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
+                            .font(.appSystem(size: 10, weight: .bold, design: .rounded))
+                            .foregroundStyle(.black)
                             .lineLimit(1)
                     }
                     .offset(y: -17)
@@ -2400,9 +2401,9 @@ private struct BlindBoxPremiumPlaceholder: View {
             BlindBoxImage("BlindBoxPremiumIcon")
                 .frame(width: 64, height: 64)
             Text("Premium")
-                .font(.appSystem(size: 12, weight: .bold, design: .rounded))
+                .font(.appSystem(size: 10, weight: .bold, design: .rounded))
                 .foregroundStyle(.black)
-                .offset(y: 24)
+                .offset(y: 14)
         }
         .frame(width: 128, height: 133)
     }
