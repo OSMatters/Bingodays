@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The Figma-backed, development-only blind-box flow. It intentionally uses a
 /// separate preview store until the CloudKit transaction repository is ready.
@@ -2329,13 +2330,15 @@ private struct BlindBoxShelf: View {
             ForEach(0..<3, id: \.self) { _ in
                 Image("BlindBoxShelfMiddle")
                     .resizable()
-                    .scaledToFill()
-                    .frame(width: 360, height: 156)
-                    // The SVG has a 15 px transparent tail below its pale shelf
-                    // strip. Stretch only that cropped rendering so neighboring
-                    // repeated shelves meet flush without changing row height.
-                    .scaleEffect(x: 1, y: 1.11, anchor: .top)
-                    .frame(width: 360, height: 156, alignment: .top)
+                    .scaledToFit()
+                    // The middle SVG is a 420 pt export with 30 pt transparent
+                    // gutters on each side. Keeping its source width makes its
+                    // 360 pt visible cabinet match the top and bottom pieces.
+                    .frame(width: 420, height: 175)
+                    // Its final 15 pt are transparent. Crop that export tail so
+                    // consecutive shelves meet at the pale shelf strip.
+                    .scaleEffect(x: 1, y: 0.981, anchor: .top)
+                    .frame(width: 420, height: 156, alignment: .top)
                     .clipped()
             }
 
@@ -2414,14 +2417,19 @@ private struct BlindBoxCanvas<Content: View>: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let scale = min(proxy.size.width / 393, proxy.size.height / 852)
-            ZStack {
+            let screenSize = UIScreen.main.bounds.size
+            let canvasWidth = max(proxy.size.width, screenSize.width)
+            let canvasHeight = max(proxy.size.height, screenSize.height)
+            let scale = canvasWidth / 393
+
+            ZStack(alignment: .topLeading) {
                 content()
                     .frame(width: 393, height: 852)
-                    .scaleEffect(scale)
+                    .scaleEffect(scale, anchor: .topLeading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
         }
+        .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height, alignment: .topLeading)
         .ignoresSafeArea()
     }
 }
