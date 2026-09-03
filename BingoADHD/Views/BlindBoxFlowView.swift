@@ -1144,7 +1144,7 @@ private struct BlindBoxLobbyCard: View {
         Button(action: onTap) {
             ZStack(alignment: .bottom) {
                 BlindBoxThemeMiniBox(theme: theme)
-                    .frame(width: 114, height: 129)
+                    .frame(width: 122, height: 138)
 
                 if batch.isSoldOut {
                     BlindBoxImage("BlindBoxRestockingIcon")
