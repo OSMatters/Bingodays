@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// The Figma-backed, development-only blind-box flow. It intentionally uses a
 /// separate preview store until the CloudKit transaction repository is ready.
@@ -15,6 +14,7 @@ struct BlindBoxFlowView: View {
     @StateObject private var connectivity: BlindBoxConnectivityMonitor
     @State private var route: Route = .lobby
     @State private var toastMessage: String?
+    @State private var toastDismissalTask: Task<Void, Never>?
     @State private var pendingOpenRequest: BlindBoxOpenRequest?
     @State private var isShowingTicketExchange = false
     @State private var isConfirmingTicketExchange = false
@@ -184,6 +184,9 @@ struct BlindBoxFlowView: View {
             }
         }
         .animation(.easeInOut(duration: 0.22), value: routeDescription)
+        .onDisappear {
+            toastDismissalTask?.cancel()
+        }
     }
 
     private var routeDescription: String {
@@ -296,8 +299,16 @@ struct BlindBoxFlowView: View {
     }
 
     private func presentToast(_ message: String) {
+        toastDismissalTask?.cancel()
         withAnimation { toastMessage = message }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+
+        toastDismissalTask = Task {
+            do {
+                try await Task.sleep(for: .seconds(2.2))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             withAnimation {
                 toastMessage = nil
             }
@@ -326,6 +337,7 @@ struct BlindBoxLiveFlowView: View {
     @StateObject private var connectivity = BlindBoxConnectivityMonitor()
     @State private var route: Route = .lobby
     @State private var toastMessage: String?
+    @State private var toastDismissalTask: Task<Void, Never>?
     @State private var pendingOpenRequest: BlindBoxOpenRequest?
     @State private var isShowingTicketExchange = false
     @State private var isConfirmingTicketExchange = false
@@ -380,6 +392,9 @@ struct BlindBoxLiveFlowView: View {
             route = .reveal(pendingReveal.result)
         }
         .animation(.easeInOut(duration: 0.22), value: routeDescription)
+        .onDisappear {
+            toastDismissalTask?.cancel()
+        }
     }
 
     private var nativeICloudInitialImportComplete: Bool {
@@ -430,9 +445,8 @@ struct BlindBoxLiveFlowView: View {
             for: store.accountState
         )
         let secondsUntilMaintenance = max(nextDate.timeIntervalSinceNow, 1)
-        let nanoseconds = UInt64(secondsUntilMaintenance * 1_000_000_000)
         do {
-            try await Task.sleep(nanoseconds: nanoseconds)
+            try await Task.sleep(for: .seconds(secondsUntilMaintenance))
         } catch {
             return
         }
@@ -882,8 +896,16 @@ struct BlindBoxLiveFlowView: View {
     }
 
     private func presentToast(_ message: String) {
+        toastDismissalTask?.cancel()
         withAnimation { toastMessage = message }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+
+        toastDismissalTask = Task {
+            do {
+                try await Task.sleep(for: .seconds(2.2))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             withAnimation {
                 toastMessage = nil
             }
@@ -1189,6 +1211,7 @@ private struct BlindBoxDetailView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Back")
                 .position(x: 41, y: 74)
 
                 detailTicketBadge
@@ -1560,6 +1583,7 @@ private struct BlindBoxCollectionView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Back")
                 .position(x: 41, y: 74)
 
                 Text("My Box")
@@ -1583,6 +1607,7 @@ private struct BlindBoxCollectionView: View {
                         .foregroundStyle(Color(hex: "CD9863"))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Previous sticker themes")
                 .disabled(selectedPageIndex == 0)
                 .position(x: 98, y: 742)
 
@@ -1592,6 +1617,7 @@ private struct BlindBoxCollectionView: View {
                         .foregroundStyle(Color(hex: "CD9863"))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Next sticker themes")
                 .disabled(selectedPageIndex >= max(themePages.count - 1, 0))
                 .position(x: 344, y: 742)
             }
@@ -1633,6 +1659,7 @@ private struct BlindBoxCollectionView: View {
                         }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Select \(theme.id.rawValue) theme")
                 .position(x: pickerPositions[index], y: 179.5)
             }
 
@@ -1897,7 +1924,7 @@ private struct BlindBoxBatchOddsSheet: View {
     }
 
     private func percent(_ value: Double) -> String {
-        String(format: "%.2f%%", value * 100)
+        "\((value * 100).formatted(.number.precision(.fractionLength(2))))%"
     }
 }
 
@@ -2088,9 +2115,12 @@ private struct BlindBoxTicketExchangeSheet: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.38)
-                .ignoresSafeArea()
-                .onTapGesture(perform: onClose)
+            Button(action: onClose) {
+                Color.black.opacity(0.38)
+                    .ignoresSafeArea()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close ticket exchange")
 
             VStack(spacing: 14) {
                 HStack {
