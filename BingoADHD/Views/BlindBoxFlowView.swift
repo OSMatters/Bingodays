@@ -2306,7 +2306,7 @@ private struct BlindBoxRulesIcon: View {
 private struct BlindBoxMyBoxIcon: View {
     var body: some View {
         BlindBoxImage("BlindBoxMyBoxIcon")
-            .frame(width: 32, height: 32)
+            .frame(width: 35, height: 35)
             .accessibilityHidden(true)
     }
 }
