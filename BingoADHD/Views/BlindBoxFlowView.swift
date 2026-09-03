@@ -977,8 +977,7 @@ private struct BlindBoxLobbyView: View {
     var body: some View {
         BlindBoxCanvas {
             ZStack {
-                BlindBoxImage("BlindBoxLobbyBackground")
-                    .frame(width: 393, height: 852)
+                BlindBoxLobbyBackground()
 
                 lobbyTabs
                     .position(x: 196.5, y: 73)
@@ -1077,7 +1076,7 @@ private struct BlindBoxLobbyView: View {
     @ViewBuilder
     private var lobbyCandidates: some View {
         let slots: [(CGFloat, CGFloat)] = [
-            (116, 332), (262, 332), (116, 495), (262, 495), (116, 654), (262, 654)
+            (116, 362), (262, 362), (116, 518), (262, 518), (116, 674), (262, 674)
         ]
         ForEach(Array(candidates.enumerated()), id: \.element.id) { index, batch in
             if index < slots.count, let theme = themes.first(where: { $0.id == batch.plan.themeID }) {
@@ -1094,9 +1093,9 @@ private struct BlindBoxLobbyView: View {
     private var premiumPlaceholders: some View {
         Group {
             BlindBoxPremiumPlaceholder()
-                .position(x: 116, y: 654)
+                .position(x: 116, y: 670)
             BlindBoxPremiumPlaceholder()
-                .position(x: 262, y: 654)
+                .position(x: 262, y: 670)
         }
     }
 }
@@ -2332,6 +2331,11 @@ private struct BlindBoxShelf: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: 360, height: 156)
+                    // The SVG has a 15 px transparent tail below its pale shelf
+                    // strip. Stretch only that cropped rendering so neighboring
+                    // repeated shelves meet flush without changing row height.
+                    .scaleEffect(x: 1, y: 1.11, anchor: .top)
+                    .frame(width: 360, height: 156, alignment: .top)
                     .clipped()
             }
 
@@ -2350,6 +2354,22 @@ private struct BlindBoxThemeMiniBox: View {
     var body: some View {
         BlindBoxImage(theme.id.rawValue == "pets" ? "BlindBoxLobbyPets" : "BlindBoxLobbyCozy")
             .accessibilityLabel("\(theme.id.rawValue == "pets" ? "Pets" : "Cozy Daily") blind box")
+    }
+}
+
+private struct BlindBoxLobbyBackground: View {
+    var body: some View {
+        // `blindpage_background.png` is 835 px wide but only x:34...819 is
+        // visible artwork. Render the 786 px artboard at the 393 pt design
+        // width, then crop the transparent export gutters.
+        Image("BlindBoxLobbyBackground")
+            .resizable()
+            .interpolation(.high)
+            .frame(width: 417.5, height: 852)
+            .offset(x: -17)
+            .frame(width: 393, height: 852)
+            .clipped()
+            .accessibilityHidden(true)
     }
 }
 
