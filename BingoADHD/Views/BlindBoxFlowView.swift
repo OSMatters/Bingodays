@@ -133,9 +133,14 @@ struct BlindBoxFlowView: View {
             }
 
             if let pendingOpenRequest {
+                let pendingBatch = store.state.candidateBatches.first {
+                    $0.id == pendingOpenRequest.batchID
+                }
                 BlindBoxOpenConfirmation(
                     ticketCost: pendingOpenRequest.ticketCost,
                     isWholeBox: pendingOpenRequest.isWholeBox,
+                    theme: pendingBatch.flatMap { store.theme(for: $0.plan.themeID) },
+                    probabilityMode: pendingBatch?.plan.probabilityMode,
                     onCancel: {
                         self.pendingOpenRequest = nil
                     },
@@ -573,9 +578,14 @@ struct BlindBoxLiveFlowView: View {
             }
 
             if let pendingOpenRequest {
+                let pendingBatch = store.accountState.candidateBatches.first {
+                    $0.id == pendingOpenRequest.batchID
+                }
                 BlindBoxOpenConfirmation(
                     ticketCost: pendingOpenRequest.ticketCost,
                     isWholeBox: pendingOpenRequest.isWholeBox,
+                    theme: pendingBatch.flatMap { store.theme(for: $0.plan.themeID) },
+                    probabilityMode: pendingBatch?.plan.probabilityMode,
                     onCancel: {
                         self.pendingOpenRequest = nil
                     },
@@ -933,6 +943,13 @@ private enum BlindBoxOpenRequest: Identifiable {
         switch self {
         case .wholeBox(_, let ticketCost): return ticketCost
         case .position, .random: return 1
+        }
+    }
+
+    var batchID: UUID {
+        switch self {
+        case let .position(batchID, _), let .random(batchID), let .wholeBox(batchID, _):
+            batchID
         }
     }
 
@@ -2036,8 +2053,22 @@ private struct BlindBoxRuleRow: View {
 private struct BlindBoxOpenConfirmation: View {
     let ticketCost: Int
     let isWholeBox: Bool
+    let theme: BlindBoxThemeDefinition?
+    let probabilityMode: BlindBoxProbabilityMode?
     let onCancel: () -> Void
     let onConfirm: () -> Void
+    @State private var isShowingOdds = false
+
+    private var oddsSummary: String? {
+        guard let theme, let probabilityMode else { return nil }
+        let hiddenPerPosition = percent(probabilityMode.hiddenStickerProbability)
+        let hiddenPerBox = percent(probabilityMode.hiddenInclusionProbability)
+        let normalPerPosition = percent(
+            (1 - probabilityMode.hiddenStickerProbability) /
+                Double(max(theme.normalStickers.count, 1))
+        )
+        return "Hidden: \(hiddenPerPosition) per position; \(hiddenPerBox) for one Hidden in this 9-position box. Each of the \(theme.normalStickers.count) normal stickers starts at \(normalPerPosition) per position."
+    }
 
     var body: some View {
         ZStack {
@@ -2052,6 +2083,24 @@ private struct BlindBoxOpenConfirmation: View {
                 Text("Use \(ticketCost) Blind Box ticket\(ticketCost == 1 ? "" : "s")")
                     .font(.appSystem(size: 15, weight: .medium, design: .rounded))
                     .foregroundStyle(Color(hex: "8A6E59"))
+
+                if let oddsSummary {
+                    Text(oddsSummary)
+                        .font(.appSystem(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(hex: "8A6E59"))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if theme != nil, probabilityMode != nil {
+                        Button("View full odds") {
+                            isShowingOdds = true
+                        }
+                        .font(.appSystem(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: "A46A45"))
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Reviews the published odds before spending tickets")
+                    }
+                }
 
                 HStack(spacing: 12) {
                     Button("Cancel", action: onCancel)
@@ -2076,7 +2125,20 @@ private struct BlindBoxOpenConfirmation: View {
                 RoundedRectangle(cornerRadius: 24)
                     .stroke(Color(hex: "E7B880"), lineWidth: 2)
             }
+
+            if isShowingOdds, let theme, let probabilityMode {
+                BlindBoxBatchOddsSheet(
+                    theme: theme,
+                    probabilityMode: probabilityMode,
+                    onClose: { isShowingOdds = false }
+                )
+                .zIndex(1)
+            }
         }
+    }
+
+    private func percent(_ value: Double) -> String {
+        "\((value * 100).formatted(.number.precision(.fractionLength(2))))%"
     }
 }
 

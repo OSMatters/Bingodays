@@ -845,7 +845,7 @@ CloudKit Console 只用于创建 schema、查看数据、紧急检查或极少�
 10. 公共数据库对普通用户只读；server-to-server 私钥只能存在于受保护的 CI 或后台环境。
 11. 远程素材、历史 sticker ID 和旧版本要满足重装恢复与历史收藏展示，不能随主题下线直接物理删除。
 12. Mac 本地可视化管理工具与盲盒功能一起进入 Phase 1；CloudKit Console 和手工编辑 JSON 都不能作为日常运营发布流程。
-13. 管理工具首版采用只绑定 `127.0.0.1` 的 Next.js TypeScript Route Handlers，通过本机 Git/GitHub CLI 管理私有内容仓库；生产发布由 GitHub Actions 调用 CloudKit Web Services。Vercel 仅作为后期多人远程运营的迁移目标。
+13. 管理工具首版采用只绑定 `127.0.0.1` 的静态本地可视化编辑器，通过浏览器授权写入本机内容仓库；生产发布由 GitHub Actions 调用 CloudKit Web Services。Vercel 仅作为后期多人远程运营的迁移目标。
 14. 积分换券上线前必须完成统一 `RewardWallet` 和不可变支出/兑换账本，确保积分扣除与券到账可以在同一个 CloudKit 私有记录区原子提交；不能直接串联当前本地积分 Store 与 CloudKit 券 Store。
 
 ## 18. 合规提示
