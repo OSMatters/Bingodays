@@ -33,6 +33,17 @@ long as any user may own them. Retire a theme by removing its ID from
 `activeThemeIDs`; do not delete its definition or files. This stops new
 candidates while preserving My Box and historical boxes.
 
+## Immutable published content
+
+Once a release has been published, treat every existing theme ID, sticker ID,
+and referenced PNG as immutable. In particular, do not rename a sticker,
+delete it from a theme, or reuse a theme ID with a different sticker set:
+existing user batches already store those IDs and must remain renderable.
+
+To replace a theme's content, create a new theme ID and retire the prior one
+by removing only its ID from `activeThemeIDs`. You may change which themes are
+active, add new themes, and add entirely new IDs without an app release.
+
 ## First CloudKit setup
 
 Before a real publish, create the public-database record type

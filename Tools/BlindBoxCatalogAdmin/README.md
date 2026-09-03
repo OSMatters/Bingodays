@@ -21,3 +21,7 @@ themes remain needed for users who already collected them.
 After reviewing the Git diff, commit the catalog source and manually run the
 **Publish Blind Box Catalog** workflow. That workflow validates the same
 constraints again. Its default mode does not write to CloudKit.
+
+After a theme has been published, its theme ID, sticker IDs, and PNG asset
+keys are immutable. To replace a theme, add a new theme ID and uncheck Active
+on the old one; do not delete or rename the old definition.
