@@ -221,6 +221,121 @@ final class BlindBoxCloudKitAccountBootstrapper {
     }
 }
 
+/// Inputs that are current at the moment the candidate zone is refreshed. They
+/// are not persisted because membership, the active catalog, and device time
+/// are supplied fresh for each CloudKit maintenance transaction.
+struct BlindBoxCloudMaintenanceRequest {
+    let themes: [BlindBoxThemeDefinition]
+    let hasPremiumAccess: Bool
+    let candidateZoneWasPresented: Bool
+    let now: Date
+    let calendar: Calendar
+    let reason: BlindBoxCandidateRefreshReason
+
+    init(
+        themes: [BlindBoxThemeDefinition],
+        hasPremiumAccess: Bool,
+        candidateZoneWasPresented: Bool,
+        now: Date = .now,
+        calendar: Calendar = .current,
+        reason: BlindBoxCandidateRefreshReason = .initialLoad
+    ) {
+        self.themes = themes
+        self.hasPremiumAccess = hasPremiumAccess
+        self.candidateZoneWasPresented = candidateZoneWasPresented
+        self.now = now
+        self.calendar = calendar
+        self.reason = reason
+    }
+}
+
+/// CloudKit-backed account reads and time-based maintenance. A pass saves the
+/// whole account only when it actually changes, preserving the fetched record's
+/// change tag and retrying a concurrent update from fresh state.
+@MainActor
+final class BlindBoxCloudKitAccountStateRepository {
+    private static let maximumContentionAttempts = 3
+
+    private let database: any BlindBoxCloudRecordDatabase
+
+    init(database: any BlindBoxCloudRecordDatabase) {
+        self.database = database
+    }
+
+    func loadAccount() async throws -> BlindBoxCloudAccountEnvelope {
+        guard try await database.fetchZone(BlindBoxCloudKitRecordCodec.zoneID) != nil else {
+            throw BlindBoxCloudKitRepositoryError.accountNotInitialized
+        }
+        let records = try await database.fetchRecords([
+            BlindBoxCloudKitRecordCodec.accountRecordID
+        ])
+        guard let accountRecord = records[BlindBoxCloudKitRecordCodec.accountRecordID] else {
+            throw BlindBoxCloudKitRepositoryError.accountNotInitialized
+        }
+        return try BlindBoxCloudKitRecordCodec.decodeAccountRecord(accountRecord)
+    }
+
+    func maintain(
+        _ request: BlindBoxCloudMaintenanceRequest
+    ) async throws -> BlindBoxAccountMaintenanceResult {
+        for attempt in 0..<Self.maximumContentionAttempts {
+            do {
+                guard try await database.fetchZone(BlindBoxCloudKitRecordCodec.zoneID) != nil else {
+                    throw BlindBoxCloudKitRepositoryError.accountNotInitialized
+                }
+                let records = try await database.fetchRecords([
+                    BlindBoxCloudKitRecordCodec.accountRecordID
+                ])
+                guard let accountRecord = records[BlindBoxCloudKitRecordCodec.accountRecordID] else {
+                    throw BlindBoxCloudKitRepositoryError.accountNotInitialized
+                }
+                var account = try BlindBoxCloudKitRecordCodec.decodeAccountRecord(accountRecord)
+                let originalAccount = account
+                var generator = SystemBlindBoxRandomNumberGenerator()
+                let result = try BlindBoxAccountMaintenance.apply(
+                    state: &account.accountState,
+                    themes: request.themes,
+                    hasPremiumAccess: request.hasPremiumAccess,
+                    candidateZoneWasPresented: request.candidateZoneWasPresented,
+                    now: request.now,
+                    calendar: request.calendar,
+                    reason: request.reason,
+                    generator: &generator
+                )
+
+                guard account != originalAccount else {
+                    return result
+                }
+
+                try BlindBoxCloudKitRecordCodec.updateAccountRecord(
+                    accountRecord,
+                    with: account
+                )
+                try await database.saveRecordsAtomically([accountRecord])
+                return result
+            } catch {
+                guard Self.isServerRecordChanged(error) else {
+                    throw error
+                }
+                if attempt == Self.maximumContentionAttempts - 1 {
+                    throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+                }
+            }
+        }
+
+        throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+    }
+
+    private static func isServerRecordChanged(_ error: any Error) -> Bool {
+        if let cloudKitError = error as? CKError {
+            return cloudKitError.code == .serverRecordChanged
+        }
+        let nsError = error as NSError
+        return nsError.domain == CKErrorDomain
+            && nsError.code == CKError.Code.serverRecordChanged.rawValue
+    }
+}
+
 /// Pure command planner used by the CloudKit repository. This keeps
 /// idempotency behavior deterministic: the existing immutable draw is always
 /// returned before attempting another ticket deduction.

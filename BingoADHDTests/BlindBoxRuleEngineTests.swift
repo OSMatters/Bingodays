@@ -859,6 +859,35 @@ final class BlindBoxStateMachineTests: XCTestCase {
     }
 
     @MainActor
+    func testCloudAccountMaintenancePersistsTheDailyGrantAndVisibleCandidates() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        try database.seed(
+            BlindBoxCloudKitRecordCodec.makeAccountRecord(BlindBoxCloudAccountEnvelope())
+        )
+        try await database.createZone(BlindBoxCloudKitRecordCodec.zoneID)
+        let repository = BlindBoxCloudKitAccountStateRepository(database: database)
+
+        let result = try await repository.maintain(
+            BlindBoxCloudMaintenanceRequest(
+                themes: BlindBoxCatalog.builtInThemes,
+                hasPremiumAccess: false,
+                candidateZoneWasPresented: true,
+                now: Date(timeIntervalSince1970: 2_000),
+                calendar: calendar
+            )
+        )
+
+        XCTAssertEqual(result.dailyTicketRefresh.grantedTicketCount, 1)
+        XCTAssertEqual(database.saveAttemptCount, 1)
+        let account = try await repository.loadAccount()
+        XCTAssertEqual(account.accountState.ticketBalance, 1)
+        XCTAssertEqual(account.accountState.candidateBatches.count, 4)
+        XCTAssertTrue(account.accountState.candidateBatches.allSatisfy { $0.firstPresentedAt != nil })
+    }
+
+    @MainActor
     func testCloudDrawRepositoryAtomicallyCommitsAndReturnsThePriorResultForARetry() async throws {
         let plan = makePlan()
         let request = BlindBoxDrawRequest.single(
