@@ -1142,9 +1142,22 @@ private struct BlindBoxCollectionView: View {
     let ownedStickerCounts: [String: Int]
     let onBack: () -> Void
     @State private var selectedThemeID = BlindBoxThemeID(rawValue: "pets")
+    @State private var selectedPageIndex = 0
 
     private var selectedTheme: BlindBoxThemeDefinition? {
         themes.first(where: { $0.id == selectedThemeID }) ?? themes.first
+    }
+
+    private var themePages: [[BlindBoxThemeDefinition]] {
+        guard !themes.isEmpty else { return [] }
+        return stride(from: 0, to: themes.count, by: 3).map { startIndex in
+            Array(themes[startIndex..<min(startIndex + 3, themes.count)])
+        }
+    }
+
+    private var visibleThemes: [BlindBoxThemeDefinition] {
+        guard themePages.indices.contains(selectedPageIndex) else { return [] }
+        return themePages[selectedPageIndex]
     }
 
     var body: some View {
@@ -1179,22 +1192,28 @@ private struct BlindBoxCollectionView: View {
                     collectionStickers(for: selectedTheme)
                 }
 
-                Button(action: {}) {
+                Button(action: showPreviousThemePage) {
                     Image(systemName: "chevron.left")
                         .font(.appSystem(size: 30, weight: .bold))
                         .foregroundStyle(Color(hex: "CD9863"))
                 }
                 .buttonStyle(.plain)
+                .disabled(selectedPageIndex == 0)
                 .position(x: 98, y: 742)
 
-                Button(action: {}) {
+                Button(action: showNextThemePage) {
                     Image(systemName: "chevron.right")
                         .font(.appSystem(size: 30, weight: .bold))
                         .foregroundStyle(Color(hex: "CD9863"))
                 }
                 .buttonStyle(.plain)
+                .disabled(selectedPageIndex >= max(themePages.count - 1, 0))
                 .position(x: 344, y: 742)
             }
+        }
+        .onAppear(perform: synchronizeThemeSelection)
+        .onChange(of: themes.map(\.id)) { _, _ in
+            synchronizeThemeSelection()
         }
     }
 
@@ -1204,7 +1223,8 @@ private struct BlindBoxCollectionView: View {
                 .frame(width: 353, height: 109)
                 .position(x: 196.5, y: 177.5)
 
-            ForEach(Array(themes.prefix(2).enumerated()), id: \.element.id) { index, theme in
+            let pickerPositions: [CGFloat] = [69.5, 152.6, 236.6]
+            ForEach(Array(visibleThemes.enumerated()), id: \.element.id) { index, theme in
                 Button {
                     selectedThemeID = theme.id
                 } label: {
@@ -1228,12 +1248,14 @@ private struct BlindBoxCollectionView: View {
                         }
                 }
                 .buttonStyle(.plain)
-                .position(x: index == 0 ? 69.5 : 152.6, y: 179.5)
+                .position(x: pickerPositions[index], y: 179.5)
             }
 
-            BlindBoxImage("BlindBoxComingSoon")
-                .frame(width: 59.21, height: 75)
-                .position(x: 236.6, y: 179.5)
+            if visibleThemes.count < 3 {
+                BlindBoxImage("BlindBoxComingSoon")
+                    .frame(width: 59.21, height: 75)
+                    .position(x: pickerPositions[visibleThemes.count], y: 179.5)
+            }
         }
         .frame(width: 393, height: 852)
     }
@@ -1273,6 +1295,35 @@ private struct BlindBoxCollectionView: View {
                 displaySize: sticker.isHidden ? 102 : 72,
                 isSpecialSlot: sticker.isHidden
             )
+        }
+    }
+
+    private func synchronizeThemeSelection() {
+        guard let firstTheme = themes.first else {
+            selectedPageIndex = 0
+            return
+        }
+        guard let selectedThemeIndex = themes.firstIndex(where: { $0.id == selectedThemeID }) else {
+            selectedThemeID = firstTheme.id
+            selectedPageIndex = 0
+            return
+        }
+        selectedPageIndex = selectedThemeIndex / 3
+    }
+
+    private func showPreviousThemePage() {
+        guard selectedPageIndex > 0 else { return }
+        selectedPageIndex -= 1
+        if let firstTheme = visibleThemes.first {
+            selectedThemeID = firstTheme.id
+        }
+    }
+
+    private func showNextThemePage() {
+        guard selectedPageIndex < themePages.count - 1 else { return }
+        selectedPageIndex += 1
+        if let firstTheme = visibleThemes.first {
+            selectedThemeID = firstTheme.id
         }
     }
 }

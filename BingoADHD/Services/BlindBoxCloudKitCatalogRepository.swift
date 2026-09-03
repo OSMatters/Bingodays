@@ -9,6 +9,11 @@ protocol BlindBoxCatalogPublicRecordDatabase: AnyObject {
 }
 
 @MainActor
+protocol BlindBoxCatalogBundleFetching: AnyObject {
+    func fetchLatestBundle() async throws -> BlindBoxCatalogBundle?
+}
+
+@MainActor
 final class BlindBoxCloudKitPublicDatabase: BlindBoxCatalogPublicRecordDatabase {
     private let database: CKDatabase
 
@@ -46,7 +51,7 @@ final class BlindBoxCloudKitPublicDatabase: BlindBoxCatalogPublicRecordDatabase 
 /// A missing pointer is normal before the first content release; malformed
 /// data is rejected before the cache can observe it.
 @MainActor
-final class BlindBoxCloudKitCatalogRepository {
+final class BlindBoxCloudKitCatalogRepository: BlindBoxCatalogBundleFetching {
     static let pointerRecordType = "BlindBoxCatalogPointer"
     static let pointerRecordName = "current"
     static let bundleField = "bundle"

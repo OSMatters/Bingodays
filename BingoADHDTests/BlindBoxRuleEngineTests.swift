@@ -540,6 +540,42 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         XCTAssertEqual(fetchedBundle, bundle)
     }
 
+    @MainActor
+    func testFeatureStoreUsesOnlyActiveRemoteThemesForNewCandidates() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "BlindBoxFeatureStoreCatalogTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+
+        let remoteBundle = makeCacheableCatalogBundle(releaseID: "feature-store-catalog")
+        let store = BlindBoxFeatureStore(
+            themes: BlindBoxCatalog.builtInThemes,
+            database: InMemoryBlindBoxCloudRecordDatabase(),
+            legacyInventoryProvider: { [:] },
+            catalogRepository: StaticBlindBoxCatalogBundleRepository(bundle: remoteBundle),
+            catalogCurrentBuild: 1,
+            catalogCacheRootDirectory: rootDirectory
+        )
+
+        await store.refresh(
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: true,
+            nativeICloudInitialImportComplete: true,
+            now: Date(timeIntervalSince1970: 2_000),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(store.availability, .ready)
+        XCTAssertEqual(store.themes, remoteBundle.release.themes)
+        XCTAssertEqual(
+            Set(store.accountState.candidateBatches.map(\.plan.themeID)),
+            Set(remoteBundle.release.activeThemeIDs)
+        )
+    }
+
     func testLegacyStickerPreviewMapsEveryKnownAssetWithoutDroppingCounts() {
         let legacyInventory = Dictionary(
             uniqueKeysWithValues: StickerKind.allCases.map { ($0.rawValue, 1) }
@@ -1493,6 +1529,19 @@ private final class InMemoryBlindBoxCatalogPublicRecordDatabase: BlindBoxCatalog
     func fetchRecord(_ recordID: CKRecord.ID) async throws -> CKRecord? {
         guard record?.recordID == recordID else { return nil }
         return record
+    }
+}
+
+@MainActor
+private final class StaticBlindBoxCatalogBundleRepository: BlindBoxCatalogBundleFetching {
+    private let bundle: BlindBoxCatalogBundle?
+
+    init(bundle: BlindBoxCatalogBundle?) {
+        self.bundle = bundle
+    }
+
+    func fetchLatestBundle() async throws -> BlindBoxCatalogBundle? {
+        bundle
     }
 }
 

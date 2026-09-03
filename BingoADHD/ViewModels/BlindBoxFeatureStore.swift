@@ -20,13 +20,17 @@ final class BlindBoxFeatureStore: ObservableObject {
     @Published private(set) var accountState = BlindBoxAccountState()
     @Published private(set) var lastMaintenanceResult: BlindBoxAccountMaintenanceResult?
 
-    let themes: [BlindBoxThemeDefinition]
+    @Published private(set) var themes: [BlindBoxThemeDefinition]
 
     private let bootstrapper: BlindBoxCloudKitAccountBootstrapper
     private let accountRepository: BlindBoxCloudKitAccountStateRepository
     private let drawRepository: BlindBoxCloudKitDrawRepository
     private let pointExchangeRepository: BlindBoxCloudKitPointExchangeRepository
     private let legacyInventoryProvider: () -> [String: Int]
+    private let catalogRepository: (any BlindBoxCatalogBundleFetching)?
+    private let catalogCurrentBuild: Int
+    private let catalogCacheRootDirectory: URL?
+    private var activeThemeIDs: Set<BlindBoxThemeID>
 
     convenience init(
         themes: [BlindBoxThemeDefinition] = BlindBoxCatalog.builtInThemes,
@@ -34,29 +38,44 @@ final class BlindBoxFeatureStore: ObservableObject {
             BlindBoxLegacyInventoryReader.loadInventoryCounts()
         }
     ) {
+        let currentBuild = Int(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+        ) ?? 0
+        let cachedRelease = BlindBoxCatalogBundleCache.load(currentBuild: currentBuild)?.release
         let database = BlindBoxCloudKitDatabase(
             database: CKContainer(
                 identifier: NativeICloudConfiguration.containerIdentifier
             ).privateCloudDatabase
         )
         self.init(
-            themes: themes,
+            themes: cachedRelease?.themes ?? themes,
+            activeThemeIDs: cachedRelease?.activeThemeIDs,
             database: database,
-            legacyInventoryProvider: legacyInventoryProvider
+            legacyInventoryProvider: legacyInventoryProvider,
+            catalogRepository: BlindBoxCloudKitCatalogRepository(),
+            catalogCurrentBuild: currentBuild
         )
     }
 
     init(
         themes: [BlindBoxThemeDefinition],
+        activeThemeIDs: [BlindBoxThemeID]? = nil,
         database: any BlindBoxCloudRecordDatabase,
-        legacyInventoryProvider: @escaping () -> [String: Int]
+        legacyInventoryProvider: @escaping () -> [String: Int],
+        catalogRepository: (any BlindBoxCatalogBundleFetching)? = nil,
+        catalogCurrentBuild: Int = 0,
+        catalogCacheRootDirectory: URL? = nil
     ) {
         self.themes = themes
+        self.activeThemeIDs = Set(activeThemeIDs ?? themes.map(\.id))
         self.bootstrapper = BlindBoxCloudKitAccountBootstrapper(database: database)
         self.accountRepository = BlindBoxCloudKitAccountStateRepository(database: database)
         self.drawRepository = BlindBoxCloudKitDrawRepository(database: database)
         self.pointExchangeRepository = BlindBoxCloudKitPointExchangeRepository(database: database)
         self.legacyInventoryProvider = legacyInventoryProvider
+        self.catalogRepository = catalogRepository
+        self.catalogCurrentBuild = catalogCurrentBuild
+        self.catalogCacheRootDirectory = catalogCacheRootDirectory
     }
 
     func theme(for id: BlindBoxThemeID) -> BlindBoxThemeDefinition? {
@@ -87,6 +106,8 @@ final class BlindBoxFeatureStore: ObservableObject {
 
         availability = .loading
         do {
+            await refreshRemoteCatalogIfAvailable()
+
             let bootstrapResult = try await bootstrapper.bootstrap(
                 legacyInventoryCounts: legacyInventoryProvider()
             )
@@ -101,7 +122,7 @@ final class BlindBoxFeatureStore: ObservableObject {
 
             lastMaintenanceResult = try await accountRepository.maintain(
                 BlindBoxCloudMaintenanceRequest(
-                    themes: themes,
+                    themes: candidateThemes,
                     hasPremiumAccess: hasPremiumAccess,
                     candidateZoneWasPresented: candidateZoneWasPresented,
                     now: now,
@@ -136,7 +157,7 @@ final class BlindBoxFeatureStore: ObservableObject {
         do {
             lastMaintenanceResult = try await accountRepository.maintain(
                 BlindBoxCloudMaintenanceRequest(
-                    themes: themes,
+                    themes: candidateThemes,
                     hasPremiumAccess: hasPremiumAccess,
                     candidateZoneWasPresented: false,
                     now: now,
@@ -211,6 +232,53 @@ final class BlindBoxFeatureStore: ObservableObject {
             )
         ) != nil else {
             throw BlindBoxFeatureStoreError.pointLedgerWriteFailed
+        }
+    }
+
+    private var candidateThemes: [BlindBoxThemeDefinition] {
+        themes.filter { activeThemeIDs.contains($0.id) }
+    }
+
+    /// Remote catalog retrieval is deliberately non-fatal: the current cached
+    /// release—or the built-in first-release catalog—remains usable if the
+    /// public CloudKit database is unavailable. The fetched bundle itself is
+    /// validated again by the atomic disk cache before it can change themes.
+    private func refreshRemoteCatalogIfAvailable() async {
+        guard let catalogRepository,
+              let bundle = try? await catalogRepository.fetchLatestBundle() else {
+            return
+        }
+
+        let installResult: BlindBoxCatalogBundleCacheInstallResult
+        if let catalogCacheRootDirectory {
+            installResult = BlindBoxCatalogBundleCache.install(
+                bundle,
+                currentBuild: catalogCurrentBuild,
+                rootDirectory: catalogCacheRootDirectory
+            )
+        } else {
+            installResult = BlindBoxCatalogBundleCache.install(
+                bundle,
+                currentBuild: catalogCurrentBuild
+            )
+        }
+
+        guard installResult == .installed else { return }
+        let cachedEntry: BlindBoxCatalogBundleCache.Entry?
+        if let catalogCacheRootDirectory {
+            cachedEntry = BlindBoxCatalogBundleCache.load(
+                currentBuild: catalogCurrentBuild,
+                rootDirectory: catalogCacheRootDirectory
+            )
+        } else {
+            cachedEntry = BlindBoxCatalogBundleCache.load(currentBuild: catalogCurrentBuild)
+        }
+        guard let cachedEntry else { return }
+
+        themes = cachedEntry.release.themes
+        activeThemeIDs = Set(cachedEntry.release.activeThemeIDs)
+        if catalogCacheRootDirectory == nil {
+            BlindBoxCatalogArtworkStore.shared.reload()
         }
     }
 
