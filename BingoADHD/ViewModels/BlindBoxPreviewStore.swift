@@ -203,7 +203,16 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
                     firstPresentedAt: referenceDate,
                     nextSystemOpenAt: referenceDate.addingTimeInterval(90 * 60)
                 ),
-                BlindBoxCandidateBatch(plan: cozySecondBatch),
+                // Preview the replenishment state inside the first four
+                // candidate slots so both member and non-member test runs can
+                // inspect the sold-out overlay and 24-hour countdown.
+                BlindBoxCandidateBatch(
+                    plan: cozySecondBatch,
+                    openedPositionIndices: allIndices,
+                    systemOpenedPositionIndices: allIndices,
+                    firstPresentedAt: referenceDate.addingTimeInterval(-2 * 60 * 60),
+                    soldOutAt: referenceDate.addingTimeInterval(-2 * 60 * 60)
+                ),
                 BlindBoxCandidateBatch(plan: petsSecondBatch),
                 BlindBoxCandidateBatch(plan: cozyThirdBatch),
                 BlindBoxCandidateBatch(

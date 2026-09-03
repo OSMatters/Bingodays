@@ -989,7 +989,7 @@ private struct BlindBoxLobbyView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("My Box")
-                .position(x: 360, y: 223)
+                .position(x: 350, y: 223)
 
                 Button(action: onShowRules) {
                     BlindBoxRulesIcon()
@@ -1056,7 +1056,11 @@ private struct BlindBoxLobbyView: View {
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(Color(hex: "E3A65E"))
-                    .frame(width: 78, height: 28)
+                    .frame(width: 70, height: 26)
+                    .overlay {
+                        Capsule()
+                            .stroke(.white.opacity(0.9), lineWidth: 1.5)
+                    }
                     .offset(x: 14)
                 Text("\(ticketBalance)")
                     .font(.appSystem(size: 16, weight: .bold, design: .rounded))
@@ -1064,7 +1068,7 @@ private struct BlindBoxLobbyView: View {
                     .frame(width: 44)
                     .offset(x: 42)
                 BlindBoxTicketIcon()
-                    .frame(width: 42, height: 42)
+                    .frame(width: 46, height: 46)
             }
             .frame(width: 92, height: 43)
         }
@@ -1144,7 +1148,7 @@ private struct BlindBoxLobbyCard: View {
         Button(action: onTap) {
             ZStack(alignment: .bottom) {
                 BlindBoxThemeMiniBox(theme: theme)
-                    .frame(width: 122, height: 138)
+                    .frame(width: 146, height: 166)
 
                 if batch.isSoldOut {
                     BlindBoxImage("BlindBoxRestockingIcon")
@@ -1171,7 +1175,7 @@ private struct BlindBoxLobbyCard: View {
                     }
                     .offset(y: 11)
             }
-            .frame(width: 128, height: 148)
+            .frame(width: 146, height: 176)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -2290,7 +2294,7 @@ private struct BlindBoxToast: View {
 private struct BlindBoxTicketIcon: View {
     var body: some View {
         BlindBoxImage("BlindBoxTicketIcon")
-            .frame(width: 34, height: 34)
+            .frame(width: 40, height: 40)
             .accessibilityHidden(true)
     }
 }
