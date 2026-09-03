@@ -1156,7 +1156,7 @@ private struct BlindBoxLobbyCard: View {
                         BlindBoxImage("BlindBoxRestockingIcon")
                             .frame(width: 64, height: 64)
                         Text("Restocking")
-                            .font(.appSystem(size: 10, weight: .bold, design: .rounded))
+                            .font(.appSystem(size: 9, weight: .bold, design: .rounded))
                             .foregroundStyle(.black)
                             .lineLimit(1)
                     }
@@ -1180,7 +1180,7 @@ private struct BlindBoxLobbyCard: View {
                                 .foregroundStyle(Color(hex: "594A3D"))
                         }
                     }
-                    .offset(y: 11)
+                    .offset(y: 3)
             }
             .frame(width: 146, height: 176)
             .contentShape(Rectangle())
@@ -2403,7 +2403,7 @@ private struct BlindBoxPremiumPlaceholder: View {
             Text("Premium")
                 .font(.appSystem(size: 10, weight: .bold, design: .rounded))
                 .foregroundStyle(.black)
-                .offset(y: 14)
+                .offset(y: 9)
         }
         .frame(width: 128, height: 133)
     }
