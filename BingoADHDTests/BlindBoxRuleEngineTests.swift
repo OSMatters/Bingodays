@@ -667,6 +667,48 @@ final class BlindBoxRuleEngineTests: XCTestCase {
 }
 
 final class BlindBoxStateMachineTests: XCTestCase {
+    func testCloudKitRecordCodecRoundTripsAccountAndImmutableDraw() throws {
+        let batchID = UUID(uuidString: "A0000000-0000-4000-8000-000000000001")!
+        let request = BlindBoxDrawRequest.single(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000002")!,
+            batchID: batchID,
+            positionIndex: 3
+        )
+        let accountEnvelope = BlindBoxCloudAccountEnvelope(
+            accountState: BlindBoxAccountState(
+                ticketBalance: 7,
+                ownedStickerCounts: ["pets_12": 2]
+            ),
+            completedLegacyMigrationVersions: [1]
+        )
+        let result = BlindBoxOpenResult(
+            batchID: batchID,
+            openedStickers: [
+                BlindBoxOpenedSticker(
+                    positionIndex: 3,
+                    stickerID: BlindBoxStickerID(rawValue: "pets_12"),
+                    resultingOwnedCount: 2
+                )
+            ],
+            ticketCost: 1,
+            resultingTicketBalance: 7,
+            restockAt: nil
+        )
+        let drawEnvelope = BlindBoxCloudDrawEnvelope(
+            request: request,
+            result: result,
+            committedAt: Date(timeIntervalSince1970: 1_000)
+        )
+
+        let accountRecord = try BlindBoxCloudKitRecordCodec.makeAccountRecord(accountEnvelope)
+        let drawRecord = try BlindBoxCloudKitRecordCodec.makeDrawRecord(drawEnvelope)
+
+        XCTAssertEqual(accountRecord.recordType, BlindBoxCloudKitRecordCodec.accountRecordType)
+        XCTAssertEqual(try BlindBoxCloudKitRecordCodec.decodeAccountRecord(accountRecord), accountEnvelope)
+        XCTAssertEqual(drawRecord.recordID, BlindBoxCloudKitRecordCodec.drawRecordID(for: request.idempotencyKey))
+        XCTAssertEqual(try BlindBoxCloudKitRecordCodec.decodeDrawRecord(drawRecord), drawEnvelope)
+    }
+
     @MainActor
     func testForcedOfflineConnectivityGateBlocksNetworkOperations() {
         let monitor = BlindBoxConnectivityMonitor(forceOffline: true)
