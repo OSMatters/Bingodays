@@ -63,6 +63,18 @@ enum AppDebugFlags {
 #endif
     }
 
+    /// Exercises the real private-CloudKit Blind Box account behind the same
+    /// Figma-backed presentation shell. It is deliberately debug-only until
+    /// release readiness, iCloud onboarding, and remote catalog publishing are
+    /// all enabled together.
+    static var blindBoxLiveFlowEnabled: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-DebugBlindBoxLive")
+#else
+        false
+#endif
+    }
+
     /// Lets the development-only Blind Box preview verify the offline toast
     /// without disabling the simulator's or device's network globally.
     static var blindBoxPreviewForcesOffline: Bool {

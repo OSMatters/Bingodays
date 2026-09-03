@@ -13,10 +13,26 @@ struct PointsFlowPresenter: View {
     var onSubpagePresentationChange: (Bool) -> Void = { _ in }
     let onAddStickerToHomeSuccess: () -> Void
 
-    @State private var isShowingBlindBoxPreview = AppDebugFlags.blindBoxPreviewEnabled
+    @State private var isShowingBlindBoxPreview = AppDebugFlags.blindBoxPreviewEnabled &&
+        !AppDebugFlags.blindBoxLiveFlowEnabled
+    @State private var isShowingBlindBoxLiveFlow = AppDebugFlags.blindBoxLiveFlowEnabled
 
     var body: some View {
-        if isShowingBlindBoxPreview {
+        if isShowingBlindBoxLiveFlow {
+            BlindBoxLiveFlowView(
+                pointsFeatureStore: pointsFeatureStore,
+                totalPoints: totalPoints,
+                onSelectCustomRewards: {
+                    isShowingBlindBoxLiveFlow = false
+                }
+            )
+            .onAppear {
+                onSubpagePresentationChange(true)
+            }
+            .onDisappear {
+                onSubpagePresentationChange(false)
+            }
+        } else if isShowingBlindBoxPreview {
             BlindBoxFlowView(previewAvailablePoints: points, onSelectCustomRewards: {
                 isShowingBlindBoxPreview = false
             })

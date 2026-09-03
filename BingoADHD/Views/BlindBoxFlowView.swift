@@ -278,6 +278,342 @@ struct BlindBoxFlowView: View {
     }
 }
 
+/// The production-data counterpart to `BlindBoxFlowView`. It deliberately
+/// shares the already-reviewed Figma presentation components below, but the
+/// account, tickets, inventory, and draw results come from the private
+/// CloudKit-backed feature store. This view is enabled only through the debug
+/// launch flag until the final release gate is opened.
+struct BlindBoxLiveFlowView: View {
+    private enum Route {
+        case lobby
+        case detail(UUID)
+        case reveal(BlindBoxOpenResult)
+        case myBox
+    }
+
+    @ObservedObject var pointsFeatureStore: PointsFeatureStore
+    let totalPoints: Int
+    var onSelectCustomRewards: (() -> Void)?
+
+    @StateObject private var store = BlindBoxFeatureStore()
+    @StateObject private var connectivity = BlindBoxConnectivityMonitor()
+    @State private var route: Route = .lobby
+    @State private var toastMessage: String?
+    @State private var pendingOpenRequest: BlindBoxOpenRequest?
+    @State private var isShowingTicketExchange = false
+    @State private var isConfirmingTicketExchange = false
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
+    @EnvironmentObject private var iCloudSyncCoordinator: NativeICloudSyncCoordinator
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            switch store.availability {
+            case .ready:
+                liveFlow
+            case .requiresMigrationReview:
+                BlindBoxLiveStatusView(
+                    title: "Blind Box needs an update",
+                    message: "Your previous sticker collection needs review before Blind Box can start.",
+                    onBack: { dismiss() }
+                )
+            case .failed(let message):
+                BlindBoxLiveStatusView(
+                    title: "Blind Box is unavailable",
+                    message: message,
+                    onBack: { dismiss() }
+                )
+            case .idle, .loading, .waitingForICloudInitialImport:
+                BlindBoxLiveStatusView(
+                    title: nativeICloudInitialImportComplete ? "Preparing Blind Box" : "Syncing your collection",
+                    message: nativeICloudInitialImportComplete
+                        ? "Your tickets and collection are being prepared."
+                        : "Turn on iCloud Sync and wait for the first sync before opening Blind Box.",
+                    showsProgress: true,
+                    onBack: { dismiss() }
+                )
+            }
+        }
+        .task(id: refreshIdentifier) {
+            await store.refresh(
+                hasPremiumAccess: subscriptionManager.hasPremiumAccess,
+                candidateZoneWasPresented: store.availability == .ready && isDisplayingLobby,
+                nativeICloudInitialImportComplete: nativeICloudInitialImportComplete
+            )
+        }
+        .animation(.easeInOut(duration: 0.22), value: routeDescription)
+    }
+
+    private var nativeICloudInitialImportComplete: Bool {
+        if case .ready = iCloudSyncCoordinator.state {
+            return true
+        }
+        return false
+    }
+
+    private var refreshIdentifier: String {
+        "\(subscriptionManager.hasPremiumAccess)-\(nativeICloudInitialImportComplete)"
+    }
+
+    private var isDisplayingLobby: Bool {
+        if case .lobby = route {
+            return true
+        }
+        return false
+    }
+
+    private var liveFlow: some View {
+        ZStack {
+            switch route {
+        case .lobby:
+            BlindBoxLobbyView(
+                ticketBalance: store.accountState.ticketBalance,
+                candidates: store.candidates(hasPremiumAccess: subscriptionManager.hasPremiumAccess),
+                themes: store.themes,
+                isPremium: subscriptionManager.hasPremiumAccess,
+                onSelectCustomRewards: onSelectCustomRewards,
+                onSelectTicketBalance: {
+                    isShowingTicketExchange = true
+                },
+                onSelectBatch: { batchID in
+                    route = .detail(batchID)
+                },
+                onShowMyBox: {
+                    route = .myBox
+                },
+                onDismiss: {
+                    dismiss()
+                }
+            )
+            .onAppear {
+                Task {
+                    await store.refresh(
+                        hasPremiumAccess: subscriptionManager.hasPremiumAccess,
+                        candidateZoneWasPresented: true,
+                        nativeICloudInitialImportComplete: nativeICloudInitialImportComplete
+                    )
+                }
+            }
+
+        case .detail(let batchID):
+            if let batch = store.accountState.candidateBatches.first(where: { $0.id == batchID }),
+               let theme = store.theme(for: batch.plan.themeID) {
+                BlindBoxDetailView(
+                    batch: batch,
+                    theme: theme,
+                    ticketBalance: store.accountState.ticketBalance,
+                    onBack: {
+                        route = .lobby
+                    },
+                    onOpenPosition: { position in
+                        pendingOpenRequest = .position(batchID: batchID, positionIndex: position)
+                    },
+                    onOpenRandom: {
+                        pendingOpenRequest = .random(batchID: batchID)
+                    },
+                    onOpenWholeBox: {
+                        pendingOpenRequest = .wholeBox(
+                            batchID: batchID,
+                            ticketCost: batch.remainingPositionCount
+                        )
+                    }
+                )
+            } else {
+                BlindBoxEmptyState(onBack: { route = .lobby })
+            }
+
+        case .reveal(let result):
+            BlindBoxRevealView(
+                result: result,
+                themes: store.themes,
+                onContinue: {
+                    route = .detail(result.batchID)
+                }
+            )
+
+        case .myBox:
+            BlindBoxCollectionView(
+                themes: store.themes,
+                ownedStickerCounts: store.accountState.ownedStickerCounts,
+                onBack: {
+                    route = .lobby
+                }
+            )
+            }
+
+            if let toastMessage {
+                BlindBoxToast(message: toastMessage)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(5)
+            }
+
+            if let pendingOpenRequest {
+                BlindBoxOpenConfirmation(
+                    ticketCost: pendingOpenRequest.ticketCost,
+                    isWholeBox: pendingOpenRequest.isWholeBox,
+                    onCancel: {
+                        self.pendingOpenRequest = nil
+                    },
+                    onConfirm: {
+                        confirm(pendingOpenRequest)
+                    }
+                )
+                .zIndex(10)
+            }
+
+            if isShowingTicketExchange {
+                BlindBoxTicketExchangeSheet(
+                    availablePoints: pointsFeatureStore.availablePoints(totalPoints: totalPoints),
+                    ticketBalance: store.accountState.ticketBalance,
+                    eligibility: pointExchangeEligibility,
+                    onClose: {
+                        isShowingTicketExchange = false
+                    },
+                    onRequestExchange: {
+                        isConfirmingTicketExchange = true
+                    }
+                )
+                .zIndex(10)
+            }
+
+            if isConfirmingTicketExchange {
+                BlindBoxTicketExchangeConfirmation(
+                    onCancel: {
+                        isConfirmingTicketExchange = false
+                    },
+                    onConfirm: {
+                        confirmTicketExchange()
+                    }
+                )
+                .zIndex(11)
+            }
+        }
+    }
+
+    private var routeDescription: String {
+        switch route {
+        case .lobby: return "lobby"
+        case .detail(let id): return "detail-\(id.uuidString)"
+        case .reveal(let result): return "reveal-\(result.batchID.uuidString)"
+        case .myBox: return "my-box"
+        }
+    }
+
+    private var pointExchangeEligibility: BlindBoxPointExchangeEligibility {
+        let currentGrantDay = BlindBoxGrantDay.identifier(for: .now, calendar: .current)
+        let exchangesToday = store.accountState.lastPointExchangeDayIdentifier == currentGrantDay
+            ? store.accountState.pointExchangesUsedOnLastGrantDay
+            : 0
+        return BlindBoxPointExchangePolicy.eligibility(
+            availablePoints: pointsFeatureStore.availablePoints(totalPoints: totalPoints),
+            ticketBalance: store.accountState.ticketBalance,
+            exchangesUsedThisGrantDay: exchangesToday
+        )
+    }
+
+    private func open(_ request: BlindBoxDrawRequest) {
+        guard connectivity.status.canMakeNetworkRequests else {
+            presentToast(connectivity.status.unavailableMessage)
+            return
+        }
+        Task {
+            do {
+                let result = try await store.open(
+                    request,
+                    hasPremiumAccess: subscriptionManager.hasPremiumAccess
+                )
+                route = .reveal(result)
+            } catch {
+                presentFailure(error)
+            }
+        }
+    }
+
+    private func confirm(_ request: BlindBoxOpenRequest) {
+        pendingOpenRequest = nil
+        switch request {
+        case let .position(batchID, positionIndex):
+            open(.single(batchID: batchID, positionIndex: positionIndex))
+        case .random(let batchID):
+            guard let batch = store.accountState.candidateBatches.first(where: { $0.id == batchID }),
+                  let position = batch.unopenedPositionPlans.randomElement() else {
+                presentFailure(BlindBoxOpenError.batchSoldOut)
+                return
+            }
+            open(.single(batchID: batchID, positionIndex: position.index))
+        case .wholeBox(let batchID, _):
+            open(.wholeBox(batchID: batchID))
+        }
+    }
+
+    private func confirmTicketExchange() {
+        isConfirmingTicketExchange = false
+        guard connectivity.status.canMakeNetworkRequests else {
+            presentToast(connectivity.status.unavailableMessage)
+            return
+        }
+        Task {
+            do {
+                _ = try await store.exchangePointsForOneTicket(
+                    availablePoints: pointsFeatureStore.availablePoints(totalPoints: totalPoints)
+                )
+                pointsFeatureStore.reloadAfterExternalDataChange()
+                isShowingTicketExchange = false
+                presentToast("1 Blind Box ticket added.")
+            } catch {
+                presentFailure(error)
+            }
+        }
+    }
+
+    private func presentFailure(_ error: Error) {
+        if let walletError = error as? BlindBoxWalletError {
+            switch walletError {
+            case let .pointExchange(eligibility):
+                presentToast(ticketExchangeFailureMessage(for: eligibility))
+            }
+            return
+        }
+
+        let message: String
+        switch error as? BlindBoxOpenError {
+        case .insufficientTickets:
+            message = "Not enough Blind Box tickets."
+        case .batchSoldOut:
+            message = "This box is restocking."
+        case .positionAlreadyOpened:
+            message = "This box has already been opened."
+        default:
+            message = "Unable to open this box. Please try again."
+        }
+        presentToast(message)
+    }
+
+    private func ticketExchangeFailureMessage(
+        for eligibility: BlindBoxPointExchangeEligibility
+    ) -> String {
+        switch eligibility {
+        case let .insufficientPoints(required, current):
+            return "You need \(max(required - current, 0)) more points."
+        case .ticketBalanceAtCapacity:
+            return "Your Blind Box ticket balance is full."
+        case .grantDayLimitReached:
+            return "You already exchanged a ticket today."
+        case .eligible:
+            return "Unable to exchange points. Please try again."
+        }
+    }
+
+    private func presentToast(_ message: String) {
+        withAnimation { toastMessage = message }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+            withAnimation {
+                toastMessage = nil
+            }
+        }
+    }
+}
+
 private enum BlindBoxOpenRequest: Identifiable {
     case position(batchID: UUID, positionIndex: Int)
     case random(batchID: UUID)
@@ -976,6 +1312,49 @@ private struct BlindBoxEmptyState: View {
                         .foregroundStyle(Color(hex: "5A412C"))
                     Button("Back", action: onBack)
                         .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+    }
+}
+
+/// iCloud account and first-import states have no equivalent in the supplied
+/// Figma frames. Keep them compact and reversible so the reviewed lobby is
+/// shown only once its data is safe to render.
+private struct BlindBoxLiveStatusView: View {
+    let title: String
+    let message: String
+    var showsProgress = false
+    let onBack: () -> Void
+
+    var body: some View {
+        BlindBoxCanvas {
+            ZStack {
+                BlindBoxImage("BlindBoxLobbyBackground")
+                    .frame(width: 393, height: 852)
+
+                VStack(spacing: 16) {
+                    if showsProgress {
+                        ProgressView()
+                            .tint(Color(hex: "D19A63"))
+                    }
+                    Text(title)
+                        .font(.appSystem(size: 21, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: "5A412C"))
+                    Text(message)
+                        .font(.appSystem(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(hex: "8A6E59"))
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 270)
+                    Button("Back", action: onBack)
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color(hex: "D19A63"))
+                }
+                .padding(24)
+                .background(Color(hex: "FFF8EC").opacity(0.94), in: RoundedRectangle(cornerRadius: 24))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 24)
+                        .stroke(Color(hex: "E7B880"), lineWidth: 2)
                 }
             }
         }

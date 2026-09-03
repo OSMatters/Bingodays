@@ -116,13 +116,40 @@ final class BlindBoxFeatureStore: ObservableObject {
         }
     }
 
-    func open(_ request: BlindBoxDrawRequest) async throws -> BlindBoxOpenResult {
+    func open(
+        _ request: BlindBoxDrawRequest,
+        hasPremiumAccess: Bool = false,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) async throws -> BlindBoxOpenResult {
         guard availability == .ready else {
             throw BlindBoxFeatureStoreError.accountUnavailable
         }
 
         let result = try await drawRepository.open(request)
-        accountState = try await accountRepository.loadAccount().accountState
+        // A completed theme changes its candidate eligibility immediately. Run
+        // that reconciliation behind the authoritative draw, rather than
+        // relying on a later lobby refresh that a user might never reach.
+        // Reconciliation is intentionally best-effort here: the immutable draw
+        // result must still be shown if a follow-up maintenance request has a
+        // transient CloudKit failure.
+        do {
+            lastMaintenanceResult = try await accountRepository.maintain(
+                BlindBoxCloudMaintenanceRequest(
+                    themes: themes,
+                    hasPremiumAccess: hasPremiumAccess,
+                    candidateZoneWasPresented: false,
+                    now: now,
+                    calendar: calendar,
+                    reason: .themeCompleted
+                )
+            )
+        } catch {
+            // The next online refresh retries this safe, idempotent pass.
+        }
+        if let refreshedAccount = try? await accountRepository.loadAccount() {
+            accountState = refreshedAccount.accountState
+        }
         return result
     }
 
