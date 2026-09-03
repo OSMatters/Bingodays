@@ -84,9 +84,6 @@ struct BlindBoxFlowView: View {
                         batch: batch,
                         theme: theme,
                         ticketBalance: store.state.ticketBalance,
-                        dailyTicketAllowance: BlindBoxTicketPolicy.dailyAllowance(
-                            hasPremiumAccess: subscriptionManager.hasPremiumAccess
-                        ),
                         onBack: {
                             route = .lobby
                         },
@@ -529,9 +526,6 @@ struct BlindBoxLiveFlowView: View {
                     batch: batch,
                     theme: theme,
                     ticketBalance: store.accountState.ticketBalance,
-                    dailyTicketAllowance: BlindBoxTicketPolicy.dailyAllowance(
-                        hasPremiumAccess: subscriptionManager.hasPremiumAccess
-                    ),
                     onBack: {
                         route = .lobby
                     },
@@ -1198,12 +1192,10 @@ private struct BlindBoxDetailView: View {
     let batch: BlindBoxCandidateBatch
     let theme: BlindBoxThemeDefinition
     let ticketBalance: Int
-    let dailyTicketAllowance: Int
     let onBack: () -> Void
     let onOpenPosition: (Int) -> Void
     let onOpenRandom: () -> Void
     let onOpenWholeBox: () -> Void
-    @State private var isShowingOdds = false
 
     var body: some View {
         BlindBoxCanvas {
@@ -1224,11 +1216,11 @@ private struct BlindBoxDetailView: View {
                 .position(x: 41, y: 74)
 
                 detailTicketBadge
-                    .position(x: 197, y: 74)
+                    .position(x: 192, y: 74)
 
                 BlindBoxThemeHeader(theme: theme)
-                    .frame(width: 272, height: 149)
-                    .position(x: 196.5, y: 191.1)
+                    .frame(width: 340, height: 170)
+                    .position(x: 196.5, y: 203)
 
                 BlindBoxImage(boardAssetName)
                     .frame(width: 362, height: 391)
@@ -1247,38 +1239,6 @@ private struct BlindBoxDetailView: View {
                 } else {
                     actionButtons
                         .position(x: 196, y: 714.5)
-
-                    Text(nextTicketText)
-                        .font(.appSystem(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color(hex: "88644C"))
-                        .position(x: 196, y: 757)
-                        .accessibilityLabel(nextTicketText)
-
-                    Button {
-                        isShowingOdds = true
-                    } label: {
-                        Text("Odds · Hidden \(hiddenStickerPercent)%")
-                            .font(.appSystem(size: 11, weight: .bold, design: .rounded))
-                            .foregroundStyle(Color(hex: "A46A45"))
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 5)
-                            .background(.white.opacity(0.9), in: Capsule())
-                            .overlay {
-                                Capsule().stroke(Color(hex: "F1C079"), lineWidth: 1)
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("View this box's odds. Hidden sticker chance is \(hiddenStickerPercent) percent.")
-                    .position(x: 196, y: 784)
-                }
-
-                if isShowingOdds {
-                    BlindBoxBatchOddsSheet(
-                        theme: theme,
-                        probabilityMode: batch.plan.probabilityMode,
-                        onClose: { isShowingOdds = false }
-                    )
-                    .zIndex(10)
                 }
             }
         }
@@ -1335,15 +1295,6 @@ private struct BlindBoxDetailView: View {
     private var boardAssetName: String {
         theme.artwork?.detailBoardAssetName ??
             (theme.id.rawValue == "pets" ? "BlindBoxPetsBoard" : "BlindBoxCozyBoard")
-    }
-
-    private var nextTicketText: String {
-        let noun = dailyTicketAllowance == 1 ? "ticket" : "tickets"
-        return "Next 4 AM: +\(dailyTicketAllowance) \(noun)"
-    }
-
-    private var hiddenStickerPercent: Int {
-        Int((batch.plan.probabilityMode.hiddenStickerProbability * 100).rounded())
     }
 
 }
@@ -1406,17 +1357,19 @@ private struct BlindBoxActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            ZStack {
                 Text(title)
                     .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                    .frame(maxWidth: .infinity)
                 ZStack(alignment: .topTrailing) {
                     BlindBoxTicketIcon()
-                        .frame(width: 26, height: 26)
+                        .frame(width: 20, height: 20)
                     Text("\(ticketCost)")
-                        .font(.appSystem(size: 10, weight: .bold, design: .rounded))
+                        .font(.appSystem(size: 8, weight: .bold, design: .rounded))
                         .foregroundStyle(Color(hex: "A46A45"))
-                        .offset(x: 5, y: -5)
+                        .offset(x: 4, y: -4)
                 }
+                .position(x: 145, y: 8)
             }
             .foregroundStyle(Color(hex: "D5A06F"))
             .frame(width: 156, height: 50)
