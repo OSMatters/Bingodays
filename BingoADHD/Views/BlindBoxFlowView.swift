@@ -2426,6 +2426,7 @@ private struct BlindBoxCanvas<Content: View>: View {
                 content()
                     .frame(width: 393, height: 852)
                     .scaleEffect(scale, anchor: .topLeading)
+                    .offset(x: 5 * scale)
             }
             .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
         }
