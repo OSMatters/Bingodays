@@ -186,6 +186,23 @@ final class BlindBoxFeatureStore: ObservableObject {
         return result
     }
 
+    /// A reveal is acknowledged only after the user leaves its result screen.
+    /// This is intentionally separate from `open`: the paid result remains
+    /// recoverable across an interruption until the user has had a chance to
+    /// see it.
+    func acknowledgePendingReveal(_ pendingReveal: BlindBoxPendingReveal) async throws {
+        guard availability == .ready else {
+            throw BlindBoxFeatureStoreError.accountUnavailable
+        }
+        let didAcknowledge = try await accountRepository.acknowledgePendingReveal(
+            idempotencyKey: pendingReveal.drawIdempotencyKey
+        )
+        accountState = try await accountRepository.loadAccount().accountState
+        guard didAcknowledge else {
+            throw BlindBoxFeatureStoreError.pendingRevealChanged
+        }
+    }
+
     /// Reserves the one-per-grant-day exchange in the private account first,
     /// writes the matching 100-point entry to the app's existing point ledger,
     /// then atomically releases the reserved ticket. If the app is interrupted
@@ -310,5 +327,6 @@ final class BlindBoxFeatureStore: ObservableObject {
 
 enum BlindBoxFeatureStoreError: Error, Equatable {
     case accountUnavailable
+    case pendingRevealChanged
     case pointLedgerWriteFailed
 }

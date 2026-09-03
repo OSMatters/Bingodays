@@ -326,6 +326,53 @@ final class BlindBoxCloudKitAccountStateRepository {
         throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
     }
 
+    /// Clears only the reveal that the user has finished viewing. If another
+    /// device has already committed a newer reveal, this deliberately leaves
+    /// it in place so the older device cannot hide a result it never showed.
+    /// A missing pending reveal is an idempotent success: another device may
+    /// have already acknowledged the same draw.
+    @discardableResult
+    func acknowledgePendingReveal(idempotencyKey: UUID) async throws -> Bool {
+        for attempt in 0..<Self.maximumContentionAttempts {
+            do {
+                guard try await database.fetchZone(BlindBoxCloudKitRecordCodec.zoneID) != nil else {
+                    throw BlindBoxCloudKitRepositoryError.accountNotInitialized
+                }
+                let records = try await database.fetchRecords([
+                    BlindBoxCloudKitRecordCodec.accountRecordID
+                ])
+                guard let accountRecord = records[BlindBoxCloudKitRecordCodec.accountRecordID] else {
+                    throw BlindBoxCloudKitRepositoryError.accountNotInitialized
+                }
+                var account = try BlindBoxCloudKitRecordCodec.decodeAccountRecord(accountRecord)
+
+                guard let pendingReveal = account.accountState.pendingReveal else {
+                    return true
+                }
+                guard pendingReveal.drawIdempotencyKey == idempotencyKey else {
+                    return false
+                }
+
+                account.accountState.pendingReveal = nil
+                try BlindBoxCloudKitRecordCodec.updateAccountRecord(
+                    accountRecord,
+                    with: account
+                )
+                try await database.saveRecordsAtomically([accountRecord])
+                return true
+            } catch {
+                guard Self.isServerRecordChanged(error) else {
+                    throw error
+                }
+                if attempt == Self.maximumContentionAttempts - 1 {
+                    throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+                }
+            }
+        }
+
+        throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+    }
+
     private static func isServerRecordChanged(_ error: any Error) -> Bool {
         if let cloudKitError = error as? CKError {
             return cloudKitError.code == .serverRecordChanged
@@ -529,6 +576,9 @@ enum BlindBoxCloudDrawTransaction {
         }
 
         var updatedAccount = account
+        if updatedAccount.accountState.pendingReveal != nil {
+            throw BlindBoxOpenError.pendingRevealMustBeAcknowledged
+        }
         let result: BlindBoxOpenResult
         switch request.mode {
         case .single:
@@ -551,6 +601,11 @@ enum BlindBoxCloudDrawTransaction {
                 openedAt: committedAt
             )
         }
+
+        updatedAccount.accountState.pendingReveal = BlindBoxPendingReveal(
+            drawIdempotencyKey: request.idempotencyKey,
+            result: result
+        )
 
         return .commit(
             account: updatedAccount,

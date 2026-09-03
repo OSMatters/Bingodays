@@ -69,6 +69,9 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
         if let validationError = request.validationError() {
             throw validationError
         }
+        if state.pendingReveal != nil {
+            throw BlindBoxOpenError.pendingRevealMustBeAcknowledged
+        }
 
         let result: BlindBoxOpenResult
         switch request.mode {
@@ -88,7 +91,16 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
             request: request,
             result: result
         )
+        state.pendingReveal = BlindBoxPendingReveal(
+            drawIdempotencyKey: request.idempotencyKey,
+            result: result
+        )
         return result
+    }
+
+    func acknowledgePendingReveal(_ result: BlindBoxOpenResult) {
+        guard state.pendingReveal?.result == result else { return }
+        state.pendingReveal = nil
     }
 
     func count(for stickerID: BlindBoxStickerID) -> Int {

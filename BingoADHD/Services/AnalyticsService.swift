@@ -49,6 +49,7 @@ enum BlindBoxAnalyticsFailureReason: String {
     case insufficientTickets = "insufficient_tickets"
     case soldOut = "sold_out"
     case positionAlreadyOpened = "position_already_opened"
+    case pendingReveal = "pending_reveal"
     case accountUnavailable = "account_unavailable"
     case accountContention = "account_contention"
     case pointBalance = "point_balance"

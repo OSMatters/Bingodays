@@ -10,6 +10,20 @@ struct BlindBoxPendingPointExchange: Codable, Equatable, Sendable {
     let reservedAt: Date
 }
 
+/// A draw is committed before any reveal animation starts. Keeping its result
+/// in the account record means an app termination, scene transition or device
+/// switch can resume the exact already-paid reveal instead of asking the user
+/// to open another box.
+struct BlindBoxPendingReveal: Codable, Equatable, Sendable {
+    let drawIdempotencyKey: UUID
+    let result: BlindBoxOpenResult
+
+    init(drawIdempotencyKey: UUID, result: BlindBoxOpenResult) {
+        self.drawIdempotencyKey = drawIdempotencyKey
+        self.result = result
+    }
+}
+
 /// Persisted per-account state for the blind-box feature. It is deliberately
 /// independent of the legacy `StickerStore`: old direct-redemption stickers
 /// remain readable while CloudKit migration maps them into this catalog.
@@ -24,6 +38,7 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
     var lastPointExchangeDayIdentifier: String?
     var pointExchangesUsedOnLastGrantDay: Int
     var pendingPointExchange: BlindBoxPendingPointExchange?
+    var pendingReveal: BlindBoxPendingReveal?
 
     init(
         schemaVersion: Int = BlindBoxAccountState.currentSchemaVersion,
@@ -33,7 +48,8 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
         lastTicketGrantDayIdentifier: String? = nil,
         lastPointExchangeDayIdentifier: String? = nil,
         pointExchangesUsedOnLastGrantDay: Int = 0,
-        pendingPointExchange: BlindBoxPendingPointExchange? = nil
+        pendingPointExchange: BlindBoxPendingPointExchange? = nil,
+        pendingReveal: BlindBoxPendingReveal? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.ticketBalance = min(max(ticketBalance, 0), BlindBoxRuleConfiguration.maximumTicketBalance)
@@ -46,6 +62,7 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
         self.lastPointExchangeDayIdentifier = lastPointExchangeDayIdentifier
         self.pointExchangesUsedOnLastGrantDay = max(pointExchangesUsedOnLastGrantDay, 0)
         self.pendingPointExchange = pendingPointExchange
+        self.pendingReveal = pendingReveal
     }
 
     func ownedCount(for stickerID: BlindBoxStickerID) -> Int {
@@ -211,6 +228,7 @@ enum BlindBoxOpenError: Error, Equatable {
     case positionAlreadyOpened
     case batchSoldOut
     case insufficientTickets(required: Int, current: Int)
+    case pendingRevealMustBeAcknowledged
 }
 
 /// Pure transitions used by both the local presentation mock and the later
@@ -958,7 +976,9 @@ enum BlindBoxLocalStateStore {
             candidateBatches: state.candidateBatches,
             lastTicketGrantDayIdentifier: state.lastTicketGrantDayIdentifier,
             lastPointExchangeDayIdentifier: state.lastPointExchangeDayIdentifier,
-            pointExchangesUsedOnLastGrantDay: state.pointExchangesUsedOnLastGrantDay
+            pointExchangesUsedOnLastGrantDay: state.pointExchangesUsedOnLastGrantDay,
+            pendingPointExchange: state.pendingPointExchange,
+            pendingReveal: state.pendingReveal
         )
     }
 

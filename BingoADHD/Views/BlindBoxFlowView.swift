@@ -111,6 +111,7 @@ struct BlindBoxFlowView: View {
                     result: result,
                     themes: store.themes,
                     onContinue: {
+                        store.acknowledgePendingReveal(result)
                         route = .detail(result.batchID)
                     }
                 )
@@ -327,6 +328,7 @@ struct BlindBoxLiveFlowView: View {
     @State private var isShowingTicketExchange = false
     @State private var isConfirmingTicketExchange = false
     @State private var isShowingRules = false
+    @State private var isAcknowledgingReveal = false
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @EnvironmentObject private var iCloudSyncCoordinator: NativeICloudSyncCoordinator
     @Environment(\.dismiss) private var dismiss
@@ -369,6 +371,10 @@ struct BlindBoxLiveFlowView: View {
         }
         .task(id: foregroundMaintenanceScheduleIdentifier) {
             await runForegroundMaintenanceWhenDue()
+        }
+        .onChange(of: store.accountState.pendingReveal) { _, pendingReveal in
+            guard let pendingReveal else { return }
+            route = .reveal(pendingReveal.result)
         }
         .animation(.easeInOut(duration: 0.22), value: routeDescription)
     }
@@ -527,10 +533,9 @@ struct BlindBoxLiveFlowView: View {
             BlindBoxRevealView(
                 result: result,
                 themes: store.themes,
+                isContinuing: isAcknowledgingReveal,
                 onContinue: {
-                    route = store.accountState.candidateBatches.contains(where: {
-                        $0.id == result.batchID
-                    }) ? .detail(result.batchID) : .lobby
+                    acknowledgeReveal(result)
                 }
             )
 
@@ -677,6 +682,44 @@ struct BlindBoxLiveFlowView: View {
         }
     }
 
+    private func acknowledgeReveal(_ result: BlindBoxOpenResult) {
+        guard !isAcknowledgingReveal else { return }
+        guard connectivity.status.canMakeNetworkRequests else {
+            presentToast(connectivity.status.unavailableMessage)
+            return
+        }
+        guard let pendingReveal = store.accountState.pendingReveal else {
+            route = routeAfterReveal(result)
+            return
+        }
+        guard pendingReveal.result == result else {
+            route = .reveal(pendingReveal.result)
+            return
+        }
+
+        isAcknowledgingReveal = true
+        Task {
+            do {
+                try await store.acknowledgePendingReveal(pendingReveal)
+                isAcknowledgingReveal = false
+                route = routeAfterReveal(result)
+            } catch {
+                isAcknowledgingReveal = false
+                AnalyticsService.logBlindBoxActionFailed(
+                    action: .open,
+                    reason: .requestFailed
+                )
+                presentToast("Unable to finish this reveal. Please try again.")
+            }
+        }
+    }
+
+    private func routeAfterReveal(_ result: BlindBoxOpenResult) -> Route {
+        store.accountState.candidateBatches.contains(where: {
+            $0.id == result.batchID
+        }) ? .detail(result.batchID) : .lobby
+    }
+
     private func confirmTicketExchange() {
         isConfirmingTicketExchange = false
         guard connectivity.status.canMakeNetworkRequests else {
@@ -734,6 +777,8 @@ struct BlindBoxLiveFlowView: View {
             message = "This box is restocking."
         case .positionAlreadyOpened:
             message = "This box has already been opened."
+        case .pendingRevealMustBeAcknowledged:
+            message = "Finish viewing your previous opening first."
         default:
             message = "Unable to open this box. Please try again."
         }
@@ -764,6 +809,8 @@ struct BlindBoxLiveFlowView: View {
             return .soldOut
         case .positionAlreadyOpened:
             return .positionAlreadyOpened
+        case .pendingRevealMustBeAcknowledged:
+            return .pendingReveal
         default:
             break
         }
@@ -1324,6 +1371,7 @@ private struct BlindBoxActionButton: View {
 private struct BlindBoxRevealView: View {
     let result: BlindBoxOpenResult
     let themes: [BlindBoxThemeDefinition]
+    var isContinuing = false
     let onContinue: () -> Void
 
     private var openedSticker: BlindBoxOpenedSticker? {
@@ -1382,13 +1430,14 @@ private struct BlindBoxRevealView: View {
             }
 
             Button(action: onContinue) {
-                Text("Great!")
+                Text(isContinuing ? "Saving…" : "Great!")
                     .font(.appSystem(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(width: 157.5, height: 42)
                     .background(Color(hex: "DCAF7A"), in: Capsule())
             }
             .buttonStyle(.plain)
+            .disabled(isContinuing)
             .position(x: 196.75, y: 623)
         }
         .frame(width: 393, height: 852)
@@ -1423,13 +1472,14 @@ private struct BlindBoxRevealView: View {
             }
 
             Button(action: onContinue) {
-                Text("Great!")
+                Text(isContinuing ? "Saving…" : "Great!")
                     .font(.appSystem(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(width: 157.5, height: 42)
                     .background(Color(hex: "DCAF7A"), in: Capsule())
             }
             .buttonStyle(.plain)
+            .disabled(isContinuing)
             .position(x: 196.75, y: 623)
         }
         .frame(width: 393, height: 852)

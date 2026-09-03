@@ -942,6 +942,13 @@ final class BlindBoxStateMachineTests: XCTestCase {
         XCTAssertEqual(updatedAccount.accountState.ticketBalance, 1)
         XCTAssertEqual(updatedAccount.accountState.ownedStickerCounts["pets_01"], 1)
         XCTAssertEqual(draw.result.ticketCost, 1)
+        XCTAssertEqual(
+            updatedAccount.accountState.pendingReveal,
+            BlindBoxPendingReveal(
+                drawIdempotencyKey: request.idempotencyKey,
+                result: draw.result
+            )
+        )
         XCTAssertEqual(originalAccount.accountState.ticketBalance, 2)
 
         let retryDecision = try BlindBoxCloudDrawTransaction.plan(
@@ -951,6 +958,50 @@ final class BlindBoxStateMachineTests: XCTestCase {
             committedAt: committedAt.addingTimeInterval(60)
         )
         XCTAssertEqual(retryDecision, .priorResult(draw.result))
+    }
+
+    func testCloudDrawTransactionBlocksANewDrawUntilThePendingRevealIsAcknowledged() throws {
+        let plan = makePlan()
+        let firstRequest = BlindBoxDrawRequest.single(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000021")!,
+            batchID: plan.id,
+            positionIndex: 0
+        )
+        let nextRequest = BlindBoxDrawRequest.single(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000022")!,
+            batchID: plan.id,
+            positionIndex: 1
+        )
+        let originalAccount = BlindBoxCloudAccountEnvelope(
+            accountState: BlindBoxAccountState(
+                ticketBalance: 2,
+                candidateBatches: [BlindBoxCandidateBatch(plan: plan)]
+            )
+        )
+
+        let firstDecision = try BlindBoxCloudDrawTransaction.plan(
+            request: firstRequest,
+            account: originalAccount,
+            existingDraw: nil,
+            committedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        guard case let .commit(updatedAccount, _) = firstDecision else {
+            return XCTFail("Expected the first draw to commit.")
+        }
+
+        XCTAssertThrowsError(
+            try BlindBoxCloudDrawTransaction.plan(
+                request: nextRequest,
+                account: updatedAccount,
+                existingDraw: nil,
+                committedAt: Date(timeIntervalSince1970: 1_001)
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? BlindBoxOpenError,
+                .pendingRevealMustBeAcknowledged
+            )
+        }
     }
 
     func testCloudDrawTransactionRejectsAConflictingReuseOfAnIdempotencyKey() throws {
@@ -1083,6 +1134,52 @@ final class BlindBoxStateMachineTests: XCTestCase {
         XCTAssertEqual(account.accountState.ticketBalance, 1)
         XCTAssertEqual(account.accountState.candidateBatches.count, 4)
         XCTAssertTrue(account.accountState.candidateBatches.allSatisfy { $0.firstPresentedAt != nil })
+    }
+
+    @MainActor
+    func testCloudAccountRepositoryAcknowledgesOnlyTheMatchingPendingReveal() async throws {
+        let pendingKey = UUID(uuidString: "FACEFEED-0000-4000-8000-000000000023")!
+        let pendingResult = BlindBoxOpenResult(
+            batchID: UUID(uuidString: "A0000000-0000-4000-8000-000000000023")!,
+            openedStickers: [],
+            ticketCost: 1,
+            resultingTicketBalance: 0,
+            restockAt: nil
+        )
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        try database.seed(
+            BlindBoxCloudKitRecordCodec.makeAccountRecord(
+                BlindBoxCloudAccountEnvelope(
+                    accountState: BlindBoxAccountState(
+                        pendingReveal: BlindBoxPendingReveal(
+                            drawIdempotencyKey: pendingKey,
+                            result: pendingResult
+                        )
+                    )
+                )
+            )
+        )
+        try await database.createZone(BlindBoxCloudKitRecordCodec.zoneID)
+        let repository = BlindBoxCloudKitAccountStateRepository(database: database)
+
+        let didRejectMismatchedAcknowledgement = try await repository.acknowledgePendingReveal(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000024")!
+        )
+        XCTAssertFalse(didRejectMismatchedAcknowledgement)
+        let accountAfterMismatchedAcknowledgement = try await repository.loadAccount()
+        XCTAssertEqual(
+            accountAfterMismatchedAcknowledgement.accountState.pendingReveal?.result,
+            pendingResult
+        )
+
+        let didAcknowledge = try await repository.acknowledgePendingReveal(idempotencyKey: pendingKey)
+        XCTAssertTrue(didAcknowledge)
+        let accountAfterAcknowledgement = try await repository.loadAccount()
+        XCTAssertNil(accountAfterAcknowledgement.accountState.pendingReveal)
+        let didIdempotentlyAcknowledge = try await repository.acknowledgePendingReveal(
+            idempotencyKey: pendingKey
+        )
+        XCTAssertTrue(didIdempotentlyAcknowledge)
     }
 
     @MainActor
@@ -1346,6 +1443,7 @@ final class BlindBoxStateMachineTests: XCTestCase {
 
         XCTAssertEqual(retryResult, firstResult)
         XCTAssertEqual(store.state, stateAfterFirstOpen)
+        XCTAssertEqual(store.state.pendingReveal?.result, firstResult)
 
         let conflictingRequest = BlindBoxDrawRequest.single(
             idempotencyKey: idempotencyKey,
@@ -1358,6 +1456,47 @@ final class BlindBoxStateMachineTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? BlindBoxDrawRepositoryError, .idempotencyKeyConflict)
         }
+    }
+
+    @MainActor
+    func testPreviewDrawRepositoryRequiresAcknowledgingARevealBeforeANewDraw() async throws {
+        let store = BlindBoxPreviewStore(referenceDate: Date(timeIntervalSince1970: 1_000))
+        let batchID = UUID(uuidString: "A0000000-0000-4000-8000-000000000001")!
+        let firstResult = try await store.open(
+            .single(
+                idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000025")!,
+                batchID: batchID,
+                positionIndex: 0
+            )
+        )
+
+        do {
+            _ = try await store.open(
+                .single(
+                    idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000026")!,
+                    batchID: batchID,
+                    positionIndex: 1
+                )
+            )
+            XCTFail("A second preview draw must wait until the first reveal is acknowledged.")
+        } catch {
+            XCTAssertEqual(
+                error as? BlindBoxOpenError,
+                .pendingRevealMustBeAcknowledged
+            )
+        }
+
+        store.acknowledgePendingReveal(firstResult)
+        XCTAssertNil(store.state.pendingReveal)
+
+        let secondResult = try await store.open(
+            .single(
+                idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000027")!,
+                batchID: batchID,
+                positionIndex: 1
+            )
+        )
+        XCTAssertEqual(secondResult.ticketCost, 1)
     }
 
     @MainActor
