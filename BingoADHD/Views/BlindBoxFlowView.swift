@@ -976,10 +976,8 @@ private struct BlindBoxLobbyView: View {
     private let referenceWidth: CGFloat = 393
 
     var body: some View {
-        BlindBoxCanvas {
+        BlindBoxCanvas(backgroundAssetName: "BlindBoxLobbyBackground") {
             ZStack {
-                BlindBoxLobbyBackground()
-
                 lobbyTabs
                     .position(x: 196.5, y: 73)
 
@@ -2360,22 +2358,6 @@ private struct BlindBoxThemeMiniBox: View {
     }
 }
 
-private struct BlindBoxLobbyBackground: View {
-    var body: some View {
-        // `blindpage_background.png` is 835 px wide but only x:34...819 is
-        // visible artwork. Render the 786 px artboard at the 393 pt design
-        // width, then crop the transparent export gutters.
-        Image("BlindBoxLobbyBackground")
-            .resizable()
-            .interpolation(.high)
-            .frame(width: 417.5, height: 852)
-            .offset(x: -17)
-            .frame(width: 393, height: 852)
-            .clipped()
-            .accessibilityHidden(true)
-    }
-}
-
 private struct BlindBoxThemeHeader: View {
     let theme: BlindBoxThemeDefinition
 
@@ -2413,7 +2395,16 @@ private struct BlindBoxPremiumPlaceholder: View {
 }
 
 private struct BlindBoxCanvas<Content: View>: View {
+    let backgroundAssetName: String?
     @ViewBuilder let content: () -> Content
+
+    init(
+        backgroundAssetName: String? = nil,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.backgroundAssetName = backgroundAssetName
+        self.content = content
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -2423,6 +2414,16 @@ private struct BlindBoxCanvas<Content: View>: View {
             let scale = canvasWidth / 393
 
             ZStack(alignment: .topLeading) {
+                if let backgroundAssetName {
+                    Image(backgroundAssetName)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFill()
+                        .frame(width: 393, height: 852)
+                        .scaleEffect(scale, anchor: .topLeading)
+                        .accessibilityHidden(true)
+                }
+
                 content()
                     .frame(width: 393, height: 852)
                     .scaleEffect(scale, anchor: .topLeading)
