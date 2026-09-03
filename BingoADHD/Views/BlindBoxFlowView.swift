@@ -1066,7 +1066,7 @@ private struct BlindBoxLobbyView: View {
                     .font(.appSystem(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(width: 44)
-                    .offset(x: 42)
+                    .offset(x: 39)
                 BlindBoxTicketIcon()
                     .frame(width: 46, height: 46)
             }
@@ -1148,12 +1148,18 @@ private struct BlindBoxLobbyCard: View {
         Button(action: onTap) {
             ZStack(alignment: .bottom) {
                 BlindBoxThemeMiniBox(theme: theme)
-                    .frame(width: 146, height: 166)
+                    .frame(width: 131, height: 149)
 
                 if batch.isSoldOut {
-                    BlindBoxImage("BlindBoxRestockingIcon")
-                        .frame(width: 64, height: 64)
-                        .offset(y: -17)
+                    ZStack {
+                        BlindBoxImage("BlindBoxRestockingIcon")
+                            .frame(width: 64, height: 64)
+                        Text("Restocking")
+                            .font(.appSystem(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                    }
+                    .offset(y: -17)
                 }
 
                 Capsule()
@@ -2393,6 +2399,10 @@ private struct BlindBoxPremiumPlaceholder: View {
                 .frame(width: 128, height: 133)
             BlindBoxImage("BlindBoxPremiumIcon")
                 .frame(width: 64, height: 64)
+            Text("Premium")
+                .font(.appSystem(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(.black)
+                .offset(y: 24)
         }
         .frame(width: 128, height: 133)
     }
