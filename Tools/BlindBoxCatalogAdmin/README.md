@@ -18,6 +18,10 @@ Choose your local repository folder when saving. The tool writes
 present. It never deletes old artwork; this is intentional because retired
 themes remain needed for users who already collected them.
 
+For each theme, attach the sticker PNGs and use the **My Box placement preview**
+to drag them into place. Dragging updates the same 393 × 852 X/Y values written
+to `collectionPlacements`; the numeric inputs remain available for fine tuning.
+
 After reviewing the Git diff, commit the catalog source and manually run the
 **Publish Blind Box Catalog** workflow. That workflow validates the same
 constraints again. Its default mode does not write to CloudKit.

@@ -1,6 +1,7 @@
 const state = {
   release: emptyRelease(),
-  files: new Map()
+  files: new Map(),
+  previewURLs: new Map()
 };
 
 const artworkFields = [
@@ -27,7 +28,7 @@ document.querySelector("#add-theme").addEventListener("click", () => {
 document.querySelector("#reset-draft").addEventListener("click", () => {
   if (!confirm("Start over? Your browser draft and selected files will be cleared.")) return;
   state.release = emptyRelease();
-  state.files.clear();
+  clearAttachedFiles();
   localStorage.removeItem("blind-box-catalog-draft-v1");
   render();
   setStatus("Started a new local draft.");
@@ -119,6 +120,7 @@ function renderTheme(theme, themeIndex) {
   });
   const stickersContainer = card.querySelector("[data-stickers]");
   theme.stickers.forEach((sticker, stickerIndex) => stickersContainer.append(renderSticker(themeIndex, stickerIndex, sticker)));
+  renderPlacementPreview(card.querySelector("[data-placement-preview]"), themeIndex);
   return card;
 }
 
@@ -129,6 +131,9 @@ function renderSticker(themeIndex, stickerIndex, sticker) {
     input.value = sticker[field];
     input.addEventListener("input", () => updateSticker(themeIndex, stickerIndex, field,
       input.type === "number" ? Number(input.value) : input.value));
+    if (["centerX", "centerY", "displaySize"].includes(field)) {
+      input.addEventListener("change", render);
+    }
   }
   const hiddenInput = row.querySelector('[data-field="isHidden"]');
   hiddenInput.checked = sticker.isHidden;
@@ -155,8 +160,76 @@ function recordFile(file, assetName) {
     setStatus(`${file.name} is not a PNG.`, "error");
     return;
   }
+  if (state.previewURLs.has(assetName)) URL.revokeObjectURL(state.previewURLs.get(assetName));
   state.files.set(assetName, file);
+  state.previewURLs.set(assetName, URL.createObjectURL(file));
+  render();
   setStatus(`Attached ${file.name} to ${assetName}.`, "success");
+}
+
+function renderPlacementPreview(preview, themeIndex) {
+  const theme = state.release.themes[themeIndex];
+  if (!preview || !theme) return;
+  preview.replaceChildren();
+  theme.stickers.forEach((sticker, stickerIndex) => {
+    const item = document.createElement("div");
+    item.className = `placement-preview-sticker${sticker.isHidden ? " special" : ""}`;
+    item.style.left = `${clamp(Number(sticker.centerX), 0, 393) / 393 * 100}%`;
+    item.style.top = `${clamp(Number(sticker.centerY), 0, 852) / 852 * 100}%`;
+    const displayedSize = clamp(Number(sticker.displaySize), 22, 180) * 0.5;
+    item.style.width = `${displayedSize}px`;
+    item.style.height = `${displayedSize}px`;
+    item.title = `${sticker.id || "Sticker"} — drag to position`;
+
+    const previewURL = state.previewURLs.get(sticker.assetName);
+    if (previewURL) {
+      const image = document.createElement("img");
+      image.src = previewURL;
+      image.alt = sticker.id || "Sticker preview";
+      item.append(image);
+    } else {
+      const label = document.createElement("span");
+      label.textContent = sticker.isHidden ? "Hidden" : (sticker.id || "PNG");
+      item.append(label);
+    }
+
+    item.addEventListener("pointerdown", (event) => {
+      beginPlacementDrag(event, preview, themeIndex, stickerIndex, item);
+    });
+    preview.append(item);
+  });
+}
+
+function beginPlacementDrag(event, preview, themeIndex, stickerIndex, item) {
+  event.preventDefault();
+  item.setPointerCapture?.(event.pointerId);
+  const move = (moveEvent) => {
+    const bounds = preview.getBoundingClientRect();
+    const x = clamp((moveEvent.clientX - bounds.left) / bounds.width * 393, 0, 393);
+    const y = clamp((moveEvent.clientY - bounds.top) / bounds.height * 852, 0, 852);
+    const sticker = state.release.themes[themeIndex]?.stickers[stickerIndex];
+    if (!sticker) return;
+    sticker.centerX = roundCoordinate(x);
+    sticker.centerY = roundCoordinate(y);
+    item.style.left = `${x / 393 * 100}%`;
+    item.style.top = `${y / 852 * 100}%`;
+  };
+  const end = () => {
+    preview.removeEventListener("pointermove", move);
+    preview.removeEventListener("pointerup", end);
+    preview.removeEventListener("pointercancel", end);
+    saveDraft();
+    render();
+  };
+  preview.addEventListener("pointermove", move);
+  preview.addEventListener("pointerup", end);
+  preview.addEventListener("pointercancel", end);
+}
+
+function clearAttachedFiles() {
+  state.previewURLs.forEach((url) => URL.revokeObjectURL(url));
+  state.previewURLs.clear();
+  state.files.clear();
 }
 
 function normalizedRelease() {
@@ -249,7 +322,7 @@ async function importRelease(event) {
   try {
     const release = JSON.parse(await file.text());
     state.release = editorRelease(release);
-    state.files.clear(); render(); saveDraft();
+    clearAttachedFiles(); render(); saveDraft();
     setStatus("Imported JSON. Reattach changed PNG files before saving.", "success");
   } catch { setStatus("Could not import that release.json.", "error"); }
 }
@@ -279,5 +352,7 @@ function loadDraft() { try { const draft = JSON.parse(localStorage.getItem("blin
 function download(name, content, type) { const url = URL.createObjectURL(new Blob([content], { type })); const link = document.createElement("a"); link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url); }
 function localDateTimeValue(date) { const offset = date.getTimezoneOffset() * 60_000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
 function isIdentifier(value) { return typeof value === "string" && /^[A-Za-z0-9_-]{1,120}$/.test(value); }
+function clamp(value, lowerBound, upperBound) { return Math.min(Math.max(Number.isFinite(value) ? value : lowerBound, lowerBound), upperBound); }
+function roundCoordinate(value) { return Math.round(value * 2) / 2; }
 function assert(condition, message) { if (!condition) throw new Error(message); }
 function setStatus(message, kind = "") { statusElement.textContent = message; statusElement.parentElement.className = `status-bar ${kind}`; }
