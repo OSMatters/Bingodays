@@ -1,4 +1,4 @@
 {
-  "images" : [ { "filename" : "blindbox-premium-placeholder.svg", "idiom" : "universal", "scale" : "1x" } ],
+  "images" : [ { "filename" : "box_unpremium.svg", "idiom" : "universal", "scale" : "1x" } ],
   "info" : { "author" : "xcode", "version" : 1 }
 }

@@ -987,26 +987,21 @@ private struct BlindBoxLobbyView: View {
                     .position(x: 62, y: 224)
 
                 Button(action: onShowMyBox) {
-                    BlindBoxImage("BlindBoxMyBoxIcon")
-                        .frame(width: 32, height: 32)
+                    BlindBoxMyBoxIcon()
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("My Box")
                 .position(x: 360, y: 223)
 
                 Button(action: onShowRules) {
-                    BlindBoxImage("BlindBoxRulesIcon")
-                        .frame(width: 22, height: 22)
+                    BlindBoxRulesIcon()
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Blind Box rules")
                 .position(x: 130, y: 223)
 
-                Image("BlindBoxShelf")
-                    .resizable(capInsets: EdgeInsets(top: 38, leading: 24, bottom: 42, trailing: 24), resizingMode: .stretch)
-                    .scaledToFill()
+                BlindBoxShelf()
                     .frame(width: 360, height: 530)
-                    .clipped()
                     .position(x: 196, y: 516)
 
                 lobbyCandidates
@@ -1020,7 +1015,7 @@ private struct BlindBoxLobbyView: View {
                     premiumPlaceholders
                 }
 
-                BlindBoxImage("BlindBoxTabBar")
+                BlindBoxTabBar()
                     .frame(width: 292, height: 56)
                     .position(x: 196, y: 792)
                     .allowsHitTesting(false)
@@ -1070,7 +1065,7 @@ private struct BlindBoxLobbyView: View {
                     .foregroundStyle(.white)
                     .frame(width: 44)
                     .offset(x: 42)
-                BlindBoxImage("BlindBoxTicketIcon")
+                BlindBoxTicketIcon()
                     .frame(width: 42, height: 42)
             }
             .frame(width: 92, height: 43)
@@ -1152,7 +1147,7 @@ private struct BlindBoxLobbyCard: View {
     var body: some View {
         Button(action: onTap) {
             ZStack(alignment: .bottom) {
-                BlindBoxImage(lobbyAssetName)
+                BlindBoxThemeMiniBox(theme: theme)
                     .frame(width: 122, height: 136)
 
                 if batch.isSoldOut {
@@ -1160,8 +1155,9 @@ private struct BlindBoxLobbyCard: View {
                         Circle()
                             .fill(Color(hex: "6D625A").opacity(0.8))
                             .frame(width: 72, height: 72)
-                        BlindBoxImage("BlindBoxRestockingIcon")
-                            .frame(width: 72, height: 72)
+                        Image(systemName: "shippingbox.fill")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundStyle(.white)
                     }
                     .offset(y: -17)
                 }
@@ -1190,11 +1186,6 @@ private struct BlindBoxLobbyCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(theme.id.rawValue), \(statusText)")
-    }
-
-    private var lobbyAssetName: String {
-        theme.artwork?.lobbyCardAssetName ??
-            (theme.id.rawValue == "pets" ? "BlindBoxPetsMyBox" : "BlindBoxCozyMyBox")
     }
 
     private var statusText: String {
@@ -1234,7 +1225,7 @@ private struct BlindBoxDetailView: View {
                 detailTicketBadge
                     .position(x: 197, y: 74)
 
-                BlindBoxImage(headerAssetName)
+                BlindBoxThemeHeader(theme: theme)
                     .frame(width: 325, height: 173)
                     .position(x: 200.5, y: 191.1)
 
@@ -1303,7 +1294,7 @@ private struct BlindBoxDetailView: View {
                 .foregroundStyle(.white)
                 .frame(width: 44)
                 .offset(x: 42)
-            BlindBoxImage("BlindBoxTicketIcon")
+            BlindBoxTicketIcon()
                 .frame(width: 42, height: 42)
         }
         .frame(width: 92, height: 43)
@@ -1338,13 +1329,6 @@ private struct BlindBoxDetailView: View {
             )
             .disabled(batch.isSoldOut || batch.remainingPositionCount == 0)
         }
-    }
-
-    private var headerAssetName: String {
-        theme.artwork?.detailHeaderAssetName ??
-            (theme.id.rawValue == "pets"
-                ? "BlindBoxPetsHeaderComposite"
-                : "BlindBoxCozyHeaderComposite")
     }
 
     private var boardAssetName: String {
@@ -1425,7 +1409,7 @@ private struct BlindBoxActionButton: View {
                 Text(title)
                     .font(.appSystem(size: 16, weight: .bold, design: .rounded))
                 ZStack(alignment: .topTrailing) {
-                    BlindBoxImage("BlindBoxTicketIcon")
+                    BlindBoxTicketIcon()
                         .frame(width: 26, height: 26)
                     Text("\(ticketCost)")
                         .font(.appSystem(size: 10, weight: .bold, design: .rounded))
@@ -1588,7 +1572,7 @@ private struct BlindBoxCollectionView: View {
     var body: some View {
         BlindBoxCanvas {
             ZStack {
-                BlindBoxImage("BlindBoxMyBoxBackground")
+                BlindBoxImage("BlindBoxDrawBackground")
                     .frame(width: 393, height: 852)
 
                 Button(action: onBack) {
@@ -1647,7 +1631,12 @@ private struct BlindBoxCollectionView: View {
 
     private var collectionThemePicker: some View {
         ZStack {
-            BlindBoxImage("BlindBoxMyBoxThemeTray")
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.white.opacity(0.72))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.white.opacity(0.86), lineWidth: 1)
+                }
                 .frame(width: 353, height: 109)
                 .position(x: 196.5, y: 177.5)
 
@@ -1656,12 +1645,7 @@ private struct BlindBoxCollectionView: View {
                 Button {
                     selectedThemeID = theme.id
                 } label: {
-                    BlindBoxImage(
-                        theme.artwork?.collectionPickerAssetName ??
-                            (theme.id.rawValue == "pets"
-                                ? "BlindBoxPetsLobbySet"
-                                : "BlindBoxCozyLobbySet")
-                    )
+                    BlindBoxThemeMiniBox(theme: theme)
                         .frame(width: 59.21, height: 75)
                         .background {
                             if selectedThemeID == theme.id {
@@ -1681,7 +1665,7 @@ private struct BlindBoxCollectionView: View {
             }
 
             if visibleThemes.count < 3 {
-                BlindBoxImage("BlindBoxComingSoon")
+                BlindBoxComingSoonTile()
                     .frame(width: 59.21, height: 75)
                     .position(x: pickerPositions[visibleThemes.count], y: 179.5)
             }
@@ -2310,6 +2294,170 @@ private struct BlindBoxToast: View {
                 .padding(.bottom, 52)
         }
         .ignoresSafeArea()
+    }
+}
+
+private struct BlindBoxTicketIcon: View {
+    var body: some View {
+        Image(systemName: "ticket.fill")
+            .font(.system(size: 27, weight: .bold))
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(Color(hex: "FFF8E3"), Color(hex: "EEA45D"))
+            .rotationEffect(.degrees(-12))
+            .shadow(color: Color(hex: "C87842").opacity(0.22), radius: 2, y: 1)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct BlindBoxRulesIcon: View {
+    var body: some View {
+        Image(systemName: "questionmark")
+            .font(.system(size: 12, weight: .bold, design: .rounded))
+            .foregroundStyle(Color(hex: "A06E45"))
+            .frame(width: 22, height: 22)
+            .background(.white.opacity(0.88), in: Circle())
+            .overlay {
+                Circle().stroke(Color(hex: "EFCB9C"), lineWidth: 1)
+            }
+    }
+}
+
+private struct BlindBoxMyBoxIcon: View {
+    var body: some View {
+        Image(systemName: "book.closed.fill")
+            .font(.system(size: 15, weight: .bold))
+            .foregroundStyle(Color(hex: "E5A967"))
+            .frame(width: 32, height: 32)
+            .background(.white.opacity(0.9), in: Circle())
+            .overlay {
+                Circle().stroke(Color(hex: "E5A967"), lineWidth: 1.5)
+            }
+    }
+}
+
+private struct BlindBoxTabBar: View {
+    var body: some View {
+        HStack(spacing: 35) {
+            Image(systemName: "house")
+            Image(systemName: "star.fill")
+                .foregroundStyle(Color(hex: "A87B58"))
+                .padding(10)
+                .background(Color(hex: "F0E9E1"), in: Circle())
+            Image(systemName: "clock")
+        }
+        .font(.system(size: 21, weight: .semibold))
+        .foregroundStyle(Color(hex: "594A3D"))
+        .frame(width: 292, height: 56)
+        .background(.white.opacity(0.93), in: Capsule())
+        .overlay {
+            Capsule().stroke(Color.white.opacity(0.9), lineWidth: 1)
+        }
+    }
+}
+
+private struct BlindBoxShelf: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            Image("BlindBoxShelfTop")
+                .resizable()
+                .scaledToFill()
+                .frame(width: 360, height: 25)
+
+            ForEach(0..<3, id: \.self) { _ in
+                Image("BlindBoxShelfMiddle")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 360, height: 156)
+                    .clipped()
+            }
+
+            Image("BlindBoxShelfBottom")
+                .resizable()
+                .scaledToFill()
+                .frame(width: 360, height: 36)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+}
+
+private struct BlindBoxThemeMiniBox: View {
+    let theme: BlindBoxThemeDefinition
+
+    private var isPets: Bool { theme.id.rawValue == "pets" }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(isPets ? Color(hex: "FFE7AB") : Color(hex: "BEEAFF"))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(.white.opacity(0.92), lineWidth: 2)
+                }
+
+            VStack(spacing: 4) {
+                Text(isPets ? "Pets" : "Cozy\nDaily")
+                    .multilineTextAlignment(.center)
+                    .font(.appSystem(size: isPets ? 18 : 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(isPets ? Color(hex: "E48781") : Color(hex: "4187D1"))
+                    .lineSpacing(-2)
+                    .padding(.top, 10)
+
+                HStack(spacing: 3) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        BlindBoxImage("BlindBoxDefaultSlot")
+                            .frame(width: 27, height: 27)
+                    }
+                }
+            }
+        }
+        .accessibilityLabel("\(isPets ? "Pets" : "Cozy Daily") blind box")
+    }
+}
+
+private struct BlindBoxThemeHeader: View {
+    let theme: BlindBoxThemeDefinition
+
+    private var isPets: Bool { theme.id.rawValue == "pets" }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(isPets ? Color(hex: "FFF0CA") : Color(hex: "D9F2FF"))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(isPets ? Color(hex: "FFB370") : Color(hex: "7CCAF3"), lineWidth: 4)
+                }
+
+            VStack(spacing: 10) {
+                Text(isPets ? "Pets" : "Cozy Daily")
+                    .font(.appSystem(size: isPets ? 42 : 33, weight: .bold, design: .rounded))
+                    .foregroundStyle(isPets ? Color(hex: "E48781") : Color(hex: "4187D1"))
+
+                HStack(spacing: 12) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        BlindBoxImage("BlindBoxDefaultSlot")
+                            .frame(width: 42, height: 42)
+                    }
+                }
+            }
+        }
+        .accessibilityLabel("\(isPets ? "Pets" : "Cozy Daily") blind box")
+    }
+}
+
+private struct BlindBoxComingSoonTile: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color.white.opacity(0.7))
+            .overlay {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(Color(hex: "D9B27D"))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(hex: "E2C9A8"), style: StrokeStyle(lineWidth: 1.5, dash: [4]))
+            }
     }
 }
 

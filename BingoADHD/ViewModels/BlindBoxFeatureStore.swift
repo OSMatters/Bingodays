@@ -291,7 +291,7 @@ final class BlindBoxFeatureStore: ObservableObject {
                 title: "Blind Box Ticket",
                 points: deductedPoints,
                 redeemedAt: request.requestedAt,
-                imageName: "BlindBoxTicketIcon",
+                emoji: "🎟️",
                 itemReferenceID: referenceID
             )
         ) != nil else {

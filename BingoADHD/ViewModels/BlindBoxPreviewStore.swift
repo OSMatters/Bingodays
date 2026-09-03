@@ -203,6 +203,9 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
                     firstPresentedAt: referenceDate,
                     nextSystemOpenAt: referenceDate.addingTimeInterval(90 * 60)
                 ),
+                BlindBoxCandidateBatch(plan: cozySecondBatch),
+                BlindBoxCandidateBatch(plan: petsSecondBatch),
+                BlindBoxCandidateBatch(plan: cozyThirdBatch),
                 BlindBoxCandidateBatch(
                     plan: cozyBatch,
                     openedPositionIndices: allIndices,
@@ -210,9 +213,6 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
                     firstPresentedAt: referenceDate.addingTimeInterval(-3 * 60 * 60),
                     soldOutAt: referenceDate.addingTimeInterval(-3 * 60 * 60)
                 ),
-                BlindBoxCandidateBatch(plan: cozySecondBatch),
-                BlindBoxCandidateBatch(plan: petsSecondBatch),
-                BlindBoxCandidateBatch(plan: cozyThirdBatch),
                 BlindBoxCandidateBatch(plan: petsThirdBatch)
             ]
         )
