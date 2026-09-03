@@ -153,6 +153,9 @@ struct BlindBoxFlowView: View {
                 BlindBoxTicketExchangeSheet(
                     availablePoints: store.previewAvailablePoints,
                     ticketBalance: store.state.ticketBalance,
+                    dailyTicketAllowance: BlindBoxTicketPolicy.dailyAllowance(
+                        hasPremiumAccess: subscriptionManager.hasPremiumAccess
+                    ),
                     eligibility: store.pointExchangeEligibility(),
                     onClose: {
                         isShowingTicketExchange = false
@@ -551,6 +554,9 @@ struct BlindBoxLiveFlowView: View {
                 BlindBoxTicketExchangeSheet(
                     availablePoints: pointsFeatureStore.availablePoints(totalPoints: totalPoints),
                     ticketBalance: store.accountState.ticketBalance,
+                    dailyTicketAllowance: BlindBoxTicketPolicy.dailyAllowance(
+                        hasPremiumAccess: subscriptionManager.hasPremiumAccess
+                    ),
                     eligibility: pointExchangeEligibility,
                     onClose: {
                         isShowingTicketExchange = false
@@ -1726,6 +1732,7 @@ private struct BlindBoxOpenConfirmation: View {
 private struct BlindBoxTicketExchangeSheet: View {
     let availablePoints: Int
     let ticketBalance: Int
+    let dailyTicketAllowance: Int
     let eligibility: BlindBoxPointExchangeEligibility
     let onClose: () -> Void
     let onRequestExchange: () -> Void
@@ -1781,6 +1788,11 @@ private struct BlindBoxTicketExchangeSheet: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
                 .background(Color.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 18))
+
+                Text("Daily grant: \(dailyTicketAllowance) ticket\(dailyTicketAllowance == 1 ? "" : "s") at 4:00 AM, up to 20 tickets.")
+                    .font(.appSystem(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color(hex: "8A6E59"))
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Text(statusMessage)
                     .font(.appSystem(size: 13, weight: .medium, design: .rounded))
