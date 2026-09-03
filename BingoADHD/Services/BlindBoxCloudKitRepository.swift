@@ -228,6 +228,7 @@ struct BlindBoxCloudMaintenanceRequest {
     let themes: [BlindBoxThemeDefinition]
     let hasPremiumAccess: Bool
     let candidateZoneWasPresented: Bool
+    let isAutomaticOpeningEnabled: Bool
     let now: Date
     let calendar: Calendar
     let reason: BlindBoxCandidateRefreshReason
@@ -236,6 +237,7 @@ struct BlindBoxCloudMaintenanceRequest {
         themes: [BlindBoxThemeDefinition],
         hasPremiumAccess: Bool,
         candidateZoneWasPresented: Bool,
+        isAutomaticOpeningEnabled: Bool = true,
         now: Date = .now,
         calendar: Calendar = .current,
         reason: BlindBoxCandidateRefreshReason = .initialLoad
@@ -243,6 +245,7 @@ struct BlindBoxCloudMaintenanceRequest {
         self.themes = themes
         self.hasPremiumAccess = hasPremiumAccess
         self.candidateZoneWasPresented = candidateZoneWasPresented
+        self.isAutomaticOpeningEnabled = isAutomaticOpeningEnabled
         self.now = now
         self.calendar = calendar
         self.reason = reason
@@ -297,6 +300,7 @@ final class BlindBoxCloudKitAccountStateRepository {
                     themes: request.themes,
                     hasPremiumAccess: request.hasPremiumAccess,
                     candidateZoneWasPresented: request.candidateZoneWasPresented,
+                    isAutomaticOpeningEnabled: request.isAutomaticOpeningEnabled,
                     now: request.now,
                     calendar: request.calendar,
                     reason: request.reason,
@@ -407,7 +411,8 @@ final class BlindBoxCloudKitPointExchangeRepository {
     func begin(
         _ request: BlindBoxPointExchangeRequest,
         availablePoints: Int,
-        calendar: Calendar
+        calendar: Calendar,
+        economyConfiguration: BlindBoxEconomyConfiguration = .defaultValue
     ) async throws -> BlindBoxCloudPointExchangeEnvelope {
         let exchangeRecordID = BlindBoxCloudKitRecordCodec.pointExchangeRecordID(
             for: request.idempotencyKey
@@ -434,7 +439,8 @@ final class BlindBoxCloudKitPointExchangeRepository {
                     idempotencyKey: request.idempotencyKey,
                     availablePoints: availablePoints,
                     now: request.requestedAt,
-                    calendar: calendar
+                    calendar: calendar,
+                    economyConfiguration: economyConfiguration
                 )
                 let exchange = BlindBoxCloudPointExchangeEnvelope(
                     request: request,

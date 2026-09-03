@@ -38,12 +38,36 @@ struct BlindBoxCloudDrawEnvelope: Codable, Equatable, Sendable {
 struct BlindBoxPointExchangeRequest: Codable, Equatable, Sendable, Identifiable {
     let idempotencyKey: UUID
     let requestedAt: Date
+    let economyConfigurationVersion: Int
 
     var id: UUID { idempotencyKey }
 
-    init(idempotencyKey: UUID = UUID(), requestedAt: Date = .now) {
+    init(
+        idempotencyKey: UUID = UUID(),
+        requestedAt: Date = .now,
+        economyConfigurationVersion: Int = BlindBoxEconomyConfiguration.defaultValue.version
+    ) {
         self.idempotencyKey = idempotencyKey
         self.requestedAt = requestedAt
+        self.economyConfigurationVersion = economyConfigurationVersion
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case idempotencyKey
+        case requestedAt
+        case economyConfigurationVersion
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            idempotencyKey: try container.decode(UUID.self, forKey: .idempotencyKey),
+            requestedAt: try container.decode(Date.self, forKey: .requestedAt),
+            economyConfigurationVersion: try container.decodeIfPresent(
+                Int.self,
+                forKey: .economyConfigurationVersion
+            ) ?? BlindBoxEconomyConfiguration.defaultValue.version
+        )
     }
 }
 

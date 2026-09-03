@@ -164,7 +164,7 @@ struct BlindBoxFlowView: View {
                     onClose: {
                         isShowingTicketExchange = false
                     },
-                    onRequestExchange: {
+                    onRequestExchange: { _ in
                         isConfirmingTicketExchange = true
                     }
                 )
@@ -282,6 +282,8 @@ struct BlindBoxFlowView: View {
         for eligibility: BlindBoxPointExchangeEligibility
     ) -> String {
         switch eligibility {
+        case .disabled:
+            return "Ticket exchange is temporarily unavailable."
         case let .insufficientPoints(required, current):
             return "You need \(max(required - current, 0)) more points."
         case .ticketBalanceAtCapacity:
@@ -327,6 +329,7 @@ struct BlindBoxLiveFlowView: View {
     @State private var pendingOpenRequest: BlindBoxOpenRequest?
     @State private var isShowingTicketExchange = false
     @State private var isConfirmingTicketExchange = false
+    @State private var ticketExchangeConfiguration: BlindBoxEconomyConfiguration?
     @State private var isShowingRules = false
     @State private var isAcknowledgingReveal = false
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
@@ -584,23 +587,26 @@ struct BlindBoxLiveFlowView: View {
                         hasPremiumAccess: subscriptionManager.hasPremiumAccess
                     ),
                     eligibility: pointExchangeEligibility,
+                    economyConfiguration: store.economyConfiguration,
                     onClose: {
                         isShowingTicketExchange = false
                     },
-                    onRequestExchange: {
+                    onRequestExchange: { configuration in
+                        ticketExchangeConfiguration = configuration
                         isConfirmingTicketExchange = true
                     }
                 )
                 .zIndex(10)
             }
 
-            if isConfirmingTicketExchange {
+            if isConfirmingTicketExchange, let ticketExchangeConfiguration {
                 BlindBoxTicketExchangeConfirmation(
+                    pointExchangePrice: ticketExchangeConfiguration.pointExchangePrice,
                     onCancel: {
                         isConfirmingTicketExchange = false
                     },
                     onConfirm: {
-                        confirmTicketExchange()
+                        confirmTicketExchange(ticketExchangeConfiguration)
                     }
                 )
                 .zIndex(11)
@@ -625,7 +631,8 @@ struct BlindBoxLiveFlowView: View {
         return BlindBoxPointExchangePolicy.eligibility(
             availablePoints: pointsFeatureStore.availablePoints(totalPoints: totalPoints),
             ticketBalance: store.accountState.ticketBalance,
-            exchangesUsedThisGrantDay: exchangesToday
+            exchangesUsedThisGrantDay: exchangesToday,
+            economyConfiguration: store.economyConfiguration
         )
     }
 
@@ -720,7 +727,7 @@ struct BlindBoxLiveFlowView: View {
         }) ? .detail(result.batchID) : .lobby
     }
 
-    private func confirmTicketExchange() {
+    private func confirmTicketExchange(_ configuration: BlindBoxEconomyConfiguration) {
         isConfirmingTicketExchange = false
         guard connectivity.status.canMakeNetworkRequests else {
             AnalyticsService.logBlindBoxActionFailed(
@@ -733,7 +740,8 @@ struct BlindBoxLiveFlowView: View {
         Task {
             do {
                 let result = try await store.exchangePointsForOneTicket(
-                    availablePoints: pointsFeatureStore.availablePoints(totalPoints: totalPoints)
+                    availablePoints: pointsFeatureStore.availablePoints(totalPoints: totalPoints),
+                    expectedEconomyConfigurationVersion: configuration.version
                 )
                 AnalyticsService.logBlindBoxPointTicketExchanged(result: result)
                 pointsFeatureStore.reloadAfterExternalDataChange()
@@ -769,6 +777,22 @@ struct BlindBoxLiveFlowView: View {
             return
         }
 
+        if let featureStoreError = error as? BlindBoxFeatureStoreError {
+            switch featureStoreError {
+            case .remoteCatalogUnavailable:
+                presentToast("Unable to verify the latest Blind Box rules. Please try again.")
+            case .openingPaused:
+                presentToast("Opening is temporarily paused.")
+            case .pointExchangeDisabled:
+                presentToast("Ticket exchange is temporarily unavailable.")
+            case .pointExchangeConfigurationChanged:
+                presentToast("Ticket exchange changed. Please review the updated price.")
+            case .accountUnavailable, .pendingRevealChanged, .pointLedgerWriteFailed:
+                presentToast("Unable to sync Blind Box right now. Please try again.")
+            }
+            return
+        }
+
         let message: String
         switch error as? BlindBoxOpenError {
         case .insufficientTickets:
@@ -792,6 +816,8 @@ struct BlindBoxLiveFlowView: View {
                 switch eligibility {
                 case .eligible:
                     return .requestFailed
+                case .disabled:
+                    return .pointExchangeDisabled
                 case .insufficientPoints:
                     return .pointBalance
                 case .ticketBalanceAtCapacity:
@@ -818,6 +844,14 @@ struct BlindBoxLiveFlowView: View {
         switch error as? BlindBoxFeatureStoreError {
         case .accountUnavailable:
             return .accountUnavailable
+        case .remoteCatalogUnavailable:
+            return .remoteCatalogUnavailable
+        case .openingPaused:
+            return .openingPaused
+        case .pointExchangeDisabled:
+            return .pointExchangeDisabled
+        case .pointExchangeConfigurationChanged:
+            return .pointExchangeConfigurationChanged
         default:
             break
         }
@@ -834,6 +868,8 @@ struct BlindBoxLiveFlowView: View {
         for eligibility: BlindBoxPointExchangeEligibility
     ) -> String {
         switch eligibility {
+        case .disabled:
+            return "Ticket exchange is temporarily unavailable."
         case let .insufficientPoints(required, current):
             return "You need \(max(required - current, 0)) more points."
         case .ticketBalanceAtCapacity:
@@ -2024,8 +2060,9 @@ private struct BlindBoxTicketExchangeSheet: View {
     let ticketBalance: Int
     let dailyTicketAllowance: Int
     let eligibility: BlindBoxPointExchangeEligibility
+    var economyConfiguration: BlindBoxEconomyConfiguration = .defaultValue
     let onClose: () -> Void
-    let onRequestExchange: () -> Void
+    let onRequestExchange: (BlindBoxEconomyConfiguration) -> Void
 
     private var canExchange: Bool {
         eligibility == .eligible
@@ -2034,7 +2071,12 @@ private struct BlindBoxTicketExchangeSheet: View {
     private var statusMessage: String {
         switch eligibility {
         case .eligible:
-            return "Available once each day. Resets at 4:00 AM."
+            let exchangeLimit = economyConfiguration.maximumPointExchangesPerGrantDay
+            return exchangeLimit == 1
+                ? "Available once each day. Resets at 4:00 AM."
+                : "Available \(exchangeLimit) times each day. Resets at 4:00 AM."
+        case .disabled:
+            return "Ticket exchange is temporarily unavailable."
         case let .insufficientPoints(required, current):
             return "Need \(max(required - current, 0)) more points."
         case .ticketBalanceAtCapacity:
@@ -2068,7 +2110,7 @@ private struct BlindBoxTicketExchangeSheet: View {
                 }
 
                 VStack(spacing: 8) {
-                    Text("100 points  →  1 ticket")
+                    Text("\(economyConfiguration.pointExchangePrice) points  →  1 ticket")
                         .font(.appSystem(size: 19, weight: .bold, design: .rounded))
                         .foregroundStyle(Color(hex: "A46D4C"))
                     Text("You have \(availablePoints) points · \(ticketBalance)/20 tickets")
@@ -2089,7 +2131,9 @@ private struct BlindBoxTicketExchangeSheet: View {
                     .foregroundStyle(canExchange ? Color(hex: "8A6E59") : Color(hex: "B56D56"))
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Button("Exchange 100 points", action: onRequestExchange)
+                Button("Exchange \(economyConfiguration.pointExchangePrice) points") {
+                    onRequestExchange(economyConfiguration)
+                }
                     .font(.appSystem(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -2100,7 +2144,7 @@ private struct BlindBoxTicketExchangeSheet: View {
                     )
                     .buttonStyle(.plain)
                     .disabled(!canExchange)
-                    .accessibilityHint("Exchanges 100 points for one Blind Box ticket")
+                    .accessibilityHint("Exchanges \(economyConfiguration.pointExchangePrice) points for one Blind Box ticket")
             }
             .padding(22)
             .frame(width: 330)
@@ -2114,6 +2158,7 @@ private struct BlindBoxTicketExchangeSheet: View {
 }
 
 private struct BlindBoxTicketExchangeConfirmation: View {
+    var pointExchangePrice = BlindBoxEconomyConfiguration.defaultValue.pointExchangePrice
     let onCancel: () -> Void
     let onConfirm: () -> Void
 
@@ -2123,7 +2168,7 @@ private struct BlindBoxTicketExchangeConfirmation: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 16) {
-                Text("Exchange 100 points?")
+                Text("Exchange \(pointExchangePrice) points?")
                     .font(.appSystem(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(hex: "5A412C"))
                 Text("You will receive 1 Blind Box ticket. This exchange can’t be undone.")

@@ -89,6 +89,18 @@ function validateRelease(release) {
   assert(Number.isInteger(release.minimumAppBuild) && release.minimumAppBuild >= 0,
     "minimumAppBuild must be a non-negative integer.");
   assert(Number.isFinite(release.publishedAt), "publishedAt must be a Unix timestamp in seconds.");
+  assert(isObject(release.economyConfiguration), "economyConfiguration is required.");
+  const economy = release.economyConfiguration;
+  assert(Number.isInteger(economy.version) && economy.version > 0,
+    "economyConfiguration.version must be a positive integer.");
+  assert(typeof economy.isBlindBoxOpeningEnabled === "boolean",
+    "economyConfiguration.isBlindBoxOpeningEnabled must be true or false.");
+  assert(typeof economy.isPointExchangeEnabled === "boolean",
+    "economyConfiguration.isPointExchangeEnabled must be true or false.");
+  assert(Number.isInteger(economy.pointExchangePrice) && economy.pointExchangePrice >= 50 && economy.pointExchangePrice <= 9999,
+    "economyConfiguration.pointExchangePrice must be an integer between 50 and 9999.");
+  assert(economy.maximumPointExchangesPerGrantDay === 1,
+    "economyConfiguration.maximumPointExchangesPerGrantDay is locked at 1 for the first release.");
   assert(Array.isArray(release.activeThemeIDs), "activeThemeIDs must be an array.");
   assert(Array.isArray(release.themes), "themes must be an array.");
 

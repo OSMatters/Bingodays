@@ -14,9 +14,15 @@ const artworkFields = [
 const themesElement = document.querySelector("#themes");
 const statusElement = document.querySelector("#status");
 const metadataInputs = document.querySelectorAll("[data-meta]");
+const economyInputs = document.querySelectorAll("[data-economy]");
 
 metadataInputs.forEach((input) => input.addEventListener("input", () => {
   state.release[input.dataset.meta] = input.type === "number" ? Number(input.value) : input.value;
+  saveDraft();
+}));
+economyInputs.forEach((input) => input.addEventListener("input", () => {
+  state.release.economyConfiguration[input.dataset.economy] =
+    input.type === "checkbox" ? input.checked : Number(input.value);
   saveDraft();
 }));
 
@@ -55,7 +61,18 @@ function emptyRelease() {
     minimumAppBuild: 47,
     publishedAt: localDateTimeValue(new Date()),
     activeThemeIDs: [],
-    themes: []
+    themes: [],
+    economyConfiguration: defaultEconomyConfiguration()
+  };
+}
+
+function defaultEconomyConfiguration() {
+  return {
+    version: 1,
+    isBlindBoxOpeningEnabled: true,
+    isPointExchangeEnabled: true,
+    pointExchangePrice: 100,
+    maximumPointExchangesPerGrantDay: 1
   };
 }
 
@@ -84,6 +101,11 @@ function render() {
   metadataInputs.forEach((input) => {
     const value = state.release[input.dataset.meta] ?? "";
     input.value = value;
+  });
+  economyInputs.forEach((input) => {
+    const value = state.release.economyConfiguration?.[input.dataset.economy];
+    if (input.type === "checkbox") input.checked = value === true;
+    else input.value = value ?? "";
   });
   themesElement.replaceChildren(...state.release.themes.map((theme, index) => renderTheme(theme, index)));
 }
@@ -264,6 +286,15 @@ function validateRelease(release) {
   assert(Number.isInteger(Number(release.catalogSchemaVersion)) && Number(release.catalogSchemaVersion) > 0, "Schema version must be positive.");
   assert(Number.isInteger(Number(release.minimumAppBuild)) && Number(release.minimumAppBuild) >= 0, "Minimum build must be a non-negative integer.");
   assert(Number.isFinite(Date.parse(release.publishedAt)), "Published at is required.");
+  const economy = release.economyConfiguration;
+  assert(economy && typeof economy === "object", "Economy configuration is required.");
+  assert(Number.isInteger(Number(economy.version)) && Number(economy.version) > 0, "Economy configuration version must be positive.");
+  assert(typeof economy.isBlindBoxOpeningEnabled === "boolean", "Opening switch must be set.");
+  assert(typeof economy.isPointExchangeEnabled === "boolean", "Point exchange switch must be set.");
+  assert(Number.isInteger(Number(economy.pointExchangePrice)) && Number(economy.pointExchangePrice) >= 50 && Number(economy.pointExchangePrice) <= 9999,
+    "Ticket price must be an integer between 50 and 9999.");
+  assert(Number(economy.maximumPointExchangesPerGrantDay) === 1,
+    "Daily exchange limit is locked at 1 for the first release.");
   assert(release.themes.length > 0, "Add at least one theme.");
   const themeIDs = new Set(); const stickerIDs = new Set(); const assetNames = new Set();
   for (const theme of release.themes) {
@@ -334,6 +365,10 @@ function editorRelease(release) {
     minimumAppBuild: release.minimumAppBuild ?? 47,
     publishedAt: localDateTimeValue(new Date((release.publishedAt ?? Date.now() / 1000) * 1000)),
     activeThemeIDs: [],
+    economyConfiguration: {
+      ...defaultEconomyConfiguration(),
+      ...(release.economyConfiguration ?? {})
+    },
     themes: (release.themes ?? []).map((theme) => ({
       active: (release.activeThemeIDs ?? []).some((id) => id.rawValue === theme.id?.rawValue),
       id: theme.id?.rawValue ?? "", catalogVersion: theme.catalogVersion ?? 1,
@@ -348,7 +383,22 @@ function editorRelease(release) {
 }
 
 function saveDraft() { localStorage.setItem("blind-box-catalog-draft-v1", JSON.stringify(state.release)); }
-function loadDraft() { try { const draft = JSON.parse(localStorage.getItem("blind-box-catalog-draft-v1")); if (draft) state.release = draft; } catch { /* ignore malformed local drafts */ } }
+function loadDraft() {
+  try {
+    const draft = JSON.parse(localStorage.getItem("blind-box-catalog-draft-v1"));
+    if (!draft) return;
+    state.release = {
+      ...emptyRelease(),
+      ...draft,
+      economyConfiguration: {
+        ...defaultEconomyConfiguration(),
+        ...(draft.economyConfiguration ?? {})
+      }
+    };
+  } catch {
+    // Ignore malformed local drafts and leave the new default release intact.
+  }
+}
 function download(name, content, type) { const url = URL.createObjectURL(new Blob([content], { type })); const link = document.createElement("a"); link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url); }
 function localDateTimeValue(date) { const offset = date.getTimezoneOffset() * 60_000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
 function isIdentifier(value) { return typeof value === "string" && /^[A-Za-z0-9_-]{1,120}$/.test(value); }

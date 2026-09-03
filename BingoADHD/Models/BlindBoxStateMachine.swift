@@ -8,6 +8,37 @@ struct BlindBoxPendingPointExchange: Codable, Equatable, Sendable {
     let idempotencyKey: UUID
     let grantDayIdentifier: String
     let reservedAt: Date
+    let deductedPoints: Int
+
+    init(
+        idempotencyKey: UUID,
+        grantDayIdentifier: String,
+        reservedAt: Date,
+        deductedPoints: Int = BlindBoxEconomyConfiguration.defaultValue.pointExchangePrice
+    ) {
+        self.idempotencyKey = idempotencyKey
+        self.grantDayIdentifier = grantDayIdentifier
+        self.reservedAt = reservedAt
+        self.deductedPoints = deductedPoints
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case idempotencyKey
+        case grantDayIdentifier
+        case reservedAt
+        case deductedPoints
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            idempotencyKey: try container.decode(UUID.self, forKey: .idempotencyKey),
+            grantDayIdentifier: try container.decode(String.self, forKey: .grantDayIdentifier),
+            reservedAt: try container.decode(Date.self, forKey: .reservedAt),
+            deductedPoints: try container.decodeIfPresent(Int.self, forKey: .deductedPoints)
+                ?? BlindBoxEconomyConfiguration.defaultValue.pointExchangePrice
+        )
+    }
 }
 
 /// A draw is committed before any reveal animation starts. Keeping its result
@@ -433,7 +464,8 @@ enum BlindBoxWalletStateMachine {
         state: inout BlindBoxAccountState,
         availablePoints: Int,
         now: Date,
-        calendar: Calendar
+        calendar: Calendar,
+        economyConfiguration: BlindBoxEconomyConfiguration = .defaultValue
     ) throws -> BlindBoxPointExchangeResult {
         let currentGrantDay = BlindBoxGrantDay.identifier(for: now, calendar: calendar)
         let exchangesUsedToday = state.lastPointExchangeDayIdentifier == currentGrantDay
@@ -442,7 +474,8 @@ enum BlindBoxWalletStateMachine {
         let eligibility = BlindBoxPointExchangePolicy.eligibility(
             availablePoints: availablePoints,
             ticketBalance: state.ticketBalance,
-            exchangesUsedThisGrantDay: exchangesUsedToday
+            exchangesUsedThisGrantDay: exchangesUsedToday,
+            economyConfiguration: economyConfiguration
         )
         guard eligibility == .eligible else {
             throw BlindBoxWalletError.pointExchange(eligibility)
@@ -452,7 +485,7 @@ enum BlindBoxWalletStateMachine {
         state.lastPointExchangeDayIdentifier = currentGrantDay
         state.pointExchangesUsedOnLastGrantDay = exchangesUsedToday + 1
         return BlindBoxPointExchangeResult(
-            deductedPoints: BlindBoxRuleConfiguration.pointExchangePrice,
+            deductedPoints: economyConfiguration.pointExchangePrice,
             grantedTickets: 1,
             resultingTicketBalance: state.ticketBalance
         )
@@ -470,7 +503,8 @@ enum BlindBoxWalletStateMachine {
         idempotencyKey: UUID,
         availablePoints: Int,
         now: Date,
-        calendar: Calendar
+        calendar: Calendar,
+        economyConfiguration: BlindBoxEconomyConfiguration = .defaultValue
     ) throws -> BlindBoxPointExchangeReservationResult {
         if let pending = state.pendingPointExchange {
             guard pending.idempotencyKey == idempotencyKey else {
@@ -478,7 +512,7 @@ enum BlindBoxWalletStateMachine {
             }
             return BlindBoxPointExchangeReservationResult(
                 idempotencyKey: pending.idempotencyKey,
-                deductedPoints: BlindBoxRuleConfiguration.pointExchangePrice,
+                deductedPoints: pending.deductedPoints,
                 grantDayIdentifier: pending.grantDayIdentifier
             )
         }
@@ -490,7 +524,8 @@ enum BlindBoxWalletStateMachine {
         let eligibility = BlindBoxPointExchangePolicy.eligibility(
             availablePoints: availablePoints,
             ticketBalance: state.ticketBalance,
-            exchangesUsedThisGrantDay: exchangesUsedToday
+            exchangesUsedThisGrantDay: exchangesUsedToday,
+            economyConfiguration: economyConfiguration
         )
         guard eligibility == .eligible else {
             throw BlindBoxWalletError.pointExchange(eligibility)
@@ -501,11 +536,12 @@ enum BlindBoxWalletStateMachine {
         state.pendingPointExchange = BlindBoxPendingPointExchange(
             idempotencyKey: idempotencyKey,
             grantDayIdentifier: currentGrantDay,
-            reservedAt: now
+            reservedAt: now,
+            deductedPoints: economyConfiguration.pointExchangePrice
         )
         return BlindBoxPointExchangeReservationResult(
             idempotencyKey: idempotencyKey,
-            deductedPoints: BlindBoxRuleConfiguration.pointExchangePrice,
+            deductedPoints: economyConfiguration.pointExchangePrice,
             grantDayIdentifier: currentGrantDay
         )
     }
@@ -528,7 +564,7 @@ enum BlindBoxWalletStateMachine {
         state.ticketBalance += 1
         state.pendingPointExchange = nil
         return BlindBoxPointExchangeResult(
-            deductedPoints: BlindBoxRuleConfiguration.pointExchangePrice,
+            deductedPoints: pending.deductedPoints,
             grantedTickets: 1,
             resultingTicketBalance: state.ticketBalance
         )
@@ -606,6 +642,7 @@ enum BlindBoxAccountMaintenance {
         themes: [BlindBoxThemeDefinition],
         hasPremiumAccess: Bool,
         candidateZoneWasPresented: Bool,
+        isAutomaticOpeningEnabled: Bool = true,
         now: Date,
         calendar: Calendar,
         reason: BlindBoxCandidateRefreshReason = .initialLoad,
@@ -625,11 +662,13 @@ enum BlindBoxAccountMaintenance {
             now: now,
             generator: &generator
         )
-        let automaticOpen = BlindBoxCandidateCoordinator.processOneAutomaticOpen(
-            state: &state,
-            now: now,
-            generator: &generator
-        )
+        let automaticOpen = isAutomaticOpeningEnabled
+            ? BlindBoxCandidateCoordinator.processOneAutomaticOpen(
+                state: &state,
+                now: now,
+                generator: &generator
+            )
+            : nil
 
         if candidateZoneWasPresented {
             BlindBoxCandidateCoordinator.recordFirstPresentation(

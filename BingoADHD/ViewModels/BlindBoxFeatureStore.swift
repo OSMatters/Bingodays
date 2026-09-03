@@ -21,6 +21,7 @@ final class BlindBoxFeatureStore: ObservableObject {
     @Published private(set) var lastMaintenanceResult: BlindBoxAccountMaintenanceResult?
 
     @Published private(set) var themes: [BlindBoxThemeDefinition]
+    @Published private(set) var economyConfiguration: BlindBoxEconomyConfiguration
 
     private let bootstrapper: BlindBoxCloudKitAccountBootstrapper
     private let accountRepository: BlindBoxCloudKitAccountStateRepository
@@ -50,6 +51,7 @@ final class BlindBoxFeatureStore: ObservableObject {
         self.init(
             themes: cachedRelease?.themes ?? themes,
             activeThemeIDs: cachedRelease?.activeThemeIDs,
+            economyConfiguration: cachedRelease?.economyConfiguration ?? .defaultValue,
             database: database,
             legacyInventoryProvider: legacyInventoryProvider,
             catalogRepository: BlindBoxCloudKitCatalogRepository(),
@@ -60,6 +62,7 @@ final class BlindBoxFeatureStore: ObservableObject {
     init(
         themes: [BlindBoxThemeDefinition],
         activeThemeIDs: [BlindBoxThemeID]? = nil,
+        economyConfiguration: BlindBoxEconomyConfiguration = .defaultValue,
         database: any BlindBoxCloudRecordDatabase,
         legacyInventoryProvider: @escaping () -> [String: Int],
         catalogRepository: (any BlindBoxCatalogBundleFetching)? = nil,
@@ -68,6 +71,7 @@ final class BlindBoxFeatureStore: ObservableObject {
     ) {
         self.themes = themes
         self.activeThemeIDs = Set(activeThemeIDs ?? themes.map(\.id))
+        self.economyConfiguration = economyConfiguration
         self.bootstrapper = BlindBoxCloudKitAccountBootstrapper(database: database)
         self.accountRepository = BlindBoxCloudKitAccountStateRepository(database: database)
         self.drawRepository = BlindBoxCloudKitDrawRepository(database: database)
@@ -137,6 +141,7 @@ final class BlindBoxFeatureStore: ObservableObject {
                     themes: candidateThemes,
                     hasPremiumAccess: hasPremiumAccess,
                     candidateZoneWasPresented: candidateZoneWasPresented,
+                    isAutomaticOpeningEnabled: economyConfiguration.isBlindBoxOpeningEnabled,
                     now: now,
                     calendar: calendar,
                     reason: reason
@@ -158,6 +163,12 @@ final class BlindBoxFeatureStore: ObservableObject {
         guard availability == .ready else {
             throw BlindBoxFeatureStoreError.accountUnavailable
         }
+        guard await refreshRemoteCatalogIfAvailable() else {
+            throw BlindBoxFeatureStoreError.remoteCatalogUnavailable
+        }
+        guard economyConfiguration.isBlindBoxOpeningEnabled else {
+            throw BlindBoxFeatureStoreError.openingPaused
+        }
 
         let result = try await drawRepository.open(request)
         // A completed theme changes its candidate eligibility immediately. Run
@@ -172,6 +183,7 @@ final class BlindBoxFeatureStore: ObservableObject {
                     themes: candidateThemes,
                     hasPremiumAccess: hasPremiumAccess,
                     candidateZoneWasPresented: false,
+                    isAutomaticOpeningEnabled: economyConfiguration.isBlindBoxOpeningEnabled,
                     now: now,
                     calendar: calendar,
                     reason: .themeCompleted
@@ -203,13 +215,14 @@ final class BlindBoxFeatureStore: ObservableObject {
         }
     }
 
-    /// Reserves the one-per-grant-day exchange in the private account first,
-    /// writes the matching 100-point entry to the app's existing point ledger,
-    /// then atomically releases the reserved ticket. If the app is interrupted
-    /// after the reservation, `refresh` completes the same request rather than
-    /// allowing a second charge or a duplicate ticket.
+    /// Reserves the configured one-per-grant-day exchange in the private
+    /// account first, snapshots its point cost, writes that amount to the
+    /// app's existing point ledger, then releases the reserved ticket. If the
+    /// app is interrupted after the reservation, `refresh` completes the same
+    /// request rather than allowing a second charge or a duplicate ticket.
     func exchangePointsForOneTicket(
         availablePoints: Int,
+        expectedEconomyConfigurationVersion: Int? = nil,
         now: Date = .now,
         calendar: Calendar = .current
     ) async throws -> BlindBoxPointExchangeResult {
@@ -217,13 +230,31 @@ final class BlindBoxFeatureStore: ObservableObject {
             throw BlindBoxFeatureStoreError.accountUnavailable
         }
 
-        let request = BlindBoxPointExchangeRequest(requestedAt: now)
-        _ = try await pointExchangeRepository.begin(
+        guard await refreshRemoteCatalogIfAvailable() else {
+            throw BlindBoxFeatureStoreError.remoteCatalogUnavailable
+        }
+        if let expectedEconomyConfigurationVersion,
+           economyConfiguration.version != expectedEconomyConfigurationVersion {
+            throw BlindBoxFeatureStoreError.pointExchangeConfigurationChanged
+        }
+        guard economyConfiguration.isPointExchangeEnabled else {
+            throw BlindBoxFeatureStoreError.pointExchangeDisabled
+        }
+
+        let request = BlindBoxPointExchangeRequest(
+            requestedAt: now,
+            economyConfigurationVersion: economyConfiguration.version
+        )
+        let exchange = try await pointExchangeRepository.begin(
             request,
             availablePoints: availablePoints,
-            calendar: calendar
+            calendar: calendar,
+            economyConfiguration: economyConfiguration
         )
-        try persistPointExchangeLedger(for: request)
+        try persistPointExchangeLedger(
+            for: request,
+            deductedPoints: exchange.reservation.deductedPoints
+        )
         let result = try await pointExchangeRepository.complete(request, completedAt: now)
         accountState = try await accountRepository.loadAccount().accountState
         return result
@@ -233,7 +264,10 @@ final class BlindBoxFeatureStore: ObservableObject {
         guard let pendingExchange = try await pointExchangeRepository.pendingExchange() else {
             return
         }
-        try persistPointExchangeLedger(for: pendingExchange.request)
+        try persistPointExchangeLedger(
+            for: pendingExchange.request,
+            deductedPoints: pendingExchange.reservation.deductedPoints
+        )
         _ = try await pointExchangeRepository.complete(
             pendingExchange.request,
             completedAt: .now
@@ -241,7 +275,8 @@ final class BlindBoxFeatureStore: ObservableObject {
     }
 
     private func persistPointExchangeLedger(
-        for request: BlindBoxPointExchangeRequest
+        for request: BlindBoxPointExchangeRequest,
+        deductedPoints: Int
     ) throws {
         let referenceID = PointRedemptionRecord.blindBoxTicketReferenceID(request.idempotencyKey)
         if PointRedemptionHistoryStore.load().contains(where: {
@@ -254,7 +289,7 @@ final class BlindBoxFeatureStore: ObservableObject {
             PointRedemptionRecord(
                 itemKind: .blindBoxTicket,
                 title: "Blind Box Ticket",
-                points: BlindBoxRuleConfiguration.pointExchangePrice,
+                points: deductedPoints,
                 redeemedAt: request.requestedAt,
                 imageName: "BlindBoxTicketIcon",
                 itemReferenceID: referenceID
@@ -268,14 +303,18 @@ final class BlindBoxFeatureStore: ObservableObject {
         themes.filter { activeThemeIDs.contains($0.id) }
     }
 
-    /// Remote catalog retrieval is deliberately non-fatal: the current cached
-    /// release—or the built-in first-release catalog—remains usable if the
-    /// public CloudKit database is unavailable. The fetched bundle itself is
-    /// validated again by the atomic disk cache before it can change themes.
-    private func refreshRemoteCatalogIfAvailable() async {
-        guard let catalogRepository,
-              let bundle = try? await catalogRepository.fetchLatestBundle() else {
-            return
+    /// Refreshes the remote release when one is configured. Ordinary screen
+    /// refreshes can continue from a good cache when this fails, while the
+    /// two value-changing actions require a `true` result before proceeding.
+    /// That fail-closed transaction boundary prevents an old cached price or
+    /// switch from being used after a publisher changes the catalog.
+    @discardableResult
+    private func refreshRemoteCatalogIfAvailable() async -> Bool {
+        guard let catalogRepository else {
+            return true
+        }
+        guard let bundle = try? await catalogRepository.fetchLatestBundle() else {
+            return false
         }
 
         let installResult: BlindBoxCatalogBundleCacheInstallResult
@@ -292,7 +331,7 @@ final class BlindBoxFeatureStore: ObservableObject {
             )
         }
 
-        guard installResult == .installed else { return }
+        guard installResult == .installed else { return false }
         let cachedEntry: BlindBoxCatalogBundleCache.Entry?
         if let catalogCacheRootDirectory {
             cachedEntry = BlindBoxCatalogBundleCache.load(
@@ -302,13 +341,15 @@ final class BlindBoxFeatureStore: ObservableObject {
         } else {
             cachedEntry = BlindBoxCatalogBundleCache.load(currentBuild: catalogCurrentBuild)
         }
-        guard let cachedEntry else { return }
+        guard let cachedEntry else { return false }
 
         themes = cachedEntry.release.themes
         activeThemeIDs = Set(cachedEntry.release.activeThemeIDs)
+        economyConfiguration = cachedEntry.release.economyConfiguration
         if catalogCacheRootDirectory == nil {
             BlindBoxCatalogArtworkStore.shared.reload()
         }
+        return true
     }
 
     private static func message(for error: any Error) -> String {
@@ -327,6 +368,10 @@ final class BlindBoxFeatureStore: ObservableObject {
 
 enum BlindBoxFeatureStoreError: Error, Equatable {
     case accountUnavailable
+    case remoteCatalogUnavailable
     case pendingRevealChanged
+    case openingPaused
+    case pointExchangeDisabled
+    case pointExchangeConfigurationChanged
     case pointLedgerWriteFailed
 }

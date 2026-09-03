@@ -22,6 +22,12 @@ For each theme, attach the sticker PNGs and use the **My Box placement preview**
 to drag them into place. Dragging updates the same 393 × 852 X/Y values written
 to `collectionPlacements`; the numeric inputs remain available for fine tuning.
 
+Use the **Economy** panel to configure the ticket-opening and point-exchange
+switches plus the exchange price. The first release locks the daily exchange
+limit to one. Whenever either switch or the price changes, increment the
+economy configuration version so a user who already opened a confirmation is
+required to review the current price again.
+
 After reviewing the Git diff, commit the catalog source and manually run the
 **Publish Blind Box Catalog** workflow. That workflow validates the same
 constraints again. Its default mode does not write to CloudKit.

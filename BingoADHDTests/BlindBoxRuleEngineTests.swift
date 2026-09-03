@@ -370,6 +370,20 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         )
         XCTAssertEqual(decodedRelease, release)
 
+        var legacyReleaseJSONObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(release)) as? [String: Any]
+        )
+        legacyReleaseJSONObject.removeValue(forKey: "economyConfiguration")
+        let legacyReleaseData = try JSONSerialization.data(withJSONObject: legacyReleaseJSONObject)
+        let decodedLegacyRelease = try JSONDecoder().decode(
+            BlindBoxCatalogRelease.self,
+            from: legacyReleaseData
+        )
+        XCTAssertEqual(
+            decodedLegacyRelease.economyConfiguration,
+            BlindBoxEconomyConfiguration.defaultValue
+        )
+
         let presentationlessRelease = BlindBoxCatalogRelease(
             releaseID: "invalid-release",
             catalogSchemaVersion: 1,
@@ -576,6 +590,145 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testFeatureStoreAppliesARemoteOpeningPauseBeforeItCreatesADraw() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "BlindBoxFeatureStoreEconomyTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+
+        let pausedEconomy = BlindBoxEconomyConfiguration(
+            version: 2,
+            isBlindBoxOpeningEnabled: false,
+            isPointExchangeEnabled: false,
+            pointExchangePrice: 250,
+            maximumPointExchangesPerGrantDay: 1
+        )
+        let remoteBundle = makeCacheableCatalogBundle(
+            releaseID: "feature-store-economy",
+            economyConfiguration: pausedEconomy
+        )
+        let store = BlindBoxFeatureStore(
+            themes: BlindBoxCatalog.builtInThemes,
+            database: InMemoryBlindBoxCloudRecordDatabase(),
+            legacyInventoryProvider: { [:] },
+            catalogRepository: StaticBlindBoxCatalogBundleRepository(bundle: remoteBundle),
+            catalogCurrentBuild: 1,
+            catalogCacheRootDirectory: rootDirectory
+        )
+
+        await store.refresh(
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: true,
+            nativeICloudInitialImportComplete: true,
+            now: Date(timeIntervalSince1970: 2_000),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(store.economyConfiguration, pausedEconomy)
+        let batch = try XCTUnwrap(store.accountState.candidateBatches.first)
+        do {
+            _ = try await store.open(
+                .single(batchID: batch.id, positionIndex: batch.unopenedPositionPlans[0].index),
+                now: Date(timeIntervalSince1970: 2_000),
+                calendar: calendar
+            )
+            XCTFail("A remotely paused catalog must reject a new draw.")
+        } catch {
+            XCTAssertEqual(error as? BlindBoxFeatureStoreError, .openingPaused)
+        }
+    }
+
+    @MainActor
+    func testFeatureStoreFailsClosedWhenItCannotVerifyRemoteCatalogForADraw() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let store = BlindBoxFeatureStore(
+            themes: BlindBoxCatalog.builtInThemes,
+            database: InMemoryBlindBoxCloudRecordDatabase(),
+            legacyInventoryProvider: { [:] },
+            catalogRepository: StaticBlindBoxCatalogBundleRepository(bundle: nil)
+        )
+
+        await store.refresh(
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: false,
+            nativeICloudInitialImportComplete: true,
+            now: Date(timeIntervalSince1970: 2_000),
+            calendar: calendar
+        )
+
+        let batch = try XCTUnwrap(store.accountState.candidateBatches.first)
+        do {
+            _ = try await store.open(
+                .single(batchID: batch.id, positionIndex: batch.unopenedPositionPlans[0].index),
+                now: Date(timeIntervalSince1970: 2_000),
+                calendar: calendar
+            )
+            XCTFail("A draw must not use a catalog it could not freshly verify.")
+        } catch {
+            XCTAssertEqual(error as? BlindBoxFeatureStoreError, .remoteCatalogUnavailable)
+        }
+    }
+
+    @MainActor
+    func testFeatureStoreRequiresANewConfirmationWhenEconomyVersionChanges() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let economy = BlindBoxEconomyConfiguration(
+            version: 2,
+            isBlindBoxOpeningEnabled: true,
+            isPointExchangeEnabled: true,
+            pointExchangePrice: 250,
+            maximumPointExchangesPerGrantDay: 1
+        )
+        let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "BlindBoxFeatureStoreEconomyVersionTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+
+        let store = BlindBoxFeatureStore(
+            themes: BlindBoxCatalog.builtInThemes,
+            database: InMemoryBlindBoxCloudRecordDatabase(),
+            legacyInventoryProvider: { [:] },
+            catalogRepository: StaticBlindBoxCatalogBundleRepository(
+                bundle: makeCacheableCatalogBundle(
+                    releaseID: "feature-store-economy-version",
+                    economyConfiguration: economy
+                )
+            ),
+            catalogCurrentBuild: 1,
+            catalogCacheRootDirectory: rootDirectory
+        )
+
+        await store.refresh(
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: false,
+            nativeICloudInitialImportComplete: true,
+            now: Date(timeIntervalSince1970: 2_000),
+            calendar: calendar
+        )
+        let originalTicketBalance = store.accountState.ticketBalance
+
+        do {
+            _ = try await store.exchangePointsForOneTicket(
+                availablePoints: 1_000,
+                expectedEconomyConfigurationVersion: 1,
+                now: Date(timeIntervalSince1970: 2_000),
+                calendar: calendar
+            )
+            XCTFail("A stale confirmation must not exchange at an updated price.")
+        } catch {
+            XCTAssertEqual(error as? BlindBoxFeatureStoreError, .pointExchangeConfigurationChanged)
+        }
+
+        XCTAssertEqual(store.accountState.ticketBalance, originalTicketBalance)
+    }
+
     func testLegacyStickerPreviewMapsEveryKnownAssetWithoutDroppingCounts() {
         let legacyInventory = Dictionary(
             uniqueKeysWithValues: StickerKind.allCases.map { ($0.rawValue, 1) }
@@ -745,6 +898,66 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         )
     }
 
+    func testVersionedEconomyControlsPointExchangeAndSnapshotsItsPrice() throws {
+        let economy = BlindBoxEconomyConfiguration(
+            version: 2,
+            isBlindBoxOpeningEnabled: true,
+            isPointExchangeEnabled: true,
+            pointExchangePrice: 250,
+            maximumPointExchangesPerGrantDay: 1
+        )
+        XCTAssertNil(economy.validationError())
+        XCTAssertEqual(
+            BlindBoxPointExchangePolicy.eligibility(
+                availablePoints: 250,
+                ticketBalance: 0,
+                exchangesUsedThisGrantDay: 0,
+                economyConfiguration: economy
+            ),
+            .eligible
+        )
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        var state = BlindBoxAccountState()
+        let idempotencyKey = UUID(uuidString: "FACEFEED-0000-4000-8000-000000000031")!
+        let reservation = try BlindBoxWalletStateMachine.reservePointsForOneTicketExchange(
+            state: &state,
+            idempotencyKey: idempotencyKey,
+            availablePoints: 250,
+            now: Date(timeIntervalSince1970: 1_000),
+            calendar: calendar,
+            economyConfiguration: economy
+        )
+
+        XCTAssertEqual(reservation.deductedPoints, 250)
+        XCTAssertEqual(state.pendingPointExchange?.deductedPoints, 250)
+
+        let completion = try BlindBoxWalletStateMachine.completeReservedPointExchange(
+            state: &state,
+            idempotencyKey: idempotencyKey
+        )
+        XCTAssertEqual(completion.deductedPoints, 250)
+        XCTAssertEqual(completion.resultingTicketBalance, 1)
+
+        let pausedExchange = BlindBoxEconomyConfiguration(
+            version: 3,
+            isBlindBoxOpeningEnabled: false,
+            isPointExchangeEnabled: false,
+            pointExchangePrice: 300,
+            maximumPointExchangesPerGrantDay: 1
+        )
+        XCTAssertEqual(
+            BlindBoxPointExchangePolicy.eligibility(
+                availablePoints: 1_000,
+                ticketBalance: 0,
+                exchangesUsedThisGrantDay: 0,
+                economyConfiguration: pausedExchange
+            ),
+            .disabled
+        )
+    }
+
     func testRestockAndAutomaticOpenIntervalsUseApprovedTiming() {
         let soldOutAt = Date(timeIntervalSince1970: 1_000)
         XCTAssertEqual(
@@ -773,7 +986,10 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "cozy_daily" }!
     }
 
-    private func makeCacheableCatalogRelease(releaseID: String) -> BlindBoxCatalogRelease {
+    private func makeCacheableCatalogRelease(
+        releaseID: String,
+        economyConfiguration: BlindBoxEconomyConfiguration = .defaultValue
+    ) -> BlindBoxCatalogRelease {
         let normal = BlindBoxStickerDefinition(
             id: BlindBoxStickerID(rawValue: "cache_normal"),
             assetName: "cache_normal",
@@ -811,12 +1027,19 @@ final class BlindBoxRuleEngineTests: XCTestCase {
             minimumAppBuild: 1,
             publishedAt: Date(timeIntervalSince1970: 1_000),
             activeThemeIDs: [theme.id],
-            themes: [theme]
+            themes: [theme],
+            economyConfiguration: economyConfiguration
         )
     }
 
-    private func makeCacheableCatalogBundle(releaseID: String) -> BlindBoxCatalogBundle {
-        let release = makeCacheableCatalogRelease(releaseID: releaseID)
+    private func makeCacheableCatalogBundle(
+        releaseID: String,
+        economyConfiguration: BlindBoxEconomyConfiguration = .defaultValue
+    ) -> BlindBoxCatalogBundle {
+        let release = makeCacheableCatalogRelease(
+            releaseID: releaseID,
+            economyConfiguration: economyConfiguration
+        )
         let assetNames = Set(release.themes.flatMap { theme in
             theme.stickers.map(\.assetName) + (theme.artwork?.assetNames ?? [])
         })
@@ -1839,6 +2062,39 @@ final class BlindBoxCandidateCoordinatorTests: XCTestCase {
         XCTAssertNotNil(result.automaticOpen)
         XCTAssertEqual(state.candidateBatches.reduce(0) { $0 + $1.openedPositionIndices.count }, 1)
         XCTAssertEqual(state.ownedStickerCounts, [:])
+    }
+
+    func testAccountMaintenancePausesAutomaticOpeningWhenRemoteEconomyDisablesOpening() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let pets = BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "pets" }!
+        let plan = makePlan(theme: pets, identifier: "C0FFEE00-0000-4000-8000-000000000007")
+        let now = Date(timeIntervalSince1970: 2_000)
+        var state = BlindBoxAccountState(
+            candidateBatches: [
+                BlindBoxCandidateBatch(
+                    plan: plan,
+                    firstPresentedAt: now.addingTimeInterval(-60 * 60),
+                    nextSystemOpenAt: now.addingTimeInterval(-1)
+                )
+            ]
+        )
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0])
+
+        let result = try BlindBoxAccountMaintenance.apply(
+            state: &state,
+            themes: [pets],
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: false,
+            isAutomaticOpeningEnabled: false,
+            now: now,
+            calendar: calendar,
+            generator: &generator
+        )
+
+        XCTAssertNil(result.automaticOpen)
+        XCTAssertTrue(state.candidateBatches[0].openedPositionIndices.isEmpty)
+        XCTAssertEqual(state.candidateBatches[0].nextSystemOpenAt, now.addingTimeInterval(-1))
     }
 
     func testReconciliationFillsExactlyFourOrSixThemeBatchesAndAllowsRepeatedThemes() throws {

@@ -44,6 +44,25 @@
         </div>
       </section>
 
+      <section class="panel economy-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Economy</p>
+            <h2>Tickets and safety switches</h2>
+          </div>
+        </div>
+        <p class="helper">Increment the configuration version whenever you change price, exchange availability, or opening availability. An open ticket-exchange confirmation will then require the user to review the updated price.</p>
+        <div class="form-grid">
+          <label>Configuration version<input data-economy="version" type="number" min="1" /></label>
+          <label>Ticket price (points)<input data-economy="pointExchangePrice" type="number" min="50" max="9999" /></label>
+          <label>Daily exchange limit<input data-economy="maximumPointExchangesPerGrantDay" type="number" value="1" readonly /></label>
+          <div class="economy-switches">
+            <label class="toggle"><input data-economy="isBlindBoxOpeningEnabled" type="checkbox" /><span>Allow opening boxes</span></label>
+            <label class="toggle"><input data-economy="isPointExchangeEnabled" type="checkbox" /><span>Allow point exchange</span></label>
+          </div>
+        </div>
+      </section>
+
       <section class="themes-section">
         <div class="section-heading">
           <div>

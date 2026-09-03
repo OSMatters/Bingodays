@@ -23,6 +23,13 @@ blindbox-catalog/
 may be an ISO 8601 date; the publisher turns it into the numeric timestamp used
 by the iOS decoder. Every artwork key in a theme and every sticker `assetName`
 must have a same-named PNG in `artwork/`.
+
+Every source release also has an `economyConfiguration` object. It requires a
+positive `version`, Boolean `isBlindBoxOpeningEnabled` and
+`isPointExchangeEnabled` switches, an integer `pointExchangePrice` from 50 to
+9999, and `maximumPointExchangesPerGrantDay: 1`. Increase `version` whenever a
+price or switch changes; the app uses it to invalidate an already displayed
+ticket-exchange confirmation before it can charge the old price.
 The complete published bundle, including Base64 encoding of those PNGs, must
 remain below CloudKit's 15 MB asset-upload limit. Optimize the PNGs before
 committing them; the publisher reports the exact packaged size during its

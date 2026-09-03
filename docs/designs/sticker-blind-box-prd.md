@@ -685,65 +685,27 @@ CloudKit Console 只用于创建 schema、查看数据、紧急检查或极少�
 
 ### 12.10 本地管理工具技术选型
 
-首版确定使用 **Next.js + TypeScript 的本地管理工具**。页面和 Route Handlers 只在操作者 Mac 上启动并绑定 `127.0.0.1`，不部署到 Vercel、不监听局域网，也不放入 iOS App。可以提供一个双击启动器，自动启动本地服务并在默认浏览器打开管理页面。
+首版采用**静态本地可视化编辑器 + GitHub Actions 发布器**，不使用 Next.js、Vercel、本地 API 或公网后台。编辑器是仓库内的 HTML/JavaScript 页面，只能由操作者在自己的 Mac 上以 `127.0.0.1` 本地服务打开；它不保存 CloudKit 或 GitHub 密钥。
 
-选择原因：
+当前已实现的本地操作链路如下：
 
-- 前端表单和后台 API 使用同一种语言、同一套类型与验证 schema，减少配置字段在前后端不一致的问题。
-- Node.js 可以直接读写本地内容仓库并安全调用 `git`/`gh`，无需公网 API 或数据库。
-- GitHub Actions 承担 CloudKit 签名、素材上传、回读验证和 Manifest 切换，本地工具不接触 CloudKit 私钥。
-- 与原生 SwiftUI 管理工具相比，这种方案未来迁移到 Vercel 时可以复用绝大部分页面、TypeScript 类型、验证规则和 API 契约。
-- 首版没有 Vercel 固定费用；GitHub Actions 只在预览、发布和回滚时运行。
+`本地浏览器编辑和预览 → 写入已选择的内容仓库目录 → 人工审查 Git diff/提交 → 手动运行 GitHub Actions → CloudKit 公共目录`
 
-本地安全边界：
+- 编辑器可维护 release 元信息、主题、贴纸、唯一隐藏款、9 个固定盒位、My Box 坐标、PNG 素材以及经济配置。
+- 经济配置包含版本号、开盒开关、积分换券开关和 50–9999 的兑换价格；每日兑换次数在首发被锁定为 1。每次改动价格或任一开关都必须递增经济配置版本号，使已打开的兑换确认失效并要求用户重新确认。
+- 编辑器将草稿保存在当前浏览器；点击“保存到 checkout”时使用浏览器的 File System Access API 写入 `blindbox-catalog/release.json` 与新增 PNG。它不删除已发布素材，也不自动提交、推送或发布。
+- 发布工作流先在无密钥模式下完成结构、主题、隐藏款、素材引用、资源总大小和经济配置校验；只有操作者明确勾选上传选项，才使用 GitHub Actions Secret 中的 CloudKit server-to-server key 写入公共数据库。
+- App 只接受完整且验证通过的 bundle；下载或解析失败时继续使用上一份有效缓存。内容发布或回滚绝不改写用户的钱包、收藏和已提交的抽取结果。
 
-- 服务只监听 loopback 地址，启动时生成随机本地会话令牌并校验 Origin/CSRF，其他局域网设备无法访问。
-- 内容仓库路径在首次设置后固定并显示，所有文件操作必须限制在该目录中。
-- 执行 `git`/`gh` 时使用参数数组而不是拼接 shell 字符串，避免主题名称或文件名被解释成命令。
-- 启动时检查 Node.js、Git、GitHub CLI、仓库远端和登录状态，不满足时给出可操作的设置向导。
-- 如工具自行保存少量本地机密，只能使用 macOS Keychain；CloudKit server-to-server 私钥仍不得落到本机工具中。
+本地工具的安全边界：
 
-本地 Route Handlers：
-
-| 方法与路径 | 用途 |
-| --- | --- |
-| `GET /api/themes` | 读取主题列表、状态和最近版本 |
-| `POST /api/themes` | 创建主题草稿并生成稳定 `themeID` |
-| `PATCH /api/themes/:themeID` | 保存基本信息、贴纸清单、排序和隐藏款 |
-| `POST /api/assets` | 单文件上传、素材校验并写入草稿版本 |
-| `POST /api/releases/validate` | 执行完整结构、概率、素材、语言和兼容性校验 |
-| `POST /api/releases/preview` | 生成 preview release 并发布到 CloudKit development |
-| `POST /api/releases/publish` | 冻结版本、本地提交并通过 GitHub CLI 触发生产发布 workflow |
-| `GET /api/releases/:releaseID/status` | 查询校验、上传、回读和 Manifest 切换状态 |
-| `POST /api/releases/:releaseID/rollback` | 将生产 Manifest 回滚到指定已验证版本 |
-| `POST /api/emergency/pause` | 立即设置/解除 `emergencyStopBlindBox` |
-| `GET /api/economy` | 读取当前和草稿经济配置 |
-| `PATCH /api/economy` | 保存积分换券开关、价格和每日上限草稿 |
-| `GET /api/audit` | 查询操作人、变更摘要、时间和结果 |
-
-API 返回 `202 Accepted + operationID` 表示 GitHub Actions 任务已进入队列，前端通过 GitHub CLI 查询运行状态并展示步骤与失败原因；不能因为浏览器刷新而重复触发发布。`publish`、`rollback` 和 `pause` 都必须有幂等键和审计记录。
-
-GitHub Actions 工作流：
-
-- `validate.yml`：每次配置提交运行 JSON Schema、业务规则、经济配置、素材和兼容性测试，不接触生产密钥。
-- `preview.yml`：手动触发并固定写入 CloudKit development 环境。
-- `publish.yml`：手动触发，只允许发布已经通过校验且预览成功的 commit/tag；使用 repository Actions Secrets 中的 CloudKit server-to-server key。
-- `rollback.yml`：选择历史 `releaseID` 并切换生产 Manifest。
-- `emergency-pause.yml`：只允许修改固定 Manifest 的 `emergencyStopBlindBox` 字段。
-- 所有生产类 workflow 使用同一 concurrency group，确保发布、回滚和暂停不会并发修改 Manifest。
-
-结构化主题文件和小型源图片存放在单独的私有 GitHub 内容仓库，GitHub Actions 保存发布执行记录，CloudKit 保存最终不可变目录。GitHub Free 私有仓库当前包含每月 2,000 分钟 Actions 额度；以低频内容发布计算，前期通常无需新增月费，但仍需设置 Actions 预算上限并监控素材仓库体积。
+- 页面只作为本机文件编辑器使用；必须通过本机 `localhost` 服务打开，不能部署为公开站点。
+- 选择目录是用户显式的浏览器授权，编辑器只写入该目录下的 `blindbox-catalog` 内容；私钥始终只存在于 GitHub Actions Secrets。
+- Git 历史是发布前的人工复核与回滚依据；每次正式上传前应先审查 diff，并在 development 环境实际验证后再选择 production。
 
 #### 后续迁移到 Vercel
 
-只有出现多位运营者、需要跨设备随时访问、多人同时编辑或需要远程审批时，才迁移到 Vercel：
-
-1. 保留现有 Next.js 页面、验证 schema、Route Handler 契约、GitHub Actions 和 CloudKit 发布协议。
-2. 将“本地文件 + `git`/`gh`”适配器替换为“GitHub App + GitHub API”适配器。
-3. 将本地启动令牌替换为正式管理员身份、角色权限和托管密钥。
-4. 需要多人草稿协作时再增加 Postgres；不能仅因为部署到 Vercel 就提前引入数据库。
-
-因此本地工具不是一次性原型，而是未来 Web 后台的第一种运行模式。
+只有出现多位运营者、需要跨设备协作、远程审批或集中权限管理时，才迁移到 Vercel。届时保留 release schema、发布器和 CloudKit bundle 协议，将本地文件适配器替换为 GitHub App/API，并增加管理员身份、审计和协作草稿存储；不因为前期工具使用静态页面而提前引入服务器或数据库。
 
 ## 13. 迁移策略
 
@@ -765,7 +727,7 @@ GitHub Actions 工作流：
 - `blind_box_rules_viewed`、`blind_box_collection_viewed`：规则与 My Box 的入口使用情况。
 - `blind_box_opened`：单抽/端盒、主题/目录版本、隐藏款数量、重复数量、扣券数、抽后券余额和是否完成主题。
 - `blind_box_point_ticket_exchanged`：积分成本、获得券数和兑换后券余额。
-- `blind_box_action_failed`：操作类型（开盒/积分换券）及离线、售罄、券不足、当日兑换次数已用、CloudKit 并发等归类原因。
+- `blind_box_action_failed`：操作类型（开盒/积分换券）及离线、售罄、券不足、当日兑换次数已用、远程开关暂停、兑换配置变更、CloudKit 并发等归类原因。
 
 这些事件只记录聚合的玩法数据。**不得**上传抽取请求 UUID、CloudKit record ID、贴纸图片/资源名、完整持有历史、设备或 iCloud 身份标识。主题 ID 是运营配置的稳定、不含个人信息的内容 ID；控制在 100 个字符内。
 
@@ -775,9 +737,9 @@ GitHub Actions 工作流：
 
 - 免费用户每天 1 张、会员每天 3 张；多日未打开时逐日补发到 20 张上限，跨设备不会重复发放。
 - 未使用券可以累计，但余额上限固定为 20；每日发券、补券和欢迎券都遵守同一上限。
-- 免费用户和会员均按当前远程配置使用积分换券；首发 100 积分换 1 张，每个发券日最多兑换 1 张，会员无折扣。
+- 免费用户和会员均按当前远程配置使用积分换券；首发 100 积分换 1 张（后台可在 50–9999 内调整），每个发券日最多兑换 1 张，会员无折扣。
 - 余额 20、积分不足、当日次数已用完、离线或配置暂停时不能兑换，且积分、券余额和当日次数均不发生变化。
-- 成功兑换必须在同一 CloudKit 原子事务中完成扣除 100 积分、增加 1 张券、消耗当日次数和写入不可变记录；断网、连点、跨设备和重试最多成功一次。
+- 成功兑换使用可恢复的幂等流程：先在私有盲盒账户保留当日资格并锁定本次积分价格，再写入既有积分账本，最后增加 1 张券。中断后下次联网刷新继续同一幂等请求；断网、连点、跨设备和重试最多成功一次，不会因随后调价而按新价格记账。
 - 兑换成功不自动开盒；后续开盒失败时兑换所得券仍保留。成功兑换不可反向换回积分。
 - 单抽成功只扣 1 张券；端盒按剩余未开启位置数扣券，并产生一条包含全部结果的不可变批量记录。
 - 重试、断网、杀进程不会重复扣券或改变抽取结果。
@@ -906,7 +868,6 @@ Apple App Review Guideline 3.1.1 要求：如果随机虚拟物品通过购买�
 - [Apple sample-cloudkit-sync-engine](https://github.com/apple/sample-cloudkit-sync-engine)：iOS 17+ 的本地缓存、远程变更和同步测试参考。
 - [Apple sample-cloudkit-privatedb-sync](https://github.com/apple/sample-cloudkit-privatedb-sync)：CloudKit Subscription、silent push、change token 和本地缓存参考。
 - [MistKit](https://github.com/brightdigit/MistKit)：社区的 CloudKit Web Services Swift 封装，可作为后台签名请求实现参考；当前仍处于 beta，不建议未经评估直接成为生产发布链路的关键依赖。
-- [Next.js Route Handlers](https://nextjs.org/docs/app/getting-started/route-handlers)：在同一 Next.js 项目中实现后台 HTTP API。
 - [GitHub Actions included usage](https://docs.github.com/en/billing/reference/product-usage-included)：GitHub Free 私有仓库当前每月包含 2,000 分钟 Actions 额度。
 - [GitHub Actions deployments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments)：`workflow_dispatch`、并发控制、部署记录和保护规则。
 - [GitHub authentication](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github)：GitHub CLI、HTTPS/SSH 和本机凭据的官方说明。

@@ -263,6 +263,57 @@ enum BlindBoxThemeValidationError: Error, Equatable {
     case invalidArtwork(BlindBoxThemeArtworkValidationError)
 }
 
+/// Versioned economy controls delivered together with a catalog release. The
+/// values are deliberately small in scope: a published catalog can pause new
+/// openings or ticket exchange and adjust the next exchange price without
+/// changing any result that was already committed.
+struct BlindBoxEconomyConfiguration: Codable, Equatable, Sendable {
+    static let defaultValue = BlindBoxEconomyConfiguration(
+        version: 1,
+        isBlindBoxOpeningEnabled: true,
+        isPointExchangeEnabled: true,
+        pointExchangePrice: 100,
+        maximumPointExchangesPerGrantDay: 1
+    )
+
+    let version: Int
+    let isBlindBoxOpeningEnabled: Bool
+    let isPointExchangeEnabled: Bool
+    let pointExchangePrice: Int
+    let maximumPointExchangesPerGrantDay: Int
+
+    init(
+        version: Int,
+        isBlindBoxOpeningEnabled: Bool,
+        isPointExchangeEnabled: Bool,
+        pointExchangePrice: Int,
+        maximumPointExchangesPerGrantDay: Int
+    ) {
+        self.version = version
+        self.isBlindBoxOpeningEnabled = isBlindBoxOpeningEnabled
+        self.isPointExchangeEnabled = isPointExchangeEnabled
+        self.pointExchangePrice = pointExchangePrice
+        self.maximumPointExchangesPerGrantDay = maximumPointExchangesPerGrantDay
+    }
+
+    func validationError() -> BlindBoxEconomyConfigurationValidationError? {
+        guard version > 0 else { return .invalidVersion }
+        guard (50...9_999).contains(pointExchangePrice) else {
+            return .invalidPointExchangePrice
+        }
+        guard maximumPointExchangesPerGrantDay == 1 else {
+            return .invalidMaximumPointExchangesPerGrantDay
+        }
+        return nil
+    }
+}
+
+enum BlindBoxEconomyConfigurationValidationError: Error, Equatable, Sendable {
+    case invalidVersion
+    case invalidPointExchangePrice
+    case invalidMaximumPointExchangesPerGrantDay
+}
+
 /// Immutable, remotely publishable catalog payload. The current app keeps its
 /// built-in catalog as a fallback, while future CloudKit releases use this type
 /// to validate a complete candidate before it becomes active on-device.
@@ -273,6 +324,7 @@ struct BlindBoxCatalogRelease: Codable, Equatable, Sendable {
     let publishedAt: Date
     let activeThemeIDs: [BlindBoxThemeID]
     let themes: [BlindBoxThemeDefinition]
+    let economyConfiguration: BlindBoxEconomyConfiguration
 
     init(
         releaseID: String,
@@ -280,7 +332,8 @@ struct BlindBoxCatalogRelease: Codable, Equatable, Sendable {
         minimumAppBuild: Int,
         publishedAt: Date,
         activeThemeIDs: [BlindBoxThemeID],
-        themes: [BlindBoxThemeDefinition]
+        themes: [BlindBoxThemeDefinition],
+        economyConfiguration: BlindBoxEconomyConfiguration = .defaultValue
     ) {
         self.releaseID = releaseID
         self.catalogSchemaVersion = catalogSchemaVersion
@@ -288,6 +341,33 @@ struct BlindBoxCatalogRelease: Codable, Equatable, Sendable {
         self.publishedAt = publishedAt
         self.activeThemeIDs = activeThemeIDs
         self.themes = themes
+        self.economyConfiguration = economyConfiguration
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case releaseID
+        case catalogSchemaVersion
+        case minimumAppBuild
+        case publishedAt
+        case activeThemeIDs
+        case themes
+        case economyConfiguration
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            releaseID: try container.decode(String.self, forKey: .releaseID),
+            catalogSchemaVersion: try container.decode(Int.self, forKey: .catalogSchemaVersion),
+            minimumAppBuild: try container.decode(Int.self, forKey: .minimumAppBuild),
+            publishedAt: try container.decode(Date.self, forKey: .publishedAt),
+            activeThemeIDs: try container.decode([BlindBoxThemeID].self, forKey: .activeThemeIDs),
+            themes: try container.decode([BlindBoxThemeDefinition].self, forKey: .themes),
+            economyConfiguration: try container.decodeIfPresent(
+                BlindBoxEconomyConfiguration.self,
+                forKey: .economyConfiguration
+            ) ?? .defaultValue
+        )
     }
 
     /// Active themes retain the publisher's explicit order. Retired themes may
@@ -307,6 +387,9 @@ struct BlindBoxCatalogRelease: Codable, Equatable, Sendable {
         }
         guard catalogSchemaVersion > 0 else { return .invalidCatalogSchemaVersion }
         guard minimumAppBuild >= 0 else { return .invalidMinimumAppBuild }
+        if let economyError = economyConfiguration.validationError() {
+            return .invalidEconomyConfiguration(economyError)
+        }
         guard Set(themes.map(\.id)).count == themes.count else { return .duplicateThemeID }
         guard Set(activeThemeIDs).count == activeThemeIDs.count else {
             return .duplicateActiveThemeID
@@ -342,6 +425,7 @@ enum BlindBoxCatalogReleaseValidationError: Error, Equatable {
     case invalidReleaseID
     case invalidCatalogSchemaVersion
     case invalidMinimumAppBuild
+    case invalidEconomyConfiguration(BlindBoxEconomyConfigurationValidationError)
     case duplicateThemeID
     case duplicateStickerID
     case duplicateActiveThemeID
@@ -376,8 +460,6 @@ enum BlindBoxRuleConfiguration {
     static let freeDailyTicketAllowance = 1
     static let premiumDailyTicketAllowance = 3
     static let maximumTicketBalance = 20
-    static let pointExchangePrice = 100
-    static let maximumPointExchangesPerGrantDay = 1
     static let standardHiddenStickerProbability = 0.01
     static let hiddenHuntStickerProbability = 0.05
     static let minimumAutomaticOpenInterval: TimeInterval = 45 * 60
@@ -644,6 +726,7 @@ enum BlindBoxRestockCountdown {
 
 enum BlindBoxPointExchangeEligibility: Equatable {
     case eligible
+    case disabled
     case insufficientPoints(required: Int, current: Int)
     case ticketBalanceAtCapacity
     case grantDayLimitReached
@@ -653,17 +736,21 @@ enum BlindBoxPointExchangePolicy {
     static func eligibility(
         availablePoints: Int,
         ticketBalance: Int,
-        exchangesUsedThisGrantDay: Int
+        exchangesUsedThisGrantDay: Int,
+        economyConfiguration: BlindBoxEconomyConfiguration = .defaultValue
     ) -> BlindBoxPointExchangeEligibility {
+        guard economyConfiguration.isPointExchangeEnabled else {
+            return .disabled
+        }
         guard ticketBalance < BlindBoxRuleConfiguration.maximumTicketBalance else {
             return .ticketBalanceAtCapacity
         }
-        guard exchangesUsedThisGrantDay < BlindBoxRuleConfiguration.maximumPointExchangesPerGrantDay else {
+        guard exchangesUsedThisGrantDay < economyConfiguration.maximumPointExchangesPerGrantDay else {
             return .grantDayLimitReached
         }
-        guard availablePoints >= BlindBoxRuleConfiguration.pointExchangePrice else {
+        guard availablePoints >= economyConfiguration.pointExchangePrice else {
             return .insufficientPoints(
-                required: BlindBoxRuleConfiguration.pointExchangePrice,
+                required: economyConfiguration.pointExchangePrice,
                 current: availablePoints
             )
         }

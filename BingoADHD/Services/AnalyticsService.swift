@@ -55,6 +55,10 @@ enum BlindBoxAnalyticsFailureReason: String {
     case pointBalance = "point_balance"
     case ticketCap = "ticket_cap"
     case grantDayLimit = "grant_day_limit"
+    case remoteCatalogUnavailable = "remote_catalog_unavailable"
+    case openingPaused = "opening_paused"
+    case pointExchangeDisabled = "point_exchange_disabled"
+    case pointExchangeConfigurationChanged = "point_exchange_configuration_changed"
     case requestFailed = "request_failed"
 }
 
