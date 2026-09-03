@@ -1146,11 +1146,11 @@ private struct BlindBoxLobbyCard: View {
         Button(action: onTap) {
             ZStack(alignment: .bottom) {
                 BlindBoxThemeMiniBox(theme: theme)
-                    .frame(width: 122, height: 136)
+                    .frame(width: 114, height: 129)
 
                 if batch.isSoldOut {
                     BlindBoxImage("BlindBoxRestockingIcon")
-                        .frame(width: 72, height: 72)
+                        .frame(width: 64, height: 64)
                         .offset(y: -17)
                 }
 
@@ -2292,6 +2292,7 @@ private struct BlindBoxToast: View {
 private struct BlindBoxTicketIcon: View {
     var body: some View {
         BlindBoxImage("BlindBoxTicketIcon")
+            .frame(width: 34, height: 34)
             .accessibilityHidden(true)
     }
 }
@@ -2299,6 +2300,7 @@ private struct BlindBoxTicketIcon: View {
 private struct BlindBoxRulesIcon: View {
     var body: some View {
         BlindBoxImage("BlindBoxRulesIcon")
+            .frame(width: 22, height: 22)
             .accessibilityHidden(true)
     }
 }
@@ -2306,27 +2308,14 @@ private struct BlindBoxRulesIcon: View {
 private struct BlindBoxMyBoxIcon: View {
     var body: some View {
         BlindBoxImage("BlindBoxMyBoxIcon")
+            .frame(width: 32, height: 32)
             .accessibilityHidden(true)
     }
 }
 
 private struct BlindBoxTabBar: View {
     var body: some View {
-        HStack(spacing: 35) {
-            Image(systemName: "house")
-            Image(systemName: "star.fill")
-                .foregroundStyle(Color(hex: "A87B58"))
-                .padding(10)
-                .background(Color(hex: "F0E9E1"), in: Circle())
-            Image(systemName: "clock")
-        }
-        .font(.system(size: 21, weight: .semibold))
-        .foregroundStyle(Color(hex: "594A3D"))
-        .frame(width: 292, height: 56)
-        .background(.white.opacity(0.93), in: Capsule())
-        .overlay {
-            Capsule().stroke(Color.white.opacity(0.9), lineWidth: 1)
-        }
+        HomeMainTabBarView(selectedTab: .constant(.points), isPadLayout: false)
     }
 }
 
@@ -2394,7 +2383,7 @@ private struct BlindBoxPremiumPlaceholder: View {
             BlindBoxImage("BlindBoxPremiumPlaceholder")
                 .frame(width: 128, height: 133)
             BlindBoxImage("BlindBoxPremiumIcon")
-                .frame(width: 72, height: 72)
+                .frame(width: 64, height: 64)
         }
         .frame(width: 128, height: 133)
     }
