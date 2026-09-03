@@ -796,6 +796,69 @@ final class BlindBoxStateMachineTests: XCTestCase {
     }
 
     @MainActor
+    func testCloudAccountBootstrapMigratesLegacyInventoryInItsCreatedAccount() async throws {
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        let bootstrapper = BlindBoxCloudKitAccountBootstrapper(database: database)
+
+        let result = try await bootstrapper.bootstrap(
+            legacyInventoryCounts: [
+                StickerKind.cowCat.rawValue: 1,
+                StickerKind.cowCatStar.rawValue: 1,
+                StickerKind.ragdollCat.rawValue: 1
+            ]
+        )
+
+        guard case let .created(account) = result else {
+            return XCTFail("The first completed migration must create the account.")
+        }
+        XCTAssertEqual(account.accountState.ownedStickerCounts["pets_11"], 2)
+        XCTAssertEqual(account.accountState.ownedStickerCounts["pets_12"], 1)
+        XCTAssertTrue(
+            account.completedLegacyMigrationVersions.contains(
+                BlindBoxLegacyStickerMigration.initialCatalogMigrationVersion
+            )
+        )
+        XCTAssertEqual(database.saveAttemptCount, 1)
+    }
+
+    @MainActor
+    func testCloudAccountBootstrapLeavesUnknownLegacyInventoryUnwritten() async throws {
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        let bootstrapper = BlindBoxCloudKitAccountBootstrapper(database: database)
+
+        let result = try await bootstrapper.bootstrap(
+            legacyInventoryCounts: ["future_legacy_sticker": 1]
+        )
+
+        XCTAssertEqual(
+            result,
+            .requiresManualReview(unmappedLegacyStickerIDs: ["future_legacy_sticker"])
+        )
+        XCTAssertNil(database.record(for: BlindBoxCloudKitRecordCodec.accountRecordID))
+        XCTAssertEqual(database.saveAttemptCount, 0)
+    }
+
+    @MainActor
+    func testCloudAccountBootstrapDoesNotApplyTheMigrationTwice() async throws {
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        let existing = BlindBoxCloudAccountEnvelope(
+            accountState: BlindBoxAccountState(ownedStickerCounts: ["pets_11": 2]),
+            completedLegacyMigrationVersions: [
+                BlindBoxLegacyStickerMigration.initialCatalogMigrationVersion
+            ]
+        )
+        try database.seed(BlindBoxCloudKitRecordCodec.makeAccountRecord(existing))
+        let bootstrapper = BlindBoxCloudKitAccountBootstrapper(database: database)
+
+        let result = try await bootstrapper.bootstrap(
+            legacyInventoryCounts: [StickerKind.cowCat.rawValue: 1]
+        )
+
+        XCTAssertEqual(result, .alreadyReady(account: existing))
+        XCTAssertEqual(database.saveAttemptCount, 0)
+    }
+
+    @MainActor
     func testCloudDrawRepositoryAtomicallyCommitsAndReturnsThePriorResultForARetry() async throws {
         let plan = makePlan()
         let request = BlindBoxDrawRequest.single(

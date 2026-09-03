@@ -111,6 +111,116 @@ enum BlindBoxCloudKitRepositoryError: Error, Equatable {
     case contentionRetryLimitReached
 }
 
+/// Result of the one-time account bootstrap. Callers must obtain
+/// `legacyInventoryCounts` only after Native iCloud has completed its initial
+/// primary-state import; before then a local device may still be looking at an
+/// empty cache rather than the account's actual direct-redemption inventory.
+enum BlindBoxCloudAccountBootstrapResult: Equatable {
+    case created(account: BlindBoxCloudAccountEnvelope)
+    case migratedExisting(account: BlindBoxCloudAccountEnvelope)
+    case alreadyReady(account: BlindBoxCloudAccountEnvelope)
+    case requiresManualReview(unmappedLegacyStickerIDs: [String])
+}
+
+/// Initializes or migrates the private Blind Box account record. This is
+/// intentionally separate from `open(_:)`: opening can never create a blank
+/// account and accidentally mark a not-yet-imported legacy inventory as done.
+@MainActor
+final class BlindBoxCloudKitAccountBootstrapper {
+    private static let maximumContentionAttempts = 3
+
+    private let database: any BlindBoxCloudRecordDatabase
+
+    init(database: any BlindBoxCloudRecordDatabase) {
+        self.database = database
+    }
+
+    func bootstrap(
+        legacyInventoryCounts: [String: Int]
+    ) async throws -> BlindBoxCloudAccountBootstrapResult {
+        try await ensureZoneExists()
+
+        for attempt in 0..<Self.maximumContentionAttempts {
+            do {
+                let records = try await database.fetchRecords([
+                    BlindBoxCloudKitRecordCodec.accountRecordID
+                ])
+                let existingRecord = records[BlindBoxCloudKitRecordCodec.accountRecordID]
+                var account = try existingRecord.map(BlindBoxCloudKitRecordCodec.decodeAccountRecord)
+                    ?? BlindBoxCloudAccountEnvelope()
+
+                let migration = BlindBoxLegacyStickerMigration.apply(
+                    legacyInventoryCounts: legacyInventoryCounts,
+                    to: &account.accountState,
+                    completedMigrationVersions: &account.completedLegacyMigrationVersions
+                )
+
+                switch migration {
+                case let .requiresManualReview(unmappedLegacyStickerIDs):
+                    return .requiresManualReview(
+                        unmappedLegacyStickerIDs: unmappedLegacyStickerIDs
+                    )
+
+                case .alreadyApplied:
+                    guard existingRecord != nil else {
+                        throw BlindBoxCloudKitRepositoryError.incompleteCloudKitResponse
+                    }
+                    return .alreadyReady(account: account)
+
+                case .applied:
+                    let accountRecord: CKRecord
+                    if let existingRecord {
+                        try BlindBoxCloudKitRecordCodec.updateAccountRecord(
+                            existingRecord,
+                            with: account
+                        )
+                        accountRecord = existingRecord
+                    } else {
+                        accountRecord = try BlindBoxCloudKitRecordCodec.makeAccountRecord(account)
+                    }
+                    try await database.saveRecordsAtomically([accountRecord])
+                    return existingRecord == nil
+                        ? .created(account: account)
+                        : .migratedExisting(account: account)
+                }
+            } catch {
+                guard Self.isServerRecordChanged(error) else {
+                    throw error
+                }
+                if attempt == Self.maximumContentionAttempts - 1 {
+                    throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+                }
+            }
+        }
+
+        throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+    }
+
+    private func ensureZoneExists() async throws {
+        if try await database.fetchZone(BlindBoxCloudKitRecordCodec.zoneID) != nil {
+            return
+        }
+
+        do {
+            try await database.createZone(BlindBoxCloudKitRecordCodec.zoneID)
+        } catch {
+            if (try? await database.fetchZone(BlindBoxCloudKitRecordCodec.zoneID)) != nil {
+                return
+            }
+            throw error
+        }
+    }
+
+    private static func isServerRecordChanged(_ error: any Error) -> Bool {
+        if let cloudKitError = error as? CKError {
+            return cloudKitError.code == .serverRecordChanged
+        }
+        let nsError = error as NSError
+        return nsError.domain == CKErrorDomain
+            && nsError.code == CKError.Code.serverRecordChanged.rawValue
+    }
+}
+
 /// Pure command planner used by the CloudKit repository. This keeps
 /// idempotency behavior deterministic: the existing immutable draw is always
 /// returned before attempting another ticket deduction.
