@@ -717,6 +717,33 @@ final class BlindBoxStateMachineTests: XCTestCase {
         XCTAssertEqual(try BlindBoxCloudKitRecordCodec.decodeAccountRecord(accountRecord), updatedAccount)
     }
 
+    func testCloudKitRecordCodecRoundTripsPointExchangeIntent() throws {
+        let request = BlindBoxPointExchangeRequest(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000007")!,
+            requestedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let reservation = BlindBoxPointExchangeReservationResult(
+            idempotencyKey: request.idempotencyKey,
+            deductedPoints: 100,
+            grantDayIdentifier: "2026-09-01"
+        )
+        let exchange = BlindBoxCloudPointExchangeEnvelope(
+            request: request,
+            reservation: reservation,
+            completion: nil,
+            reservedAt: request.requestedAt,
+            completedAt: nil
+        )
+
+        let record = try BlindBoxCloudKitRecordCodec.makePointExchangeRecord(exchange)
+        XCTAssertEqual(record.recordType, BlindBoxCloudKitRecordCodec.pointExchangeRecordType)
+        XCTAssertEqual(
+            record.recordID,
+            BlindBoxCloudKitRecordCodec.pointExchangeRecordID(for: request.idempotencyKey)
+        )
+        XCTAssertEqual(try BlindBoxCloudKitRecordCodec.decodePointExchangeRecord(record), exchange)
+    }
+
     func testCloudDrawTransactionCommitsOnceAndReturnsPriorResultForARetry() throws {
         let plan = makePlan()
         let request = BlindBoxDrawRequest.single(
@@ -1028,6 +1055,96 @@ final class BlindBoxStateMachineTests: XCTestCase {
     }
 
     @MainActor
+    func testPointExchangeRepositoryReservesCapacityThenCompletesIdempotently() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let requestedAt = ISO8601DateFormatter().date(from: "2026-09-02T03:59:00Z")!
+        let request = BlindBoxPointExchangeRequest(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000008")!,
+            requestedAt: requestedAt
+        )
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        let bootstrapper = BlindBoxCloudKitAccountBootstrapper(database: database)
+        _ = try await bootstrapper.bootstrap(legacyInventoryCounts: [:])
+        let repository = BlindBoxCloudKitPointExchangeRepository(database: database)
+
+        let reserved = try await repository.begin(
+            request,
+            availablePoints: 100,
+            calendar: calendar
+        )
+        XCTAssertFalse(reserved.isCompleted)
+        XCTAssertEqual(reserved.reservation.deductedPoints, 100)
+        XCTAssertEqual(reserved.reservation.grantDayIdentifier, "2026-09-01")
+
+        let accountRepository = BlindBoxCloudKitAccountStateRepository(database: database)
+        var account = try await accountRepository.loadAccount()
+        XCTAssertEqual(account.accountState.ticketBalance, 0)
+        XCTAssertEqual(account.accountState.pendingPointExchange?.idempotencyKey, request.idempotencyKey)
+        XCTAssertEqual(account.accountState.pointExchangesUsedOnLastGrantDay, 1)
+
+        // The pending exchange holds one capacity position through the next
+        // daily allowance, so it cannot be accepted and then stranded at cap.
+        account.accountState.ticketBalance = 19
+        let accountRecord = try XCTUnwrap(database.record(for: BlindBoxCloudKitRecordCodec.accountRecordID))
+        try BlindBoxCloudKitRecordCodec.updateAccountRecord(accountRecord, with: account)
+        try await database.saveRecordsAtomically([accountRecord])
+        let maintenance = try await accountRepository.maintain(
+            BlindBoxCloudMaintenanceRequest(
+                themes: BlindBoxCatalog.builtInThemes,
+                hasPremiumAccess: false,
+                candidateZoneWasPresented: false,
+                now: ISO8601DateFormatter().date(from: "2026-09-02T04:00:00Z")!,
+                calendar: calendar
+            )
+        )
+        XCTAssertEqual(maintenance.dailyTicketRefresh.grantedTicketCount, 0)
+
+        let completed = try await repository.complete(request, completedAt: requestedAt)
+        XCTAssertEqual(completed.deductedPoints, 100)
+        XCTAssertEqual(completed.grantedTickets, 1)
+        XCTAssertEqual(completed.resultingTicketBalance, 20)
+        let completedRetry = try await repository.complete(request, completedAt: requestedAt)
+        XCTAssertEqual(completedRetry, completed)
+
+        account = try await accountRepository.loadAccount()
+        XCTAssertNil(account.accountState.pendingPointExchange)
+        XCTAssertEqual(account.accountState.ticketBalance, 20)
+        let replay = try await repository.begin(request, availablePoints: 0, calendar: calendar)
+        XCTAssertEqual(replay.completion, completed)
+    }
+
+    @MainActor
+    func testPointExchangeRepositoryRejectsConcurrentReservationBeforeAnotherLedgerCharge() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let requestedAt = Date(timeIntervalSince1970: 1_000)
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        let bootstrapper = BlindBoxCloudKitAccountBootstrapper(database: database)
+        _ = try await bootstrapper.bootstrap(legacyInventoryCounts: [:])
+        let repository = BlindBoxCloudKitPointExchangeRepository(database: database)
+        _ = try await repository.begin(
+            BlindBoxPointExchangeRequest(requestedAt: requestedAt),
+            availablePoints: 100,
+            calendar: calendar
+        )
+
+        do {
+            _ = try await repository.begin(
+                BlindBoxPointExchangeRequest(requestedAt: requestedAt),
+                availablePoints: 100,
+                calendar: calendar
+            )
+            XCTFail("A second device must be stopped before it records another point charge.")
+        } catch {
+            XCTAssertEqual(
+                error as? BlindBoxPointExchangeRepositoryError,
+                .anotherExchangeIsPending
+            )
+        }
+    }
+
+    @MainActor
     func testForcedOfflineConnectivityGateBlocksNetworkOperations() {
         let monitor = BlindBoxConnectivityMonitor(forceOffline: true)
 
@@ -1300,6 +1417,11 @@ private final class InMemoryBlindBoxCloudRecordDatabase: BlindBoxCloudRecordData
         case BlindBoxCloudKitRecordCodec.drawRecordType:
             return try BlindBoxCloudKitRecordCodec.makeDrawRecord(
                 BlindBoxCloudKitRecordCodec.decodeDrawRecord(record),
+                recordID: record.recordID
+            )
+        case BlindBoxCloudKitRecordCodec.pointExchangeRecordType:
+            return try BlindBoxCloudKitRecordCodec.makePointExchangeRecord(
+                BlindBoxCloudKitRecordCodec.decodePointExchangeRecord(record),
                 recordID: record.recordID
             )
         default:

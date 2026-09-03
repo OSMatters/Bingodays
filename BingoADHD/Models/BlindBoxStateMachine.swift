@@ -1,5 +1,15 @@
 import Foundation
 
+/// A point-to-ticket exchange that CloudKit has accepted but has not yet
+/// finished granting. Reserving the slot first prevents a daily ticket grant
+/// or another device from consuming the final ticket capacity while the
+/// primary iCloud point ledger is being written.
+struct BlindBoxPendingPointExchange: Codable, Equatable, Sendable {
+    let idempotencyKey: UUID
+    let grantDayIdentifier: String
+    let reservedAt: Date
+}
+
 /// Persisted per-account state for the blind-box feature. It is deliberately
 /// independent of the legacy `StickerStore`: old direct-redemption stickers
 /// remain readable while CloudKit migration maps them into this catalog.
@@ -13,6 +23,7 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
     var lastTicketGrantDayIdentifier: String?
     var lastPointExchangeDayIdentifier: String?
     var pointExchangesUsedOnLastGrantDay: Int
+    var pendingPointExchange: BlindBoxPendingPointExchange?
 
     init(
         schemaVersion: Int = BlindBoxAccountState.currentSchemaVersion,
@@ -21,7 +32,8 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
         candidateBatches: [BlindBoxCandidateBatch] = [],
         lastTicketGrantDayIdentifier: String? = nil,
         lastPointExchangeDayIdentifier: String? = nil,
-        pointExchangesUsedOnLastGrantDay: Int = 0
+        pointExchangesUsedOnLastGrantDay: Int = 0,
+        pendingPointExchange: BlindBoxPendingPointExchange? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.ticketBalance = min(max(ticketBalance, 0), BlindBoxRuleConfiguration.maximumTicketBalance)
@@ -33,6 +45,7 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
         self.lastTicketGrantDayIdentifier = lastTicketGrantDayIdentifier
         self.lastPointExchangeDayIdentifier = lastPointExchangeDayIdentifier
         self.pointExchangesUsedOnLastGrantDay = max(pointExchangesUsedOnLastGrantDay, 0)
+        self.pendingPointExchange = pendingPointExchange
     }
 
     func ownedCount(for stickerID: BlindBoxStickerID) -> Int {
@@ -314,10 +327,23 @@ struct BlindBoxDailyTicketRefreshResult: Equatable, Sendable {
     let resultingTicketBalance: Int
 }
 
-struct BlindBoxPointExchangeResult: Equatable, Sendable {
+struct BlindBoxPointExchangeResult: Codable, Equatable, Sendable {
     let deductedPoints: Int
     let grantedTickets: Int
     let resultingTicketBalance: Int
+}
+
+struct BlindBoxPointExchangeReservationResult: Codable, Equatable, Sendable {
+    let idempotencyKey: UUID
+    let deductedPoints: Int
+    let grantDayIdentifier: String
+}
+
+enum BlindBoxPointExchangeRepositoryError: Error, Equatable {
+    case anotherExchangeIsPending
+    case noPendingExchange
+    case pendingExchangeMismatch
+    case reservedTicketCapacityLost
 }
 
 enum BlindBoxWalletError: Error, Equatable {
@@ -325,8 +351,9 @@ enum BlindBoxWalletError: Error, Equatable {
 }
 
 /// Currency transitions are intentionally pure and do not own the app's point
-/// wallet. In production the CloudKit repository performs the returned point
-/// deduction and this state change in the same idempotent transaction.
+/// wallet. Point redemption evidence remains in the existing primary iCloud
+/// ledger, while the private Blind Box zone reserves and later grants a ticket
+/// through an idempotent, recoverable exchange saga.
 enum BlindBoxWalletStateMachine {
     @discardableResult
     static func refreshDailyTickets(
@@ -358,7 +385,13 @@ enum BlindBoxWalletStateMachine {
         }
 
         let allowance = BlindBoxTicketPolicy.dailyAllowance(hasPremiumAccess: hasPremiumAccess)
-        let availableCapacity = BlindBoxRuleConfiguration.maximumTicketBalance - state.ticketBalance
+        // A point exchange is accepted before its primary iCloud ledger entry
+        // and ticket grant can both be observed locally. Hold one capacity slot
+        // so a subsequent daily grant cannot strand that accepted exchange at
+        // the twenty-ticket cap.
+        let pendingExchangeCapacity = state.pendingPointExchange == nil ? 0 : 1
+        let availableCapacity = BlindBoxRuleConfiguration.maximumTicketBalance -
+            state.ticketBalance - pendingExchangeCapacity
         let requestedTickets = allowance.multipliedReportingOverflow(by: processedGrantDays)
         let grantedTickets = min(
             max(availableCapacity, 0),
@@ -400,6 +433,82 @@ enum BlindBoxWalletStateMachine {
         state.ticketBalance += 1
         state.lastPointExchangeDayIdentifier = currentGrantDay
         state.pointExchangesUsedOnLastGrantDay = exchangesUsedToday + 1
+        return BlindBoxPointExchangeResult(
+            deductedPoints: BlindBoxRuleConfiguration.pointExchangePrice,
+            grantedTickets: 1,
+            resultingTicketBalance: state.ticketBalance
+        )
+    }
+
+    /// Starts the server-owned half of a point exchange. The caller writes the
+    /// matching primary iCloud ledger record next, then calls
+    /// `completeReservedPointExchange`. This split is deliberate: the current
+    /// app keeps points and Blind Box state in separate CloudKit domains, so a
+    /// durable, resumable saga is safer than pretending they are one atomic
+    /// database transaction.
+    @discardableResult
+    static func reservePointsForOneTicketExchange(
+        state: inout BlindBoxAccountState,
+        idempotencyKey: UUID,
+        availablePoints: Int,
+        now: Date,
+        calendar: Calendar
+    ) throws -> BlindBoxPointExchangeReservationResult {
+        if let pending = state.pendingPointExchange {
+            guard pending.idempotencyKey == idempotencyKey else {
+                throw BlindBoxPointExchangeRepositoryError.anotherExchangeIsPending
+            }
+            return BlindBoxPointExchangeReservationResult(
+                idempotencyKey: pending.idempotencyKey,
+                deductedPoints: BlindBoxRuleConfiguration.pointExchangePrice,
+                grantDayIdentifier: pending.grantDayIdentifier
+            )
+        }
+
+        let currentGrantDay = BlindBoxGrantDay.identifier(for: now, calendar: calendar)
+        let exchangesUsedToday = state.lastPointExchangeDayIdentifier == currentGrantDay
+            ? state.pointExchangesUsedOnLastGrantDay
+            : 0
+        let eligibility = BlindBoxPointExchangePolicy.eligibility(
+            availablePoints: availablePoints,
+            ticketBalance: state.ticketBalance,
+            exchangesUsedThisGrantDay: exchangesUsedToday
+        )
+        guard eligibility == .eligible else {
+            throw BlindBoxWalletError.pointExchange(eligibility)
+        }
+
+        state.lastPointExchangeDayIdentifier = currentGrantDay
+        state.pointExchangesUsedOnLastGrantDay = exchangesUsedToday + 1
+        state.pendingPointExchange = BlindBoxPendingPointExchange(
+            idempotencyKey: idempotencyKey,
+            grantDayIdentifier: currentGrantDay,
+            reservedAt: now
+        )
+        return BlindBoxPointExchangeReservationResult(
+            idempotencyKey: idempotencyKey,
+            deductedPoints: BlindBoxRuleConfiguration.pointExchangePrice,
+            grantDayIdentifier: currentGrantDay
+        )
+    }
+
+    @discardableResult
+    static func completeReservedPointExchange(
+        state: inout BlindBoxAccountState,
+        idempotencyKey: UUID
+    ) throws -> BlindBoxPointExchangeResult {
+        guard let pending = state.pendingPointExchange else {
+            throw BlindBoxPointExchangeRepositoryError.noPendingExchange
+        }
+        guard pending.idempotencyKey == idempotencyKey else {
+            throw BlindBoxPointExchangeRepositoryError.pendingExchangeMismatch
+        }
+        guard state.ticketBalance < BlindBoxRuleConfiguration.maximumTicketBalance else {
+            throw BlindBoxPointExchangeRepositoryError.reservedTicketCapacityLost
+        }
+
+        state.ticketBalance += 1
+        state.pendingPointExchange = nil
         return BlindBoxPointExchangeResult(
             deductedPoints: BlindBoxRuleConfiguration.pointExchangePrice,
             grantedTickets: 1,

@@ -31,6 +31,32 @@ struct BlindBoxCloudDrawEnvelope: Codable, Equatable, Sendable {
     let committedAt: Date
 }
 
+/// A durable point-to-ticket saga record. The app's existing point ledger and
+/// Blind Box account live in separate iCloud domains, so the reservation is
+/// stored in the private record zone and the matching ledger entry is repaired
+/// from this evidence after any interruption.
+struct BlindBoxPointExchangeRequest: Codable, Equatable, Sendable, Identifiable {
+    let idempotencyKey: UUID
+    let requestedAt: Date
+
+    var id: UUID { idempotencyKey }
+
+    init(idempotencyKey: UUID = UUID(), requestedAt: Date = .now) {
+        self.idempotencyKey = idempotencyKey
+        self.requestedAt = requestedAt
+    }
+}
+
+struct BlindBoxCloudPointExchangeEnvelope: Codable, Equatable, Sendable {
+    let request: BlindBoxPointExchangeRequest
+    let reservation: BlindBoxPointExchangeReservationResult
+    var completion: BlindBoxPointExchangeResult?
+    let reservedAt: Date
+    var completedAt: Date?
+
+    var isCompleted: Bool { completion != nil }
+}
+
 enum BlindBoxCloudKitRecordCodecError: Error, Equatable {
     case unexpectedRecordType(expected: String, actual: String)
     case missingPayload
@@ -44,6 +70,7 @@ enum BlindBoxCloudKitRecordCodec {
     static let zoneName = "BlindBoxZone"
     static let accountRecordType = "BlindBoxAccount"
     static let drawRecordType = "BlindBoxDraw"
+    static let pointExchangeRecordType = "BlindBoxPointExchange"
 
     private static let payloadField = "payload"
     private static let schemaVersionField = "schemaVersion"
@@ -60,6 +87,13 @@ enum BlindBoxCloudKitRecordCodec {
     static func drawRecordID(for idempotencyKey: UUID) -> CKRecord.ID {
         CKRecord.ID(
             recordName: "draw-\(idempotencyKey.uuidString.lowercased())",
+            zoneID: zoneID
+        )
+    }
+
+    static func pointExchangeRecordID(for idempotencyKey: UUID) -> CKRecord.ID {
+        CKRecord.ID(
+            recordName: "point-exchange-\(idempotencyKey.uuidString.lowercased())",
             zoneID: zoneID
         )
     }
@@ -86,6 +120,18 @@ enum BlindBoxCloudKitRecordCodec {
         return record
     }
 
+    static func makePointExchangeRecord(
+        _ envelope: BlindBoxCloudPointExchangeEnvelope,
+        recordID: CKRecord.ID? = nil
+    ) throws -> CKRecord {
+        let record = CKRecord(
+            recordType: pointExchangeRecordType,
+            recordID: recordID ?? pointExchangeRecordID(for: envelope.request.idempotencyKey)
+        )
+        try setPayload(envelope, on: record)
+        return record
+    }
+
     /// Mutates the record that was fetched from CloudKit rather than creating a
     /// replacement record. Keeping that instance preserves its server change
     /// tag, so `.ifServerRecordUnchanged` can detect a competing account
@@ -107,6 +153,21 @@ enum BlindBoxCloudKitRecordCodec {
     static func decodeDrawRecord(_ record: CKRecord) throws -> BlindBoxCloudDrawEnvelope {
         try validate(record, recordType: drawRecordType)
         return try decodedPayload(from: record, as: BlindBoxCloudDrawEnvelope.self)
+    }
+
+    static func updatePointExchangeRecord(
+        _ record: CKRecord,
+        with envelope: BlindBoxCloudPointExchangeEnvelope
+    ) throws {
+        try validate(record, recordType: pointExchangeRecordType)
+        try setPayload(envelope, on: record)
+    }
+
+    static func decodePointExchangeRecord(
+        _ record: CKRecord
+    ) throws -> BlindBoxCloudPointExchangeEnvelope {
+        try validate(record, recordType: pointExchangeRecordType)
+        return try decodedPayload(from: record, as: BlindBoxCloudPointExchangeEnvelope.self)
     }
 
     private static func validate(_ record: CKRecord, recordType: String) throws {

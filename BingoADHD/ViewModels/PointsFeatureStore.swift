@@ -24,7 +24,7 @@ final class PointsFeatureStore: ObservableObject {
     }
 
     func availablePoints(totalPoints: Int) -> Int {
-        max(totalPoints - spentStickerPoints - spentRewardPoints, 0)
+        max(totalPoints - spentStickerPoints - spentRewardPoints - spentBlindBoxTicketPoints, 0)
     }
 
     func loadAfterFirstFrameIfNeeded() {
@@ -219,6 +219,20 @@ final class PointsFeatureStore: ObservableObject {
     private var spentRewardPoints: Int {
         customRewards.reduce(0) { partial, reward in
             partial + reward.totalSpentPoints
+        }
+    }
+
+    /// Blind Box tickets live in the same point-spend ledger as stickers and
+    /// custom rewards, while their ownership is authoritatively stored in the
+    /// private Blind Box CloudKit zone. Counting only active ticket records
+    /// keeps the familiar points balance correct without turning the lifetime
+    /// `totalPoints` counter into a mutable wallet.
+    private var spentBlindBoxTicketPoints: Int {
+        redemptionHistory.reduce(0) { partial, record in
+            guard record.isActive, record.itemKind == .blindBoxTicket else {
+                return partial
+            }
+            return partial + max(record.points, 0)
         }
     }
 

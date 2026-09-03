@@ -812,7 +812,17 @@ enum PointRedemptionReconciler {
 
     private static func nextLedgerRevocationIndex(in records: [PointRedemptionRecord]) -> Int? {
         records.indices
-            .filter { records[$0].isActive && records[$0].itemReferenceID != nil }
+            // A Blind Box ticket may already have been used to open a box. Its
+            // ledger entry is therefore an irreversible purchase record, not a
+            // revocable reward entitlement. If a legacy cross-device point
+            // conflict leaves the overall ledger temporarily over budget, the
+            // reconciling code may revoke an unfulfilled sticker/reward but
+            // must never make a completed draw lose its paid ticket history.
+            .filter {
+                records[$0].isActive &&
+                    records[$0].itemReferenceID != nil &&
+                    records[$0].itemKind != .blindBoxTicket
+            }
             .sorted { lhs, rhs in
                 let left = records[lhs]
                 let right = records[rhs]

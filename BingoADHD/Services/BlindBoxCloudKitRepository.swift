@@ -336,6 +336,173 @@ final class BlindBoxCloudKitAccountStateRepository {
     }
 }
 
+enum BlindBoxCloudPointExchangeRepositoryError: Error, Equatable {
+    case idempotencyKeyConflict
+    case pendingExchangeRecordMissing
+    case unexpectedCompletedExchange
+}
+
+/// Owns the private-zone half of the point-to-ticket exchange saga. A begin
+/// command reserves the daily allowance and one ticket-capacity slot together
+/// with immutable intent evidence. The primary iCloud point ledger is written
+/// between `begin` and `complete`; either app termination or a request timeout
+/// can safely resume from the same intent on a later online refresh.
+@MainActor
+final class BlindBoxCloudKitPointExchangeRepository {
+    private static let maximumContentionAttempts = 3
+
+    private let database: any BlindBoxCloudRecordDatabase
+
+    init(database: any BlindBoxCloudRecordDatabase) {
+        self.database = database
+    }
+
+    func begin(
+        _ request: BlindBoxPointExchangeRequest,
+        availablePoints: Int,
+        calendar: Calendar
+    ) async throws -> BlindBoxCloudPointExchangeEnvelope {
+        let exchangeRecordID = BlindBoxCloudKitRecordCodec.pointExchangeRecordID(
+            for: request.idempotencyKey
+        )
+        let accountRecordID = BlindBoxCloudKitRecordCodec.accountRecordID
+
+        for attempt in 0..<Self.maximumContentionAttempts {
+            do {
+                let records = try await database.fetchRecords([exchangeRecordID, accountRecordID])
+                if let exchangeRecord = records[exchangeRecordID] {
+                    let existing = try BlindBoxCloudKitRecordCodec.decodePointExchangeRecord(exchangeRecord)
+                    guard existing.request == request else {
+                        throw BlindBoxCloudPointExchangeRepositoryError.idempotencyKeyConflict
+                    }
+                    return existing
+                }
+
+                guard let accountRecord = records[accountRecordID] else {
+                    throw BlindBoxCloudKitRepositoryError.accountNotInitialized
+                }
+                var account = try BlindBoxCloudKitRecordCodec.decodeAccountRecord(accountRecord)
+                let reservation = try BlindBoxWalletStateMachine.reservePointsForOneTicketExchange(
+                    state: &account.accountState,
+                    idempotencyKey: request.idempotencyKey,
+                    availablePoints: availablePoints,
+                    now: request.requestedAt,
+                    calendar: calendar
+                )
+                let exchange = BlindBoxCloudPointExchangeEnvelope(
+                    request: request,
+                    reservation: reservation,
+                    completion: nil,
+                    reservedAt: request.requestedAt,
+                    completedAt: nil
+                )
+
+                try BlindBoxCloudKitRecordCodec.updateAccountRecord(accountRecord, with: account)
+                let exchangeRecord = try BlindBoxCloudKitRecordCodec.makePointExchangeRecord(exchange)
+                try await database.saveRecordsAtomically([accountRecord, exchangeRecord])
+                return exchange
+            } catch {
+                guard Self.isServerRecordChanged(error) else {
+                    throw error
+                }
+                if attempt == Self.maximumContentionAttempts - 1 {
+                    throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+                }
+            }
+        }
+
+        throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+    }
+
+    func complete(
+        _ request: BlindBoxPointExchangeRequest,
+        completedAt: Date = .now
+    ) async throws -> BlindBoxPointExchangeResult {
+        let exchangeRecordID = BlindBoxCloudKitRecordCodec.pointExchangeRecordID(
+            for: request.idempotencyKey
+        )
+        let accountRecordID = BlindBoxCloudKitRecordCodec.accountRecordID
+
+        for attempt in 0..<Self.maximumContentionAttempts {
+            do {
+                let records = try await database.fetchRecords([exchangeRecordID, accountRecordID])
+                guard let exchangeRecord = records[exchangeRecordID] else {
+                    throw BlindBoxCloudPointExchangeRepositoryError.pendingExchangeRecordMissing
+                }
+                var exchange = try BlindBoxCloudKitRecordCodec.decodePointExchangeRecord(exchangeRecord)
+                guard exchange.request == request else {
+                    throw BlindBoxCloudPointExchangeRepositoryError.idempotencyKeyConflict
+                }
+                if let completion = exchange.completion {
+                    return completion
+                }
+
+                guard let accountRecord = records[accountRecordID] else {
+                    throw BlindBoxCloudKitRepositoryError.accountNotInitialized
+                }
+                var account = try BlindBoxCloudKitRecordCodec.decodeAccountRecord(accountRecord)
+                let completion = try BlindBoxWalletStateMachine.completeReservedPointExchange(
+                    state: &account.accountState,
+                    idempotencyKey: request.idempotencyKey
+                )
+                exchange.completion = completion
+                exchange.completedAt = completedAt
+
+                try BlindBoxCloudKitRecordCodec.updateAccountRecord(accountRecord, with: account)
+                try BlindBoxCloudKitRecordCodec.updatePointExchangeRecord(
+                    exchangeRecord,
+                    with: exchange
+                )
+                try await database.saveRecordsAtomically([accountRecord, exchangeRecord])
+                return completion
+            } catch {
+                guard Self.isServerRecordChanged(error) else {
+                    throw error
+                }
+                if attempt == Self.maximumContentionAttempts - 1 {
+                    throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+                }
+            }
+        }
+
+        throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+    }
+
+    func pendingExchange() async throws -> BlindBoxCloudPointExchangeEnvelope? {
+        let accountRecordID = BlindBoxCloudKitRecordCodec.accountRecordID
+        let accountRecords = try await database.fetchRecords([accountRecordID])
+        guard let accountRecord = accountRecords[accountRecordID] else {
+            throw BlindBoxCloudKitRepositoryError.accountNotInitialized
+        }
+        let account = try BlindBoxCloudKitRecordCodec.decodeAccountRecord(accountRecord)
+        guard let pending = account.accountState.pendingPointExchange else {
+            return nil
+        }
+
+        let exchangeRecordID = BlindBoxCloudKitRecordCodec.pointExchangeRecordID(
+            for: pending.idempotencyKey
+        )
+        let exchangeRecords = try await database.fetchRecords([exchangeRecordID])
+        guard let exchangeRecord = exchangeRecords[exchangeRecordID] else {
+            throw BlindBoxCloudPointExchangeRepositoryError.pendingExchangeRecordMissing
+        }
+        let exchange = try BlindBoxCloudKitRecordCodec.decodePointExchangeRecord(exchangeRecord)
+        guard exchange.request.idempotencyKey == pending.idempotencyKey else {
+            throw BlindBoxCloudPointExchangeRepositoryError.idempotencyKeyConflict
+        }
+        return exchange
+    }
+
+    private static func isServerRecordChanged(_ error: any Error) -> Bool {
+        if let cloudKitError = error as? CKError {
+            return cloudKitError.code == .serverRecordChanged
+        }
+        let nsError = error as NSError
+        return nsError.domain == CKErrorDomain &&
+            nsError.code == CKError.Code.serverRecordChanged.rawValue
+    }
+}
+
 /// Pure command planner used by the CloudKit repository. This keeps
 /// idempotency behavior deterministic: the existing immutable draw is always
 /// returned before attempting another ticket deduction.

@@ -25,6 +25,7 @@ final class BlindBoxFeatureStore: ObservableObject {
     private let bootstrapper: BlindBoxCloudKitAccountBootstrapper
     private let accountRepository: BlindBoxCloudKitAccountStateRepository
     private let drawRepository: BlindBoxCloudKitDrawRepository
+    private let pointExchangeRepository: BlindBoxCloudKitPointExchangeRepository
     private let legacyInventoryProvider: () -> [String: Int]
 
     convenience init(
@@ -54,6 +55,7 @@ final class BlindBoxFeatureStore: ObservableObject {
         self.bootstrapper = BlindBoxCloudKitAccountBootstrapper(database: database)
         self.accountRepository = BlindBoxCloudKitAccountStateRepository(database: database)
         self.drawRepository = BlindBoxCloudKitDrawRepository(database: database)
+        self.pointExchangeRepository = BlindBoxCloudKitPointExchangeRepository(database: database)
         self.legacyInventoryProvider = legacyInventoryProvider
     }
 
@@ -95,6 +97,8 @@ final class BlindBoxFeatureStore: ObservableObject {
                 return
             }
 
+            try await recoverPendingPointExchangeIfNeeded()
+
             lastMaintenanceResult = try await accountRepository.maintain(
                 BlindBoxCloudMaintenanceRequest(
                     themes: themes,
@@ -122,6 +126,67 @@ final class BlindBoxFeatureStore: ObservableObject {
         return result
     }
 
+    /// Reserves the one-per-grant-day exchange in the private account first,
+    /// writes the matching 100-point entry to the app's existing point ledger,
+    /// then atomically releases the reserved ticket. If the app is interrupted
+    /// after the reservation, `refresh` completes the same request rather than
+    /// allowing a second charge or a duplicate ticket.
+    func exchangePointsForOneTicket(
+        availablePoints: Int,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) async throws -> BlindBoxPointExchangeResult {
+        guard availability == .ready else {
+            throw BlindBoxFeatureStoreError.accountUnavailable
+        }
+
+        let request = BlindBoxPointExchangeRequest(requestedAt: now)
+        _ = try await pointExchangeRepository.begin(
+            request,
+            availablePoints: availablePoints,
+            calendar: calendar
+        )
+        try persistPointExchangeLedger(for: request)
+        let result = try await pointExchangeRepository.complete(request, completedAt: now)
+        accountState = try await accountRepository.loadAccount().accountState
+        return result
+    }
+
+    private func recoverPendingPointExchangeIfNeeded() async throws {
+        guard let pendingExchange = try await pointExchangeRepository.pendingExchange() else {
+            return
+        }
+        try persistPointExchangeLedger(for: pendingExchange.request)
+        _ = try await pointExchangeRepository.complete(
+            pendingExchange.request,
+            completedAt: .now
+        )
+    }
+
+    private func persistPointExchangeLedger(
+        for request: BlindBoxPointExchangeRequest
+    ) throws {
+        let referenceID = PointRedemptionRecord.blindBoxTicketReferenceID(request.idempotencyKey)
+        if PointRedemptionHistoryStore.load().contains(where: {
+            $0.isActive && $0.itemReferenceID == referenceID
+        }) {
+            return
+        }
+
+        guard PointRedemptionHistoryStore.append(
+            PointRedemptionRecord(
+                itemKind: .blindBoxTicket,
+                title: "Blind Box Ticket",
+                points: BlindBoxRuleConfiguration.pointExchangePrice,
+                redeemedAt: request.requestedAt,
+                imageName: "BlindBoxTicketIcon",
+                itemReferenceID: referenceID
+            )
+        ) != nil else {
+            throw BlindBoxFeatureStoreError.pointLedgerWriteFailed
+        }
+    }
+
     private static func message(for error: any Error) -> String {
         switch error as? BlindBoxCloudKitRepositoryError {
         case .accountNotInitialized:
@@ -138,4 +203,5 @@ final class BlindBoxFeatureStore: ObservableObject {
 
 enum BlindBoxFeatureStoreError: Error, Equatable {
     case accountUnavailable
+    case pointLedgerWriteFailed
 }

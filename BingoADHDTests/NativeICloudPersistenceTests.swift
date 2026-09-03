@@ -976,6 +976,102 @@ final class NativeICloudPersistenceTests: XCTestCase {
         XCTAssertEqual(merged.effectiveDeletedBoardIDs, [deletedBoard.id])
     }
 
+    func testPrimaryMergeUnionsPointRedemptionEvidenceAcrossDevices() {
+        let stickerRecord = PointRedemptionRecord(
+            id: UUID(uuidString: "00000000-0000-4000-8000-000000000101")!,
+            itemKind: .sticker,
+            title: "Sticker",
+            points: 20,
+            redeemedAt: Date(timeIntervalSince1970: 1_000),
+            itemReferenceID: "sticker:cowCat"
+        )
+        let ticketRecord = PointRedemptionRecord(
+            id: UUID(uuidString: "00000000-0000-4000-8000-000000000102")!,
+            itemKind: .blindBoxTicket,
+            title: "Blind Box Ticket",
+            points: 100,
+            redeemedAt: Date(timeIntervalSince1970: 1_001),
+            itemReferenceID: "blind-box-ticket:00000000-0000-4000-8000-000000000103"
+        )
+        let local = NativeICloudPrimaryStateSnapshot(
+            boards: [],
+            points: PointsPersistenceSnapshot(totalPoints: 200, lifetimePoints: 200, dailyRewardState: nil),
+            diaryEntries: [:],
+            timeoutPayload: [:],
+            customRewards: [],
+            redemptionHistory: [stickerRecord],
+            stickerInventory: [:],
+            stickerPlacements: []
+        )
+        let incoming = NativeICloudPrimaryStateSnapshot(
+            boards: [],
+            points: PointsPersistenceSnapshot(totalPoints: 200, lifetimePoints: 200, dailyRewardState: nil),
+            diaryEntries: [:],
+            timeoutPayload: [:],
+            customRewards: [],
+            redemptionHistory: [ticketRecord],
+            stickerInventory: [:],
+            stickerPlacements: []
+        )
+
+        let merged = NativeICloudPrimaryStateMerger.merged(
+            local: local,
+            incoming: incoming,
+            localHasNewerUserChange: true
+        )
+
+        XCTAssertEqual(Set(merged.redemptionHistory.map(\.id)), [stickerRecord.id, ticketRecord.id])
+    }
+
+    func testPrimaryMergeDoesNotResurrectARevokedPointRedemption() {
+        let id = UUID(uuidString: "00000000-0000-4000-8000-000000000104")!
+        let active = PointRedemptionRecord(
+            id: id,
+            itemKind: .blindBoxTicket,
+            title: "Blind Box Ticket",
+            points: 100,
+            redeemedAt: Date(timeIntervalSince1970: 1_000),
+            itemReferenceID: "blind-box-ticket:00000000-0000-4000-8000-000000000105"
+        )
+        let revoked = PointRedemptionRecord(
+            id: id,
+            itemKind: .blindBoxTicket,
+            title: "Blind Box Ticket",
+            points: 100,
+            redeemedAt: active.redeemedAt,
+            itemReferenceID: active.itemReferenceID,
+            revokedAt: Date(timeIntervalSince1970: 1_010)
+        )
+        let local = NativeICloudPrimaryStateSnapshot(
+            boards: [],
+            points: PointsPersistenceSnapshot(totalPoints: 200, lifetimePoints: 200, dailyRewardState: nil),
+            diaryEntries: [:],
+            timeoutPayload: [:],
+            customRewards: [],
+            redemptionHistory: [active],
+            stickerInventory: [:],
+            stickerPlacements: []
+        )
+        let incoming = NativeICloudPrimaryStateSnapshot(
+            boards: [],
+            points: PointsPersistenceSnapshot(totalPoints: 200, lifetimePoints: 200, dailyRewardState: nil),
+            diaryEntries: [:],
+            timeoutPayload: [:],
+            customRewards: [],
+            redemptionHistory: [revoked],
+            stickerInventory: [:],
+            stickerPlacements: []
+        )
+
+        let merged = NativeICloudPrimaryStateMerger.merged(
+            local: local,
+            incoming: incoming,
+            localHasNewerUserChange: false
+        )
+
+        XCTAssertEqual(merged.redemptionHistory, [revoked])
+    }
+
     func testPrimaryHistoryKeepsConsecutiveBoardDeletionsAgainstOlderSnapshots() throws {
         let now = Date(timeIntervalSince1970: 1_774_176_000)
         let emptyBoard = SavedBoard(gridSize: 1, cells: [[BingoCell()]], completedLines: [])
