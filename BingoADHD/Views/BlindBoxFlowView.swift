@@ -1112,7 +1112,7 @@ private struct BlindBoxLobbyCard: View {
                     .offset(y: -8)
 
                 if batch.isSoldOut {
-                    BlindBoxShelfStatusOverlay(title: BlindBoxL10n.restocking, fontSize: 14)
+                    BlindBoxShelfStatusOverlay(title: BlindBoxL10n.restocking, fontSize: 11)
                         .frame(width: 131, height: 149)
                         .offset(y: -8)
 
@@ -1816,7 +1816,8 @@ private struct BlindBoxCollectionSticker: View {
                         RoundedRectangle(cornerRadius: 11, style: .continuous)
                             .stroke(.white, lineWidth: 2)
                     }
-                    .offset(y: displaySize * 0.43 - 5)
+                    // The label sits 5 pt into the sticker's lower edge.
+                    .offset(y: 17)
             }
         }
         .frame(width: displaySize, height: displaySize)
@@ -2166,6 +2167,12 @@ private enum BlindBoxL10n {
             "升級解鎖更多盲盒位",
             "アップグレードしてボックス枠を増やす"
         )
+    }
+    static var unlockMoreBoxesTitle: String {
+        tr("Upgrade", "升级解锁", "升級解鎖", "アップグレードして")
+    }
+    static var unlockMoreBoxesSubtitle: String {
+        tr("to unlock more box slots", "更多盲盒位", "更多盲盒位", "ボックス枠を増やす")
     }
     static var randomBox: String { tr("Random box", "随机抽取", "隨機抽取", "ランダム抽選") }
     static var wholeBox: String { tr("Whole box", "端盒", "整盒開啟", "全枠開封") }
@@ -2622,14 +2629,26 @@ private struct BlindBoxMyBoxThemePackage: View {
 
 private struct BlindBoxShelfStatusOverlay: View {
     let title: String
+    let subtitle: String?
     let fontSize: CGFloat
 
+    init(title: String, subtitle: String? = nil, fontSize: CGFloat) {
+        self.title = title
+        self.subtitle = subtitle
+        self.fontSize = fontSize
+    }
+
     var body: some View {
-        Text(title)
+        VStack(spacing: 1) {
+            Text(title)
+            if let subtitle {
+                Text(subtitle)
+            }
+        }
             .font(.appSystem(size: fontSize, weight: .medium, design: .rounded))
             .foregroundStyle(.black)
             .multilineTextAlignment(.center)
-            .lineLimit(2)
+            .lineLimit(1)
             .minimumScaleFactor(0.62)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
@@ -2655,7 +2674,11 @@ private struct BlindBoxPremiumPlaceholder: View {
                 .frame(width: 131, height: 149)
                 .opacity(0.5)
                 .offset(y: -8)
-            BlindBoxShelfStatusOverlay(title: BlindBoxL10n.unlockMoreBoxes, fontSize: 11)
+            BlindBoxShelfStatusOverlay(
+                title: BlindBoxL10n.unlockMoreBoxesTitle,
+                subtitle: BlindBoxL10n.unlockMoreBoxesSubtitle,
+                fontSize: 11
+            )
                 .frame(width: 131, height: 149)
                 .offset(y: -8)
         }
