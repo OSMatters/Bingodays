@@ -1047,11 +1047,13 @@ private struct BlindBoxLobbyView: View {
         }
     }
 
+    @ViewBuilder
     private var premiumPlaceholders: some View {
-        Group {
-            BlindBoxPremiumPlaceholder()
+        if let firstTheme = themes.first {
+            let secondTheme = themes.dropFirst().first ?? firstTheme
+            BlindBoxPremiumPlaceholder(theme: firstTheme)
                 .position(x: 116, y: 670)
-            BlindBoxPremiumPlaceholder()
+            BlindBoxPremiumPlaceholder(theme: secondTheme)
                 .position(x: 262, y: 670)
         }
     }
@@ -1109,35 +1111,20 @@ private struct BlindBoxLobbyCard: View {
                     .offset(y: -8)
 
                 if batch.isSoldOut {
-                    ZStack {
-                        BlindBoxImage("BlindBoxRestockingIcon")
-                            .frame(width: 64, height: 64)
-                        Text(BlindBoxL10n.restocking)
-                            .font(.appSystem(size: 9, weight: .bold, design: .rounded))
-                            .foregroundStyle(.black)
-                            .lineLimit(1)
-                    }
-                    .offset(y: -17)
-                }
-
-                Capsule()
-                    .fill(.white)
-                    .frame(width: batch.isSoldOut ? 100 : 83, height: 22)
-                    .overlay {
-                        if batch.isSoldOut {
-                            BlindBoxRestockCountdownLabel(
-                                restockAt: batch.restockAt(),
-                                prefix: "Refresh in",
-                                font: .appSystem(size: 10, weight: .medium, design: .rounded),
-                                foregroundColor: Color(hex: "594A3D")
-                            )
-                        } else {
+                    BlindBoxShelfStatusOverlay(title: BlindBoxL10n.restocking, fontSize: 21)
+                        .frame(width: 131, height: 149)
+                        .offset(y: -8)
+                } else {
+                    Capsule()
+                        .fill(.white)
+                        .frame(width: 83, height: 22)
+                        .overlay {
                             Text(statusText)
                                 .font(.appSystem(size: 10, weight: .medium, design: .rounded))
                                 .foregroundStyle(Color(hex: "594A3D"))
                         }
-                    }
-                    .offset(y: 3)
+                        .offset(y: 3)
+                }
             }
             .frame(width: 146, height: 176)
             .contentShape(Rectangle())
@@ -2153,6 +2140,14 @@ private enum BlindBoxL10n {
     static var customRewards: String { tr("Custom Rewards", "自定义奖励", "自訂獎勵", "カスタム報酬") }
     static var blindBoxStickers: String { tr("Blind box stickers", "盲盒贴纸", "盲盒貼紙", "ブラインドボックスステッカー") }
     static var restocking: String { tr("Restocking", "补货中", "補貨中", "補充中") }
+    static var unlockMoreBoxes: String {
+        tr(
+            "Upgrade to unlock\\nmore boxes",
+            "升级会员\\n解锁更多盲盒",
+            "升級會員\\n解鎖更多盲盒",
+            "プレミアムにアップグレードして\\nもっとボックスを解放"
+        )
+    }
     static var randomBox: String { tr("Random box", "随机抽取", "隨機抽取", "ランダム抽選") }
     static var wholeBox: String { tr("Whole box", "端盒", "整盒開啟", "全枠開封") }
     static var back: String { tr("Back", "返回", "返回", "戻る") }
@@ -2606,19 +2601,40 @@ private struct BlindBoxMyBoxThemePackage: View {
     }
 }
 
-private struct BlindBoxPremiumPlaceholder: View {
+private struct BlindBoxShelfStatusOverlay: View {
+    let title: String
+    let fontSize: CGFloat
+
     var body: some View {
         ZStack {
-            BlindBoxImage("BlindBoxPremiumPlaceholder")
-                .frame(width: 128, height: 133)
-            BlindBoxImage("BlindBoxPremiumIcon")
-                .frame(width: 64, height: 64)
-            Text(BlindBoxL10n.premium)
-                .font(.appSystem(size: 10, weight: .bold, design: .rounded))
+            Color.black.opacity(0.28)
+            Text(title)
+                .font(.appSystem(size: fontSize, weight: .medium, design: .rounded))
                 .foregroundStyle(.black)
-                .offset(y: 9)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.62)
+                .padding(.horizontal, 8)
         }
-        .frame(width: 128, height: 133)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct BlindBoxPremiumPlaceholder: View {
+    let theme: BlindBoxThemeDefinition
+
+    var body: some View {
+        ZStack {
+            BlindBoxThemeMiniBox(theme: theme)
+                .frame(width: 131, height: 149)
+                .offset(y: -8)
+            BlindBoxShelfStatusOverlay(title: BlindBoxL10n.unlockMoreBoxes, fontSize: 15)
+                .frame(width: 131, height: 149)
+                .offset(y: -8)
+        }
+        .frame(width: 146, height: 176)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(BlindBoxL10n.unlockMoreBoxes)
     }
 }
 
