@@ -1927,20 +1927,8 @@ private struct BlindBoxRulesSheet: View {
                         detail: BlindBoxL10n.hiddenOddsDetail
                     )
                     BlindBoxRuleRow(
-                        title: BlindBoxL10n.duplicatesTitle,
-                        detail: BlindBoxL10n.duplicatesDetail
-                    )
-                    BlindBoxRuleRow(
-                        title: BlindBoxL10n.availabilityTitle,
-                        detail: BlindBoxL10n.availabilityDetail
-                    )
-                    BlindBoxRuleRow(
                         title: BlindBoxL10n.pointsTicketsTitle,
                         detail: BlindBoxL10n.pointsTicketsDetail
-                    )
-                    BlindBoxRuleRow(
-                        title: BlindBoxL10n.connectionTitle,
-                        detail: BlindBoxL10n.connectionDetail
                     )
 
                     Button(action: onClose) {
@@ -1958,7 +1946,7 @@ private struct BlindBoxRulesSheet: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 650)
+            .frame(height: 570)
             .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
             .overlay {
                 RoundedRectangle(cornerRadius: 24)
@@ -1999,67 +1987,40 @@ private enum BlindBoxL10n {
     static var closeRules: String { tr("Close Blind Box rules", "关闭盲盒规则", "關閉盲盒規則", "ブラインドボックスのルールを閉じる") }
     static var gotIt: String { tr("Got it", "知道了", "知道了", "わかった") }
 
-    static var dailyTicketsTitle: String { tr("Daily tickets", "每日盲盒券", "每日盲盒券", "デイリーチケット") }
+    static var dailyTicketsTitle: String { tr("Fresh tickets every day", "每天都有新盲盒券", "每天都有新盲盒券", "毎日チケットが届く") }
     static var dailyTicketsDetail: String {
         tr(
-            "At 4:00 AM, Free receives 1 ticket and Premium receives 3. Missed days top up only until the 20-ticket limit.",
-            "每天凌晨 4 点，非会员获得 1 张盲盒券，会员获得 3 张。补发最多补到 20 张上限。",
-            "每天凌晨 4 點，非會員獲得 1 張盲盒券，會員獲得 3 張。補發最多補到 20 張上限。",
-            "毎日午前4時に、無料ユーザーは1枚、プレミアムは3枚のチケットを受け取ります。未受取分は最大20枚まで補充されます。"
+            "Tickets refresh at 4:00 AM. Come back tomorrow for another chance to open a box!",
+            "每天凌晨 4 点，盲盒券会刷新。明天再回来，继续试试手气吧！",
+            "每天凌晨 4 點，盲盒券會刷新。明天再回來，繼續試試手氣吧！",
+            "チケットは毎日午前4時に更新されます。明日も戻って、もう一度運試ししよう！"
         )
     }
-    static var openingBoxTitle: String { tr("Opening a box", "开启盲盒", "開啟盲盒", "ボックスを開ける") }
+    static var openingBoxTitle: String { tr("How to open", "怎么开盲盒", "怎麼開盲盒", "開け方") }
     static var openingBoxDetail: String {
         tr(
-            "Each themed box has 9 positions. A chosen or random position costs 1 ticket; Whole box costs every remaining position.",
-            "每个主题盒有 9 个位置。指定位置或随机抽取需 1 张券；端盒需消耗所有剩余位置对应的券。",
-            "每個主題盒有 9 個位置。指定位置或隨機抽取需 1 張券；整盒開啟需消耗所有剩餘位置對應的券。",
-            "各テーマボックスには9枠あります。指定・ランダムは1枚、全開封は残り枠すべての枚数が必要です。"
+            "Pick a spot or try a random draw for 1 ticket. Want them all? Choose Whole box to open every remaining spot.",
+            "选择一个位置，或来一次随机抽取，都会消耗 1 张券。想一次开完剩余位置，就选端盒。",
+            "選擇一個位置，或來一次隨機抽取，都會消耗 1 張券。想一次開完剩餘位置，就選整盒開啟。",
+            "好きな枠かランダム抽選はチケット1枚。残りを一度に開けたいときは「全枠開封」を選ぼう。"
         )
     }
-    static var hiddenOddsTitle: String { tr("Hidden sticker odds", "隐藏款概率", "隱藏款機率", "シークレットの確率") }
+    static var hiddenOddsTitle: String { tr("Hunt for the Hidden", "寻找隐藏款", "尋找隱藏款", "シークレットを探そう") }
     static var hiddenOddsDetail: String {
         tr(
-            "A 9-position box has a 9% chance to contain one Hidden sticker (1% per slot equivalent). After all normal stickers are owned but Hidden is missing, this becomes 45% (5% per slot equivalent). A box holds at most one Hidden sticker.",
-            "一个 9 格盒有 9% 概率包含 1 张隐藏贴纸（等效每格 1%）。集齐普通款但还没有隐藏款后，概率提升至 45%（等效每格 5%）。每盒最多 1 张隐藏款。",
-            "一個 9 格盒有 9% 機率包含 1 張隱藏貼紙（等效每格 1%）。集齊普通款但還沒有隱藏款後，機率提升至 45%（等效每格 5%）。每盒最多 1 張隱藏款。",
-            "9枠のボックスにはシークレットが1枚入る確率が9%あります（1枠あたり換算1%）。通常ステッカーをすべて所持していてシークレット未所持の場合は45%（1枠あたり換算5%）に上がります。1箱につきシークレットは最大1枚です。"
+            "Every box has a 9% chance to hold a rare Hidden sticker. Once you collect all regular stickers, your chance rises to 45%.",
+            "隐藏款很稀有：每盒有 9% 概率出现。集齐普通贴纸后，获得隐藏款的机会会提升到 45%。",
+            "隱藏款很稀有：每盒有 9% 機率出現。集齊普通貼紙後，獲得隱藏款的機會會提升到 45%。",
+            "シークレットはレアで、各ボックスに入る確率は9%です。通常ステッカーをすべて集めると、確率は45%まで上がります。"
         )
     }
-    static var duplicatesTitle: String { tr("Duplicates", "重复贴纸", "重複貼紙", "重複ステッカー") }
-    static var duplicatesDetail: String {
-        tr(
-            "Duplicates remain in My Box as ×N. They do not convert to fragments, points, or a replacement draw.",
-            "重复贴纸会在 My Box 中以 ×N 显示，不会兑换为碎片、积分或补抽。",
-            "重複貼紙會在 My Box 中以 ×N 顯示，不會兌換為碎片、積分或補抽。",
-            "重複ステッカーはMy Boxに×Nで表示されます。かけら・ポイント・引き直しには交換されません。"
-        )
-    }
-    static var availabilityTitle: String { tr("Availability", "可用性", "可用性", "在庫と補充") }
-    static var availabilityDetail: String {
-        tr(
-            "After a box is first shown, positions can become opened over time. Sold-out boxes stay in their slot and restock after exactly 24 hours.",
-            "主题盒首次展示后，位置会随时间被开启。售罄盒仍保留在原位，并在 24 小时后补货。",
-            "主題盒首次展示後，位置會隨時間被開啟。售罄盒仍保留在原位，並在 24 小時後補貨。",
-            "テーマボックスの表示後、枠は時間とともに開封済みになることがあります。売り切れたボックスはそのまま表示され、24時間後に補充されます。"
-        )
-    }
-    static var pointsTicketsTitle: String { tr("Tickets for points", "积分兑换盲盒券", "積分兌換盲盒券", "ポイントでチケット交換") }
+    static var pointsTicketsTitle: String { tr("Need another ticket?", "券不够？", "券不夠？", "チケットが足りない？") }
     static var pointsTicketsDetail: String {
         tr(
-            "100 points exchanges for 1 ticket, once per grant day. The exchange cannot be undone.",
-            "100 积分可兑换 1 张盲盒券，每个发券日限一次。兑换后不可撤销。",
-            "100 積分可兌換 1 張盲盒券，每個發券日限一次。兌換後不可撤銷。",
-            "100ポイントでチケット1枚に交換できます。受取日ごとに1回までで、交換は取り消せません。"
-        )
-    }
-    static var connectionTitle: String { tr("Connection", "网络连接", "網路連線", "通信") }
-    static var connectionDetail: String {
-        tr(
-            "Opening requires internet. If you are offline, the opening fails and no ticket is used.",
-            "开启盲盒需要联网。离线时开启会失败，也不会消耗盲盒券。",
-            "開啟盲盒需要連網。離線時開啟會失敗，也不會消耗盲盒券。",
-            "ボックスを開けるには通信が必要です。オフラインでは開封に失敗し、チケットは消費されません。"
+            "You can exchange 100 points for 1 ticket once a day.",
+            "每天可用 100 积分兑换 1 张盲盒券。",
+            "每天可用 100 積分兌換 1 張盲盒券。",
+            "1日1回、100ポイントでチケット1枚に交換できます。"
         )
     }
 
