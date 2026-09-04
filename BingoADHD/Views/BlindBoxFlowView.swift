@@ -1571,25 +1571,6 @@ private struct BlindBoxCollectionView: View {
                     collectionStickers(for: selectedTheme)
                 }
 
-                Button(action: showPreviousThemePage) {
-                    Image(systemName: "chevron.left")
-                        .font(.appSystem(size: 30, weight: .bold))
-                        .foregroundStyle(Color(hex: "CD9863"))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(BlindBoxL10n.previousThemes)
-                .disabled(selectedPageIndex == 0)
-                .position(x: 98, y: 742)
-
-                Button(action: showNextThemePage) {
-                    Image(systemName: "chevron.right")
-                        .font(.appSystem(size: 30, weight: .bold))
-                        .foregroundStyle(Color(hex: "CD9863"))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(BlindBoxL10n.nextThemes)
-                .disabled(selectedPageIndex >= max(themePages.count - 1, 0))
-                .position(x: 344, y: 742)
             }
         }
         .onAppear(perform: synchronizeThemeSelection)
@@ -1674,6 +1655,10 @@ private struct BlindBoxCollectionView: View {
             )
         }
 
+        if theme.id.rawValue == "pets" {
+            return (specialPlacement.map { [$0] } ?? []) + petNormalPlacements(for: normalStickers)
+        }
+
         let normalPlacements: [BlindBoxCollectionPlacement]
         if normalStickers.count <= scatteredNormalCenters.count {
             normalPlacements = normalStickers.enumerated().map { index, sticker in
@@ -1711,6 +1696,40 @@ private struct BlindBoxCollectionView: View {
         return (specialPlacement.map { [$0] } ?? []) + normalPlacements
     }
 
+    /// The Pets book follows the supplied illustration: the Secret space is
+    /// reserved for the hidden sticker, while the regular collection is spread
+    /// through the remaining safe area instead of being forced into a grid.
+    /// Keep a final lower-centre location for the complete 12-item catalogue.
+    private func petNormalPlacements(
+        for stickers: [BlindBoxStickerDefinition]
+    ) -> [BlindBoxCollectionPlacement] {
+        let referenceCenters: [String: (x: Double, y: Double)] = [
+            "pets_01": (285, 356),
+            "pets_03": (120, 468),
+            "pets_02": (196, 468),
+            "pets_08": (281, 468),
+            "pets_05": (120, 553),
+            "pets_11": (196, 553),
+            "pets_04": (281, 553),
+            "pets_10": (120, 638),
+            "pets_06": (196, 638),
+            "pets_09": (281, 638),
+            "pets_07": (196, 714)
+        ]
+
+        return stickers.enumerated().map { index, sticker in
+            let fallback = scatteredNormalCenters[index % scatteredNormalCenters.count]
+            let center = referenceCenters[sticker.id.rawValue] ?? fallback
+            return BlindBoxCollectionPlacement(
+                stickerID: sticker.id,
+                centerX: center.x,
+                centerY: center.y,
+                displaySize: 70,
+                isSpecialSlot: false
+            )
+        }
+    }
+
     private var scatteredNormalCenters: [(x: Double, y: Double)] {
         [
             (286, 356),
@@ -1734,21 +1753,6 @@ private struct BlindBoxCollectionView: View {
         selectedPageIndex = selectedThemeIndex / 3
     }
 
-    private func showPreviousThemePage() {
-        guard selectedPageIndex > 0 else { return }
-        selectedPageIndex -= 1
-        if let firstTheme = visibleThemes.first {
-            selectedThemeID = firstTheme.id
-        }
-    }
-
-    private func showNextThemePage() {
-        guard selectedPageIndex < themePages.count - 1 else { return }
-        selectedPageIndex += 1
-        if let firstTheme = visibleThemes.first {
-            selectedThemeID = firstTheme.id
-        }
-    }
 }
 
 private struct BlindBoxCollectionSticker: View {
