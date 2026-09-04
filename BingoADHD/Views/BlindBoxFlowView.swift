@@ -16,7 +16,6 @@ struct BlindBoxFlowView: View {
     @State private var route: Route = .lobby
     @State private var toastMessage: String?
     @State private var toastDismissalTask: Task<Void, Never>?
-    @State private var pendingOpenRequest: BlindBoxOpenRequest?
     @State private var isShowingTicketExchange = false
     @State private var isConfirmingTicketExchange = false
     @State private var isShowingRules = false
@@ -88,16 +87,16 @@ struct BlindBoxFlowView: View {
                             route = .lobby
                         },
                         onOpenPosition: { position in
-                            pendingOpenRequest = .position(batchID: batchID, positionIndex: position)
+                            open(.position(batchID: batchID, positionIndex: position))
                         },
                         onOpenRandom: {
-                            pendingOpenRequest = .random(batchID: batchID)
+                            open(.random(batchID: batchID))
                         },
                         onOpenWholeBox: {
-                            pendingOpenRequest = .wholeBox(
+                            open(.wholeBox(
                                 batchID: batchID,
                                 ticketCost: batch.remainingPositionCount
-                            )
+                            ))
                         }
                     )
                 } else {
@@ -128,25 +127,6 @@ struct BlindBoxFlowView: View {
                 BlindBoxToast(message: toastMessage)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(5)
-            }
-
-            if let pendingOpenRequest {
-                let pendingBatch = store.state.candidateBatches.first {
-                    $0.id == pendingOpenRequest.batchID
-                }
-                BlindBoxOpenConfirmation(
-                    ticketCost: pendingOpenRequest.ticketCost,
-                    isWholeBox: pendingOpenRequest.isWholeBox,
-                    theme: pendingBatch.flatMap { store.theme(for: $0.plan.themeID) },
-                    probabilityMode: pendingBatch?.plan.probabilityMode,
-                    onCancel: {
-                        self.pendingOpenRequest = nil
-                    },
-                    onConfirm: {
-                        confirm(pendingOpenRequest)
-                    }
-                )
-                .zIndex(10)
             }
 
             if isShowingRules {
@@ -229,8 +209,7 @@ struct BlindBoxFlowView: View {
         }
     }
 
-    private func confirm(_ request: BlindBoxOpenRequest) {
-        pendingOpenRequest = nil
+    private func open(_ request: BlindBoxOpenRequest) {
         switch request {
         case .position(let batchID, let positionIndex):
             openSingle(batchID: batchID, positionIndex: positionIndex)
@@ -341,7 +320,6 @@ struct BlindBoxLiveFlowView: View {
     @State private var route: Route = .lobby
     @State private var toastMessage: String?
     @State private var toastDismissalTask: Task<Void, Never>?
-    @State private var pendingOpenRequest: BlindBoxOpenRequest?
     @State private var isShowingTicketExchange = false
     @State private var isConfirmingTicketExchange = false
     @State private var ticketExchangeConfiguration: BlindBoxEconomyConfiguration?
@@ -530,16 +508,16 @@ struct BlindBoxLiveFlowView: View {
                         route = .lobby
                     },
                     onOpenPosition: { position in
-                        pendingOpenRequest = .position(batchID: batchID, positionIndex: position)
+                        open(.position(batchID: batchID, positionIndex: position))
                     },
                     onOpenRandom: {
-                        pendingOpenRequest = .random(batchID: batchID)
+                        open(.random(batchID: batchID))
                     },
                     onOpenWholeBox: {
-                        pendingOpenRequest = .wholeBox(
+                        open(.wholeBox(
                             batchID: batchID,
                             ticketCost: batch.remainingPositionCount
-                        )
+                        ))
                     }
                 )
             } else {
@@ -570,25 +548,6 @@ struct BlindBoxLiveFlowView: View {
                 BlindBoxToast(message: toastMessage)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(5)
-            }
-
-            if let pendingOpenRequest {
-                let pendingBatch = store.accountState.candidateBatches.first {
-                    $0.id == pendingOpenRequest.batchID
-                }
-                BlindBoxOpenConfirmation(
-                    ticketCost: pendingOpenRequest.ticketCost,
-                    isWholeBox: pendingOpenRequest.isWholeBox,
-                    theme: pendingBatch.flatMap { store.theme(for: $0.plan.themeID) },
-                    probabilityMode: pendingBatch?.plan.probabilityMode,
-                    onCancel: {
-                        self.pendingOpenRequest = nil
-                    },
-                    onConfirm: {
-                        confirm(pendingOpenRequest)
-                    }
-                )
-                .zIndex(10)
             }
 
             if isShowingRules {
@@ -691,8 +650,7 @@ struct BlindBoxLiveFlowView: View {
         }
     }
 
-    private func confirm(_ request: BlindBoxOpenRequest) {
-        pendingOpenRequest = nil
+    private func open(_ request: BlindBoxOpenRequest) {
         switch request {
         case let .position(batchID, positionIndex):
             open(.single(batchID: batchID, positionIndex: positionIndex))
@@ -1332,9 +1290,13 @@ private struct BlindBoxPositionCell: View {
                 BlindBoxImage("BlindBoxDefaultSlot")
                     .frame(width: 98, height: 98)
                 if isOpened, let sticker = theme.stickers.first(where: { $0.id == position.stickerID }) {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(.white.opacity(0.92))
+                        .frame(width: 90, height: 90)
                     BlindBoxImage(sticker.assetName)
-                        .frame(width: 76, height: 76)
+                        .frame(width: 80, height: 80)
                         .scaledToFit()
+                        .zIndex(1)
                     if isSystemOpened {
                         Text("Opened")
                             .font(.appSystem(size: 9, weight: .bold, design: .rounded))
@@ -1343,6 +1305,7 @@ private struct BlindBoxPositionCell: View {
                             .padding(.vertical, 3)
                             .background(.white.opacity(0.84), in: Capsule())
                             .offset(y: 41)
+                            .zIndex(2)
                     }
                 }
             }
@@ -1373,7 +1336,7 @@ private struct BlindBoxActionButton: View {
                     BlindBoxTicketIcon()
                         .frame(width: 20, height: 20)
                     Text("\(ticketCost)")
-                        .font(.appSystem(size: 8, weight: .bold, design: .rounded))
+                        .font(.appSystem(size: 11, weight: .heavy, design: .rounded))
                         .foregroundStyle(Color(hex: "A46A45"))
                         .offset(x: 4, y: -4)
                 }
