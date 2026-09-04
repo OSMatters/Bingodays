@@ -1373,7 +1373,7 @@ private struct BlindBoxRevealView: View {
     }
 
     var body: some View {
-        BlindBoxCanvas {
+        BlindBoxCanvas(contentHorizontalOffset: 0) {
             ZStack {
                 BlindBoxImage("BlindBoxDrawBackground")
                     .frame(width: 393, height: 852)
@@ -1393,9 +1393,13 @@ private struct BlindBoxRevealView: View {
         stickerDefinition: BlindBoxStickerDefinition
     ) -> some View {
         ZStack {
-            Text(openedSticker.isDuplicate ? "You got a duplicate sticker!" : "Congratulations on\nreceiving the sticker!")
+            Text(singleRevealHeadline(isDuplicate: openedSticker.isDuplicate))
                 .multilineTextAlignment(.center)
-                .font(.appSystem(size: 29, weight: .bold, design: .rounded))
+                .font(.appSystem(
+                    size: openedSticker.isDuplicate ? 23 : 29,
+                    weight: .bold,
+                    design: .rounded
+                ))
                 .foregroundStyle(.white)
                 .position(x: 196.5, y: 170)
 
@@ -1416,7 +1420,7 @@ private struct BlindBoxRevealView: View {
             }
 
             Button(action: onContinue) {
-                Text(isContinuing ? "Saving…" : "Great!")
+                Text(isContinuing ? "Saving…" : (openedSticker.isDuplicate ? "Keep going!" : "Great!"))
                     .font(.appSystem(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(width: 157.5, height: 42)
@@ -1427,6 +1431,12 @@ private struct BlindBoxRevealView: View {
             .position(x: 196.75, y: 623)
         }
         .frame(width: 393, height: 852)
+    }
+
+    private func singleRevealHeadline(isDuplicate: Bool) -> String {
+        isDuplicate
+            ? "Another one for your collection!\nKeep opening for a new surprise!"
+            : "Congratulations on\nreceiving the sticker!"
     }
 
     private var wholeBoxReveal: some View {
@@ -2336,13 +2346,16 @@ private struct BlindBoxPremiumPlaceholder: View {
 
 private struct BlindBoxCanvas<Content: View>: View {
     let backgroundAssetName: String?
+    let contentHorizontalOffset: CGFloat
     @ViewBuilder let content: () -> Content
 
     init(
         backgroundAssetName: String? = nil,
+        contentHorizontalOffset: CGFloat = 5,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.backgroundAssetName = backgroundAssetName
+        self.contentHorizontalOffset = contentHorizontalOffset
         self.content = content
     }
 
@@ -2367,7 +2380,7 @@ private struct BlindBoxCanvas<Content: View>: View {
                 content()
                     .frame(width: 393, height: 852)
                     .scaleEffect(scale, anchor: .topLeading)
-                    .offset(x: 5 * scale)
+                    .offset(x: contentHorizontalOffset * scale)
             }
             .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
         }
