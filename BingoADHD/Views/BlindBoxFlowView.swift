@@ -1644,13 +1644,14 @@ private struct BlindBoxCollectionView: View {
         // underneath and beside it rather than reading as a rigid grid.
         let normalStickers = theme.stickers.filter { !$0.isHidden }
         let hiddenSticker = theme.stickers.first(where: \.isHidden)
+        let specialDisplaySize = theme.id.rawValue == "cozy_daily" ? 76.0 : 70.0
 
         let specialPlacement = hiddenSticker.map {
             BlindBoxCollectionPlacement(
                 stickerID: $0.id,
                 centerX: 156.5,
                 centerY: 359.5,
-                displaySize: 70,
+                displaySize: specialDisplaySize,
                 isSpecialSlot: true
             )
         }
@@ -1703,22 +1704,23 @@ private struct BlindBoxCollectionView: View {
     /// The Pets book follows the supplied illustration: the Secret space is
     /// reserved for the hidden sticker, while the regular collection is spread
     /// through the remaining safe area instead of being forced into a grid.
-    /// Keep a final lower-centre location for the complete 12-item catalogue.
+    /// Two regular stickers sit to the right of Secret; the remaining rows
+    /// begin below the Secret frame so no artwork crosses its border.
     private func petNormalPlacements(
         for stickers: [BlindBoxStickerDefinition]
     ) -> [BlindBoxCollectionPlacement] {
         let referenceCenters: [String: (x: Double, y: Double)] = [
-            "pets_01": (285, 356),
-            "pets_03": (120, 468),
-            "pets_02": (196, 468),
-            "pets_08": (281, 468),
-            "pets_05": (120, 553),
-            "pets_11": (196, 553),
-            "pets_04": (281, 553),
-            "pets_10": (120, 638),
-            "pets_06": (196, 638),
-            "pets_09": (281, 638),
-            "pets_07": (196, 714)
+            "pets_01": (281, 358),
+            "pets_07": (281, 440),
+            "pets_03": (120, 527),
+            "pets_02": (196, 527),
+            "pets_08": (281, 527),
+            "pets_05": (120, 610),
+            "pets_11": (196, 610),
+            "pets_04": (281, 610),
+            "pets_10": (120, 693),
+            "pets_06": (196, 693),
+            "pets_09": (281, 693)
         ]
 
         return stickers.enumerated().map { index, sticker in
@@ -1758,7 +1760,7 @@ private struct BlindBoxCollectionView: View {
                 stickerID: sticker.id,
                 centerX: center.x,
                 centerY: center.y,
-                displaySize: 70,
+                displaySize: 76,
                 isSpecialSlot: false
             )
         }
