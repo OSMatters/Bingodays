@@ -2048,6 +2048,10 @@ private struct BlindBoxRulesSheet: View {
                         detail: BlindBoxL10n.openingBoxDetail
                     )
                     BlindBoxRuleRow(
+                        title: BlindBoxL10n.mixedBoxTitle,
+                        detail: BlindBoxL10n.mixedBoxDetail
+                    )
+                    BlindBoxRuleRow(
                         title: BlindBoxL10n.hiddenOddsTitle,
                         detail: BlindBoxL10n.hiddenOddsDetail
                     )
@@ -2132,6 +2136,15 @@ private enum BlindBoxL10n {
             "选择一个位置，或来一次随机抽取，都会消耗 1 张券。想一次开完剩余位置，就选端盒。",
             "選擇一個位置，或來一次隨機抽取，都會消耗 1 張券。想一次開完剩餘位置，就選整盒開啟。",
             "好きな枠かランダム抽選はチケット1枚。残りを一度に開けたいときは「全枠開封」を選ぼう。"
+        )
+    }
+    static var mixedBoxTitle: String { tr("Every box is a mix", "每盒都是混合款", "每盒都是混合款", "ボックスごとにランダム") }
+    static var mixedBoxDetail: String {
+        tr(
+            "Regular stickers are randomly mixed in each box. Even if you open every spot, you may not collect every regular design.",
+            "常规款会随机混合出现；即使开完整盒，也不保证能集齐所有常规款。",
+            "常規款會隨機混合出現；即使開完整盒，也不保證能集齊所有常規款。",
+            "通常ステッカーはランダムに混ざっています。ボックスをすべて開けても、通常ステッカーをすべて集められるとは限りません。"
         )
     }
     static var hiddenOddsTitle: String { tr("Hunt for the Hidden", "寻找隐藏款", "尋找隱藏款", "シークレットを探そう") }
