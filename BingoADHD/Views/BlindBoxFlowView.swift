@@ -1220,7 +1220,7 @@ private struct BlindBoxDetailView: View {
 
                 BlindBoxThemeHeader(theme: theme)
                     .frame(width: 340, height: 190)
-                    .position(x: 196.5, y: 192)
+                    .position(x: 196.5, y: 195)
 
                 BlindBoxImage(boardAssetName)
                     .frame(width: 362, height: 391)
@@ -1248,7 +1248,11 @@ private struct BlindBoxDetailView: View {
         ZStack(alignment: .leading) {
             Capsule()
                 .fill(Color(hex: "E3A65E"))
-                .frame(width: 77, height: 28)
+                .frame(width: 70, height: 26)
+                .overlay {
+                    Capsule()
+                        .stroke(.white.opacity(0.9), lineWidth: 1.5)
+                }
                 .offset(x: 14)
             Text("\(ticketBalance)")
                 .font(.appSystem(size: 16, weight: .bold, design: .rounded))
@@ -1358,6 +1362,10 @@ private struct BlindBoxActionButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
+                Capsule()
+                    .fill(.white)
+                Capsule()
+                    .stroke(Color(hex: "FFC56B"), lineWidth: 2)
                 Text(title)
                     .font(.appSystem(size: 16, weight: .bold, design: .rounded))
                     .frame(maxWidth: .infinity)
@@ -1370,13 +1378,10 @@ private struct BlindBoxActionButton: View {
                         .offset(x: 4, y: -4)
                 }
                 .position(x: 145, y: 0)
+                .zIndex(1)
             }
             .foregroundStyle(Color(hex: "D5A06F"))
             .frame(width: 156, height: 50)
-            .background(.white, in: Capsule())
-            .overlay {
-                Capsule().stroke(Color(hex: "FFC56B"), lineWidth: 2)
-            }
         }
         .buttonStyle(.plain)
     }
