@@ -1097,7 +1097,10 @@ private struct BlindBoxLobbyCard: View {
     let onTap: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
+        Button {
+            guard !batch.isSoldOut else { return }
+            onTap()
+        } label: {
             ZStack(alignment: .bottom) {
                 BlindBoxThemeMiniBox(theme: theme)
                     .frame(width: 131, height: 149)
@@ -1139,6 +1142,7 @@ private struct BlindBoxLobbyCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(theme.id.rawValue), \(statusText)")
+        .accessibilityHint(batch.isSoldOut ? "This box is restocking and cannot be opened yet." : "Opens this Blind Box.")
     }
 
     private var statusText: String {
