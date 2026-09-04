@@ -1160,6 +1160,7 @@ private struct BlindBoxDetailView: View {
     let onOpenPosition: (Int) -> Void
     let onOpenRandom: () -> Void
     let onOpenWholeBox: () -> Void
+    @State private var isShowingOdds = false
 
     var body: some View {
         BlindBoxCanvas {
@@ -1203,9 +1204,36 @@ private struct BlindBoxDetailView: View {
                 } else {
                     actionButtons
                         .position(x: 196, y: 714.5)
+
+                    Button {
+                        isShowingOdds = true
+                    } label: {
+                        Text(BlindBoxL10n.viewOdds)
+                            .font(.appSystem(size: 12, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(hex: "A46A45"))
+                            .padding(.horizontal, 13)
+                            .padding(.vertical, 6)
+                            .background(.white.opacity(0.86), in: Capsule())
+                            .overlay {
+                                Capsule().stroke(Color(hex: "F1C079"), lineWidth: 1)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(BlindBoxL10n.viewOdds)
+                    .position(x: 196, y: 757)
+                }
+
+                if isShowingOdds {
+                    BlindBoxBatchOddsSheet(
+                        theme: theme,
+                        probabilityMode: batch.plan.probabilityMode,
+                        onClose: { isShowingOdds = false }
+                    )
+                    .zIndex(10)
                 }
             }
         }
+        .animation(.easeOut(duration: 0.24), value: isShowingOdds)
     }
 
     private var detailTicketBadge: some View {
@@ -1804,20 +1832,31 @@ private struct BlindBoxBatchOddsSheet: View {
     private var modeName: String {
         switch probabilityMode {
         case .standard:
-            return "Standard mode"
+            return BlindBoxL10n.standardOddsMode
         case .hiddenHunt:
-            return "Hidden hunt mode"
+            return BlindBoxL10n.hiddenBoostOddsMode
         }
     }
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.38)
+        ZStack(alignment: .bottom) {
+            Button(action: onClose) {
+                Color.black.opacity(0.38)
                 .ignoresSafeArea()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(BlindBoxL10n.close)
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("This box's odds")
+            VStack(spacing: 0) {
+                Capsule()
+                    .fill(Color(hex: "D8B994"))
+                    .frame(width: 38, height: 5)
+                    .padding(.top, 10)
+                    .padding(.bottom, 8)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                    Text(BlindBoxL10n.oddsTitle)
                         .font(.appSystem(size: 22, weight: .bold, design: .rounded))
                         .foregroundStyle(Color(hex: "5A412C"))
                     Spacer()
@@ -1829,48 +1868,97 @@ private struct BlindBoxBatchOddsSheet: View {
                             .background(.white.opacity(0.78), in: Circle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Close this box's odds")
+                    .accessibilityLabel(BlindBoxL10n.close)
+                    }
+
+                    Text(BlindBoxL10n.oddsIntro)
+                        .font(.appSystem(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(hex: "8A6E59"))
+
+                    Text(modeName)
+                        .font(.appSystem(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: "A46A45"))
+
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 8) {
+                            if let hiddenSticker = theme.hiddenSticker {
+                                BlindBoxOddsItemRow(
+                                    artworkName: hiddenSticker.assetName,
+                                    title: BlindBoxL10n.hiddenSticker,
+                                    detail: BlindBoxL10n.hiddenOddsDetail(
+                                        perDraw: hiddenPerPositionPercent,
+                                        perBox: hiddenPerBoxPercent
+                                    )
+                                )
+                            }
+
+                            ForEach(Array(theme.normalStickers.enumerated()), id: \.element.id) { index, sticker in
+                                BlindBoxOddsItemRow(
+                                    artworkName: sticker.assetName,
+                                    title: BlindBoxL10n.normalSticker(index + 1),
+                                    detail: BlindBoxL10n.normalOddsDetail(normalPerPositionPercent)
+                                )
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+
+                    Text(BlindBoxL10n.oddsLockedNote)
+                        .font(.appSystem(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(hex: "8A6E59"))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button(action: onClose) {
+                        Text(BlindBoxL10n.gotIt)
+                            .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(Color(hex: "DCAF7A"), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
-
-                Text(modeName)
-                    .font(.appSystem(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(hex: "A46A45"))
-
-                BlindBoxRuleRow(
-                    title: "Hidden sticker",
-                    detail: "\(hiddenPerPositionPercent) per position equivalent. This 9-position box has a \(hiddenPerBoxPercent) chance to include exactly one Hidden sticker."
-                )
-                BlindBoxRuleRow(
-                    title: "Normal stickers",
-                    detail: "Each of this theme's \(theme.normalStickers.count) normal stickers starts at \(normalPerPositionPercent) per position. Repeats can still happen."
-                )
-                BlindBoxRuleRow(
-                    title: "Locked before opening",
-                    detail: "The 9 results were generated when this box appeared. Choosing a position does not reroll its reward. Opened positions may help you decide which remaining position to choose."
-                )
-
-                Button(action: onClose) {
-                    Text("Got it")
-                        .font(.appSystem(size: 16, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(Color(hex: "DCAF7A"), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 4)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
             }
-            .padding(20)
-            .frame(width: 330)
+            .frame(maxWidth: .infinity)
+            .frame(height: 650)
             .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
             .overlay {
                 RoundedRectangle(cornerRadius: 24)
                     .stroke(Color(hex: "E7B880"), lineWidth: 2)
             }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 
     private func percent(_ value: Double) -> String {
         "\((value * 100).formatted(.number.precision(.fractionLength(2))))%"
+    }
+}
+
+private struct BlindBoxOddsItemRow: View {
+    let artworkName: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            BlindBoxImage(artworkName)
+                .frame(width: 42, height: 42)
+                .scaledToFit()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.appSystem(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: "6A4B33"))
+                Text(detail)
+                    .font(.appSystem(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color(hex: "8A6E59"))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -2112,6 +2200,29 @@ private enum BlindBoxL10n {
     static var cozyDaily: String { tr("Cozy Daily", "治愈日常", "療癒日常", "ほっこり日常") }
     static func themeName(_ theme: BlindBoxThemeDefinition) -> String {
         theme.id.rawValue == "pets" ? pets : cozyDaily
+    }
+    static var viewOdds: String { tr("View odds", "查看概率", "查看機率", "確率を見る") }
+    static var oddsTitle: String { tr("Current box odds", "当前盲盒概率", "目前盲盒機率", "このボックスの確率") }
+    static var oddsIntro: String { tr("These are the odds used when this box was created.", "以下是这个盲盒生成时使用的概率。", "以下是這個盲盒生成時使用的機率。", "以下は、このボックスが生成されたときに使われた確率です。") }
+    static var standardOddsMode: String { tr("Standard odds", "普通概率", "普通機率", "通常確率") }
+    static var hiddenBoostOddsMode: String { tr("Hidden boost is active", "隐藏款加成已生效", "隱藏款加成已生效", "シークレット確率アップ中") }
+    static var hiddenSticker: String { tr("Hidden sticker", "隐藏贴纸", "隱藏貼紙", "シークレットステッカー") }
+    static func hiddenOddsDetail(perDraw: String, perBox: String) -> String {
+        tr("\(perDraw) per draw · \(perBox) chance this box contains one", "单抽 \(perDraw) · 本盒含 1 张的概率 \(perBox)", "單抽 \(perDraw) · 本盒含 1 張的機率 \(perBox)", "1回あたり \(perDraw) ・このボックスに1枚入る確率 \(perBox)")
+    }
+    static func normalSticker(_ index: Int) -> String {
+        tr("Regular sticker \(index)", "普通贴纸 \(index)", "普通貼紙 \(index)", "通常ステッカー \(index)")
+    }
+    static func normalOddsDetail(_ odds: String) -> String {
+        tr("\(odds) per draw", "单抽概率 \(odds)", "單抽機率 \(odds)", "1回あたり \(odds)")
+    }
+    static var oddsLockedNote: String {
+        tr(
+            "This box’s results were locked when it appeared. Revealed positions are clues only and do not change the odds.",
+            "这个盲盒出现时，结果就已经确定。已揭晓的位置只提供线索，不会改变概率。",
+            "這個盲盒出現時，結果就已經確定。已揭曉的位置只提供線索，不會改變機率。",
+            "このボックスの結果は表示時に確定しています。明かされた枠はヒントであり、確率は変わりません。"
+        )
     }
 }
 
