@@ -1192,7 +1192,7 @@ private struct BlindBoxDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(BlindBoxL10n.viewOdds)
-                .position(x: 288, y: 74)
+                .position(x: 338, y: 74)
 
                 BlindBoxThemeHeader(theme: theme)
                     .frame(width: 340, height: 190)
@@ -1539,7 +1539,7 @@ private struct BlindBoxCollectionView: View {
     }
 
     var body: some View {
-        BlindBoxCanvas {
+        BlindBoxCanvas(contentHorizontalOffset: 0) {
             ZStack {
                 BlindBoxImage("BlindBoxDrawBackground")
                     .frame(width: 393, height: 852)
