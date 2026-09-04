@@ -1117,7 +1117,7 @@ private struct BlindBoxLobbyCard: View {
                         .offset(y: -8)
 
                     Capsule()
-                        .fill(.white.opacity(0.88))
+                        .fill(Color.white)
                         .frame(width: 100, height: 22)
                         .overlay {
                             BlindBoxRestockCountdownLabel(
@@ -1130,7 +1130,7 @@ private struct BlindBoxLobbyCard: View {
                         .offset(y: 3)
                 } else {
                     Capsule()
-                        .fill(.white)
+                        .fill(Color.white)
                         .frame(width: 83, height: 22)
                         .overlay {
                             Text(statusText)
