@@ -1233,7 +1233,6 @@ private struct BlindBoxDetailView: View {
             BlindBoxPositionCell(
                 position: position,
                 isOpened: batch.openedPositionIndices.contains(position.index),
-                isSystemOpened: batch.isOpenedBySystem(at: position.index),
                 theme: theme,
                 onTap: { onOpenPosition(position.index) }
             )
@@ -1280,12 +1279,14 @@ private struct BlindBoxRestockCountdownLabel: View {
 private struct BlindBoxPositionCell: View {
     let position: BlindBoxPositionPlan
     let isOpened: Bool
-    let isSystemOpened: Bool
     let theme: BlindBoxThemeDefinition
     let onTap: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
+        Button {
+            guard !isOpened else { return }
+            onTap()
+        } label: {
             ZStack {
                 BlindBoxImage("BlindBoxDefaultSlot")
                     .frame(width: 98, height: 98)
@@ -1297,22 +1298,11 @@ private struct BlindBoxPositionCell: View {
                         .frame(width: 80, height: 80)
                         .scaledToFit()
                         .zIndex(1)
-                    if isSystemOpened {
-                        Text("Opened")
-                            .font(.appSystem(size: 9, weight: .bold, design: .rounded))
-                            .foregroundStyle(Color(hex: "A67754"))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(.white.opacity(0.84), in: Capsule())
-                            .offset(y: 41)
-                            .zIndex(2)
-                    }
                 }
             }
             .frame(width: 98, height: 98)
         }
         .buttonStyle(.plain)
-        .disabled(isOpened)
         .accessibilityLabel(isOpened ? "Opened box" : "Unopened box")
     }
 }
