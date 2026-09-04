@@ -1659,6 +1659,10 @@ private struct BlindBoxCollectionView: View {
             return (specialPlacement.map { [$0] } ?? []) + petNormalPlacements(for: normalStickers)
         }
 
+        if theme.id.rawValue == "cozy_daily" {
+            return (specialPlacement.map { [$0] } ?? []) + cozyDailyNormalPlacements(for: normalStickers)
+        }
+
         let normalPlacements: [BlindBoxCollectionPlacement]
         if normalStickers.count <= scatteredNormalCenters.count {
             normalPlacements = normalStickers.enumerated().map { index, sticker in
@@ -1715,6 +1719,36 @@ private struct BlindBoxCollectionView: View {
             "pets_06": (196, 638),
             "pets_09": (281, 638),
             "pets_07": (196, 714)
+        ]
+
+        return stickers.enumerated().map { index, sticker in
+            let fallback = scatteredNormalCenters[index % scatteredNormalCenters.count]
+            let center = referenceCenters[sticker.id.rawValue] ?? fallback
+            return BlindBoxCollectionPlacement(
+                stickerID: sticker.id,
+                centerX: center.x,
+                centerY: center.y,
+                displaySize: 70,
+                isSpecialSlot: false
+            )
+        }
+    }
+
+    /// Mirrors the Cozy Daily reference composition: a hidden sticker in the
+    /// Secret frame, then the eight regular poses scattered across the right
+    /// and lower parts of the book with clear breathing room between them.
+    private func cozyDailyNormalPlacements(
+        for stickers: [BlindBoxStickerDefinition]
+    ) -> [BlindBoxCollectionPlacement] {
+        let referenceCenters: [String: (x: Double, y: Double)] = [
+            "cozy_01": (286, 356),
+            "cozy_07": (281, 440),
+            "cozy_06": (136, 486),
+            "cozy_02": (204, 541),
+            "cozy_04": (288, 541),
+            "cozy_03": (136, 624),
+            "cozy_05": (204, 678),
+            "cozy_08": (288, 624)
         ]
 
         return stickers.enumerated().map { index, sticker in
