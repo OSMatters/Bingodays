@@ -1564,7 +1564,7 @@ private struct BlindBoxCollectionView: View {
                 collectionThemePicker
 
                 BlindBoxImage("BlindBoxCollectionBook")
-                    .frame(width: 345, height: 508)
+                    .frame(width: 345, height: 520)
                     .position(x: 194.5, y: 522)
 
                 if let selectedTheme {
@@ -1657,8 +1657,8 @@ private struct BlindBoxCollectionView: View {
     }
 
     private func collectionLayout(for theme: BlindBoxThemeDefinition) -> [BlindBoxCollectionPlacement] {
-        // The Book artwork contains a dedicated Secret frame from x:99...234,
-        // y:308...445. Keep the hidden sticker exactly at that frame's center;
+        // The latest Book artwork contains a dedicated Secret frame from
+        // x:99...214, y:302...417. Keep the hidden sticker exactly at its center;
         // normal stickers use a deliberately scattered, collision-free layout
         // underneath and beside it rather than reading as a rigid grid.
         let normalStickers = theme.stickers.filter { !$0.isHidden }
@@ -1667,8 +1667,8 @@ private struct BlindBoxCollectionView: View {
         let specialPlacement = hiddenSticker.map {
             BlindBoxCollectionPlacement(
                 stickerID: $0.id,
-                centerX: 166.5,
-                centerY: 378,
+                centerX: 156.5,
+                centerY: 359.5,
                 displaySize: 90,
                 isSpecialSlot: true
             )
@@ -1713,10 +1713,10 @@ private struct BlindBoxCollectionView: View {
 
     private var scatteredNormalCenters: [(x: Double, y: Double)] {
         [
-            (284, 484), (110, 494), (196, 491),
-            (284, 566), (111, 575), (199, 570),
-            (284, 650), (109, 658), (197, 651),
-            (283, 731), (202, 733)
+            (281, 353), (110, 466), (195, 472),
+            (278, 437), (112, 551), (201, 557),
+            (285, 631), (108, 638), (195, 645),
+            (280, 716), (198, 728)
         ]
     }
 
@@ -1861,15 +1861,6 @@ private struct BlindBoxBatchOddsSheet: View {
         return percent(probability)
     }
 
-    private var modeName: String {
-        switch probabilityMode {
-        case .standard:
-            return BlindBoxL10n.standardOddsMode
-        case .hiddenHunt:
-            return BlindBoxL10n.hiddenBoostOddsMode
-        }
-    }
-
     var body: some View {
         ZStack(alignment: .bottom) {
             Button(action: onClose) {
@@ -1887,29 +1878,9 @@ private struct BlindBoxBatchOddsSheet: View {
                     .padding(.bottom, 8)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack {
                     Text(BlindBoxL10n.oddsTitle)
                         .font(.appSystem(size: 22, weight: .bold, design: .rounded))
                         .foregroundStyle(Color(hex: "5A412C"))
-                    Spacer()
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                            .font(.appSystem(size: 13, weight: .bold))
-                            .foregroundStyle(Color(hex: "8A6E59"))
-                            .frame(width: 30, height: 30)
-                            .background(.white.opacity(0.78), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(BlindBoxL10n.close)
-                    }
-
-                    Text(BlindBoxL10n.oddsIntro)
-                        .font(.appSystem(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(Color(hex: "8A6E59"))
-
-                    Text(modeName)
-                        .font(.appSystem(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(hex: "A46A45"))
 
                     VStack(spacing: 8) {
                         BlindBoxOddsSummaryRow(
@@ -1943,7 +1914,7 @@ private struct BlindBoxBatchOddsSheet: View {
                 .padding(.bottom, 24)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 410)
+            .frame(height: 330)
             .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
             .overlay {
                 RoundedRectangle(cornerRadius: 24)
@@ -2220,9 +2191,6 @@ private enum BlindBoxL10n {
     }
     static var viewOdds: String { tr("View odds", "查看概率", "查看機率", "確率を見る") }
     static var oddsTitle: String { tr("Current box odds", "当前盲盒概率", "目前盲盒機率", "このボックスの確率") }
-    static var oddsIntro: String { tr("These are the odds used when this box was created.", "以下是这个盲盒生成时使用的概率。", "以下是這個盲盒生成時使用的機率。", "以下は、このボックスが生成されたときに使われた確率です。") }
-    static var standardOddsMode: String { tr("Standard odds", "普通概率", "普通機率", "通常確率") }
-    static var hiddenBoostOddsMode: String { tr("Hidden boost is active", "隐藏款加成已生效", "隱藏款加成已生效", "シークレット確率アップ中") }
     static var regularSticker: String { tr("Regular stickers", "常规款", "常規款", "通常ステッカー") }
     static var hiddenSticker: String { tr("Hidden sticker", "隐藏贴纸", "隱藏貼紙", "シークレットステッカー") }
     static func hiddenOddsDetail(perDraw: String, perBox: String) -> String {
