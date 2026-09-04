@@ -256,25 +256,27 @@ extension View {
     func appLiquidGlass<S: Shape>(in shape: S, interactive: Bool = true) -> some View {
         if #available(iOS 26.0, *) {
             self
-                .background {
-                    shape
-                        .fill(Color.white.opacity(0.42))
-                }
                 .glassEffect(.regular.interactive(interactive), in: shape)
         } else {
             self.background {
                 ZStack {
                     shape
-                        .fill(Color.white.opacity(0.48))
-
-                    shape
                         .fill(.ultraThinMaterial)
 
                     shape
-                        .fill(Color.white.opacity(0.24))
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.74),
+                                    Color.white.opacity(0.38)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
 
                     shape
-                        .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                        .stroke(Color.white.opacity(0.94), lineWidth: 1)
 
                     shape
                         .stroke(Color.white.opacity(0.24), lineWidth: 3)
