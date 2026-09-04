@@ -1927,6 +1927,10 @@ private struct BlindBoxRulesSheet: View {
                         detail: BlindBoxL10n.hiddenOddsDetail
                     )
                     BlindBoxRuleRow(
+                        title: BlindBoxL10n.revealedSurprisesTitle,
+                        detail: BlindBoxL10n.revealedSurprisesDetail
+                    )
+                    BlindBoxRuleRow(
                         title: BlindBoxL10n.pointsTicketsTitle,
                         detail: BlindBoxL10n.pointsTicketsDetail
                     )
@@ -2021,6 +2025,15 @@ private enum BlindBoxL10n {
             "每天可用 100 积分兑换 1 张盲盒券。",
             "每天可用 100 積分兌換 1 張盲盒券。",
             "1日1回、100ポイントでチケット1枚に交換できます。"
+        )
+    }
+    static var revealedSurprisesTitle: String { tr("See what has been revealed", "先看看已揭晓的惊喜", "先看看已揭曉的驚喜", "すでに明かされたサプライズを見よう") }
+    static var revealedSurprisesDetail: String {
+        tr(
+            "To give every opening more clues, a themed box can gradually reveal some positions. Even when you have not opened one, new sticker results may appear—look first, then save your tickets for surprises still hidden.",
+            "为了让每次开盒更有线索，主题盒会慢慢自动揭晓部分位置。即使你暂时没有开启，也可能看到新的贴纸结果；先观察已经出现的款式，再把盲盒券留给还没露面的惊喜吧。",
+            "為了讓每次開盒更有線索，主題盒會慢慢自動揭曉部分位置。即使你暫時沒有開啟，也可能看到新的貼紙結果；先觀察已經出現的款式，再把盲盒券留給還沒露面的驚喜吧。",
+            "開封のヒントが増えるよう、テーマボックスでは一部の枠が少しずつ自動で明かされます。まだ開けていなくても新しい結果が見えることがあります。すでに出たステッカーを見て、まだ隠れているサプライズにチケットを使おう。"
         )
     }
 
