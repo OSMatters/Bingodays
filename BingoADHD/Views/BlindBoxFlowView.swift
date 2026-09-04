@@ -1192,7 +1192,7 @@ private struct BlindBoxDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(BlindBoxL10n.viewOdds)
-                .position(x: 243, y: 61)
+                .position(x: 258, y: 74)
 
                 BlindBoxThemeHeader(theme: theme)
                     .frame(width: 340, height: 190)
@@ -1669,7 +1669,7 @@ private struct BlindBoxCollectionView: View {
                 stickerID: $0.id,
                 centerX: 156.5,
                 centerY: 359.5,
-                displaySize: 90,
+                displaySize: 100,
                 isSpecialSlot: true
             )
         }
@@ -1682,7 +1682,7 @@ private struct BlindBoxCollectionView: View {
                     stickerID: sticker.id,
                     centerX: center.x,
                     centerY: center.y,
-                    displaySize: 67,
+                    displaySize: 78,
                     isSpecialSlot: false
                 )
             }
@@ -1691,12 +1691,12 @@ private struct BlindBoxCollectionView: View {
             // needed, while preserving a minimum 12 pt gap in the Book area.
             let columns: [Double] = [110, 196.5, 284]
             let rowCount = max(Int(ceil(Double(normalStickers.count) / Double(columns.count))), 1)
-            let firstRowY = 492.0
-            let lastRowY = 729.0
+            let firstRowY = 468.0
+            let lastRowY = 742.0
             let rowPitch = rowCount > 1
                 ? (lastRowY - firstRowY) / Double(rowCount - 1)
                 : 0
-            let displaySize = min(67, max(36, rowPitch > 0 ? rowPitch - 12 : 67))
+            let displaySize = min(78, max(36, rowPitch > 0 ? rowPitch - 12 : 78))
             normalPlacements = normalStickers.enumerated().map { index, sticker in
                 BlindBoxCollectionPlacement(
                     stickerID: sticker.id,
@@ -1713,10 +1713,11 @@ private struct BlindBoxCollectionView: View {
 
     private var scatteredNormalCenters: [(x: Double, y: Double)] {
         [
-            (281, 353), (110, 466), (195, 472),
-            (278, 437), (112, 551), (201, 557),
-            (285, 631), (108, 638), (195, 645),
-            (280, 716), (198, 728)
+            (278, 360),
+            (110, 468), (202, 471), (294, 466),
+            (109, 558), (201, 562), (293, 560),
+            (110, 648), (202, 652), (294, 650),
+            (200, 742)
         ]
     }
 
@@ -1895,11 +1896,6 @@ private struct BlindBoxBatchOddsSheet: View {
                             )
                         )
                     }
-
-                    Text(BlindBoxL10n.oddsLockedNote)
-                        .font(.appSystem(size: 11, weight: .medium, design: .rounded))
-                        .foregroundStyle(Color(hex: "8A6E59"))
-                        .fixedSize(horizontal: false, vertical: true)
 
                     Button(action: onClose) {
                         Text(BlindBoxL10n.gotIt)
@@ -2194,7 +2190,12 @@ private enum BlindBoxL10n {
     static var regularSticker: String { tr("Regular stickers", "常规款", "常規款", "通常ステッカー") }
     static var hiddenSticker: String { tr("Hidden sticker", "隐藏贴纸", "隱藏貼紙", "シークレットステッカー") }
     static func hiddenOddsDetail(perDraw: String, perBox: String) -> String {
-        tr("\(perDraw) per draw · \(perBox) chance this box contains one", "单抽 \(perDraw) · 本盒含 1 张的概率 \(perBox)", "單抽 \(perDraw) · 本盒含 1 張的機率 \(perBox)", "1回あたり \(perDraw) ・このボックスに1枚入る確率 \(perBox)")
+        tr(
+            "\(perDraw) per draw · \(perBox) chance this box contains one.\nCollect all regular stickers to increase this chance.",
+            "单抽 \(perDraw) · 本盒含 1 张的概率 \(perBox)。\n集齐所有常规款后，隐藏款的概率会增加。",
+            "單抽 \(perDraw) · 本盒含 1 張的機率 \(perBox)。\n集齊所有常規款後，隱藏款的機率會增加。",
+            "1回あたり \(perDraw) ・このボックスに1枚入る確率 \(perBox)。\n通常ステッカーをすべて集めると、シークレットの確率が上がります。"
+        )
     }
     static func normalOddsDetail(_ odds: String) -> String {
         tr(
@@ -2202,14 +2203,6 @@ private enum BlindBoxL10n {
             "每一张常规贴纸的单抽概率：\(odds)",
             "每一張常規貼紙的單抽機率：\(odds)",
             "通常ステッカー1枚あたり：1回 \(odds)"
-        )
-    }
-    static var oddsLockedNote: String {
-        tr(
-            "This box’s results were locked when it appeared. Revealed positions are clues only and do not change the odds.",
-            "这个盲盒出现时，结果就已经确定。已揭晓的位置只提供线索，不会改变概率。",
-            "這個盲盒出現時，結果就已經確定。已揭曉的位置只提供線索，不會改變機率。",
-            "このボックスの結果は表示時に確定しています。明かされた枠はヒントであり、確率は変わりません。"
         )
     }
 }
