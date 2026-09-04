@@ -1644,13 +1644,13 @@ private struct BlindBoxCollectionView: View {
         // underneath and beside it rather than reading as a rigid grid.
         let normalStickers = theme.stickers.filter { !$0.isHidden }
         let hiddenSticker = theme.stickers.first(where: \.isHidden)
-        let specialDisplaySize = theme.id.rawValue == "cozy_daily" ? 76.0 : 70.0
+        let specialDisplaySize = theme.id.rawValue == "cozy_daily" ? 85.0 : 70.0
 
         let specialPlacement = hiddenSticker.map {
             BlindBoxCollectionPlacement(
                 stickerID: $0.id,
                 centerX: 156.5,
-                centerY: 359.5,
+                centerY: 367.5,
                 displaySize: specialDisplaySize,
                 isSpecialSlot: true
             )
@@ -1743,14 +1743,14 @@ private struct BlindBoxCollectionView: View {
         for stickers: [BlindBoxStickerDefinition]
     ) -> [BlindBoxCollectionPlacement] {
         let referenceCenters: [String: (x: Double, y: Double)] = [
-            "cozy_01": (286, 356),
-            "cozy_07": (281, 440),
-            "cozy_06": (136, 486),
-            "cozy_02": (204, 541),
-            "cozy_04": (288, 541),
-            "cozy_03": (136, 624),
-            "cozy_05": (204, 678),
-            "cozy_08": (288, 624)
+            "cozy_01": (286, 371),
+            "cozy_07": (281, 455),
+            "cozy_06": (136, 501),
+            "cozy_02": (204, 556),
+            "cozy_04": (288, 556),
+            "cozy_03": (136, 639),
+            "cozy_05": (204, 693),
+            "cozy_08": (288, 639)
         ]
 
         return stickers.enumerated().map { index, sticker in
@@ -1760,7 +1760,7 @@ private struct BlindBoxCollectionView: View {
                 stickerID: sticker.id,
                 centerX: center.x,
                 centerY: center.y,
-                displaySize: 76,
+                displaySize: 85,
                 isSpecialSlot: false
             )
         }
