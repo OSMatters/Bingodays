@@ -1437,8 +1437,10 @@ private struct BlindBoxRevealView: View {
                 .position(x: 196.5, y: 170)
 
             ZStack {
-                BlindBoxImage("BlindBoxRevealLight")
-                    .frame(width: 369, height: 369)
+                if stickerDefinition.isHidden {
+                    BlindBoxImage("BlindBoxRevealLight")
+                        .frame(width: 369, height: 369)
+                }
                 BlindBoxImage(stickerDefinition.assetName)
                     .frame(width: 231, height: 231)
                     .scaledToFit()
@@ -1481,10 +1483,6 @@ private struct BlindBoxRevealView: View {
                 .frame(width: 353)
                 .position(x: 196.5, y: 170)
 
-            BlindBoxImage("BlindBoxRevealLight")
-                .frame(width: 195.6, height: 195.6)
-                .position(x: 293.8, y: 289.8)
-
             let positions: [(CGFloat, CGFloat)] = [
                 (99.2, 290.4), (195.2, 290.4), (294.2, 290.4),
                 (101.4, 396.2), (195.2, 396.2), (294.2, 396.2),
@@ -1494,10 +1492,16 @@ private struct BlindBoxRevealView: View {
                 if let definition = themes
                     .flatMap(\.stickers)
                     .first(where: { $0.id == sticker.stickerID }) {
-                    BlindBoxImage(definition.assetName)
-                        .frame(width: 86.4, height: 86.4)
-                        .scaledToFit()
-                        .position(x: positions[index].0, y: positions[index].1)
+                    ZStack {
+                        if definition.isHidden {
+                            BlindBoxImage("BlindBoxRevealLight")
+                                .frame(width: 150, height: 150)
+                        }
+                        BlindBoxImage(definition.assetName)
+                            .frame(width: 86.4, height: 86.4)
+                            .scaledToFit()
+                    }
+                    .position(x: positions[index].0, y: positions[index].1)
                 }
             }
 
