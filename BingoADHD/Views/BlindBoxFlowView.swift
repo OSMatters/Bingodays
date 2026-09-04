@@ -1376,7 +1376,7 @@ private struct BlindBoxActionButton: View {
                     }
                     .offset(x: 4, y: -4)
                 }
-                .position(x: 145, y: 0)
+                .position(x: 137, y: 8)
                 .zIndex(1)
             }
             .foregroundStyle(Color(hex: "D5A06F"))
@@ -2667,11 +2667,7 @@ private struct BlindBoxShelfStatusOverlay: View {
             .padding(.vertical, 7)
             .background {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(.white.opacity(0.36))
-                    }
+                    .fill(Color.white)
             }
             .shadow(color: .white.opacity(0.75), radius: 6)
         .accessibilityHidden(true)
