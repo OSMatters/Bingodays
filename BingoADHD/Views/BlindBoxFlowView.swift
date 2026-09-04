@@ -1662,26 +1662,42 @@ private struct BlindBoxCollectionView: View {
     }
 
     private func collectionLayout(for theme: BlindBoxThemeDefinition) -> [BlindBoxCollectionPlacement] {
-        if let configuredLayout = theme.presentation?.collectionPlacements {
-            return configuredLayout
-        }
+        // My Box deliberately has one stable, scan-friendly arrangement across
+        // themes: the hidden sticker sits in the special slot, then every other
+        // sticker follows in a three-column grid. The 68 pt item width and
+        // 81.5 pt column pitch leave at least 13.5 pt between neighboring art.
+        let columns: [Double] = [115, 196.5, 278]
+        let normalStickers = theme.stickers.filter { !$0.isHidden }
+        let hiddenSticker = theme.stickers.first(where: \.isHidden)
+        let normalRowCount = max(Int(ceil(Double(normalStickers.count) / Double(columns.count))), 1)
+        let firstNormalRowY = 456.0
+        let lastNormalRowY = 699.0
+        let normalRowPitch = normalRowCount > 1
+            ? (lastNormalRowY - firstNormalRowY) / Double(normalRowCount - 1)
+            : 0
+        let normalDisplaySize = min(68, max(36, normalRowPitch > 0 ? normalRowPitch - 12 : 68))
 
-        // Development fallback only. A remotely published theme must carry a
-        // complete, validated presentation layout from the content pipeline.
-        let positions: [(CGFloat, CGFloat)] = [
-            (178, 380), (303, 378), (219, 494), (126, 488), (119, 597), (189, 570),
-            (292, 669), (210, 680), (293, 472), (119, 689), (164, 440), (279, 566)
-        ]
-        return theme.stickers.enumerated().map { index, sticker in
-            let position = positions[index % positions.count]
-            return BlindBoxCollectionPlacement(
-                stickerID: sticker.id,
-                centerX: position.0,
-                centerY: position.1,
-                displaySize: sticker.isHidden ? 102 : 72,
-                isSpecialSlot: sticker.isHidden
+        let specialPlacement = hiddenSticker.map {
+            BlindBoxCollectionPlacement(
+                stickerID: $0.id,
+                centerX: 196.5,
+                centerY: 365,
+                displaySize: 90,
+                isSpecialSlot: true
             )
         }
+
+        let normalPlacements = normalStickers.enumerated().map { index, sticker in
+            BlindBoxCollectionPlacement(
+                stickerID: sticker.id,
+                centerX: columns[index % columns.count],
+                centerY: firstNormalRowY + (Double(index / columns.count) * normalRowPitch),
+                displaySize: normalDisplaySize,
+                isSpecialSlot: false
+            )
+        }
+
+        return (specialPlacement.map { [$0] } ?? []) + normalPlacements
     }
 
     private func synchronizeThemeSelection() {
@@ -1720,19 +1736,16 @@ private struct BlindBoxCollectionSticker: View {
     let displaySize: CGFloat
     let isSpecialSlot: Bool
 
+    private var artworkName: String {
+        ownedCount > 0 ? sticker.assetName : "\(sticker.assetName)_none"
+    }
+
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            BlindBoxImage(sticker.assetName)
+            BlindBoxImage(artworkName)
                 .frame(width: displaySize, height: displaySize)
                 .scaledToFit()
-                .saturation(ownedCount > 0 ? 1 : 0)
-                .brightness(ownedCount > 0 ? 0 : -0.66)
-                .opacity(ownedCount > 0 ? 1 : 0.96)
-            if ownedCount == 0 {
-                Text("?")
-                    .font(.appSystem(size: isSpecialSlot ? 38 : 30, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.42))
-            } else if ownedCount > 1 {
+            if ownedCount > 1 {
                 Text("×\(ownedCount)")
                     .font(.appSystem(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
