@@ -1127,7 +1127,7 @@ private struct BlindBoxLobbyCard: View {
                                 foregroundColor: Color(hex: "594A3D")
                             )
                         }
-                        .offset(y: 0)
+                        .offset(y: -5)
                 } else {
                     Capsule()
                         .fill(Color.white)
@@ -1137,7 +1137,7 @@ private struct BlindBoxLobbyCard: View {
                                 .font(.appSystem(size: 10, weight: .medium, design: .rounded))
                                 .foregroundStyle(Color(hex: "594A3D"))
                         }
-                        .offset(y: 0)
+                        .offset(y: -5)
                 }
             }
             .frame(width: 146, height: 176)
@@ -2161,6 +2161,7 @@ private enum BlindBoxL10n {
     }
 
     static var myBox: String { tr("My Box", "我的盲盒", "我的盲盒", "マイボックス") }
+    static var comingSoon: String { tr("Coming\nSoon", "即将\n推出", "即將\n推出", "近日\n公開") }
     static var customRewards: String { tr("Custom Rewards", "自定义奖励", "自訂獎勵", "カスタム報酬") }
     static var blindBoxStickers: String { tr("Blind box stickers", "盲盒贴纸", "盲盒貼紙", "ブラインドボックスステッカー") }
     static var restocking: String { tr("Restocking", "补货中", "補貨中", "補充中") }
@@ -2618,7 +2619,15 @@ private struct BlindBoxThemeHeader: View {
 
 private struct BlindBoxComingSoonTile: View {
     var body: some View {
-        BlindBoxImage("BlindBoxComingSoon")
+        ZStack {
+            BlindBoxImage("BlindBoxComingSoon")
+            Text(BlindBoxL10n.comingSoon)
+                .font(.appSystem(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: "5A412C"))
+                .multilineTextAlignment(.center)
+                .lineSpacing(-1)
+                .offset(y: 9)
+        }
     }
 }
 
