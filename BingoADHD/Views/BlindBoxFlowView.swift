@@ -1112,7 +1112,7 @@ private struct BlindBoxLobbyCard: View {
                     .offset(y: -8)
 
                 if batch.isSoldOut {
-                    BlindBoxShelfStatusOverlay(title: BlindBoxL10n.restocking, fontSize: 16)
+                    BlindBoxShelfStatusOverlay(title: BlindBoxL10n.restocking, fontSize: 14)
                         .frame(width: 131, height: 149)
                         .offset(y: -8)
 
@@ -1816,7 +1816,7 @@ private struct BlindBoxCollectionSticker: View {
                         RoundedRectangle(cornerRadius: 11, style: .continuous)
                             .stroke(.white, lineWidth: 2)
                     }
-                    .offset(y: displaySize * 0.43)
+                    .offset(y: displaySize * 0.43 - 5)
             }
         }
         .frame(width: displaySize, height: displaySize)
@@ -2638,7 +2638,7 @@ private struct BlindBoxShelfStatusOverlay: View {
                     .fill(.ultraThinMaterial)
                     .overlay {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(.white.opacity(0.86))
+                            .fill(.white.opacity(0.36))
                     }
             }
             .shadow(color: .white.opacity(0.75), radius: 6)
@@ -2655,7 +2655,7 @@ private struct BlindBoxPremiumPlaceholder: View {
                 .frame(width: 131, height: 149)
                 .opacity(0.5)
                 .offset(y: -8)
-            BlindBoxShelfStatusOverlay(title: BlindBoxL10n.unlockMoreBoxes, fontSize: 13)
+            BlindBoxShelfStatusOverlay(title: BlindBoxL10n.unlockMoreBoxes, fontSize: 11)
                 .frame(width: 131, height: 149)
                 .offset(y: -8)
         }
