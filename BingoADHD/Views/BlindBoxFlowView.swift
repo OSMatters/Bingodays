@@ -1697,17 +1697,17 @@ private struct BlindBoxCollectionView: View {
         for stickers: [BlindBoxStickerDefinition]
     ) -> [BlindBoxCollectionPlacement] {
         let referenceCenters: [String: (x: Double, y: Double)] = [
-            "pets_01": (281, 358),
-            "pets_07": (281, 440),
-            "pets_03": (120, 527),
-            "pets_02": (196, 527),
-            "pets_08": (281, 527),
-            "pets_05": (120, 610),
-            "pets_11": (196, 610),
-            "pets_04": (281, 610),
-            "pets_10": (120, 693),
-            "pets_06": (196, 693),
-            "pets_09": (281, 693)
+            "pets_01": (281, 354),
+            "pets_07": (281, 446),
+            "pets_03": (120, 522),
+            "pets_02": (196, 529),
+            "pets_08": (281, 524),
+            "pets_05": (120, 615),
+            "pets_11": (196, 608),
+            "pets_04": (281, 613),
+            "pets_10": (120, 688),
+            "pets_06": (196, 696),
+            "pets_09": (281, 690)
         ]
 
         return stickers.enumerated().map { index, sticker in
