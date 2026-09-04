@@ -1112,7 +1112,7 @@ private struct BlindBoxLobbyCard: View {
                     .offset(y: -8)
 
                 if batch.isSoldOut {
-                    BlindBoxShelfStatusOverlay(title: BlindBoxL10n.restocking, fontSize: 21)
+                    BlindBoxShelfStatusOverlay(title: BlindBoxL10n.restocking, fontSize: 16)
                         .frame(width: 131, height: 149)
                         .offset(y: -8)
 
@@ -1802,16 +1802,21 @@ private struct BlindBoxCollectionSticker: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        ZStack(alignment: .bottom) {
             BlindBoxImage(artworkName)
                 .frame(width: displaySize, height: displaySize)
                 .scaledToFit()
             if ownedCount > 1 {
                 Text("×\(ownedCount)")
-                    .font(.appSystem(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .padding(4)
-                    .background(Color(hex: "D19A63"), in: Capsule())
+                    .font(.appSystem(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(.black)
+                    .frame(minWidth: 40, minHeight: 22)
+                    .background(Color(hex: "F3E8D9"), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .stroke(.white, lineWidth: 2)
+                    }
+                    .offset(y: displaySize * 0.43)
             }
         }
         .frame(width: displaySize, height: displaySize)
@@ -2156,10 +2161,10 @@ private enum BlindBoxL10n {
     static var restocking: String { tr("Restocking", "补货中", "補貨中", "補充中") }
     static var unlockMoreBoxes: String {
         tr(
-            "Upgrade to get more chances",
-            "升级会员，解锁更多盲盒",
-            "升級會員，解鎖更多盲盒",
-            "プレミアムにアップグレードして、もっとボックスを解放"
+            "Upgrade to unlock more box slots",
+            "升级解锁更多盲盒位",
+            "升級解鎖更多盲盒位",
+            "アップグレードしてボックス枠を増やす"
         )
     }
     static var randomBox: String { tr("Random box", "随机抽取", "隨機抽取", "ランダム抽選") }
@@ -2180,7 +2185,7 @@ private enum BlindBoxL10n {
         tr("Left: \(count)/\(total)", "剩余：\(count)/\(total)", "剩餘：\(count)/\(total)", "残り：\(count)/\(total)")
     }
     static func refreshIn(_ countdown: String) -> String {
-        tr("Refresh in \(countdown)", "补货倒计时 \(countdown)", "補貨倒數 \(countdown)", "補充まで \(countdown)")
+        tr("Countdown \(countdown)", "倒计时 \(countdown)", "倒計時 \(countdown)", "カウントダウン \(countdown)")
     }
     static func restocksIn(_ countdown: String) -> String {
         tr("Restocks in \(countdown)", "将在 \(countdown) 后补货", "將在 \(countdown) 後補貨", "補充まで \(countdown)")
@@ -2628,13 +2633,15 @@ private struct BlindBoxShelfStatusOverlay: View {
             .minimumScaleFactor(0.62)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .background {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(.white.opacity(0.42))
-                    .blur(radius: 4)
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(.white.opacity(0.86))
+                    }
             }
-            .shadow(color: .white.opacity(0.4), radius: 6)
+            .shadow(color: .white.opacity(0.75), radius: 6)
         .accessibilityHidden(true)
     }
 }
@@ -2648,7 +2655,7 @@ private struct BlindBoxPremiumPlaceholder: View {
                 .frame(width: 131, height: 149)
                 .opacity(0.5)
                 .offset(y: -8)
-            BlindBoxShelfStatusOverlay(title: BlindBoxL10n.unlockMoreBoxes, fontSize: 15)
+            BlindBoxShelfStatusOverlay(title: BlindBoxL10n.unlockMoreBoxes, fontSize: 13)
                 .frame(width: 131, height: 149)
                 .offset(y: -8)
         }
