@@ -1127,7 +1127,7 @@ private struct BlindBoxLobbyCard: View {
                                 foregroundColor: Color(hex: "594A3D")
                             )
                         }
-                        .offset(y: 3)
+                        .offset(y: 0)
                 } else {
                     Capsule()
                         .fill(Color.white)
@@ -1137,7 +1137,7 @@ private struct BlindBoxLobbyCard: View {
                                 .font(.appSystem(size: 10, weight: .medium, design: .rounded))
                                 .foregroundStyle(Color(hex: "594A3D"))
                         }
-                        .offset(y: 3)
+                        .offset(y: 0)
                 }
             }
             .frame(width: 146, height: 176)
@@ -1753,9 +1753,9 @@ private struct BlindBoxCollectionView: View {
             "cozy_06": (136, 501),
             "cozy_02": (204, 556),
             "cozy_04": (288, 556),
-            "cozy_03": (136, 639),
-            "cozy_05": (204, 693),
-            "cozy_08": (288, 639)
+            "cozy_03": (136, 654),
+            "cozy_05": (204, 708),
+            "cozy_08": (288, 654)
         ]
 
         return stickers.enumerated().map { index, sticker in
@@ -1812,13 +1812,13 @@ private struct BlindBoxCollectionSticker: View {
                 .scaledToFit()
             if ownedCount > 1 {
                 Text("×\(ownedCount)")
-                    .font(.appSystem(size: 12, weight: .bold, design: .rounded))
+                    .font(.appSystem(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(.black)
-                    .frame(minWidth: 40, minHeight: 22)
-                    .background(Color(hex: "F3E8D9"), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .frame(minWidth: 34, minHeight: 19)
+                    .background(Color(hex: "F3E8D9"), in: RoundedRectangle(cornerRadius: 9.5, style: .continuous))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .stroke(.white, lineWidth: 2)
+                        RoundedRectangle(cornerRadius: 9.5, style: .continuous)
+                            .stroke(.white, lineWidth: 1.5)
                     }
                     // Keep the count visually attached to the sticker's lower edge.
                     .offset(y: 4)
