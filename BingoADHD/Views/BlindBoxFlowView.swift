@@ -1183,6 +1183,17 @@ private struct BlindBoxDetailView: View {
                 detailTicketBadge
                     .position(x: 192, y: 74)
 
+                Button {
+                    isShowingOdds = true
+                } label: {
+                    BlindBoxRulesIcon()
+                        .frame(width: 22, height: 22)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(BlindBoxL10n.viewOdds)
+                .position(x: 243, y: 61)
+
                 BlindBoxThemeHeader(theme: theme)
                     .frame(width: 340, height: 190)
                     .position(x: 196.5, y: 195)
@@ -1204,28 +1215,11 @@ private struct BlindBoxDetailView: View {
                 } else {
                     actionButtons
                         .position(x: 196, y: 714.5)
-
-                    Button {
-                        isShowingOdds = true
-                    } label: {
-                        Text(BlindBoxL10n.viewOdds)
-                            .font(.appSystem(size: 12, weight: .bold, design: .rounded))
-                            .foregroundStyle(Color(hex: "A46A45"))
-                            .padding(.horizontal, 13)
-                            .padding(.vertical, 6)
-                            .background(.white.opacity(0.86), in: Capsule())
-                            .overlay {
-                                Capsule().stroke(Color(hex: "F1C079"), lineWidth: 1)
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(BlindBoxL10n.viewOdds)
-                    .position(x: 196, y: 757)
                 }
 
                 if isShowingOdds {
                     BlindBoxBatchOddsSheet(
-                        theme: theme,
+                        normalStickerCount: theme.normalStickers.count,
                         probabilityMode: batch.plan.probabilityMode,
                         onClose: { isShowingOdds = false }
                     )
@@ -1438,6 +1432,7 @@ private struct BlindBoxRevealView: View {
                     design: .rounded
                 ))
                 .foregroundStyle(.white)
+                .frame(width: 353)
                 .position(x: 196.5, y: 170)
 
             ZStack {
@@ -1482,6 +1477,7 @@ private struct BlindBoxRevealView: View {
                 .multilineTextAlignment(.center)
                 .font(.appSystem(size: 29, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
+                .frame(width: 353)
                 .position(x: 196.5, y: 170)
 
             BlindBoxImage("BlindBoxRevealLight")
@@ -1653,8 +1649,7 @@ private struct BlindBoxCollectionView: View {
                 BlindBoxCollectionSticker(
                     sticker: sticker,
                     ownedCount: ownedStickerCounts[sticker.id.rawValue] ?? 0,
-                    displaySize: CGFloat(item.displaySize),
-                    isSpecialSlot: item.isSpecialSlot
+                    displaySize: CGFloat(item.displaySize)
                 )
                 .position(x: item.centerX, y: item.centerY)
             }
@@ -1662,42 +1657,67 @@ private struct BlindBoxCollectionView: View {
     }
 
     private func collectionLayout(for theme: BlindBoxThemeDefinition) -> [BlindBoxCollectionPlacement] {
-        // My Box deliberately has one stable, scan-friendly arrangement across
-        // themes: the hidden sticker sits in the special slot, then every other
-        // sticker follows in a three-column grid. The 68 pt item width and
-        // 81.5 pt column pitch leave at least 13.5 pt between neighboring art.
-        let columns: [Double] = [115, 196.5, 278]
+        // The Book artwork contains a dedicated Secret frame from x:99...234,
+        // y:308...445. Keep the hidden sticker exactly at that frame's center;
+        // normal stickers use a deliberately scattered, collision-free layout
+        // underneath and beside it rather than reading as a rigid grid.
         let normalStickers = theme.stickers.filter { !$0.isHidden }
         let hiddenSticker = theme.stickers.first(where: \.isHidden)
-        let normalRowCount = max(Int(ceil(Double(normalStickers.count) / Double(columns.count))), 1)
-        let firstNormalRowY = 456.0
-        let lastNormalRowY = 699.0
-        let normalRowPitch = normalRowCount > 1
-            ? (lastNormalRowY - firstNormalRowY) / Double(normalRowCount - 1)
-            : 0
-        let normalDisplaySize = min(68, max(36, normalRowPitch > 0 ? normalRowPitch - 12 : 68))
 
         let specialPlacement = hiddenSticker.map {
             BlindBoxCollectionPlacement(
                 stickerID: $0.id,
-                centerX: 196.5,
-                centerY: 365,
+                centerX: 166.5,
+                centerY: 378,
                 displaySize: 90,
                 isSpecialSlot: true
             )
         }
 
-        let normalPlacements = normalStickers.enumerated().map { index, sticker in
-            BlindBoxCollectionPlacement(
-                stickerID: sticker.id,
-                centerX: columns[index % columns.count],
-                centerY: firstNormalRowY + (Double(index / columns.count) * normalRowPitch),
-                displaySize: normalDisplaySize,
-                isSpecialSlot: false
-            )
+        let normalPlacements: [BlindBoxCollectionPlacement]
+        if normalStickers.count <= scatteredNormalCenters.count {
+            normalPlacements = normalStickers.enumerated().map { index, sticker in
+                let center = scatteredNormalCenters[index]
+                return BlindBoxCollectionPlacement(
+                    stickerID: sticker.id,
+                    centerX: center.x,
+                    centerY: center.y,
+                    displaySize: 67,
+                    isSpecialSlot: false
+                )
+            }
+        } else {
+            // Future themes can contain more stickers. Compact them only when
+            // needed, while preserving a minimum 12 pt gap in the Book area.
+            let columns: [Double] = [110, 196.5, 284]
+            let rowCount = max(Int(ceil(Double(normalStickers.count) / Double(columns.count))), 1)
+            let firstRowY = 492.0
+            let lastRowY = 729.0
+            let rowPitch = rowCount > 1
+                ? (lastRowY - firstRowY) / Double(rowCount - 1)
+                : 0
+            let displaySize = min(67, max(36, rowPitch > 0 ? rowPitch - 12 : 67))
+            normalPlacements = normalStickers.enumerated().map { index, sticker in
+                BlindBoxCollectionPlacement(
+                    stickerID: sticker.id,
+                    centerX: columns[index % columns.count],
+                    centerY: firstRowY + (Double(index / columns.count) * rowPitch),
+                    displaySize: displaySize,
+                    isSpecialSlot: false
+                )
+            }
         }
 
         return (specialPlacement.map { [$0] } ?? []) + normalPlacements
+    }
+
+    private var scatteredNormalCenters: [(x: Double, y: Double)] {
+        [
+            (284, 484), (110, 494), (196, 491),
+            (284, 566), (111, 575), (199, 570),
+            (284, 650), (109, 658), (197, 651),
+            (283, 731), (202, 733)
+        ]
     }
 
     private func synchronizeThemeSelection() {
@@ -1734,7 +1754,6 @@ private struct BlindBoxCollectionSticker: View {
     let sticker: BlindBoxStickerDefinition
     let ownedCount: Int
     let displaySize: CGFloat
-    let isSpecialSlot: Bool
 
     private var artworkName: String {
         ownedCount > 0 ? sticker.assetName : "\(sticker.assetName)_none"
@@ -1824,7 +1843,7 @@ private struct BlindBoxLiveStatusView: View {
 /// discloses that mode and its published odds without inspecting or revealing
 /// any unopened position in the already-locked batch.
 private struct BlindBoxBatchOddsSheet: View {
-    let theme: BlindBoxThemeDefinition
+    let normalStickerCount: Int
     let probabilityMode: BlindBoxProbabilityMode
     let onClose: () -> Void
 
@@ -1838,7 +1857,7 @@ private struct BlindBoxBatchOddsSheet: View {
 
     private var normalPerPositionPercent: String {
         let probability = (1 - probabilityMode.hiddenStickerProbability) /
-            Double(max(theme.normalStickers.count, 1))
+            Double(max(normalStickerCount, 1))
         return percent(probability)
     }
 
@@ -1892,28 +1911,18 @@ private struct BlindBoxBatchOddsSheet: View {
                         .font(.appSystem(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(Color(hex: "A46A45"))
 
-                    ScrollView(showsIndicators: false) {
-                        VStack(spacing: 8) {
-                            if let hiddenSticker = theme.hiddenSticker {
-                                BlindBoxOddsItemRow(
-                                    artworkName: hiddenSticker.assetName,
-                                    title: BlindBoxL10n.hiddenSticker,
-                                    detail: BlindBoxL10n.hiddenOddsDetail(
-                                        perDraw: hiddenPerPositionPercent,
-                                        perBox: hiddenPerBoxPercent
-                                    )
-                                )
-                            }
-
-                            ForEach(Array(theme.normalStickers.enumerated()), id: \.element.id) { index, sticker in
-                                BlindBoxOddsItemRow(
-                                    artworkName: sticker.assetName,
-                                    title: BlindBoxL10n.normalSticker(index + 1),
-                                    detail: BlindBoxL10n.normalOddsDetail(normalPerPositionPercent)
-                                )
-                            }
-                        }
-                        .padding(.vertical, 2)
+                    VStack(spacing: 8) {
+                        BlindBoxOddsSummaryRow(
+                            title: BlindBoxL10n.regularSticker,
+                            detail: BlindBoxL10n.normalOddsDetail(normalPerPositionPercent)
+                        )
+                        BlindBoxOddsSummaryRow(
+                            title: BlindBoxL10n.hiddenSticker,
+                            detail: BlindBoxL10n.hiddenOddsDetail(
+                                perDraw: hiddenPerPositionPercent,
+                                perBox: hiddenPerBoxPercent
+                            )
+                        )
                     }
 
                     Text(BlindBoxL10n.oddsLockedNote)
@@ -1934,7 +1943,7 @@ private struct BlindBoxBatchOddsSheet: View {
                 .padding(.bottom, 24)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 650)
+            .frame(height: 410)
             .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
             .overlay {
                 RoundedRectangle(cornerRadius: 24)
@@ -1949,28 +1958,23 @@ private struct BlindBoxBatchOddsSheet: View {
     }
 }
 
-private struct BlindBoxOddsItemRow: View {
-    let artworkName: String
+private struct BlindBoxOddsSummaryRow: View {
     let title: String
     let detail: String
 
     var body: some View {
-        HStack(spacing: 10) {
-            BlindBoxImage(artworkName)
-                .frame(width: 42, height: 42)
-                .scaledToFit()
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.appSystem(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(hex: "6A4B33"))
-                Text(detail)
-                    .font(.appSystem(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(Color(hex: "8A6E59"))
-            }
-            Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.appSystem(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: "6A4B33"))
+            Text(detail)
+                .font(.appSystem(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(Color(hex: "8A6E59"))
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 11)
-        .padding(.vertical, 7)
+        .padding(.vertical, 10)
         .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 12))
     }
 }
@@ -2219,15 +2223,18 @@ private enum BlindBoxL10n {
     static var oddsIntro: String { tr("These are the odds used when this box was created.", "以下是这个盲盒生成时使用的概率。", "以下是這個盲盒生成時使用的機率。", "以下は、このボックスが生成されたときに使われた確率です。") }
     static var standardOddsMode: String { tr("Standard odds", "普通概率", "普通機率", "通常確率") }
     static var hiddenBoostOddsMode: String { tr("Hidden boost is active", "隐藏款加成已生效", "隱藏款加成已生效", "シークレット確率アップ中") }
+    static var regularSticker: String { tr("Regular stickers", "常规款", "常規款", "通常ステッカー") }
     static var hiddenSticker: String { tr("Hidden sticker", "隐藏贴纸", "隱藏貼紙", "シークレットステッカー") }
     static func hiddenOddsDetail(perDraw: String, perBox: String) -> String {
         tr("\(perDraw) per draw · \(perBox) chance this box contains one", "单抽 \(perDraw) · 本盒含 1 张的概率 \(perBox)", "單抽 \(perDraw) · 本盒含 1 張的機率 \(perBox)", "1回あたり \(perDraw) ・このボックスに1枚入る確率 \(perBox)")
     }
-    static func normalSticker(_ index: Int) -> String {
-        tr("Regular sticker \(index)", "普通贴纸 \(index)", "普通貼紙 \(index)", "通常ステッカー \(index)")
-    }
     static func normalOddsDetail(_ odds: String) -> String {
-        tr("\(odds) per draw", "单抽概率 \(odds)", "單抽機率 \(odds)", "1回あたり \(odds)")
+        tr(
+            "Each regular sticker: \(odds) per draw",
+            "每一张常规贴纸的单抽概率：\(odds)",
+            "每一張常規貼紙的單抽機率：\(odds)",
+            "通常ステッカー1枚あたり：1回 \(odds)"
+        )
     }
     static var oddsLockedNote: String {
         tr(
@@ -2320,7 +2327,7 @@ private struct BlindBoxOpenConfirmation: View {
 
             if isShowingOdds, let theme, let probabilityMode {
                 BlindBoxBatchOddsSheet(
-                    theme: theme,
+                    normalStickerCount: theme.normalStickers.count,
                     probabilityMode: probabilityMode,
                     onClose: { isShowingOdds = false }
                 )
