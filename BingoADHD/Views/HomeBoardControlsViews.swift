@@ -49,7 +49,11 @@ struct HomeMainTabBarView: View {
     var body: some View {
         tabButtons
             .frame(width: scaled(292, pad: 360), height: scaled(56, pad: 66))
-            .appLiquidGlass(in: Capsule(style: .continuous), interactive: false)
+            .appLiquidGlass(
+                in: Capsule(style: .continuous),
+                interactive: false,
+                tint: .white
+            )
             .contentShape(Capsule(style: .continuous))
     }
 

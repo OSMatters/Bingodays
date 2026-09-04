@@ -253,10 +253,19 @@ extension View {
     }
 
     @ViewBuilder
-    func appLiquidGlass<S: Shape>(in shape: S, interactive: Bool = true) -> some View {
+    func appLiquidGlass<S: Shape>(
+        in shape: S,
+        interactive: Bool = true,
+        tint: Color? = nil
+    ) -> some View {
         if #available(iOS 26.0, *) {
             self
-                .glassEffect(.regular.interactive(interactive), in: shape)
+                .glassEffect(
+                    .regular
+                        .tint(tint)
+                        .interactive(interactive),
+                    in: shape
+                )
         } else {
             self.background {
                 ZStack {
@@ -274,6 +283,11 @@ extension View {
                                 endPoint: .bottomTrailing
                             )
                         )
+
+                    if let tint {
+                        shape
+                            .fill(tint.opacity(0.26))
+                    }
 
                     shape
                         .stroke(Color.white.opacity(0.94), lineWidth: 1)
@@ -296,6 +310,7 @@ struct LiquidGlassIconBadge: View {
     var iconSize: CGFloat
     var foregroundColor: Color = NeumorphicColors.text
     var baseFill: Color? = nil
+    var glassTint: Color? = nil
 
     var body: some View {
         ZStack {
@@ -319,7 +334,7 @@ struct LiquidGlassIconBadge: View {
                     .fill(baseFill)
             }
         }
-        .appLiquidGlass(in: Circle(), interactive: true)
+        .appLiquidGlass(in: Circle(), interactive: true, tint: glassTint)
         .contentShape(Circle())
     }
 }

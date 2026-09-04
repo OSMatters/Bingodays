@@ -1174,7 +1174,8 @@ private struct BlindBoxDetailView: View {
                         systemName: "chevron.left",
                         size: 42,
                         iconSize: 17,
-                        foregroundColor: Color(hex: "5A412C")
+                        foregroundColor: Color(hex: "5A412C"),
+                        glassTint: .white
                     )
                 }
                 .buttonStyle(.plain)
@@ -1554,7 +1555,8 @@ private struct BlindBoxCollectionView: View {
                         systemName: "chevron.left",
                         size: 42,
                         iconSize: 18,
-                        foregroundColor: Color(hex: "5A412C")
+                        foregroundColor: Color(hex: "5A412C"),
+                        glassTint: .white
                     )
                 }
                 .buttonStyle(.plain)
