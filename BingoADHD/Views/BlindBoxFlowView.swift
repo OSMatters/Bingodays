@@ -1699,15 +1699,15 @@ private struct BlindBoxCollectionView: View {
         let referenceCenters: [String: (x: Double, y: Double)] = [
             "pets_01": (281, 354),
             "pets_07": (281, 446),
-            "pets_03": (120, 522),
-            "pets_02": (196, 529),
-            "pets_08": (281, 524),
-            "pets_05": (120, 615),
-            "pets_11": (196, 608),
-            "pets_04": (281, 613),
-            "pets_10": (120, 688),
-            "pets_06": (196, 696),
-            "pets_09": (281, 690)
+            "pets_03": (120, 518),
+            "pets_02": (196, 533),
+            "pets_08": (281, 523),
+            "pets_05": (120, 625),
+            "pets_11": (196, 610),
+            "pets_04": (281, 620),
+            "pets_10": (120, 700),
+            "pets_06": (196, 715),
+            "pets_09": (281, 705)
         ]
 
         return stickers.enumerated().map { index, sticker in
