@@ -1219,8 +1219,8 @@ private struct BlindBoxDetailView: View {
                     .position(x: 192, y: 74)
 
                 BlindBoxThemeHeader(theme: theme)
-                    .frame(width: 340, height: 170)
-                    .position(x: 196.5, y: 203)
+                    .frame(width: 340, height: 190)
+                    .position(x: 196.5, y: 192)
 
                 BlindBoxImage(boardAssetName)
                     .frame(width: 362, height: 391)
@@ -1369,7 +1369,7 @@ private struct BlindBoxActionButton: View {
                         .foregroundStyle(Color(hex: "A46A45"))
                         .offset(x: 4, y: -4)
                 }
-                .position(x: 145, y: 8)
+                .position(x: 145, y: 0)
             }
             .foregroundStyle(Color(hex: "D5A06F"))
             .frame(width: 156, height: 50)
