@@ -1163,7 +1163,7 @@ private struct BlindBoxDetailView: View {
     @State private var isShowingOdds = false
 
     var body: some View {
-        BlindBoxCanvas {
+        BlindBoxCanvas(contentHorizontalOffset: 0) {
             ZStack {
                 BlindBoxImage("BlindBoxDrawBackground")
                     .frame(width: 393, height: 852)
@@ -1192,7 +1192,7 @@ private struct BlindBoxDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(BlindBoxL10n.viewOdds)
-                .position(x: 258, y: 74)
+                .position(x: 288, y: 74)
 
                 BlindBoxThemeHeader(theme: theme)
                     .frame(width: 340, height: 190)
@@ -1669,7 +1669,7 @@ private struct BlindBoxCollectionView: View {
                 stickerID: $0.id,
                 centerX: 156.5,
                 centerY: 359.5,
-                displaySize: 100,
+                displaySize: 70,
                 isSpecialSlot: true
             )
         }
@@ -1682,7 +1682,7 @@ private struct BlindBoxCollectionView: View {
                     stickerID: sticker.id,
                     centerX: center.x,
                     centerY: center.y,
-                    displaySize: 78,
+                    displaySize: 70,
                     isSpecialSlot: false
                 )
             }
@@ -1692,11 +1692,11 @@ private struct BlindBoxCollectionView: View {
             let columns: [Double] = [110, 196.5, 284]
             let rowCount = max(Int(ceil(Double(normalStickers.count) / Double(columns.count))), 1)
             let firstRowY = 468.0
-            let lastRowY = 742.0
+            let lastRowY = 718.0
             let rowPitch = rowCount > 1
                 ? (lastRowY - firstRowY) / Double(rowCount - 1)
                 : 0
-            let displaySize = min(78, max(36, rowPitch > 0 ? rowPitch - 12 : 78))
+            let displaySize = min(70, max(36, rowPitch > 0 ? rowPitch - 12 : 70))
             normalPlacements = normalStickers.enumerated().map { index, sticker in
                 BlindBoxCollectionPlacement(
                     stickerID: sticker.id,
@@ -1713,11 +1713,11 @@ private struct BlindBoxCollectionView: View {
 
     private var scatteredNormalCenters: [(x: Double, y: Double)] {
         [
-            (278, 360),
-            (110, 468), (202, 471), (294, 466),
-            (109, 558), (201, 562), (293, 560),
-            (110, 648), (202, 652), (294, 650),
-            (200, 742)
+            (286, 356),
+            (140, 468), (224, 447), (300, 478),
+            (136, 550), (222, 548), (300, 574),
+            (142, 632), (224, 636), (298, 672),
+            (220, 718)
         ]
     }
 
