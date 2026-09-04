@@ -1288,12 +1288,9 @@ private struct BlindBoxPositionCell: View {
             onTap()
         } label: {
             ZStack {
-                BlindBoxImage("BlindBoxDefaultSlot")
+                BlindBoxImage(isOpened ? "BlindBoxOpenedSlot" : "BlindBoxDefaultSlot")
                     .frame(width: 98, height: 98)
                 if isOpened, let sticker = theme.stickers.first(where: { $0.id == position.stickerID }) {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(.white.opacity(0.92))
-                        .frame(width: 90, height: 90)
                     BlindBoxImage(sticker.assetName)
                         .frame(width: 80, height: 80)
                         .scaledToFit()
