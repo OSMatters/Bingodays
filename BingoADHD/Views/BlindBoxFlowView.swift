@@ -1820,8 +1820,8 @@ private struct BlindBoxCollectionSticker: View {
                         RoundedRectangle(cornerRadius: 11, style: .continuous)
                             .stroke(.white, lineWidth: 2)
                     }
-                    // The label sits 5 pt into the sticker's lower edge.
-                    .offset(y: 17)
+                    // Keep the count visually attached to the sticker's lower edge.
+                    .offset(y: 4)
             }
         }
         .frame(width: displaySize, height: displaySize)
@@ -2167,16 +2167,16 @@ private enum BlindBoxL10n {
     static var unlockMoreBoxes: String {
         tr(
             "Upgrade to unlock more box slots",
-            "升级解锁更多盲盒位",
+            "解锁更多盲盒位",
             "升級解鎖更多盲盒位",
             "アップグレードしてボックス枠を増やす"
         )
     }
     static var unlockMoreBoxesTitle: String {
-        tr("Upgrade", "升级解锁", "升級解鎖", "アップグレードして")
+        tr("Upgrade", "解锁更多", "解鎖更多", "アップグレードして")
     }
     static var unlockMoreBoxesSubtitle: String {
-        tr("to unlock more box slots", "更多盲盒位", "更多盲盒位", "ボックス枠を増やす")
+        tr("to unlock more box slots", "盲盒位", "盲盒位", "ボックス枠を増やす")
     }
     static var randomBox: String { tr("Random box", "随机抽取", "隨機抽取", "ランダム抽選") }
     static var wholeBox: String { tr("Whole box", "端盒", "整盒開啟", "全枠開封") }
