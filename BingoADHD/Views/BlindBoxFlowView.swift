@@ -1325,10 +1325,23 @@ private struct BlindBoxActionButton: View {
                 ZStack(alignment: .topTrailing) {
                     BlindBoxTicketIcon()
                         .frame(width: 20, height: 20)
-                    Text("\(ticketCost)")
-                        .font(.appSystem(size: 11, weight: .heavy, design: .rounded))
-                        .foregroundStyle(Color(hex: "A46A45"))
-                        .offset(x: 4, y: -4)
+                    ZStack {
+                        ForEach(-1...1, id: \.self) { horizontalOffset in
+                            ForEach(-1...1, id: \.self) { verticalOffset in
+                                Text("\(ticketCost)")
+                                    .font(.appSystem(size: 13, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .offset(
+                                        x: CGFloat(horizontalOffset),
+                                        y: CGFloat(verticalOffset)
+                                    )
+                            }
+                        }
+                        Text("\(ticketCost)")
+                            .font(.appSystem(size: 13, weight: .heavy, design: .rounded))
+                            .foregroundStyle(Color(hex: "A46A45"))
+                    }
+                    .offset(x: 4, y: -4)
                 }
                 .position(x: 145, y: 0)
                 .zIndex(1)
