@@ -2079,15 +2079,6 @@ private struct BlindBoxRulesSheet: View {
                         title: BlindBoxL10n.revealedSurprisesTitle,
                         detail: BlindBoxL10n.revealedSurprisesDetail
                     )
-                    Button(action: onClose) {
-                        Text(BlindBoxL10n.gotIt)
-                            .font(.appSystem(size: 16, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(Color(hex: "DCAF7A"), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 4)
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 50)
