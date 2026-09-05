@@ -2090,7 +2090,7 @@ private struct BlindBoxRulesSheet: View {
                     .padding(.top, 4)
                     }
                     .padding(.horizontal, 20)
-                    .padding(.bottom, 30)
+                    .padding(.bottom, 50)
                 }
             }
             .frame(maxWidth: .infinity)
