@@ -1568,40 +1568,46 @@ private struct BlindBoxCollectionView: View {
                 BlindBoxImage("BlindBoxDrawBackground")
                     .frame(width: 393, height: 852)
 
-                Button(action: onBack) {
-                    LiquidGlassIconBadge(
-                        systemName: "chevron.left",
-                        size: 42,
-                        iconSize: 18,
-                        foregroundColor: Color(hex: "5A412C"),
-                        glassTint: .white
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(BlindBoxL10n.back)
-                .position(x: 41, y: 74)
-
-                Text(BlindBoxL10n.myBox)
-                    .font(.appSystem(size: 25, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(hex: "57361F"))
-                    .position(x: 196, y: 74.5)
-
-                collectionThemePicker
-
-                BlindBoxImage("BlindBoxCollectionBook")
-                    .frame(width: 345, height: 520)
-                    .position(x: 194.5, y: 522)
-
-                if let selectedTheme {
-                    collectionStickers(for: selectedTheme)
-                }
-
+                collectionContent
             }
         }
         .onAppear(perform: synchronizeThemeSelection)
         .onChange(of: themes.map(\.id)) { _, _ in
             synchronizeThemeSelection()
         }
+    }
+
+    private var collectionContent: some View {
+        ZStack {
+            Button(action: onBack) {
+                LiquidGlassIconBadge(
+                    systemName: "chevron.left",
+                    size: 42,
+                    iconSize: 18,
+                    foregroundColor: Color(hex: "5A412C"),
+                    glassTint: .white
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(BlindBoxL10n.back)
+            .position(x: 41, y: 74)
+
+            Text(BlindBoxL10n.myBox)
+                .font(.appSystem(size: 25, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: "57361F"))
+                .position(x: 196, y: 74.5)
+
+            collectionThemePicker
+
+            BlindBoxImage("BlindBoxCollectionBook")
+                .frame(width: 345, height: 520)
+                .position(x: 194.5, y: 522)
+
+            if let selectedTheme {
+                collectionStickers(for: selectedTheme)
+            }
+        }
+        .offset(y: 25)
     }
 
     private var collectionThemePicker: some View {
@@ -2062,10 +2068,6 @@ private struct BlindBoxRulesSheet: View {
                         detail: BlindBoxL10n.dailyTicketsDetail
                     )
                     BlindBoxRuleRow(
-                        title: BlindBoxL10n.openingBoxTitle,
-                        detail: BlindBoxL10n.openingBoxDetail
-                    )
-                    BlindBoxRuleRow(
                         title: BlindBoxL10n.mixedBoxTitle,
                         detail: BlindBoxL10n.mixedBoxDetail
                     )
@@ -2077,11 +2079,6 @@ private struct BlindBoxRulesSheet: View {
                         title: BlindBoxL10n.revealedSurprisesTitle,
                         detail: BlindBoxL10n.revealedSurprisesDetail
                     )
-                    BlindBoxRuleRow(
-                        title: BlindBoxL10n.pointsTicketsTitle,
-                        detail: BlindBoxL10n.pointsTicketsDetail
-                    )
-
                     Button(action: onClose) {
                         Text(BlindBoxL10n.gotIt)
                             .font(.appSystem(size: 16, weight: .bold, design: .rounded))
@@ -2097,7 +2094,7 @@ private struct BlindBoxRulesSheet: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 570)
+            .frame(height: 470)
             .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
             .overlay {
                 RoundedRectangle(cornerRadius: 24)
