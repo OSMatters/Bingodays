@@ -2047,21 +2047,10 @@ private struct BlindBoxRulesSheet: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 11) {
-                    HStack {
-                        Text(BlindBoxL10n.rulesTitle)
-                            .font(.appSystem(size: 22, weight: .bold, design: .rounded))
-                            .foregroundStyle(Color(hex: "5A412C"))
-                        Spacer()
-                        Button(action: onClose) {
-                            Image(systemName: "xmark")
-                                .font(.appSystem(size: 13, weight: .bold))
-                                .foregroundStyle(Color(hex: "8A6E59"))
-                                .frame(width: 30, height: 30)
-                                .background(.white.opacity(0.78), in: Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(BlindBoxL10n.closeRules)
-                    }
+                    Text(BlindBoxL10n.rulesTitle)
+                        .font(.appSystem(size: 19, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: "5A412C"))
+                        .frame(maxWidth: .infinity, alignment: .center)
 
                     BlindBoxRuleRow(
                         title: BlindBoxL10n.dailyTicketsTitle,
