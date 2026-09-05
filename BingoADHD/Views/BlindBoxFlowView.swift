@@ -1,6 +1,10 @@
 import SwiftUI
 import UIKit
 
+enum BlindBoxPremiumPaywallEntry {
+    static let source = "blind_box"
+}
+
 /// The Figma-backed, development-only blind-box flow. It intentionally uses a
 /// separate preview store until the CloudKit transaction repository is ready.
 struct BlindBoxFlowView: View {
@@ -27,10 +31,12 @@ struct BlindBoxFlowView: View {
     /// the integration pass so it cannot affect a release before this feature is
     /// enabled.
     var onSelectCustomRewards: (() -> Void)?
+    var onShowPremiumPaywall: () -> Void = {}
 
     init(
         previewAvailablePoints: Int = 320,
-        onSelectCustomRewards: (() -> Void)? = nil
+        onSelectCustomRewards: (() -> Void)? = nil,
+        onShowPremiumPaywall: @escaping () -> Void = {}
     ) {
         _store = StateObject(
             wrappedValue: BlindBoxPreviewStore(previewAvailablePoints: previewAvailablePoints)
@@ -41,6 +47,7 @@ struct BlindBoxFlowView: View {
             )
         )
         self.onSelectCustomRewards = onSelectCustomRewards
+        self.onShowPremiumPaywall = onShowPremiumPaywall
     }
 
     var body: some View {
@@ -71,6 +78,7 @@ struct BlindBoxFlowView: View {
                     onShowMyBox: {
                         route = .myBox
                     },
+                    onShowPremiumPaywall: onShowPremiumPaywall,
                     onDismiss: {
                         dismiss()
                     }
@@ -315,6 +323,7 @@ struct BlindBoxLiveFlowView: View {
     @ObservedObject var pointsFeatureStore: PointsFeatureStore
     let totalPoints: Int
     var onSelectCustomRewards: (() -> Void)?
+    var onShowPremiumPaywall: () -> Void = {}
 
     @StateObject private var store = BlindBoxFeatureStore()
     @StateObject private var connectivity = BlindBoxConnectivityMonitor()
@@ -478,6 +487,7 @@ struct BlindBoxLiveFlowView: View {
                     )
                     route = .myBox
                 },
+                onShowPremiumPaywall: onShowPremiumPaywall,
                 onDismiss: {
                     dismiss()
                 }
@@ -925,6 +935,7 @@ private struct BlindBoxLobbyView: View {
     let onSelectTicketBalance: () -> Void
     let onSelectBatch: (UUID) -> Void
     let onShowMyBox: () -> Void
+    let onShowPremiumPaywall: () -> Void
     let onDismiss: () -> Void
 
     private let referenceWidth: CGFloat = 393
@@ -1051,9 +1062,9 @@ private struct BlindBoxLobbyView: View {
     private var premiumPlaceholders: some View {
         if let firstTheme = themes.first {
             let secondTheme = themes.dropFirst().first ?? firstTheme
-            BlindBoxPremiumPlaceholder(theme: firstTheme)
+            BlindBoxPremiumPlaceholder(theme: firstTheme, onTap: onShowPremiumPaywall)
                 .position(x: 116, y: 670)
-            BlindBoxPremiumPlaceholder(theme: secondTheme)
+            BlindBoxPremiumPlaceholder(theme: secondTheme, onTap: onShowPremiumPaywall)
                 .position(x: 262, y: 670)
         }
     }
@@ -2691,22 +2702,26 @@ private struct BlindBoxShelfStatusOverlay: View {
 
 private struct BlindBoxPremiumPlaceholder: View {
     let theme: BlindBoxThemeDefinition
+    let onTap: () -> Void
 
     var body: some View {
-        ZStack {
-            BlindBoxThemeMiniBox(theme: theme)
-                .frame(width: 131, height: 149)
-                .opacity(0.5)
-                .offset(y: -8)
-            BlindBoxShelfStatusOverlay(
-                title: BlindBoxL10n.unlockMoreBoxesTitle,
-                subtitle: BlindBoxL10n.unlockMoreBoxesSubtitle,
-                fontSize: 11
-            )
-                .frame(width: 131, height: 149)
-                .offset(y: -8)
+        Button(action: onTap) {
+            ZStack {
+                BlindBoxThemeMiniBox(theme: theme)
+                    .frame(width: 131, height: 149)
+                    .opacity(0.5)
+                    .offset(y: -8)
+                BlindBoxShelfStatusOverlay(
+                    title: BlindBoxL10n.unlockMoreBoxesTitle,
+                    subtitle: BlindBoxL10n.unlockMoreBoxesSubtitle,
+                    fontSize: 11
+                )
+                    .frame(width: 131, height: 149)
+                    .offset(y: -8)
+            }
+            .frame(width: 146, height: 176)
         }
-        .frame(width: 146, height: 176)
+        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(BlindBoxL10n.unlockMoreBoxes)
     }

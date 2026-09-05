@@ -16,82 +16,100 @@ struct PointsFlowPresenter: View {
     @State private var isShowingBlindBoxPreview = AppDebugFlags.blindBoxPreviewEnabled &&
         !AppDebugFlags.blindBoxLiveFlowEnabled
     @State private var isShowingBlindBoxLiveFlow = AppDebugFlags.blindBoxLiveFlowEnabled
+    @State private var isShowingBlindBoxPremiumPaywall = false
 
     var body: some View {
-        if isShowingBlindBoxLiveFlow {
-            BlindBoxLiveFlowView(
-                pointsFeatureStore: pointsFeatureStore,
-                totalPoints: totalPoints,
-                onSelectCustomRewards: {
-                    isShowingBlindBoxLiveFlow = false
-                }
-            )
-            .onAppear {
-                onSubpagePresentationChange(true)
-            }
-            .onDisappear {
-                onSubpagePresentationChange(false)
-            }
-        } else if isShowingBlindBoxPreview {
-            BlindBoxFlowView(previewAvailablePoints: points, onSelectCustomRewards: {
-                isShowingBlindBoxPreview = false
-            })
-            .onAppear {
-                onSubpagePresentationChange(true)
-            }
-            .onDisappear {
-                onSubpagePresentationChange(false)
-            }
-        } else {
-            PointsFlowSheet(
-                isPadLayout: isPadLayout,
-                points: points,
-                limitedOfferState: $limitedOfferState,
-                showsCloseButton: showsCloseButton,
-                bottomContentPadding: bottomContentPadding,
-                onSubpagePresentationChange: onSubpagePresentationChange,
-                inventoryCounts: pointsFeatureStore.stickerInventoryCounts,
-                usedCounts: pointsFeatureStore.currentStickerUsageCounts,
-                rewards: pointsFeatureStore.activeRewards,
-                redemptionHistory: pointsFeatureStore.redemptionHistory,
-                onRedeemSticker: { kind in
-                    pointsFeatureStore.redeemSticker(kind, totalPoints: totalPoints)
-                },
-                onAddStickerToHome: { kind in
-                    if pointsFeatureStore.addStickerToHome(kind) {
-                        onAddStickerToHomeSuccess()
+        Group {
+            if isShowingBlindBoxLiveFlow {
+                BlindBoxLiveFlowView(
+                    pointsFeatureStore: pointsFeatureStore,
+                    totalPoints: totalPoints,
+                    onSelectCustomRewards: {
+                        isShowingBlindBoxLiveFlow = false
+                    },
+                    onShowPremiumPaywall: {
+                        isShowingBlindBoxPremiumPaywall = true
                     }
-                },
-                onDeleteReward: { reward in
-                    pointsFeatureStore.archiveReward(reward)
-                },
-                onRedeemReward: { reward in
-                    pointsFeatureStore.redeemReward(reward, totalPoints: totalPoints)
-                },
-                onCreateReward: { title, requiredPoints, emoji, themeImageName in
-                    pointsFeatureStore.createReward(
-                        title: title,
-                        requiredPoints: requiredPoints,
-                        emoji: emoji,
-                        themeImageName: themeImageName,
-                        hasPremiumAccess: subscriptionManager.hasPremiumAccess
-                    )
-                },
-                onUpdateReward: { reward, title, requiredPoints, emoji, themeImageName in
-                    pointsFeatureStore.updateReward(
-                        CustomReward(
-                            id: reward.id,
+                )
+                .onAppear {
+                    onSubpagePresentationChange(true)
+                }
+                .onDisappear {
+                    onSubpagePresentationChange(false)
+                }
+            } else if isShowingBlindBoxPreview {
+                BlindBoxFlowView(
+                    previewAvailablePoints: points,
+                    onSelectCustomRewards: {
+                        isShowingBlindBoxPreview = false
+                    },
+                    onShowPremiumPaywall: {
+                        isShowingBlindBoxPremiumPaywall = true
+                    }
+                )
+                .onAppear {
+                    onSubpagePresentationChange(true)
+                }
+                .onDisappear {
+                    onSubpagePresentationChange(false)
+                }
+            } else {
+                PointsFlowSheet(
+                    isPadLayout: isPadLayout,
+                    points: points,
+                    limitedOfferState: $limitedOfferState,
+                    showsCloseButton: showsCloseButton,
+                    bottomContentPadding: bottomContentPadding,
+                    onSubpagePresentationChange: onSubpagePresentationChange,
+                    inventoryCounts: pointsFeatureStore.stickerInventoryCounts,
+                    usedCounts: pointsFeatureStore.currentStickerUsageCounts,
+                    rewards: pointsFeatureStore.activeRewards,
+                    redemptionHistory: pointsFeatureStore.redemptionHistory,
+                    onRedeemSticker: { kind in
+                        pointsFeatureStore.redeemSticker(kind, totalPoints: totalPoints)
+                    },
+                    onAddStickerToHome: { kind in
+                        if pointsFeatureStore.addStickerToHome(kind) {
+                            onAddStickerToHomeSuccess()
+                        }
+                    },
+                    onDeleteReward: { reward in
+                        pointsFeatureStore.archiveReward(reward)
+                    },
+                    onRedeemReward: { reward in
+                        pointsFeatureStore.redeemReward(reward, totalPoints: totalPoints)
+                    },
+                    onCreateReward: { title, requiredPoints, emoji, themeImageName in
+                        pointsFeatureStore.createReward(
                             title: title,
                             requiredPoints: requiredPoints,
                             emoji: emoji,
                             themeImageName: themeImageName,
-                            cardStyleVersion: CustomReward.currentCardStyleVersion,
-                            redemptionCount: reward.redemptionCount,
-                            totalSpentPoints: reward.totalSpentPoints,
-                            isArchived: reward.isArchived
+                            hasPremiumAccess: subscriptionManager.hasPremiumAccess
                         )
-                    )
-                }
+                    },
+                    onUpdateReward: { reward, title, requiredPoints, emoji, themeImageName in
+                        pointsFeatureStore.updateReward(
+                            CustomReward(
+                                id: reward.id,
+                                title: title,
+                                requiredPoints: requiredPoints,
+                                emoji: emoji,
+                                themeImageName: themeImageName,
+                                cardStyleVersion: CustomReward.currentCardStyleVersion,
+                                redemptionCount: reward.redemptionCount,
+                                totalSpentPoints: reward.totalSpentPoints,
+                                isArchived: reward.isArchived
+                            )
+                        )
+                    }
+                )
+            }
+        }
+        .fullScreenCover(isPresented: $isShowingBlindBoxPremiumPaywall) {
+            PremiumPaywallView(
+                entrySource: BlindBoxPremiumPaywallEntry.source,
+                limitedOfferState: $limitedOfferState
             )
         }
     }

@@ -285,7 +285,9 @@ struct PremiumPaywallView: View {
     private func entryFeatureID(for source: String) -> String {
         let source = source.lowercased()
 
-        if source.contains("grid") {
+        if source.contains("blind_box") || source.contains("blindbox") {
+            return "blindBox"
+        } else if source.contains("grid") {
             return "grid5x5"
         } else if source.contains("history") {
             return "history"
@@ -325,6 +327,16 @@ struct PremiumPaywallView: View {
 
     private var classicHeroBenefit: PaywallBenefit {
         let featureID = entryFeatureID(for: entrySource)
+
+        if featureID == "blindBox" {
+            return PaywallBenefit(
+                id: "blindBox",
+                iconAssetName: "PaywallBenefitMoreFeature",
+                title: L10n.paywallBenefitBlindBoxTitle,
+                subtitle: L10n.paywallBenefitBlindBoxSubtitle
+            )
+        }
+
         let benefitID: String
 
         switch featureID {
