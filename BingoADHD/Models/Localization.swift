@@ -602,10 +602,10 @@ enum L10n {
     }
     static var paywallBenefitBlindBoxSubtitle: String {
         tr(
-            "Unlock more Blind Box slots and explore every themed box.",
-            zhHans: "解锁更多盲盒位，畅玩全部主题盲盒。",
-            zhHant: "解鎖更多盲盒位，暢玩全部主題盲盒。",
-            ja: "さらに多くの枠を解放して、すべてのテーマボックスを楽しもう。"
+            "Unlock more Blind Box slots and claim more tickets every day for more surprises.",
+            zhHans: "解锁更多盲盒位，每天领取更多盲盒券，收获更多开盒惊喜。",
+            zhHant: "解鎖更多盲盒位，每天領取更多盲盒券，收穫更多開盒驚喜。",
+            ja: "さらに多くのボックス枠を解放し、毎日より多くのチケットを受け取って、開封のワクワクを増やそう。"
         )
     }
     static var paywallBenefitUnlimitedBoardsTitle: String { tr("Unlimited Boards", zhHans: "无限棋盘", zhHant: "無限棋盤", ja: "無制限ボード") }
