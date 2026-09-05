@@ -1180,55 +1180,7 @@ private struct BlindBoxDetailView: View {
                 BlindBoxImage("BlindBoxDrawBackground")
                     .frame(width: 393, height: 852)
 
-                Button(action: onBack) {
-                    LiquidGlassIconBadge(
-                        systemName: "chevron.left",
-                        size: 42,
-                        iconSize: 17,
-                        foregroundColor: Color(hex: "5A412C"),
-                        glassTint: .white
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(BlindBoxL10n.back)
-                .position(x: 41, y: 74)
-
-                detailTicketBadge
-                    .position(x: 192, y: 74)
-
-                Button {
-                    isShowingOdds = true
-                } label: {
-                    BlindBoxRulesIcon()
-                        .frame(width: 22, height: 22)
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(BlindBoxL10n.viewOdds)
-                .position(x: 338, y: 74)
-
-                BlindBoxThemeHeader(theme: theme)
-                    .frame(width: 340, height: 190)
-                    .position(x: 196.5, y: 195)
-
-                BlindBoxImage(boardAssetName)
-                    .frame(width: 362, height: 391)
-                    .position(x: 197, y: 473.5)
-
-                positionGrid
-
-                if batch.isSoldOut {
-                    BlindBoxRestockCountdownLabel(
-                        restockAt: batch.restockAt(),
-                        prefix: "Restocks in",
-                        font: .appSystem(size: 14, weight: .bold, design: .rounded),
-                        foregroundColor: Color(hex: "88644C")
-                    )
-                    .position(x: 196, y: 714.5)
-                } else {
-                    actionButtons
-                        .position(x: 196, y: 714.5)
-                }
+                detailContent
 
                 if isShowingOdds {
                     BlindBoxBatchOddsSheet(
@@ -1241,6 +1193,61 @@ private struct BlindBoxDetailView: View {
             }
         }
         .animation(.easeOut(duration: 0.24), value: isShowingOdds)
+    }
+
+    private var detailContent: some View {
+        ZStack {
+            Button(action: onBack) {
+                LiquidGlassIconBadge(
+                    systemName: "chevron.left",
+                    size: 42,
+                    iconSize: 17,
+                    foregroundColor: Color(hex: "5A412C"),
+                    glassTint: .white
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(BlindBoxL10n.back)
+            .position(x: 41, y: 74)
+
+            detailTicketBadge
+                .position(x: 192, y: 74)
+
+            Button {
+                isShowingOdds = true
+            } label: {
+                BlindBoxRulesIcon()
+                    .frame(width: 22, height: 22)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(BlindBoxL10n.viewOdds)
+            .position(x: 338, y: 74)
+
+            BlindBoxThemeHeader(theme: theme)
+                .frame(width: 340, height: 190)
+                .position(x: 196.5, y: 195)
+
+            BlindBoxImage(boardAssetName)
+                .frame(width: 362, height: 391)
+                .position(x: 197, y: 473.5)
+
+            positionGrid
+
+            if batch.isSoldOut {
+                BlindBoxRestockCountdownLabel(
+                    restockAt: batch.restockAt(),
+                    prefix: "Restocks in",
+                    font: .appSystem(size: 14, weight: .bold, design: .rounded),
+                    foregroundColor: Color(hex: "88644C")
+                )
+                .position(x: 196, y: 714.5)
+            } else {
+                actionButtons
+                    .position(x: 196, y: 714.5)
+            }
+        }
+        .offset(y: 25)
     }
 
     private var detailTicketBadge: some View {
