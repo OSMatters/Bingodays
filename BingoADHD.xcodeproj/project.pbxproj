@@ -41,6 +41,7 @@
 		B0A1D2E3F4A5061728394C12 /* WidgetTaskToggleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394C10 /* WidgetTaskToggleService.swift */; };
 		B0A1D2E3F4A5061728394D01 /* BoardRuleGuardrailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394D00 /* BoardRuleGuardrailTests.swift */; };
 		B10C0000000000000000000B /* BlindBoxRuleEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10C0000000000000000000A /* BlindBoxRuleEngineTests.swift */; };
+		B10C0000000000000000000D /* BlindBoxCanvasLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10C0000000000000000000C /* BlindBoxCanvasLayoutTests.swift */; };
 		B10D0000000000000000000B /* BlindBoxStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10D0000000000000000000A /* BlindBoxStateMachine.swift */; };
 		B10E0000000000000000000B /* BlindBoxPreviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10E0000000000000000000A /* BlindBoxPreviewStore.swift */; };
 		B10F0000000000000000000B /* BlindBoxFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10F0000000000000000000A /* BlindBoxFlowView.swift */; };
@@ -354,7 +355,8 @@
 			B0A1D2E3F4A5061728394C00 /* WidgetTaskStores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetTaskStores.swift; sourceTree = "<group>"; };
 			B0A1D2E3F4A5061728394C10 /* WidgetTaskToggleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetTaskToggleService.swift; sourceTree = "<group>"; };
 			B0A1D2E3F4A5061728394D00 /* BoardRuleGuardrailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardRuleGuardrailTests.swift; sourceTree = "<group>"; };
-			B10C0000000000000000000A /* BlindBoxRuleEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxRuleEngineTests.swift; sourceTree = "<group>"; };
+		B10C0000000000000000000A /* BlindBoxRuleEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxRuleEngineTests.swift; sourceTree = "<group>"; };
+		B10C0000000000000000000C /* BlindBoxCanvasLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCanvasLayoutTests.swift; sourceTree = "<group>"; };
 			B0A1D2E3F4A5061728394E00 /* TaskStartReminderSyncStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskStartReminderSyncStore.swift; sourceTree = "<group>"; };
 			B0A1D2E3F4A5061728394F00 /* HomeBoardSnapshotSyncStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeBoardSnapshotSyncStore.swift; sourceTree = "<group>"; };
 			B0A1D2E3F4A5061728395000 /* HomeLifecycleWorkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeLifecycleWorkStore.swift; sourceTree = "<group>"; };
@@ -663,6 +665,7 @@
 			children = (
 				B0A1D2E3F4A5061728394D00 /* BoardRuleGuardrailTests.swift */,
 				B10C0000000000000000000A /* BlindBoxRuleEngineTests.swift */,
+				B10C0000000000000000000C /* BlindBoxCanvasLayoutTests.swift */,
 				C10D00000000000000000004 /* NativeICloudPersistenceTests.swift */,
 			);
 			path = BingoADHDTests;
@@ -1004,6 +1007,7 @@
 			files = (
 				B0A1D2E3F4A5061728394D01 /* BoardRuleGuardrailTests.swift in Sources */,
 				B10C0000000000000000000B /* BlindBoxRuleEngineTests.swift in Sources */,
+				B10C0000000000000000000D /* BlindBoxCanvasLayoutTests.swift in Sources */,
 				C10D00000000000000000005 /* NativeICloudPersistenceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
