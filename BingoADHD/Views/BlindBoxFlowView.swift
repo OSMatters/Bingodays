@@ -1424,9 +1424,13 @@ private struct BlindBoxDetailView: View {
             Button {
                 isShowingOdds = true
             } label: {
-                BlindBoxRulesIcon()
-                    .frame(width: 22, height: 22)
-                    .frame(width: 44, height: 44)
+                LiquidGlassIconBadge(
+                    systemName: "questionmark",
+                    size: 42,
+                    iconSize: 17,
+                    foregroundColor: Color(hex: "5A412C"),
+                    glassTint: .white
+                )
             }
             .buttonStyle(.plain)
             .accessibilityLabel(BlindBoxL10n.viewOdds)
@@ -3218,33 +3222,35 @@ private struct BlindBoxTicketExchangeSheet: View {
     }
 
     private func exchangeBalanceBadge(value: String, isTicket: Bool) -> some View {
-        HStack(spacing: 6) {
-            if isTicket {
-                Image("BlindBoxTicketIcon")
-                    .resizable().scaledToFit()
-                    .frame(width: 36, height: 42)
-                    .offset(x: -5)
-                    .accessibilityHidden(true)
-            } else {
-                Image("BlindBoxPointIcon")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 29, height: 29)
-                .offset(x: -8)
-                    .accessibilityHidden(true)
-            }
+        ZStack {
+            Capsule()
+                .fill(Color(hex: "E3A65E"))
+                .overlay(Capsule().stroke(.white, lineWidth: 1.5))
+                .frame(width: 112, height: 30)
+
             Text(value)
                 .font(.appSystem(size: 14, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .monospacedDigit()
-                .padding(.trailing, 9)
+                .frame(width: 112, height: 30, alignment: .center)
         }
-        .frame(minHeight: 30)
-        .background {
-            Capsule().fill(Color(hex: "E3A65E"))
-                .overlay(Capsule().stroke(.white, lineWidth: 1.5))
-                .frame(height: 26)
+        .overlay(alignment: .leading) {
+            if isTicket {
+                Image("BlindBoxTicketIcon")
+                    .resizable().scaledToFit()
+                    .frame(width: 36, height: 42)
+                    .offset(x: -14)
+                    .accessibilityHidden(true)
+            } else {
+                Image("BlindBoxPointIcon")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 29, height: 29)
+                    .offset(x: -11)
+                    .accessibilityHidden(true)
+            }
         }
+        .frame(width: 112, height: 42)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(isTicket ? BlindBoxL10n.ticketsBalance(ticketBalance) : BlindBoxL10n.pointsAmount(availablePoints))
     }
@@ -3399,14 +3405,6 @@ private struct BlindBoxTicketIcon: View {
     var body: some View {
         BlindBoxImage("BlindBoxTicketIcon")
             .frame(width: 40, height: 40)
-            .accessibilityHidden(true)
-    }
-}
-
-private struct BlindBoxRulesIcon: View {
-    var body: some View {
-        BlindBoxImage("BlindBoxRulesIcon")
-            .frame(width: 22, height: 22)
             .accessibilityHidden(true)
     }
 }
