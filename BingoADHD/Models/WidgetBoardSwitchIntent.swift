@@ -122,10 +122,23 @@ struct ToggleWidgetTaskIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        let repository = WidgetIntentBoardRepository()
         guard let id = UUID(uuidString: boardID) else {
             return .result()
         }
+
+        let committed = BingoBoardStore.withBoardPersistenceLock {
+            performLocalToggle(boardID: id)
+        } ?? false
+        guard committed else { return .result() }
+        BingoBoardStore.reloadBoardWidgetTimeline()
+        if NativeICloudPreferences.isEnabled {
+            NativeICloudLocalChangeReporter.primaryStateDidChange()
+        }
+        return .result()
+    }
+
+    private func performLocalToggle(boardID id: UUID) -> Bool {
+        let repository = WidgetIntentBoardRepository()
 
         var snapshot = WidgetTaskEventMerge.applying(
             WidgetTaskSyncStore.load(),
@@ -133,8 +146,10 @@ struct ToggleWidgetTaskIntent: AppIntent {
         )
         let originalSnapshot = snapshot
         guard let index = snapshot.boards.firstIndex(where: { $0.id == id }) else {
-            return .result()
+            return false
         }
+
+        snapshot.boards[index] = BingoBoardStore.taskRuleRecoveryBoard(snapshot.boards[index])
 
         let now = Date()
         let previousBoard = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(
@@ -148,7 +163,7 @@ struct ToggleWidgetTaskIntent: AppIntent {
             now: now,
             commitSideEffects: false
         ) else {
-            return .result()
+            return false
         }
 
         let didApplyBoardReset = updatedBoard.lastTaskResetAppliedAt != snapshot.boards[index].lastTaskResetAppliedAt
@@ -163,7 +178,7 @@ struct ToggleWidgetTaskIntent: AppIntent {
             didApplyBoardReset: didApplyBoardReset,
             cellMutation: cellMutation
         ) else {
-            return .result()
+            return false
         }
         // The local event is the recovery marker. Settle points before publishing the
         // named-board snapshot so App launch cannot observe a new board with old points.
@@ -178,40 +193,35 @@ struct ToggleWidgetTaskIntent: AppIntent {
             )
         }
         guard committedSideEffects else {
-            return .result()
+            return false
         }
         guard let committedSyncEvent = WidgetTaskSyncStore.markSideEffectsCommitted(
             for: localSyncEvent
         ) else {
-            return .result()
+            return false
         }
 
         let latestSnapshot = repository.loadNamedBoardsSnapshot()
         snapshot = WidgetTaskEventMerge.applying(WidgetTaskSyncStore.load(), to: latestSnapshot)
+        snapshot = TaskCompletionHistoryRuleEngine.namedBoardsSnapshotByReconcilingCompletionHistory(
+            snapshot,
+            records: TaskCompletionHistoryStore.load()
+        )
         let shouldSaveNamedBoards = snapshot != latestSnapshot || snapshot != originalSnapshot
         let savedNamedBoards = shouldSaveNamedBoards
             ? repository.saveNamedBoardsSnapshot(snapshot, reloadWidgets: false)
             : false
         guard !shouldSaveNamedBoards || savedNamedBoards else {
-            return .result()
+            return false
         }
         guard WidgetBoardSelectionService.selectBoard(id, repository: repository) != nil else {
-            return .result()
+            return false
         }
 
         // Every local repository is now durable, so the recovery marker can be removed.
         WidgetTaskSyncStore.clear(ifMatching: committedSyncEvent.id)
 
-        if NativeICloudPreferences.isEnabled {
-            NativeICloudLocalChangeReporter.primaryStateDidChange(scheduleExport: false)
-            _ = try? await NativeICloudRuntime.shared.exportPrimaryNow()
-        }
-
-        // WidgetKit reloads the timeline once when this interaction completes.
-        // The persisted snapshot above is therefore visible without a second,
-        // explicit reloadAllTimelines() pass.
-
-        return .result()
+        return true
     }
 }
 
@@ -222,14 +232,21 @@ struct ToggleWidgetTaskIntent: AppIntent {
 @available(iOSApplicationExtension, unavailable)
 extension ToggleWidgetTaskIntent: ForegroundContinuableIntent {}
 
-private struct WidgetIntentBoardRepository: WidgetBoardSelectionRepository {
+private final class WidgetIntentBoardRepository: WidgetBoardSelectionRepository {
+    private var persistenceBaseline: BingoBoardStore.NamedBoardsSnapshot?
+
     func loadNamedBoardsSnapshot() -> BingoBoardStore.NamedBoardsSnapshot {
-        BingoBoardStore.loadNamedBoardsSnapshot()
+        let snapshot = BingoBoardStore.loadNamedBoardsSnapshot()
+        persistenceBaseline = snapshot
+        return snapshot
     }
 
     @discardableResult
     func saveNamedBoardsSnapshot(_ snapshot: BingoBoardStore.NamedBoardsSnapshot, reloadWidgets: Bool) -> Bool {
-        BingoBoardStore.saveNamedBoardsSnapshot(snapshot, reloadWidgets: reloadWidgets)
+        guard let persistenceBaseline else { return false }
+        let saved = BingoBoardStore.saveNamedBoardsSnapshot(snapshot, reloadWidgets: reloadWidgets, expectedSnapshot: persistenceBaseline)
+        if saved { self.persistenceBaseline = snapshot }
+        return saved
     }
 
     func loadBoard() -> SavedBoard? {

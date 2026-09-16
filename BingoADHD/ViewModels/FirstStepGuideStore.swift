@@ -104,7 +104,8 @@ enum FirstStepGuideStore {
                 text: placement.text,
                 isForced: false,
                 residentWeekdays: [],
-                isOneTimeTask: false
+                isOneTimeTask: false,
+                completionHistoryInheritance: .startAtZero
             )
         }
     }

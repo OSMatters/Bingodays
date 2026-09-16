@@ -14,7 +14,14 @@ struct HomeFeedbackLayer: View {
                 CelebrationView()
             }
 
-            if toastStore.isDailyResetVisible {
+            if toastStore.isCompletedSingleTaskRemovalVisible {
+                CompletedSingleTaskRemovalToastView(isPadLayout: isPadLayout)
+                    .frame(maxWidth: min(contentWidth, 620), maxHeight: .infinity, alignment: .top)
+                    .padding(.top, max(safeAreaTop, 18) + 44)
+                    .padding(.horizontal, 20)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            } else if toastStore.isDailyResetVisible {
                 DailyResetToastView(isPadLayout: isPadLayout)
                     .frame(maxWidth: min(contentWidth, 620), maxHeight: .infinity, alignment: .top)
                     .padding(.top, max(safeAreaTop, 18) + 44)

@@ -28,6 +28,16 @@ enum WidgetPanelSelectionStore {
         sharedDefaults.set(id.uuidString, forKey: selectedPanelKey)
         sharedDefaults.synchronize()
     }
+
+    /// Lets a board import update the active panel in the same local persistence
+    /// transaction as its named-board snapshot and App Group board mirror.
+    static func persistenceStep(selectedPanelID: UUID?) -> PersistenceWriteStep {
+        PersistenceWriteTransaction.userDefaultsStep(
+            defaults: sharedDefaults,
+            key: selectedPanelKey,
+            newValue: selectedPanelID?.uuidString
+        )
+    }
 }
 
 /// A short-lived App Group recovery record shared by the app and widget extension.
@@ -304,7 +314,8 @@ enum WidgetTaskSyncStore {
 enum WidgetTaskEventMerge {
     static func applying(
         _ event: WidgetTaskSyncStore.Event?,
-        to snapshot: BingoBoardStore.NamedBoardsSnapshot
+        to snapshot: BingoBoardStore.NamedBoardsSnapshot,
+        recoverBoard: (BingoBoardStore.NamedBoard) -> BingoBoardStore.NamedBoard = BingoBoardStore.taskRuleRecoveryBoard
     ) -> BingoBoardStore.NamedBoardsSnapshot {
         guard let event else { return snapshot }
 
@@ -315,6 +326,13 @@ enum WidgetTaskEventMerge {
             return snapshot
         }
         if event.didApplyBoardReset {
+            let recovered = recoverBoard(mergedSnapshot.boards[boardIndex])
+            if recovered.board != mergedSnapshot.boards[boardIndex].board {
+                DiagnosticLogStore.recordWarning("task_rule.widget_replay_source_recovered", details: [
+                    "board_id": event.boardID.uuidString
+                ])
+                mergedSnapshot.boards[boardIndex] = recovered
+            }
             guard applyResetEvent(
                 event,
                 to: &mergedSnapshot.boards[boardIndex]
@@ -421,6 +439,18 @@ enum WidgetTaskEventMerge {
         guard didChange else { return false }
         currentBoard.updatedAt = max(currentBoard.updatedAt, event.savedAt)
         return true
+    }
+
+    static func containsAppliedMutation(
+        _ mutation: WidgetTaskSyncStore.Event.CellMutation,
+        in board: SavedBoard
+    ) -> Bool {
+        let cells = BoardEngine.expandedBoardCache(from: board)
+        guard let position = resolvedPosition(for: mutation, in: cells) else { return false }
+        let cell = cells[position.row][position.col]
+        return hasSameTaskDefinition(cell, mutation.updatedCell) &&
+            cell.isCompleted == mutation.updatedCell.isCompleted &&
+            cell.lastCompletedAt == mutation.updatedCell.lastCompletedAt
     }
 
     private static func hasSameTaskDefinition(

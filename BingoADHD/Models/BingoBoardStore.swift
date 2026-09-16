@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 #if canImport(WidgetKit)
 import WidgetKit
 #endif
@@ -12,9 +13,14 @@ enum PersistenceWriteTransaction {
     static func commit(_ steps: [PersistenceWriteStep]) -> Bool {
         for index in steps.indices {
             guard steps[index].apply() else {
+                var rollbackSucceeded = true
                 for rollbackIndex in (steps.startIndex...index).reversed() {
-                    _ = steps[rollbackIndex].rollback()
+                    if !steps[rollbackIndex].rollback() { rollbackSucceeded = false }
                 }
+                DiagnosticLogStore.recordWarning("persistence.transaction_failed", details: [
+                    "failed_step": String(index), "step_count": String(steps.count),
+                    "rollback_succeeded": String(rollbackSucceeded)
+                ])
                 return false
             }
         }
@@ -64,6 +70,10 @@ enum PersistenceWriteTransaction {
             }
             return !FileManager.default.fileExists(atPath: url.path)
         } catch {
+            let failure = error as NSError
+            DiagnosticLogStore.recordWarning("persistence.file_write_failed", details: [
+                "error_domain": failure.domain, "error_code": String(failure.code)
+            ])
             return false
         }
     }
@@ -110,11 +120,174 @@ enum BingoBoardStore {
     private static let saveKey = "bingo_board_v1"
     private static let lastSavedAtKey = "bingo_board_last_saved_at_v1"
     private static let activeNamedBoardIDKey = "bingo_board_active_named_board_id_v1"
+    private static let taskRuleEditReceiptKey = "bingo_task_rule_edit_receipt_v1"
+
+    private struct TaskRuleEditReceipt: Codable {
+        let boardID: UUID?
+        let cells: [BingoCell]
+    }
+
+    private static func confirmedTaskRuleEdits(for board: SavedBoard, boardID: UUID?) -> [BingoCell] {
+        guard let data = sharedDefaults.data(forKey: taskRuleEditReceiptKey),
+              let receipt = try? JSONDecoder().decode(TaskRuleEditReceipt.self, from: data),
+              receipt.boardID == boardID else { return [] }
+        let cells = BoardEngine.expandedBoardCache(from: board).flatMap { $0 }
+        return receipt.cells.filter { authorized in
+            cells.contains { TaskRulePersistenceGuard.matchesTaskDefinition(authorized, $0) }
+        }
+    }
     private static let sharedFileName = "bingo_board_v1.json"
     private static let metricsFileName = "bingo_metrics_v1.json"
     private static let boardsSaveKey = "bingo_boards_v1"
+    /// Marks the commit shared by the App Group file and the two defaults mirrors.
+    /// It prevents an older, still-valid file from winning over a newer task-rule edit.
+    private static let namedBoardsLastSavedAtKey = "bingo_boards_last_saved_at_v1"
     private static let boardsFileName = "bingo_boards_v1.json"
     private static let maxBoardNameLength = 20
+
+    static func withBoardPersistenceLock<T>(_ operation: () -> T) -> T? {
+        NativeICloudPrimaryMutationGate.acquire()
+        defer { NativeICloudPrimaryMutationGate.release() }
+        guard acquireNamedSnapshotLock() else { return nil }
+        defer { releaseNamedSnapshotLock() }
+        return operation()
+    }
+
+    // The process gate orders local callers; flock also excludes widget writers.
+    private static func acquireNamedSnapshotLock() -> Bool {
+        let state = Thread.current.threadDictionary
+        let depth = state["bingo.named.lock.depth"] as? Int ?? 0
+        if depth > 0 {
+            state["bingo.named.lock.depth"] = depth + 1
+            return true
+        }
+        let descriptor = open(sharedURL(for: "bingo_named_snapshot.lock").path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        guard descriptor >= 0 else {
+            DiagnosticLogStore.recordWarning("board.snapshot_lock_failed", details: ["errno": String(errno)])
+            return false
+        }
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.5
+        repeat {
+            if flock(descriptor, LOCK_EX | LOCK_NB) == 0 {
+                state["bingo.named.lock.depth"] = 1
+                state["bingo.named.lock.fd"] = descriptor
+                return true
+            }
+            if errno != EWOULDBLOCK && errno != EINTR { break }
+            usleep(10_000)
+        } while ProcessInfo.processInfo.systemUptime < deadline
+        close(descriptor)
+        DiagnosticLogStore.recordWarning("board.snapshot_lock_timeout")
+        return false
+    }
+
+    private static func releaseNamedSnapshotLock() {
+        let state = Thread.current.threadDictionary
+        let depth = state["bingo.named.lock.depth"] as? Int ?? 0
+        if depth > 1 {
+            state["bingo.named.lock.depth"] = depth - 1
+        } else if let descriptor = state["bingo.named.lock.fd"] as? Int32 {
+            flock(descriptor, LOCK_UN)
+            close(descriptor)
+            state.removeObject(forKey: "bingo.named.lock.depth")
+            state.removeObject(forKey: "bingo.named.lock.fd")
+        }
+    }
+
+    private struct SnapshotCommitMetadata: Codable {
+        var localCommitID: UUID?
+        var localCommittedAt: Date?
+    }
+
+    private struct ActiveBoardCommitMetadata: Codable {
+        let activeCommitID: UUID
+        let activeCommitRevision: UInt64
+    }
+
+    private struct CommittedActiveBoard: Encodable {
+        let board: SavedBoard
+        let metadata: ActiveBoardCommitMetadata
+
+        func encode(to encoder: Encoder) throws {
+            try board.encode(to: encoder)
+            try metadata.encode(to: encoder)
+        }
+    }
+
+    private static func encodeCommittedActiveBoard(_ board: SavedBoard) throws -> Data? {
+        let revisions = [try? Data(contentsOf: sharedFileURL), sharedDefaults.data(forKey: saveKey),
+                         UserDefaults.standard.data(forKey: saveKey)].compactMap { data -> UInt64? in
+            guard let data, (try? JSONDecoder().decode(SavedBoard.self, from: data)) != nil else { return nil }
+            return (try? JSONDecoder().decode(ActiveBoardCommitMetadata.self, from: data))?.activeCommitRevision
+        }
+        let latest = revisions.max() ?? 0
+        guard latest < UInt64.max else { return nil }
+        return try JSONEncoder().encode(CommittedActiveBoard(
+            board: board,
+            metadata: ActiveBoardCommitMetadata(activeCommitID: UUID(), activeCommitRevision: latest + 1)
+        ))
+    }
+
+    static func unconfirmedRuleDowngrades(from previous: SavedBoard?, to board: SavedBoard, boardID: UUID) -> Set<UUID> {
+        let confirmed = confirmedTaskRuleEdits(for: board, boardID: boardID).map(\.id)
+        let active = loadActiveNamedBoardID() == boardID ? loadBoard() : nil
+        return TaskRulePersistenceGuard.downgradedCellIDs(from: previous, to: board)
+            .union(TaskRulePersistenceGuard.downgradedCellIDs(from: active, to: board))
+            .subtracting(confirmed)
+    }
+
+    static func taskRuleRecoveryBoard(_ persisted: NamedBoard) -> NamedBoard {
+        guard loadActiveNamedBoardID() == persisted.id, let active = loadBoard(),
+              !unconfirmedRuleDowngrades(from: active, to: persisted.board, boardID: persisted.id).isEmpty else {
+            return persisted
+        }
+        var restored = persisted
+        restored.board = active
+        restored.countdownEndsAt = loadBoardCountdownEndsAt()
+        return restored
+    }
+
+    private struct CommittedSnapshot: Encodable {
+        let snapshot: NamedBoardsSnapshot
+        let metadata: SnapshotCommitMetadata
+
+        func encode(to encoder: Encoder) throws {
+            try snapshot.encode(to: encoder)
+            try metadata.encode(to: encoder)
+        }
+    }
+
+    private static func encodeCommittedSnapshot(_ snapshot: NamedBoardsSnapshot, at date: Date) throws -> Data {
+        try JSONEncoder().encode(CommittedSnapshot(
+            snapshot: snapshot,
+            metadata: SnapshotCommitMetadata(localCommitID: UUID(), localCommittedAt: date)
+        ))
+    }
+
+    private enum NamedBoardsPersistenceSource: Int {
+        case file
+        case sharedDefaults
+        case standardDefaults
+
+        var diagnosticValue: String {
+            switch self {
+            case .file: "file"
+            case .sharedDefaults: "shared_defaults"
+            case .standardDefaults: "standard_defaults"
+            }
+        }
+    }
+
+    private struct NamedBoardsPersistenceCandidate {
+        let source: NamedBoardsPersistenceSource
+        let data: Data
+        let snapshot: NamedBoardsSnapshot
+        let savedAt: Date?
+
+        var freshness: Date {
+            savedAt ?? (snapshot.boards.map(\.updatedAt) + [snapshot.boardOrderModifiedAt].compactMap { $0 }).max() ?? .distantPast
+        }
+    }
 
     struct NamedBoard: Identifiable, Codable, Equatable {
         let id: UUID
@@ -186,19 +359,37 @@ enum BingoBoardStore {
         var selectedBoardID: UUID?
         var boards: [NamedBoard]
         var deletedBoardIDs: Set<UUID>?
+        /// The original free-plan board remains protected even when users reorder boards.
+        /// Older snapshots infer this from their first board during sanitization.
+        var protectedBoardID: UUID?
+        /// Kept separate from a board's content timestamp so sorting never wins a
+        /// task, countdown, reset-rule, or point conflict.
+        var boardOrderModifiedAt: Date?
 
         init(
             selectedBoardID: UUID?,
             boards: [NamedBoard],
-            deletedBoardIDs: Set<UUID> = []
+            deletedBoardIDs: Set<UUID> = [],
+            protectedBoardID: UUID? = nil,
+            boardOrderModifiedAt: Date? = nil
         ) {
             self.selectedBoardID = selectedBoardID
             self.boards = boards
             self.deletedBoardIDs = deletedBoardIDs
+            self.protectedBoardID = protectedBoardID
+            self.boardOrderModifiedAt = boardOrderModifiedAt
         }
 
         var effectiveDeletedBoardIDs: Set<UUID> {
             deletedBoardIDs ?? []
+        }
+
+        var effectiveProtectedBoardID: UUID? {
+            if let protectedBoardID,
+               boards.contains(where: { $0.id == protectedBoardID }) {
+                return protectedBoardID
+            }
+            return boards.first?.id
         }
     }
 
@@ -213,7 +404,9 @@ enum BingoBoardStore {
             return NamedBoardsSnapshot(
                 selectedBoardID: snapshot.selectedBoardID,
                 boards: liveBoards,
-                deletedBoardIDs: snapshot.effectiveDeletedBoardIDs
+                deletedBoardIDs: snapshot.effectiveDeletedBoardIDs,
+                protectedBoardID: snapshot.protectedBoardID,
+                boardOrderModifiedAt: snapshot.boardOrderModifiedAt
             )
         }
 
@@ -242,7 +435,9 @@ enum BingoBoardStore {
             return NamedBoardsSnapshot(
                 selectedBoardID: snapshot.selectedBoardID,
                 boards: liveBoards,
-                deletedBoardIDs: snapshot.effectiveDeletedBoardIDs
+                deletedBoardIDs: snapshot.effectiveDeletedBoardIDs,
+                protectedBoardID: snapshot.protectedBoardID,
+                boardOrderModifiedAt: snapshot.boardOrderModifiedAt
             )
         }
 
@@ -253,7 +448,11 @@ enum BingoBoardStore {
         return NamedBoardsSnapshot(
             selectedBoardID: selectedBoardID,
             boards: boards,
-            deletedBoardIDs: snapshot.effectiveDeletedBoardIDs.union(removedStarterIDs)
+            deletedBoardIDs: snapshot.effectiveDeletedBoardIDs.union(removedStarterIDs),
+            protectedBoardID: snapshot.effectiveProtectedBoardID.flatMap { protectedID in
+                boards.contains(where: { $0.id == protectedID }) ? protectedID : boards.first?.id
+            } ?? boards.first?.id,
+            boardOrderModifiedAt: snapshot.boardOrderModifiedAt
         )
     }
 
@@ -359,7 +558,9 @@ enum BingoBoardStore {
                 activeBoardID: activeBoardID
             ),
             boards: snapshot.boards,
-            deletedBoardIDs: snapshot.effectiveDeletedBoardIDs
+            deletedBoardIDs: snapshot.effectiveDeletedBoardIDs,
+            protectedBoardID: snapshot.protectedBoardID,
+            boardOrderModifiedAt: snapshot.boardOrderModifiedAt
         )
     }
 
@@ -374,6 +575,10 @@ enum BingoBoardStore {
     }
 
     static func loadBoard() -> SavedBoard? {
+        NativeICloudPrimaryMutationGate.acquire()
+        defer { NativeICloudPrimaryMutationGate.release() }
+        let canRepair = acquireNamedSnapshotLock()
+        defer { if canRepair { releaseNamedSnapshotLock() } }
         let fileData = try? Data(contentsOf: sharedFileURL)
         let sharedData = sharedDefaults.data(forKey: saveKey)
         let standardData = UserDefaults.standard.data(forKey: saveKey)
@@ -386,7 +591,7 @@ enum BingoBoardStore {
             guard let saved = try? JSONDecoder().decode(SavedBoard.self, from: data) else {
                 continue
             }
-            repairBoardPersistenceIfNeeded(data)
+            if canRepair { repairBoardPersistenceIfNeeded(data) }
             return saved
         }
 
@@ -420,10 +625,36 @@ enum BingoBoardStore {
         _ board: SavedBoard,
         savedAt: Date = .now,
         associatedBoardID: UUID? = nil,
-        reloadWidgets: Bool = true
+        reloadWidgets: Bool = true,
+        explicitlyEditedCellIDs: Set<UUID> = []
     ) -> Bool {
+        NativeICloudPrimaryMutationGate.acquire()
+        defer { NativeICloudPrimaryMutationGate.release() }
+        guard acquireNamedSnapshotLock() else { return false }
+        defer { releaseNamedSnapshotLock() }
         let normalizedBoard = normalizedBoardForPersistence(board, referenceDate: savedAt)
-        guard let data = try? JSONEncoder().encode(normalizedBoard) else { return false }
+        let activeBoard = loadActiveNamedBoardID() == associatedBoardID ? loadBoard() : nil
+        let namedBoard = associatedBoardID.flatMap { id in
+            preferredNamedBoardsPersistenceCandidate()?.snapshot.boards.first { $0.id == id }
+        }
+        let confirmedEdits = confirmedTaskRuleEdits(for: normalizedBoard, boardID: associatedBoardID)
+        let permittedIDs = explicitlyEditedCellIDs.union(confirmedEdits.map(\.id))
+        let blocked = TaskRulePersistenceGuard.downgradedCellIDs(from: activeBoard, to: normalizedBoard)
+            .union(TaskRulePersistenceGuard.downgradedCellIDs(from: namedBoard?.board, to: normalizedBoard))
+            .subtracting(permittedIDs)
+        guard blocked.isEmpty else {
+            DiagnosticLogStore.recordWarning("task_rule.downgrade_blocked", details: [
+                "source": "active_board_save", "board_id": associatedBoardID?.uuidString ?? "none",
+                "cell_ids": blocked.map(\.uuidString).sorted().joined(separator: ",")
+            ])
+            return false
+        }
+        guard let data = try? encodeCommittedActiveBoard(normalizedBoard) else { return false }
+        let authorizedCells = BoardEngine.expandedBoardCache(from: normalizedBoard).flatMap { $0 }
+            .filter { $0.hasStoredTask && permittedIDs.contains($0.id) }
+        guard let receiptData = try? JSONEncoder().encode(
+            TaskRuleEditReceipt(boardID: associatedBoardID, cells: authorizedCells)
+        ) else { return false }
 
         guard let fileStep = PersistenceWriteTransaction.fileDataStep(
             at: sharedFileURL,
@@ -431,6 +662,9 @@ enum BingoBoardStore {
         ) else { return false }
         let didCommit = PersistenceWriteTransaction.commit([
             fileStep,
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults, key: taskRuleEditReceiptKey, newValue: receiptData
+            ),
             PersistenceWriteTransaction.userDefaultsStep(
                 defaults: sharedDefaults,
                 key: saveKey,
@@ -478,6 +712,9 @@ enum BingoBoardStore {
         ) else { return }
         let didClear = PersistenceWriteTransaction.commit([
             fileStep,
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults, key: taskRuleEditReceiptKey, newValue: nil
+            ),
             PersistenceWriteTransaction.userDefaultsStep(
                 defaults: sharedDefaults,
                 key: saveKey,
@@ -527,6 +764,10 @@ enum BingoBoardStore {
     }
 
     static func clearNamedBoardsSnapshot(reloadWidgets: Bool = true) {
+        NativeICloudPrimaryMutationGate.acquire()
+        defer { NativeICloudPrimaryMutationGate.release() }
+        guard acquireNamedSnapshotLock() else { return }
+        defer { releaseNamedSnapshotLock() }
         guard let fileStep = PersistenceWriteTransaction.fileDataStep(
             at: namedBoardsFileURL,
             newData: nil
@@ -542,6 +783,16 @@ enum BingoBoardStore {
                 defaults: .standard,
                 key: boardsSaveKey,
                 newValue: nil
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: namedBoardsLastSavedAtKey,
+                newValue: nil
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: namedBoardsLastSavedAtKey,
+                newValue: nil
             )
         ])
         guard didClear else { return }
@@ -552,28 +803,29 @@ enum BingoBoardStore {
     }
 
     static func loadNamedBoardsSnapshot() -> NamedBoardsSnapshot {
-        if let data = try? Data(contentsOf: namedBoardsFileURL),
-           let decoded = try? JSONDecoder().decode(NamedBoardsSnapshot.self, from: data) {
-            let sanitized = sanitizeNamedBoardsSnapshot(decoded)
-            if sanitized != decoded {
-                saveNamedBoardsSnapshot(sanitized)
-            } else {
-                repairNamedBoardsPersistenceIfNeeded(data)
+        NativeICloudPrimaryMutationGate.acquire()
+        defer { NativeICloudPrimaryMutationGate.release() }
+        guard acquireNamedSnapshotLock() else {
+            return preferredNamedBoardsPersistenceCandidate()?.snapshot ?? .init(selectedBoardID: nil, boards: [])
+        }
+        defer { releaseNamedSnapshotLock() }
+        if let candidate = preferredNamedBoardsPersistenceCandidate() {
+            let sanitized = sanitizeNamedBoardsSnapshot(candidate.snapshot)
+            let didSanitize = sanitized != candidate.snapshot
+            let selectedData = didSanitize
+                ? (try? JSONEncoder().encode(sanitized))
+                : candidate.data
+
+            recordNamedBoardsReplicaRecoveryIfNeeded(selected: candidate)
+            if let selectedData {
+                let recoveredAt = candidate.savedAt ?? candidate.freshness
+                if didSanitize {
+                    _ = saveNamedBoardsSnapshot(sanitized)
+                } else {
+                    repairNamedBoardsPersistenceIfNeeded(selectedData, savedAt: recoveredAt)
+                }
             }
-            return sanitized
-        }
 
-        if let data = sharedDefaults.data(forKey: boardsSaveKey),
-           let decoded = try? JSONDecoder().decode(NamedBoardsSnapshot.self, from: data) {
-            let sanitized = sanitizeNamedBoardsSnapshot(decoded)
-            saveNamedBoardsSnapshot(sanitized)
-            return sanitized
-        }
-
-        if let data = UserDefaults.standard.data(forKey: boardsSaveKey),
-           let decoded = try? JSONDecoder().decode(NamedBoardsSnapshot.self, from: data) {
-            let sanitized = sanitizeNamedBoardsSnapshot(decoded)
-            saveNamedBoardsSnapshot(sanitized)
             return sanitized
         }
 
@@ -595,15 +847,55 @@ enum BingoBoardStore {
     @discardableResult
     static func saveNamedBoardsSnapshot(
         _ snapshot: NamedBoardsSnapshot,
-        reloadWidgets: Bool = true
+        reloadWidgets: Bool = true,
+        expectedSnapshot: NamedBoardsSnapshot? = nil,
+        source: String = #function,
+        authorizedRuleChangeCellIDs: [UUID: Set<UUID>] = [:]
     ) -> Bool {
+        NativeICloudPrimaryMutationGate.acquire()
+        defer { NativeICloudPrimaryMutationGate.release() }
+        guard acquireNamedSnapshotLock() else { return false }
+        defer { releaseNamedSnapshotLock() }
         let sanitized = sanitizeNamedBoardsSnapshot(snapshot)
         #if DEBUG
         let previousSnapshot = loadPersistedNamedBoardsSnapshotForIntegrityCheck()
         debugValidateNamedBoardsTransition(from: previousSnapshot, to: sanitized)
         #endif
-        guard let data = try? JSONEncoder().encode(sanitized) else { return false }
-        guard !isNamedBoardsPersistenceCurrent(data) else { return false }
+        let previous = preferredNamedBoardsPersistenceCandidate()
+        if let expectedSnapshot,
+           sanitizeNamedBoardsSnapshot(previous?.snapshot ?? .init(selectedBoardID: nil, boards: [])) != sanitizeNamedBoardsSnapshot(expectedSnapshot) {
+            DiagnosticLogStore.recordWarning("board.snapshot_stale_write_rejected", details: [
+                "source": source,
+                "expected_boards": String(expectedSnapshot.boards.count),
+                "actual_boards": String(previous?.snapshot.boards.count ?? 0)
+            ])
+            return false
+        }
+        if let previous, previous.snapshot == sanitized, isNamedBoardsPersistenceCurrent(previous.data) {
+            return false
+        }
+        let activeBoardID = loadActiveNamedBoardID()
+        let activeBoard = loadBoard()
+        for oldBoard in previous?.snapshot.boards ?? [] {
+            guard let newBoard = sanitized.boards.first(where: { $0.id == oldBoard.id }) else { continue }
+            let downgraded = TaskRulePersistenceGuard.downgradedCellIDs(from: oldBoard.board, to: newBoard.board)
+                .union(TaskRulePersistenceGuard.downgradedCellIDs(
+                    from: activeBoardID == oldBoard.id ? activeBoard : nil, to: newBoard.board
+                ))
+                .subtracting(authorizedRuleChangeCellIDs[oldBoard.id] ?? [])
+            guard !downgraded.isEmpty else { continue }
+            let confirmed = Set(confirmedTaskRuleEdits(for: newBoard.board, boardID: newBoard.id).map(\.id))
+            guard downgraded.subtracting(confirmed).isEmpty else {
+                DiagnosticLogStore.recordWarning("task_rule.downgrade_blocked", details: [
+                    "source": source, "board_id": oldBoard.id.uuidString,
+                    "cell_ids": downgraded.map(\.uuidString).sorted().joined(separator: ",")
+                ])
+                return false
+            }
+        }
+        let savedAt = Date()
+        guard let data = try? encodeCommittedSnapshot(sanitized, at: savedAt) else { return false }
+        let operationID = UUID().uuidString
 
         guard let fileStep = PersistenceWriteTransaction.fileDataStep(
             at: namedBoardsFileURL,
@@ -620,13 +912,167 @@ enum BingoBoardStore {
                 defaults: .standard,
                 key: boardsSaveKey,
                 newValue: data
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: namedBoardsLastSavedAtKey,
+                newValue: savedAt
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: namedBoardsLastSavedAtKey,
+                newValue: savedAt
             )
-        ]) else { return false }
+        ]) else {
+            DiagnosticLogStore.recordWarning("board.snapshot_commit_failed", details: ["operation_id": operationID])
+            return false
+        }
+        recordSnapshotTransition(from: previous?.snapshot, to: sanitized, operationID: operationID, source: source)
+        DiagnosticLogStore.recordStateChange("board.snapshot_committed", details: [
+            "operation_id": operationID,
+            "source": source,
+            "previous_commit": previous.flatMap { try? JSONDecoder().decode(SnapshotCommitMetadata.self, from: $0.data).localCommitID?.uuidString } ?? "legacy",
+            "commit_id": (try? JSONDecoder().decode(SnapshotCommitMetadata.self, from: data).localCommitID?.uuidString) ?? "unknown",
+            "boards": String(sanitized.boards.count)
+        ])
 
         if reloadWidgets {
             reloadWidgetTimelines()
         }
 
+        return true
+    }
+
+    /// Commits an imported template as one local state change.  This is kept
+    /// separate from the regular board-edit paths so importing cannot inherit
+    /// task completion, rules, reminders, or point state from either board.
+    ///
+    /// The transaction covers the multi-board snapshot, the active-board mirror
+    /// read by the app and widgets, the active board ID, panel selection, and the
+    /// active board countdown.  Every persistence write has a rollback step.
+    @discardableResult
+    static func commitImportedBoardSnapshot(
+        _ snapshot: NamedBoardsSnapshot,
+        activeBoardID: UUID,
+        additionalPersistenceSteps: [PersistenceWriteStep] = [],
+        savedAt: Date = .now,
+        reloadWidgets: Bool = true
+    ) -> Bool {
+        NativeICloudPrimaryMutationGate.acquire()
+        defer { NativeICloudPrimaryMutationGate.release() }
+        guard acquireNamedSnapshotLock() else { return false }
+        defer { releaseNamedSnapshotLock() }
+
+        let sanitizedSnapshot = sanitizeNamedBoardsSnapshot(snapshot)
+        guard sanitizedSnapshot.selectedBoardID == activeBoardID,
+              let activeNamedBoard = sanitizedSnapshot.boards.first(where: { $0.id == activeBoardID }) else {
+            return false
+        }
+
+        let normalizedActiveBoard = normalizedBoardForPersistence(
+            activeNamedBoard.board,
+            referenceDate: savedAt
+        )
+        var committedBoards = sanitizedSnapshot.boards
+        guard let activeIndex = committedBoards.firstIndex(where: { $0.id == activeBoardID }) else {
+            return false
+        }
+        committedBoards[activeIndex].board = normalizedActiveBoard
+        committedBoards[activeIndex].updatedAt = savedAt
+        let committedSnapshot = NamedBoardsSnapshot(
+            selectedBoardID: activeBoardID,
+            boards: committedBoards,
+            deletedBoardIDs: sanitizedSnapshot.effectiveDeletedBoardIDs,
+            protectedBoardID: sanitizedSnapshot.effectiveProtectedBoardID,
+            boardOrderModifiedAt: sanitizedSnapshot.boardOrderModifiedAt
+        )
+
+        guard let namedBoardsData = try? encodeCommittedSnapshot(committedSnapshot, at: savedAt),
+              let activeBoardData = try? encodeCommittedActiveBoard(normalizedActiveBoard),
+              let namedBoardsFileStep = PersistenceWriteTransaction.fileDataStep(
+                  at: namedBoardsFileURL,
+                  newData: namedBoardsData
+              ),
+              let activeBoardFileStep = PersistenceWriteTransaction.fileDataStep(
+                  at: sharedFileURL,
+                  newData: activeBoardData
+              ) else {
+            return false
+        }
+
+        var steps: [PersistenceWriteStep] = [
+            namedBoardsFileStep,
+            activeBoardFileStep,
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: boardsSaveKey,
+                newValue: namedBoardsData
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: boardsSaveKey,
+                newValue: namedBoardsData
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: namedBoardsLastSavedAtKey,
+                newValue: savedAt
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: namedBoardsLastSavedAtKey,
+                newValue: savedAt
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: saveKey,
+                newValue: activeBoardData
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: saveKey,
+                newValue: activeBoardData
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: lastSavedAtKey,
+                newValue: savedAt
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: lastSavedAtKey,
+                newValue: savedAt
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: activeNamedBoardIDKey,
+                newValue: activeBoardID.uuidString
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: activeNamedBoardIDKey,
+                newValue: activeBoardID.uuidString
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: AppSettings.boardCountdownKey,
+                newValue: nil
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: AppSettings.boardCountdownKey,
+                newValue: nil
+            ),
+            WidgetPanelSelectionStore.persistenceStep(selectedPanelID: activeBoardID)
+        ]
+        steps.append(contentsOf: additionalPersistenceSteps)
+
+        let didCommit = PersistenceWriteTransaction.commit(steps)
+        guard didCommit else { return false }
+
+        if reloadWidgets {
+            reloadWidgetTimelines()
+        }
         return true
     }
 
@@ -843,7 +1289,9 @@ enum BingoBoardStore {
         return snapshotByRemovingRedundantStarterGuideBoards(NamedBoardsSnapshot(
             selectedBoardID: selectedBoardID,
             boards: sanitizedBoards,
-            deletedBoardIDs: deletedBoardIDs
+            deletedBoardIDs: deletedBoardIDs,
+            protectedBoardID: snapshot.protectedBoardID,
+            boardOrderModifiedAt: snapshot.boardOrderModifiedAt
         ))
     }
 
@@ -1165,6 +1613,22 @@ enum BingoBoardStore {
         sharedData: Data?,
         standardData: Data?
     ) -> [Data] {
+        let candidates = uniqueDataCandidates([fileData, sharedData, standardData])
+        let committed = candidates.compactMap { data -> (data: Data, revision: UInt64)? in
+            guard (try? JSONDecoder().decode(SavedBoard.self, from: data)) != nil,
+                  let metadata = try? JSONDecoder().decode(ActiveBoardCommitMetadata.self, from: data) else { return nil }
+            return (data, metadata.activeCommitRevision)
+        }.sorted { $0.revision > $1.revision }
+        if let newest = committed.first {
+            if candidates.count > 1 {
+                DiagnosticLogStore.recordWarning("task_rule.active_replica_recovery", details: [
+                    "selected_revision": String(newest.revision),
+                    "replica_count": String(candidates.count),
+                    "committed_count": String(committed.count)
+                ])
+            }
+            return uniqueDataCandidates(committed.map { $0.data } + candidates)
+        }
         let defaultsData = sharedData ?? standardData
         guard let fileData else {
             return uniqueDataCandidates([defaultsData, standardData])
@@ -1222,8 +1686,100 @@ enum BingoBoardStore {
         _ = PersistenceWriteTransaction.commit(steps)
     }
 
-    private static func repairNamedBoardsPersistenceIfNeeded(_ data: Data) {
+    private static func preferredNamedBoardsPersistenceCandidate() -> NamedBoardsPersistenceCandidate? {
+        let fileData = try? Data(contentsOf: namedBoardsFileURL)
+        let candidates = [
+            (NamedBoardsPersistenceSource.file, fileData),
+            (
+                .sharedDefaults,
+                sharedDefaults.data(forKey: boardsSaveKey)
+            ),
+            (
+                .standardDefaults,
+                UserDefaults.standard.data(forKey: boardsSaveKey)
+            )
+        ].compactMap { source, data -> NamedBoardsPersistenceCandidate? in
+            guard let data,
+                  let snapshot = try? JSONDecoder().decode(NamedBoardsSnapshot.self, from: data) else {
+                return nil
+            }
+            return NamedBoardsPersistenceCandidate(
+                source: source,
+                data: data,
+                snapshot: snapshot,
+                savedAt: (try? JSONDecoder().decode(SnapshotCommitMetadata.self, from: data))?.localCommittedAt
+            )
+        }
+
+        let selected = candidates.max { lhs, rhs in
+            if lhs.freshness != rhs.freshness {
+                return lhs.freshness < rhs.freshness
+            }
+            return lhs.source.rawValue > rhs.source.rawValue
+        }
+        if let selected, candidates.contains(where: { $0.snapshot != selected.snapshot }) {
+            for candidate in candidates {
+                DiagnosticLogStore.recordWarning("board.snapshot_replica_conflict", details: [
+                    "source": candidate.source.diagnosticValue,
+                    "selected_source": selected.source.diagnosticValue,
+                    "committed_at": String(candidate.freshness.timeIntervalSince1970),
+                    "legacy": String(candidate.savedAt == nil),
+                    "boards": String(candidate.snapshot.boards.count),
+                    "commit_id": (try? JSONDecoder().decode(SnapshotCommitMetadata.self, from: candidate.data).localCommitID?.uuidString) ?? "legacy"
+                ])
+            }
+        }
+        return selected
+    }
+
+    private static func recordNamedBoardsReplicaRecoveryIfNeeded(
+        selected: NamedBoardsPersistenceCandidate
+    ) {
+        guard selected.source != .file,
+              let fileData = try? Data(contentsOf: namedBoardsFileURL),
+              fileData != selected.data else {
+            return
+        }
+        DiagnosticLogStore.recordWarning(
+            "board.named_snapshot_newer_replica_selected",
+            details: [
+                "selected_source": selected.source.diagnosticValue,
+                "selected_saved_at": String(selected.freshness.timeIntervalSinceReferenceDate)
+            ]
+        )
+    }
+
+    private static func recordSnapshotTransition(from previous: NamedBoardsSnapshot?, to next: NamedBoardsSnapshot, operationID: String, source: String) {
+        guard let previous else { return }
+        for board in previous.boards {
+            let nextBoard = next.boards.first { $0.id == board.id }
+            let nextCells = nextBoard.map { BoardEngine.expandedBoardCache(from: $0.board).flatMap { $0 } } ?? []
+            for cell in BoardEngine.expandedBoardCache(from: board.board).flatMap({ $0 }) where cell.hasStoredTask {
+                let replacement = nextCells.first { $0.id == cell.id }
+                let nextRule = replacement.flatMap { $0.hasStoredTask ? $0.diagnosticTaskRuleKind : nil } ?? "removed"
+                guard nextRule != cell.diagnosticTaskRuleKind else { continue }
+                DiagnosticLogStore.recordStateChange("board.snapshot_task_transition", details: [
+                    "source": source,
+                    "operation_id": operationID,
+                    "board_id": String(board.id.uuidString.prefix(8)),
+                    "cell_id": String(cell.id.uuidString.prefix(8)),
+                    "before_rule": cell.diagnosticTaskRuleKind,
+                    "after_rule": nextRule,
+                    "board_removed": String(nextBoard == nil)
+                ])
+            }
+        }
+    }
+
+    private static func repairNamedBoardsPersistenceIfNeeded(_ data: Data, savedAt: Date) {
         var steps: [PersistenceWriteStep] = []
+        if (try? Data(contentsOf: namedBoardsFileURL)) != data {
+            guard let fileStep = PersistenceWriteTransaction.fileDataStep(
+                at: namedBoardsFileURL,
+                newData: data
+            ) else { return }
+            steps.append(fileStep)
+        }
         if sharedDefaults.data(forKey: boardsSaveKey) != data {
             steps.append(PersistenceWriteTransaction.userDefaultsStep(
                 defaults: sharedDefaults,
@@ -1238,7 +1794,26 @@ enum BingoBoardStore {
                 newValue: data
             ))
         }
-        _ = PersistenceWriteTransaction.commit(steps)
+        if (sharedDefaults.object(forKey: namedBoardsLastSavedAtKey) as? Date) != savedAt {
+            steps.append(PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: namedBoardsLastSavedAtKey,
+                newValue: savedAt
+            ))
+        }
+        if (UserDefaults.standard.object(forKey: namedBoardsLastSavedAtKey) as? Date) != savedAt {
+            steps.append(PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: namedBoardsLastSavedAtKey,
+                newValue: savedAt
+            ))
+        }
+        let repaired = PersistenceWriteTransaction.commit(steps)
+        if !steps.isEmpty {
+            DiagnosticLogStore.record("board.snapshot_repair_result", category: "state_change",
+                level: repaired ? .info : .warning,
+                details: ["success": String(repaired), "steps": String(steps.count)])
+        }
     }
 
     private static func repairStandardDefaultsValueIfNeeded(
@@ -1277,7 +1852,8 @@ enum BingoBoardStore {
         guard UserDefaults.standard.data(forKey: boardsSaveKey) == data else {
             return false
         }
-        return true
+        return (sharedDefaults.object(forKey: namedBoardsLastSavedAtKey) as? Date) != nil &&
+            (UserDefaults.standard.object(forKey: namedBoardsLastSavedAtKey) as? Date) != nil
     }
 
     private static var metricsFileURL: URL {

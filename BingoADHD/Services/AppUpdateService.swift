@@ -181,6 +181,7 @@ enum LimitedOfferHomeRules {
     }
 }
 
+@MainActor
 enum LimitedTimeOfferRemoteConfigService {
     private static let isEnabledKey = "ios_lifetime_early_supporter_offer_enabled"
     private static let campaignIDKey = "ios_lifetime_early_supporter_offer_campaign_id"
@@ -193,7 +194,23 @@ enum LimitedTimeOfferRemoteConfigService {
     private static let debugMinimumAppVersionKey = "debug_limited_offer_min_app_version"
 #endif
 
+    private static var inFlightFetch: Task<LimitedTimeOfferConfig, Never>?
+
     static func fetchOfferConfig() async -> LimitedTimeOfferConfig {
+        if let inFlightFetch {
+            return await inFlightFetch.value
+        }
+
+        let fetchTask = Task {
+            await fetchOfferConfigUncoalesced()
+        }
+        inFlightFetch = fetchTask
+        let config = await fetchTask.value
+        inFlightFetch = nil
+        return config
+    }
+
+    private static func fetchOfferConfigUncoalesced() async -> LimitedTimeOfferConfig {
 #if DEBUG
         return debugOfferConfig(overriding: .disabled)
 #else

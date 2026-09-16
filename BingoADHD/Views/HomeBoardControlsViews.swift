@@ -41,72 +41,6 @@ enum HomeMainTab: String, CaseIterable, Identifiable {
     }
 }
 
-struct HomeMainTabBarView: View {
-    @Binding var selectedTab: HomeMainTab
-    let isPadLayout: Bool
-    @State private var bouncingTab: HomeMainTab?
-
-    var body: some View {
-        tabButtons
-            .frame(width: scaled(292, pad: 360), height: scaled(56, pad: 66))
-            .background {
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.52))
-            }
-            .appLiquidGlass(in: Capsule(style: .continuous), interactive: false)
-            .contentShape(Capsule(style: .continuous))
-    }
-
-    private var tabButtons: some View {
-        HStack(spacing: scaled(42, pad: 58)) {
-            ForEach(HomeMainTab.allCases) { tab in
-                Button {
-                    guard selectedTab != tab else {
-                        triggerTabBounce(for: tab)
-                        return
-                    }
-                    selectedTab = tab
-                    triggerTabBounce(for: tab)
-                } label: {
-                    Image(selectedTab == tab ? tab.selectedIconName : tab.iconName)
-                        .resizable()
-                        .interpolation(.high)
-                        .renderingMode(.original)
-                        .scaledToFit()
-                        .opacity(selectedTab == tab ? 1 : 0.7)
-                        .frame(
-                            width: selectedTab == tab ? scaled(40, pad: 46) : scaled(30, pad: 36),
-                            height: selectedTab == tab ? scaled(40, pad: 46) : scaled(30, pad: 36)
-                        )
-                        .scaleEffect(bouncingTab == tab ? 1.08 : 1)
-                        .offset(y: bouncingTab == tab ? scaled(-3, pad: -4) : 0)
-                        .animation(.interpolatingSpring(stiffness: 360, damping: 13), value: bouncingTab)
-                        .frame(width: scaled(52, pad: 62), height: scaled(44, pad: 52))
-                        .contentShape(Capsule(style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(tab.accessibilityTitle)
-                .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
-            }
-        }
-    }
-
-    private func triggerTabBounce(for tab: HomeMainTab) {
-        withAnimation(.interpolatingSpring(stiffness: 360, damping: 13)) {
-            bouncingTab = tab
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-            guard bouncingTab == tab else { return }
-            withAnimation(.interpolatingSpring(stiffness: 260, damping: 15)) {
-                bouncingTab = nil
-            }
-        }
-    }
-
-    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
-        isPadLayout ? (pad ?? base * 1.18) : base
-    }
-}
 
 struct BoardSwitcherControlsView: View {
     let boards: [BingoBoardStore.NamedBoard]
@@ -389,12 +323,25 @@ struct BoardBottomControlsView: View {
     let onEditActionsToggle: () -> Void
     let onDismissEditActions: () -> Void
     let onBoardRules: () -> Void
+    let onBoardOrder: () -> Void
     let onShuffle: () -> Void
     let onClearBoard: () -> Void
     let onGridSize: () -> Void
     let onQuickEdit: () -> Void
 
     var body: some View {
+        Group {
+            if #available(iOS 26.0, *) {
+                GlassEffectContainer(spacing: isPadLayout ? 24 : 20) {
+                    controlsRow
+                }
+            } else {
+                controlsRow
+            }
+        }
+    }
+
+    private var controlsRow: some View {
         HStack(alignment: .center, spacing: 12) {
             BoardMoreActionsTriggerView(
                 isExpanded: isEditActionsExpanded,
@@ -432,6 +379,7 @@ struct BoardBottomControlsView: View {
                     isPadLayout: isPadLayout,
                     onDismiss: onDismissEditActions,
                     onBoardRules: onBoardRules,
+                    onBoardOrder: onBoardOrder,
                     onShuffle: onShuffle,
                     onClearBoard: onClearBoard,
                     onGridSize: onGridSize
@@ -451,7 +399,7 @@ struct BoardBottomControlsView: View {
         let triggerSize: CGFloat = isPadLayout ? 44 : 38
         let rowHeight: CGFloat = isPadLayout ? 54 : 52
         let verticalPadding: CGFloat = isPadLayout ? 6 : 5
-        let panelHeight = rowHeight * 4 + verticalPadding * 2
+        let panelHeight = rowHeight * 5 + verticalPadding * 2
 
         return triggerSize - panelHeight
     }
@@ -475,10 +423,6 @@ struct BoardMoreActionsTriggerView: View {
                 .scaledToFit()
                 .frame(width: isPadLayout ? 25 : 21, height: isPadLayout ? 25 : 21)
                 .frame(width: buttonSize, height: buttonSize)
-                .background {
-                    Circle()
-                        .fill(Color.white.opacity(0.64))
-                }
                 .appLiquidGlass(in: Circle(), interactive: true)
                 .contentShape(Circle())
         }
@@ -501,10 +445,6 @@ struct BoardQuickEditTriggerView: View {
                 .font(.appSystem(size: isPadLayout ? 20 : 18, weight: .bold))
                 .foregroundColor(NeumorphicColors.accent)
                 .frame(width: buttonSize, height: buttonSize)
-                .background {
-                    Circle()
-                        .fill(Color.white.opacity(0.64))
-                }
                 .appLiquidGlass(in: Circle(), interactive: true)
                 .contentShape(Circle())
         }
@@ -518,6 +458,7 @@ struct BoardMoreActionsSidePanel: View {
     let isPadLayout: Bool
     let onDismiss: () -> Void
     let onBoardRules: () -> Void
+    let onBoardOrder: () -> Void
     let onShuffle: () -> Void
     let onClearBoard: () -> Void
     let onGridSize: () -> Void
@@ -525,6 +466,7 @@ struct BoardMoreActionsSidePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             actionButton(L10n.tr("Board Rules", zhHans: "面板规则", zhHant: "面板規則"), action: onBoardRules)
+            actionButton(L10n.tr("Board Order", zhHans: "棋盘顺序", zhHant: "棋盤順序"), action: onBoardOrder)
             actionButton(L10n.tr("Shuffle", zhHans: "随机排序"), action: onShuffle)
             actionButton(L10n.clearBoard, action: onClearBoard)
             actionButton(L10n.tr("Grid Size", zhHans: "格子大小"), action: onGridSize)

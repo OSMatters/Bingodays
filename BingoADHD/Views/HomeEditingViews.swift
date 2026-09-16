@@ -19,9 +19,12 @@ struct QuickEditView: View {
     @State private var hideLocalToastWorkItem: DispatchWorkItem?
     @State private var selectedTaskKeys: [String] = []
     @State private var previewSlots: [PreviewSlot] = []
+    @State private var deselectedTaskDrafts: [String: QuickEditDeselectedTaskDraft] = [:]
+    @State private var explicitlyEditedCellIDs: Set<UUID> = []
     @State private var previewDragSourceID: UUID?
     @State private var previewDropTargetID: UUID?
     @State private var initialSnapshot: QuickEditSnapshot?
+    @State private var editingContext: QuickEditBoardContext?
     @State private var isExitDiscardAlertPresented = false
     @State private var targetGridSize = 4
     @State private var didApplyToBoard = false
@@ -737,10 +740,12 @@ struct QuickEditView: View {
                 startReminderOffsetMinutes: currentCell.startReminderOffsetMinutes,
                 isCompletedTask: currentCell.isCompleted,
                 estimatedDurationMinutes: quickEditRemainingMinutes(from: currentCell.countdownEndsAt),
+                completionHistoryCountProvider: viewModel.completionHistoryCount(for:),
+                diagnosticCellID: currentCell.id,
+                diagnosticSource: "quick_edit_editor",
                 onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, recurrenceRule, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes in
                     guard let latestIndex = previewSlots.firstIndex(where: { $0.id == slotID }) else {
-                        previewEditingTarget = nil
-                        return
+                        return false
                     }
 
                     let existingCell = previewSlots[latestIndex].cellState
@@ -755,14 +760,24 @@ struct QuickEditView: View {
                         startVisibleAt: startVisibleAt,
                         endVisibleAt: endVisibleAt,
                         startReminderEnabled: startReminderEnabled,
-                        startReminderOffsetMinutes: startReminderOffsetMinutes
+                        startReminderOffsetMinutes: startReminderOffsetMinutes,
+                        availableHistoryCount: viewModel.completionHistoryCount(for: newText)
                     )
 
+                    if let editedCell = previewSlots[latestIndex].cellState {
+                        explicitlyEditedCellIDs.insert(editedCell.id)
+                        DiagnosticLogStore.recordStateChange("task_rule.preview_edited", details: [
+                            "source": "quick_edit_editor", "cell_id": editedCell.id.uuidString,
+                            "before_rule": existingCell?.diagnosticTaskRuleKind ?? "empty",
+                            "after_rule": editedCell.diagnosticTaskRuleKind
+                        ])
+                    }
                     if let sourceTaskKey = previewSlots[latestIndex].sourceTaskKey {
                         let syncedTask = previewSlots[latestIndex].task ?? MyTaskItem(text: "")
                         syncLibraryTask(forTaskKey: sourceTaskKey, with: syncedTask)
                     }
                     previewEditingTarget = nil
+                    return true
                 },
                 onDelete: {
                     deletePreviewTask(slotID: slotID)
@@ -838,10 +853,14 @@ struct QuickEditView: View {
     }
 
     private func handleQuickEditAppear() {
+        guard initialSnapshot == nil else { return }
+        editingContext = viewModel.makeQuickEditBoardContext()
         targetGridSize = viewModel.gridSize
         activeFilter = .all
         previewSlots = buildInitialPreviewSlots()
         selectedTaskKeys = []
+        deselectedTaskDrafts = [:]
+        explicitlyEditedCellIDs = []
         seedTaskHistoryIfNeeded()
         initialSnapshot = makeCurrentSnapshot()
         syncActiveFilterWithCurrentLibrary()
@@ -850,6 +869,8 @@ struct QuickEditView: View {
     private func handleLibraryDidChange() {
         TaskHistoryStore.ensureLibrarySeeded(library)
         refreshTaskHistory()
+        let candidates = candidateTaskMap
+        deselectedTaskDrafts = deselectedTaskDrafts.filter { candidates[$0.key] != nil }
         syncSelectedTaskKeysWithCurrentLibrary()
         syncPreviewSlotsWithCurrentLibrary()
         syncActiveFilterWithCurrentLibrary()
@@ -1097,7 +1118,9 @@ struct QuickEditView: View {
         let result = quickEditAppendTasksToPreview(
             keys: activeGroupTaskKeys,
             candidateTaskMap: candidateTaskMap,
-            currentSlots: previewSlots
+            currentSlots: previewSlots,
+            deselectedTaskDrafts: &deselectedTaskDrafts,
+            completionHistoryCountProvider: viewModel.completionHistoryCount(for:)
         )
         previewSlots = result.updatedSlots
         selectedTaskKeys = previewSlots.compactMap(\.sourceTaskKey)
@@ -1156,8 +1179,32 @@ struct QuickEditView: View {
     }
 
     private func applySelectionToBoard(_ plan: QuickEditApplyPlan) {
+        guard let editingContext else { return }
         let orderedCells = previewSlots.map(\.cellState)
-        viewModel.applyBoardOrderedCells(orderedCells, targetGridSize: plan.targetGridSize)
+        guard viewModel.applyBoardOrderedCells(
+            orderedCells, targetGridSize: plan.targetGridSize,
+            explicitlyEditedCellIDs: explicitlyEditedCellIDs,
+            editingContext: editingContext
+        ) else {
+            if !viewModel.isQuickEditBoardContextCurrent(editingContext) {
+                showLocalToast(L10n.tr(
+                    "The board changed while you were editing. Your draft is still here. Reopen quick edit to use the latest board.",
+                    zhHans: "编辑期间棋盘已更新，草稿已保留。请重新打开快速编辑以使用最新棋盘。",
+                    zhHant: "編輯期間棋盤已更新，草稿已保留。請重新開啟快速編輯以使用最新棋盤。",
+                    ja: "編集中にボードが更新されました。下書きは保持されています。最新のボードを使うにはクイック編集を開き直してください。"
+                ))
+                return
+            }
+            showLocalToast(
+                L10n.tr(
+                    "Could not save board changes. Your edits are still here. Please try again.",
+                    zhHans: "棋盘保存未成功，已保留编辑内容，请重试。",
+                    zhHant: "棋盤儲存未成功，已保留編輯內容，請重試。",
+                    ja: "ボードを保存できませんでした。編集内容は保持されています。もう一度お試しください。"
+                )
+            )
+            return
+        }
         onBoardApplied()
         didApplyToBoard = true
         onSaveSuccess(L10n.quickEditAppliedSuccess(min(plan.tasks.count, plan.targetGridSize * plan.targetGridSize)))
@@ -1192,21 +1239,29 @@ struct QuickEditView: View {
         let result = quickEditAddPreviewTask(
             key: key,
             candidateTaskMap: candidateTaskMap,
-            currentSlots: previewSlots
+            currentSlots: previewSlots,
+            deselectedTaskDrafts: &deselectedTaskDrafts,
+            completionHistoryCountProvider: viewModel.completionHistoryCount(for:)
         )
         previewSlots = result.updatedSlots
         return result.wasAdded
     }
 
     private func removePreviewTask(for key: String) {
-        previewSlots = quickEditRemovePreviewTask(key: key, currentSlots: previewSlots)
+        previewSlots = quickEditRemovePreviewTask(
+            key: key,
+            currentSlots: previewSlots,
+            candidateTaskMap: candidateTaskMap,
+            deselectedTaskDrafts: &deselectedTaskDrafts
+        )
     }
 
     private func syncPreviewSlotsWithCurrentLibrary() {
         previewSlots = quickEditSyncPreviewSlotsWithLibrary(
             currentSlots: previewSlots,
             candidateTaskMap: candidateTaskMap,
-            totalGridSlots: totalGridSlots
+            totalGridSlots: totalGridSlots,
+            completionHistoryCountProvider: viewModel.completionHistoryCount(for:)
         )
     }
 

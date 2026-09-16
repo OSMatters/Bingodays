@@ -96,6 +96,18 @@ struct DailyResetToastView: View {
     }
 }
 
+struct CompletedSingleTaskRemovalToastView: View {
+    let isPadLayout: Bool
+
+    var body: some View {
+        IOSNativeToastView(
+            L10n.completedSingleTaskRemovedMessage,
+            systemImage: "checkmark.circle.fill",
+            isPadLayout: isPadLayout
+        )
+    }
+}
+
 struct CommonTasksToastView: View {
     let message: String
     let isPadLayout: Bool

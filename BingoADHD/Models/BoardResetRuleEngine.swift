@@ -1,5 +1,35 @@
 import Foundation
 
+enum TaskLifecycleRuleEngine {
+    enum DailySettlementAction {
+        case preserve
+        case remove
+        case resetCompletion
+    }
+
+    /// Resolves the task-level effect of a scheduled board reset. A single task
+    /// is a one-completion task, so the default reset carries unfinished work
+    /// forward while completed work leaves the board.
+    static func dailySettlementAction(
+        for cell: BingoCell,
+        mode: BoardTaskResetMode
+    ) -> DailySettlementAction {
+        guard cell.hasStoredTask else { return .preserve }
+
+        switch mode {
+        case .resetStatusNextDay, .customResetStatusTime:
+            if cell.hasRepeatingSchedule {
+                return .resetCompletion
+            }
+            return cell.isCompleted ? .remove : .preserve
+        case .clearTasksNextDay:
+            return cell.hasRepeatingSchedule ? .resetCompletion : .remove
+        case .keepTaskStatus:
+            return .preserve
+        }
+    }
+}
+
 struct BoardResetEvaluation {
     let usesCustomResetTime: Bool
     let customResetDue: Bool
@@ -180,40 +210,32 @@ enum BoardResetRuleEngine {
         switch mode {
         case .resetStatusNextDay, .customResetStatusTime:
             fullBoard = BoardEngine.expandedBoardCache(from: board)
-            let calendar = Calendar.current
             for row in fullBoard.indices {
                 for col in fullBoard[row].indices {
-                    fullBoard[row][col] = normalizedBoardCellForNextDay(
-                        fullBoard[row][col],
-                        referenceDate: referenceDate,
-                        calendar: calendar
-                    )
-                }
-            }
-            for row in fullBoard.indices {
-                for col in fullBoard[row].indices {
-                    guard !fullBoard[row][col].isEmpty else { continue }
-                    fullBoard[row][col].isCompleted = false
-                    fullBoard[row][col].isTaskHidden = false
-                    fullBoard[row][col].countdownEndsAt = nil
-                    fullBoard[row][col].countdownPausedRemainingSeconds = nil
-                    fullBoard[row][col].estimatedDurationMinutes = nil
+                    var cell = normalizedBoardCellForNextDay(fullBoard[row][col])
+                    switch TaskLifecycleRuleEngine.dailySettlementAction(for: cell, mode: mode) {
+                    case .preserve:
+                        clearDailyRuntimeState(&cell)
+                    case .remove:
+                        cell = BingoCell()
+                    case .resetCompletion:
+                        resetCurrentCycleState(&cell)
+                    }
+                    fullBoard[row][col] = cell
                 }
             }
             normalizeForceFlagsForBoardReset(&fullBoard, referenceDate: referenceDate)
         case .clearTasksNextDay:
             fullBoard = BoardEngine.expandedBoardCache(from: board)
-            let calendar = Calendar.current
             for row in fullBoard.indices {
                 for col in fullBoard[row].indices {
-                    var cell = normalizedBoardCellForNextDay(
-                        fullBoard[row][col],
-                        referenceDate: referenceDate,
-                        calendar: calendar
-                    )
-                    if !cell.hasPlannedSchedule {
+                    var cell = normalizedBoardCellForNextDay(fullBoard[row][col])
+                    switch TaskLifecycleRuleEngine.dailySettlementAction(for: cell, mode: mode) {
+                    case .preserve:
+                        clearDailyRuntimeState(&cell)
+                    case .remove:
                         cell = BingoCell()
-                    } else {
+                    case .resetCompletion:
                         resetCurrentCycleState(&cell)
                     }
                     fullBoard[row][col] = cell
@@ -239,36 +261,20 @@ enum BoardResetRuleEngine {
         )
     }
 
-    private static func normalizedBoardCellForNextDay(
-        _ cell: BingoCell,
-        referenceDate: Date,
-        calendar: Calendar = .current
-    ) -> BingoCell {
+    private static func normalizedBoardCellForNextDay(_ cell: BingoCell) -> BingoCell {
         var updated = cell
 
         if updated.isForced, updated.isCompleted {
             updated.isForced = false
         }
-
-        if updated.isOneTimeTask,
-           let oneTimeVisibleDate = updated.oneTimeVisibleDate,
-           !calendar.isDate(oneTimeVisibleDate, inSameDayAs: referenceDate) {
-            updated.text = ""
-            updated.residentTaskText = nil
-            updated.residentWeekdays = []
-            updated.oneTimeVisibleDate = nil
-            updated.recurrenceRule = nil
-            updated.isTaskHidden = false
-            updated.isForced = false
-            updated.countdownEndsAt = nil
-            updated.countdownPausedRemainingSeconds = nil
-            updated.estimatedDurationMinutes = nil
-            updated.completionStreakCount = 0
-            updated.lastCompletedAt = nil
-            updated.isCompleted = false
-        }
-
         return updated
+    }
+
+    private static func clearDailyRuntimeState(_ cell: inout BingoCell) {
+        cell.isForced = false
+        cell.countdownEndsAt = nil
+        cell.countdownPausedRemainingSeconds = nil
+        cell.estimatedDurationMinutes = nil
     }
 
     private static func resetCurrentCycleState(_ cell: inout BingoCell) {

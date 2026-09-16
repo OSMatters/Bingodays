@@ -19,7 +19,10 @@ struct EditTaskSheet: View {
     @State var startReminderOffsetMinutes: Int
     let isCompletedTask: Bool
     let usesClearPresentationBackground: Bool
-    let onSave: (String, Bool, Set<Int>, Bool, TaskRecurrenceRule?, Int?, Date?, Date?, Bool, Int) -> Void
+    let completionHistoryCountProvider: (String) -> Int
+    let diagnosticCellID: UUID?
+    let diagnosticSource: String
+    let onSave: (String, Bool, Set<Int>, Bool, TaskRecurrenceRule?, Int?, Date?, Date?, Bool, Int) -> Bool
     let onDelete: () -> Void
     let onCancel: () -> Void
 
@@ -82,7 +85,10 @@ struct EditTaskSheet: View {
         isCompletedTask: Bool,
         estimatedDurationMinutes: Int?,
         usesClearPresentationBackground: Bool = false,
-        onSave: @escaping (String, Bool, Set<Int>, Bool, TaskRecurrenceRule?, Int?, Date?, Date?, Bool, Int) -> Void,
+        completionHistoryCountProvider: @escaping (String) -> Int = { _ in 0 },
+        diagnosticCellID: UUID? = nil,
+        diagnosticSource: String = "task_editor",
+        onSave: @escaping (String, Bool, Set<Int>, Bool, TaskRecurrenceRule?, Int?, Date?, Date?, Bool, Int) -> Bool,
         onDelete: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -102,12 +108,20 @@ struct EditTaskSheet: View {
             resolvedKind = .none
         }
 
+        let isNewTask = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let initialScheduleMode: TaskScheduleMode = hasRepeatingSchedule || isNewTask
+            ? .repeating
+            : .single
+        let initialRecurrenceKind: TaskRecurrenceRule.Kind = hasRepeatingSchedule
+            ? resolvedKind
+            : (isNewTask ? .daily : .none)
+
         _text = State(initialValue: text)
         _isForcedTask = State(initialValue: isForcedTask)
         _residentWeekdays = State(initialValue: normalizedRecurrenceRule?.kind == .weekly ? normalizedRecurrenceRule?.weekdays ?? residentWeekdays : residentWeekdays)
-        _isOneTimeTask = State(initialValue: resolvedKind == .none)
-        _scheduleMode = State(initialValue: hasRepeatingSchedule ? .repeating : .single)
-        _recurrenceKind = State(initialValue: resolvedKind)
+        _isOneTimeTask = State(initialValue: initialScheduleMode == .single)
+        _scheduleMode = State(initialValue: initialScheduleMode)
+        _recurrenceKind = State(initialValue: initialRecurrenceKind)
         _recurrenceMonthDay = State(initialValue: normalizedRecurrenceRule?.monthDay ?? Calendar.current.component(.day, from: recurrenceDefaultDate))
         _recurrenceDayInterval = State(initialValue: normalizedRecurrenceRule?.interval ?? TaskRecurrenceRule.defaultDayInterval)
         _recurrenceAnchorDate = State(initialValue: normalizedRecurrenceRule?.anchorDate ?? recurrenceDefaultDate)
@@ -120,6 +134,9 @@ struct EditTaskSheet: View {
         _isTimeWindowExpanded = State(initialValue: resolvedStartVisibleAt != nil || resolvedEndVisibleAt != nil)
         self.isCompletedTask = isCompletedTask
         self.usesClearPresentationBackground = usesClearPresentationBackground
+        self.completionHistoryCountProvider = completionHistoryCountProvider
+        self.diagnosticCellID = diagnosticCellID
+        self.diagnosticSource = diagnosticSource
         self.onSave = onSave
         self.onDelete = onDelete
         self.onCancel = onCancel
@@ -145,6 +162,13 @@ struct EditTaskSheet: View {
     private let fieldColor = Color(hex: "3F3F3F")
     private let fieldBorderColor = Color.clear
     private let primaryTextColor = Color.white
+
+    private var taskCompletionHistoryPreviewCount: Int? {
+        let count = completionHistoryCountProvider(text)
+        return TaskCompletionHistoryRuleEngine.shouldDisplayCompletionHistoryBadge(count: count)
+            ? count
+            : nil
+    }
     private let secondaryTextColor = Color(hex: "828282")
     private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
     private var accentColor: Color { activeTheme.color }
@@ -391,6 +415,12 @@ struct EditTaskSheet: View {
                     .padding(.trailing, 12)
             }
 
+            if let taskCompletionHistoryPreviewCount {
+                Label(L10n.taskCompletionHistoryPreview(taskCompletionHistoryPreviewCount), systemImage: "clock.arrow.circlepath")
+                    .font(bodySFont.weight(.medium))
+                    .foregroundColor(accentColor.opacity(0.92))
+            }
+
             if speechRecognizer.isRecording {
                 HStack(spacing: 6) {
                     Circle()
@@ -473,18 +503,32 @@ struct EditTaskSheet: View {
 
             HStack(spacing: 8) {
                 selectionButton(
-                    title: L10n.tr("Single", zhHans: "单次", zhHant: "單次", ja: "単発"),
-                    isSelected: scheduleMode == .single
-                ) {
-                    selectScheduleMode(.single)
-                }
-
-                selectionButton(
                     title: L10n.tr("Repeat", zhHans: "重复", zhHant: "重複", ja: "繰り返し"),
                     isSelected: scheduleMode == .repeating
                 ) {
                     selectScheduleMode(.repeating)
                 }
+
+                selectionButton(
+                    title: L10n.tr("Single", zhHans: "单次", zhHant: "單次", ja: "単発"),
+                    isSelected: scheduleMode == .single
+                ) {
+                    selectScheduleMode(.single)
+                }
+            }
+
+            if scheduleMode == .single {
+                Text(
+                    L10n.tr(
+                        "After the daily reset, completed tasks leave the board and unfinished tasks remain.",
+                        zhHans: "次日格子重置后，已完成任务移出棋盘，未完成任务将保留。",
+                        zhHant: "隔日格子重置後，已完成任務會移出棋盤，未完成任務會保留。",
+                        ja: "翌日のタスクのリセット後、完了したタスクはボードから外れ、未完了のタスクは残ります。"
+                    )
+                )
+                .font(bodySFont.weight(.medium))
+                .foregroundColor(secondaryTextColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -749,7 +793,11 @@ struct EditTaskSheet: View {
             )
             return
         }
-        if shouldValidateStartDateAgainstNow, let saveStartVisibleAt, saveStartVisibleAt < minimumSelectableDate {
+        if shouldValidateStartDateAgainstNow,
+           !TaskTimeWindowValidationRules.isStartTimeAllowed(
+               saveStartVisibleAt,
+               now: minimumSelectableDate
+           ) {
             showBlockedSaveToast(
                 L10n.tr(
                     "Start time can't be in the past.",
@@ -785,7 +833,11 @@ struct EditTaskSheet: View {
             )
             return
         }
-        if shouldValidateEndDateAgainstNow, let saveEndVisibleAt, saveEndVisibleAt < minimumSelectableDateForActiveField(.end) {
+        if shouldValidateEndDateAgainstNow,
+           !TaskTimeWindowValidationRules.isEndTimeAllowed(
+               saveEndVisibleAt,
+               now: minimumSelectableDateForActiveField(.end)
+           ) {
             showBlockedSaveToast(
                 L10n.tr(
                     "End time can't be in the past.",
@@ -814,7 +866,16 @@ struct EditTaskSheet: View {
         let recurrenceRule = recurrenceRuleForSave()
         let legacyResidentWeekdays = recurrenceRule?.kind == .weekly ? recurrenceRule?.weekdays ?? [] : []
         let legacyIsOneTimeTask = recurrenceRule == nil && (saveStartVisibleAt != nil || saveEndVisibleAt != nil)
-        onSave(
+        let diagnosticDetails = [
+            "operation_id": UUID().uuidString,
+            "source": diagnosticSource,
+            "cell_id": diagnosticCellID?.uuidString ?? "new",
+            "selected_mode": scheduleMode == .repeating ? "repeating" : "single",
+            "selected_kind": recurrenceKind.rawValue,
+            "submitted_rule": recurrenceRule?.kind.rawValue ?? "single"
+        ]
+        DiagnosticLogStore.recordUserAction("task_rule.editor_submitted", details: diagnosticDetails)
+        let didSave = onSave(
             text,
             isForcedTask,
             legacyResidentWeekdays,
@@ -826,6 +887,16 @@ struct EditTaskSheet: View {
             resolvedStartReminderEnabled,
             startReminderOffsetMinutes
         )
+        DiagnosticLogStore.recordStateChange("task_rule.editor_save_result", details:
+            diagnosticDetails.merging(["accepted": String(didSave)]) { current, _ in current })
+        if !didSave {
+            showBlockedSaveToast(L10n.tr(
+                "Couldn't save. Your changes are still here. Please try again.",
+                zhHans: "保存未成功，已保留编辑内容，请重试。",
+                zhHant: "儲存未成功，已保留編輯內容，請重試。",
+                ja: "保存できませんでした。入力内容は保持されています。もう一度お試しください。"
+            ))
+        }
     }
 
     private func clearCountdownSelection() {
@@ -1915,7 +1986,18 @@ struct EditTaskSheet: View {
 }
 
 struct NeumorphicSwitchToggleStyle: ToggleStyle {
+    @ViewBuilder
     func makeBody(configuration: Configuration) -> some View {
+        if #available(iOS 26.0, *) {
+            Toggle(configuration)
+                .toggleStyle(.switch)
+                .tint(NeumorphicColors.accent)
+        } else {
+            legacyBody(configuration: configuration)
+        }
+    }
+
+    private func legacyBody(configuration: Configuration) -> some View {
         Button {
             configuration.isOn.toggle()
         } label: {

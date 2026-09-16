@@ -12,7 +12,7 @@ enum DiagnosticLogStore {
         case error
     }
 
-    struct Entry: Codable {
+    struct Entry: Codable, Equatable {
         let timestamp: Date
         let level: Level
         let category: String
@@ -22,9 +22,19 @@ enum DiagnosticLogStore {
 
     private static let storageKey = "diagnostic_log_entries_v1"
     private static let maxEntries = 160
+    private static let maxCriticalEntries = 240
     private static let maxDetailValueLength = 120
-    private static let maxExportCharacters = 12_000
+    private static let maxExportCharacters = 32_000
+    private static let criticalStorageKey = "diagnostic_critical_entries_v1"
+    private static let ruleStorageKey = "diagnostic_task_rule_entries_v1"
+    private static let maxRuleEntries = 240
+    static let processSource = Bundle.main.bundleURL.pathExtension == "appex" ? "widget" : "app"
+    private static var sharedLogURL: URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: BingoBoardStore.appGroupID)?
+            .appendingPathComponent("diagnostic_\(processSource)_v2.json")
+    }
     private static let lock = NSLock()
+    private static var entriesCache: [Entry]?
 
     static func record(
         _ name: String,
@@ -38,7 +48,11 @@ enum DiagnosticLogStore {
             level: level,
             category: sanitizedKey(category),
             name: sanitizedKey(name),
-            details: sanitizedDetails(details)
+            details: sanitizedDetails(details.merging([
+                "process": processSource,
+                "app_version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
+                "app_build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+            ]) { current, _ in current })
         )
 
         #if DEBUG
@@ -54,12 +68,32 @@ enum DiagnosticLogStore {
         lock.lock()
         defer { lock.unlock() }
 
-        var entries = loadEntries()
+        var entries = cachedEntries()
         entries.append(entry)
         if entries.count > maxEntries {
             entries = Array(entries.suffix(maxEntries))
         }
+        entriesCache = entries
         saveEntries(entries)
+        var critical = loadCriticalEntries()
+        var rules = loadRuleEntries()
+        if isRuleTrace(entry) {
+            rules.append(entry)
+            rules = retainedRuleEntries(rules)
+            if let data = try? JSONEncoder().encode(rules) {
+                UserDefaults.standard.set(data, forKey: ruleStorageKey)
+            }
+        } else if isCritical(entry) {
+            critical.append(entry)
+            critical = Array(critical.suffix(maxCriticalEntries))
+            if let data = try? JSONEncoder().encode(critical) {
+                UserDefaults.standard.set(data, forKey: criticalStorageKey)
+            }
+        }
+        if let url = sharedLogURL,
+           let data = try? JSONEncoder().encode(rules + critical + entries.filter { !isCritical($0) }) {
+            try? data.write(to: url, options: .atomic)
+        }
     }
 
     static func recordUserAction(_ name: String, details: [String: String] = [:]) {
@@ -75,7 +109,49 @@ enum DiagnosticLogStore {
     }
 
     static func exportText() -> String {
-        let entries = snapshot()
+        var entries = snapshot()
+        for entry in loadCriticalEntries() where !entries.contains(entry) {
+            entries.append(entry)
+        }
+        for entry in loadRuleEntries() where !entries.contains(entry) {
+            entries.append(entry)
+        }
+        if let ownURL = sharedLogURL {
+            let otherSource = processSource == "app" ? "widget" : "app"
+            let otherURL = ownURL.deletingLastPathComponent().appendingPathComponent("diagnostic_\(otherSource)_v2.json")
+            if let data = try? Data(contentsOf: otherURL),
+               let otherEntries = try? JSONDecoder().decode([Entry].self, from: data) {
+                entries.append(contentsOf: otherEntries)
+            }
+        }
+        return exportText(entries: entries)
+    }
+
+    static func isCritical(_ entry: Entry) -> Bool {
+        isRuleTrace(entry) || entry.level != .info ||
+            entry.name.hasPrefix("board.snapshot_") || entry.name.hasPrefix("board_reset.")
+    }
+
+    static func isRuleTrace(_ entry: Entry) -> Bool {
+        entry.name.hasPrefix("task_edit.") || entry.name.hasPrefix("task_rule.") ||
+            (entry.name == "board.snapshot_task_transition" && entry.details["after_rule"] != "removed")
+    }
+
+    static func retainedRuleEntries(_ entries: [Entry]) -> [Entry] {
+        Array(entries.filter(isRuleTrace).sorted { $0.timestamp < $1.timestamp }.suffix(maxRuleEntries))
+    }
+
+    private static func loadRuleEntries() -> [Entry] {
+        guard let data = UserDefaults.standard.data(forKey: ruleStorageKey) else { return [] }
+        return (try? JSONDecoder().decode([Entry].self, from: data)) ?? []
+    }
+
+    private static func loadCriticalEntries() -> [Entry] {
+        guard let data = UserDefaults.standard.data(forKey: criticalStorageKey) else { return [] }
+        return (try? JSONDecoder().decode([Entry].self, from: data)) ?? []
+    }
+
+    static func exportText(entries: [Entry]) -> String {
         guard !entries.isEmpty else {
             return "No diagnostic events recorded."
         }
@@ -83,7 +159,7 @@ enum DiagnosticLogStore {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
-        let text = entries.map { entry in
+        func line(_ entry: Entry) -> String {
             let detailsText = entry.details
                 .sorted { $0.key < $1.key }
                 .map { "\($0.key)=\($0.value)" }
@@ -91,20 +167,30 @@ enum DiagnosticLogStore {
             let suffix = detailsText.isEmpty ? "" : " \(detailsText)"
             return "\(formatter.string(from: entry.timestamp)) [\(entry.level.rawValue)] \(entry.category).\(entry.name)\(suffix)"
         }
-        .joined(separator: "\n")
-
-        guard text.count > maxExportCharacters else {
-            return text
+        // Reserve most of the export for rule mutations; never truncate a line.
+        func bounded(_ source: [Entry], budget: Int) -> [Entry] {
+            var remaining = budget
+            return source.sorted { $0.timestamp > $1.timestamp }.filter {
+                let count = line($0).count + 1
+                guard count <= remaining else { return false }
+                remaining -= count
+                return true
+            }
         }
-
-        return "Diagnostic log truncated to latest \(maxExportCharacters) characters.\n"
-            + String(text.suffix(maxExportCharacters))
+        let budget = maxExportCharacters - 200
+        let rules = bounded(entries.filter(isRuleTrace), budget: budget / 2)
+        let ruleCharacters = rules.reduce(0) { $0 + line($1).count + 1 }
+        let critical = bounded(entries.filter { isCritical($0) && !isRuleTrace($0) }, budget: budget * 3 / 4 - ruleCharacters)
+        let used = ruleCharacters + critical.reduce(0) { $0 + line($1).count + 1 }
+        let recent = bounded(entries.filter { !isCritical($0) }, budget: budget - used)
+        let selected = (rules + critical + recent).sorted { $0.timestamp < $1.timestamp }
+        return "Diagnostic v3: selected=\(selected.count) available=\(entries.count); task-rule history reserved.\n" + selected.map(line).joined(separator: "\n")
     }
 
     static func snapshot() -> [Entry] {
         lock.lock()
         defer { lock.unlock() }
-        return loadEntries()
+        return cachedEntries()
     }
 
     /// Returns the durable points state immediately before the current run of
@@ -170,6 +256,15 @@ enum DiagnosticLogStore {
             return []
         }
         return (try? JSONDecoder().decode([Entry].self, from: data)) ?? []
+    }
+
+    private static func cachedEntries() -> [Entry] {
+        if let entriesCache {
+            return entriesCache
+        }
+        let entries = loadEntries()
+        entriesCache = entries
+        return entries
     }
 
     private static func saveEntries(_ entries: [Entry]) {

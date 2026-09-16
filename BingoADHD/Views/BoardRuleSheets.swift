@@ -5,7 +5,18 @@ struct SidebarGlassToggleStyle: ToggleStyle {
     var accentColor: Color = NeumorphicColors.accent
     var inactiveColor: Color = Color.white.opacity(0.18)
 
+    @ViewBuilder
     func makeBody(configuration: Configuration) -> some View {
+        if #available(iOS 26.0, *) {
+            Toggle(configuration)
+                .toggleStyle(.switch)
+                .tint(accentColor)
+        } else {
+            legacyBody(configuration: configuration)
+        }
+    }
+
+    private func legacyBody(configuration: Configuration) -> some View {
         Button {
             withAnimation(.interpolatingSpring(stiffness: 210, damping: 18)) {
                 configuration.isOn.toggle()
@@ -488,10 +499,10 @@ struct BoardRulesSheet: View {
                     mode: .resetStatusNextDay,
                     title: L10n.tr("Reset status", zhHans: "重置状态", zhHant: "重置狀態", ja: "状態をリセット"),
                     hint: L10n.tr(
-                        "At the reset time each day, regular and repeating tasks return to incomplete, and the board countdown ends.",
-                        zhHans: "每天到达重置时间后，单次任务和重复任务都会回到未完成，面板倒计时同时结束。",
-                        zhHant: "每天到達重置時間後，單次任務和重複任務都會回到未完成，面板倒計時同時結束。",
-                        ja: "毎日リセット時刻になると、通常タスクと繰り返しタスクが未完了に戻り、ボードのカウントダウンも終了します。"
+                        "At the reset time each day, completed one-time tasks leave the board, unfinished one-time tasks stay, and repeating tasks return to incomplete.",
+                        zhHans: "每天到达重置时间后，已完成的单次任务会离开棋盘，未完成的单次任务会保留，重复任务会回到未完成。",
+                        zhHant: "每天到達重置時間後，已完成的單次任務會離開棋盤，未完成的單次任務會保留，重複任務會回到未完成。",
+                        ja: "毎日リセット時刻になると、完了した単発タスクはボードから消え、未完了の単発タスクは残り、繰り返しタスクは未完了に戻ります。"
                     )
                 )
 
@@ -620,7 +631,18 @@ struct BoardRulesSheet: View {
 private struct BoardRulesCountdownToggleStyle: ToggleStyle {
     let onTint: Color
 
+    @ViewBuilder
     func makeBody(configuration: Configuration) -> some View {
+        if #available(iOS 26.0, *) {
+            Toggle(configuration)
+                .toggleStyle(.switch)
+                .tint(onTint)
+        } else {
+            legacyBody(configuration: configuration)
+        }
+    }
+
+    private func legacyBody(configuration: Configuration) -> some View {
         Button {
             withAnimation(.easeInOut(duration: 0.18)) {
                 configuration.isOn.toggle()

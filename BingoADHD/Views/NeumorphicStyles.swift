@@ -253,13 +253,12 @@ extension View {
     }
 
     @ViewBuilder
-    func appLiquidGlass<S: Shape>(in shape: S, interactive: Bool = true) -> some View {
+    func appLiquidGlass<S: Shape>(
+        in shape: S,
+        interactive: Bool = true
+    ) -> some View {
         if #available(iOS 26.0, *) {
             self
-                .background {
-                    shape
-                        .fill(Color.white.opacity(0.42))
-                }
                 .glassEffect(.regular.interactive(interactive), in: shape)
         } else {
             self.background {
@@ -283,6 +282,17 @@ extension View {
                 }
                 .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
             }
+        }
+    }
+}
+
+extension View {
+    @ViewBuilder
+    func appGlassEffectContainer(spacing: CGFloat = 20) -> some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing) { self }
+        } else {
+            self
         }
     }
 }

@@ -647,6 +647,7 @@ private struct PointsDetailSheet: View {
             }
             .buttonStyle(.plain)
         }
+        .appGlassEffectContainer()
     }
 
     private var tabSelector: some View {
@@ -713,11 +714,6 @@ private struct PointsDetailSheet: View {
                         .interpolation(.high)
                         .scaledToFit()
                         .frame(height: scaled(116, pad: 150))
-
-                    Text("\(sticker.requiredPoints) \(L10n.pointsUnit)")
-                        .font(.appSystem(size: scaled(14, pad: 17), weight: .semibold, design: .rounded))
-                        .foregroundColor(.white)
-                        .offset(y: scaled(12, pad: 16))
                 }
             }
             .frame(maxWidth: .infinity)
@@ -862,7 +858,7 @@ private struct PointsDetailSheet: View {
                         .minimumScaleFactor(0.72)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, scaled(14, pad: 18))
-                        .offset(y: scaled(-11, pad: 34))
+                        .offset(y: scaled(-3, pad: 42))
 
                     Spacer(minLength: scaled(32, pad: 40))
                 }

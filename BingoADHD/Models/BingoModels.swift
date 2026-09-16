@@ -427,6 +427,19 @@ struct BingoCell: Identifiable, Codable, Equatable {
         return recurrenceRule.kind != .none
     }
 
+    var diagnosticTaskRuleKind: String {
+        if let recurrenceRule {
+            return recurrenceRule.kind.rawValue
+        }
+        if !residentWeekdays.isEmpty {
+            return "legacy_weekly"
+        }
+        if oneTimeVisibleDate != nil || startVisibleAt != nil || endVisibleAt != nil {
+            return "single_scheduled"
+        }
+        return "single"
+    }
+
     var isOneTimeTask: Bool {
         if let recurrenceRule {
             return recurrenceRule.kind == .none && hasStoredTask
@@ -502,6 +515,12 @@ struct BingoCell: Identifiable, Codable, Equatable {
     }
 
     func isResidentActive(on date: Date, calendar: Calendar = .current) -> Bool {
+        // A single task with an explicit availability window stays actionable for
+        // the whole window. Its legacy one-time anchor only identifies the task;
+        // it must not impose a second one-day lifetime.
+        if isOneTimeTask, hasVisibilityWindow {
+            return true
+        }
         guard let recurrenceRule = effectiveRecurrenceRule else { return true }
         return recurrenceRule.isActive(on: date, calendar: calendar)
     }
@@ -958,6 +977,23 @@ struct TaskHistoryRecord: Identifiable, Codable, Equatable {
     }
 }
 
+/// A durable, task-name scoped completion total. This is intentionally separate
+/// from `TaskHistoryRecord`, which powers the task library and carries schedule
+/// metadata that must never be restored onto a newly added board cell.
+struct TaskCompletionHistoryRecord: Identifiable, Codable, Equatable {
+    let key: String
+    var completionCount: Int
+    var lastArchivedAt: Date
+
+    var id: String { key }
+
+    init(key: String, completionCount: Int, lastArchivedAt: Date = .now) {
+        self.key = key
+        self.completionCount = max(completionCount, 0)
+        self.lastArchivedAt = lastArchivedAt
+    }
+}
+
 struct CustomReward: Identifiable, Codable, Equatable {
     static let currentCardStyleVersion = 2
 
@@ -1318,6 +1354,8 @@ enum AppSettings {
     static let pointRedemptionLedgerInitializedKey = "point_redemption_ledger_initialized_v1"
     static let rewardEmojiHistoryKey = "reward_emoji_history_v1"
     static let taskHistoryKey = "task_history_v1"
+    static let taskCompletionHistoryKey = "task_completion_history_v1"
+    static let taskCompletionHistoryMigrationVersionKey = "task_completion_history_migration_version_v1"
     static let lastAppUpdateCheckAtKey = "last_app_update_check_at_v1"
     static let lastPromptedUpdateVersionKey = "last_prompted_update_version_v1"
     static let skippedUpdateVersionKey = "skipped_update_version_v1"

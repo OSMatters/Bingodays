@@ -246,6 +246,14 @@ enum L10n {
             zhHant: "任務狀態已依你的面板規則重置，積分已保留。"
         )
     }
+    static var completedSingleTaskRemovedMessage: String {
+        tr(
+            "Completed single tasks were removed from the board.",
+            zhHans: "已完成的单次任务已从面板移除",
+            zhHant: "已完成的單次任務已從面板移除",
+            ja: "完了した単発タスクはボードから削除されました"
+        )
+    }
     static var ok: String { tr("OK", zhHans: "好的", ja: "OK") }
     static var setBoardCountdown: String { tr("Countdown", zhHans: "倒计时", ja: "カウントダウン") }
     static var myTasks: String { tr("My Tasks", zhHans: "我的任务", ja: "マイタスク") }
@@ -256,7 +264,7 @@ enum L10n {
     static var contactUsTitle: String { tr("Contact Us", zhHans: "联系我们", zhHant: "聯絡我們", ja: "お問い合わせ") }
     static var contactUsEmail: String { tr("Evalong9820@gmail.com", zhHans: "Evalong9820@gmail.com", zhHant: "Evalong9820@gmail.com", ja: "Evalong9820@gmail.com") }
     static var contactUsMessage: String {
-        tr(
+        return tr(
             "Thank you for using Bingodays. You can report a problem or send us a feature suggestion by email.",
             zhHans: "感谢你使用 Bingodays，你可以通过邮件反馈问题或提出功能建议。",
             zhHant: "感謝你使用 Bingodays，你可以透過電子郵件回報問題或提出功能建議。",
@@ -283,8 +291,13 @@ enum L10n {
     static var appReviewPromptDismissAction: String { tr("No, thanks", zhHans: "不，我拒绝", zhHant: "不，我拒絕", ja: "いいえ") }
     static var appReviewFeedbackEmailSubject: String { tr("Bingodays feedback", zhHans: "Bingodays 问题反馈", zhHant: "Bingodays 問題回報", ja: "Bingodays フィードバック") }
     static var featureSuggestionEmailSubject: String { tr("Bingodays feature suggestion", zhHans: "Bingodays 功能建议", zhHant: "Bingodays 功能建議", ja: "Bingodays 機能提案") }
-    static func appReviewFeedbackEmailBody(appVersion: String, device: String, system: String, diagnosticLog: String) -> String {
-        tr(
+    static func appReviewFeedbackEmailBody(
+        appVersion: String,
+        device: String,
+        system: String,
+        diagnosticLog: String
+    ) -> String {
+        return tr(
             """
             Hi Bingodays team,
 
@@ -346,8 +359,13 @@ enum L10n {
             """
         )
     }
-    static func featureSuggestionEmailBody(appVersion: String, device: String, system: String) -> String {
-        tr(
+    static func featureSuggestionEmailBody(
+        appVersion: String,
+        device: String,
+        system: String,
+        diagnosticMarker: String
+    ) -> String {
+        return tr(
             """
             Hi Bingodays team,
 
@@ -358,6 +376,9 @@ enum L10n {
             App version: \(appVersion)
             Device: \(device)
             System: \(system)
+
+            Diagnostic log:
+            \(diagnosticMarker)
             """,
             zhHans:
             """
@@ -370,6 +391,9 @@ enum L10n {
             App 版本：\(appVersion)
             设备：\(device)
             系统：\(system)
+
+            诊断日志：
+            \(diagnosticMarker)
             """,
             zhHant:
             """
@@ -382,6 +406,9 @@ enum L10n {
             App 版本：\(appVersion)
             裝置：\(device)
             系統：\(system)
+
+            診斷日誌：
+            \(diagnosticMarker)
             """,
             ja:
             """
@@ -394,6 +421,9 @@ enum L10n {
             App version: \(appVersion)
             Device: \(device)
             System: \(system)
+
+            Diagnostic log:
+            \(diagnosticMarker)
             """
         )
     }
@@ -462,6 +492,14 @@ enum L10n {
         )
     }
     static var paywallEditAllHistoryTasks: String { tr("Edit all history tasks", zhHans: "编辑所有历史任务", zhHant: "編輯所有歷史任務", ja: "すべての履歴タスクを編集") }
+    static func taskCompletionHistoryPreview(_ count: Int) -> String {
+        tr(
+            "Previous completions: ×\(count)",
+            zhHans: "历史完成次数：×\(count)",
+            zhHant: "歷史完成次數：×\(count)",
+            ja: "これまでの完了回数：×\(count)"
+        )
+    }
     static var paywallCustomResetTime: String {
         tr(
             "Custom task reset time",

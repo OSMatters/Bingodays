@@ -4,11 +4,13 @@ struct BoardResetResult {
     let didReset: Bool
     let didResetActiveBoard: Bool
     let clearedCompletedTaskCount: Int
+    let removedCompletedSingleTaskCount: Int
 
     static let noReset = BoardResetResult(
         didReset: false,
         didResetActiveBoard: false,
-        clearedCompletedTaskCount: 0
+        clearedCompletedTaskCount: 0,
+        removedCompletedSingleTaskCount: 0
     )
 }
 
@@ -49,7 +51,8 @@ struct BoardResetCoordinator {
     mutating func evaluate(
         now: Date = .now,
         force: Bool = false,
-        source: String = "unknown"
+        source: String = "unknown",
+        prepareBoardsForReset: (() -> [BingoBoardStore.NamedBoard])? = nil
     ) -> BoardResetResult {
         debugLog(
             "evaluate.enter source=\(source) force=\(force) day=\(PointsStore.dateKey(for: now)) " +
@@ -81,6 +84,9 @@ struct BoardResetCoordinator {
 
         debugToast("evaluate day=\(dayKey), force=\(force)")
         lastEvaluationDateKey = dayKey
+        if let prepareBoardsForReset {
+            namedBoards = prepareBoardsForReset()
+        }
         return applyBoardTaskResetRules(now: now, source: source)
     }
 
@@ -185,6 +191,7 @@ struct BoardResetCoordinator {
         var staleForceCount = 0
         var didResetActiveBoard = false
         var activeBoardClearedCompletedTaskCount = 0
+        var activeBoardRemovedCompletedSingleTaskCount = 0
 
         for index in namedBoards.indices {
             let board = namedBoards[index]
@@ -216,6 +223,57 @@ struct BoardResetCoordinator {
                 staleForceCount += 1
             }
 
+            guard TaskCompletionHistoryStore.archiveTasksRemovedByReset(from: board, at: now) else {
+                // Keep this board untouched so the next lifecycle evaluation can
+                // retry without losing a completion count.
+                debugLog("apply.skip_history_save_failed source=\(source) board=\(index)")
+                DiagnosticLogStore.recordWarning(
+                    "board_reset.history_archive_failed",
+                    details: [
+                        "board_id": String(board.id.uuidString.prefix(8)),
+                        "source": source,
+                        "mode": board.taskResetMode.rawValue
+                    ]
+                )
+                continue
+            }
+
+            let taskCells = BoardEngine.expandedBoardCache(from: board.board)
+                .flatMap { $0 }
+                .filter(\.hasStoredTask)
+            var preservedTaskCount = 0
+            var removedTaskCount = 0
+            var resetCompletionTaskCount = 0
+            var removedCompletedSingleTaskCount = 0
+            for cell in taskCells {
+                let action = TaskLifecycleRuleEngine.dailySettlementAction(
+                    for: cell,
+                    mode: board.taskResetMode
+                )
+                switch action {
+                case .preserve:
+                    preservedTaskCount += 1
+                case .remove:
+                    DiagnosticLogStore.recordStateChange("board_reset.task_removal_evaluated", details: [
+                        "board_id": String(board.id.uuidString.prefix(8)),
+                        "cell_id": String(cell.id.uuidString.prefix(8)),
+                        "rule": cell.diagnosticTaskRuleKind,
+                        "completed": String(cell.isCompleted),
+                        "mode": board.taskResetMode.rawValue,
+                        "source": source,
+                        "custom_minutes": board.customResetMinutes.map(String.init) ?? "0",
+                        "timezone": TimeZone.current.identifier,
+                        "previous_reset": board.lastTaskResetAppliedAt.map { String($0.timeIntervalSince1970) } ?? "none",
+                        "evaluated_at": String(now.timeIntervalSince1970)
+                    ])
+                    removedTaskCount += 1
+                    if cell.isCompleted, !cell.hasRepeatingSchedule {
+                        removedCompletedSingleTaskCount += 1
+                    }
+                case .resetCompletion:
+                    resetCompletionTaskCount += 1
+                }
+            }
             let clearedCompletedCount = BoardResetRuleEngine.completedTaskCount(in: board)
             let transformedBoard = BoardResetRuleEngine.transformedBoardSnapshotForResetMode(
                 board.board,
@@ -230,9 +288,26 @@ struct BoardResetCoordinator {
             if board.id == activeBoardID {
                 didResetActiveBoard = true
                 activeBoardClearedCompletedTaskCount = clearedCompletedCount
+                activeBoardRemovedCompletedSingleTaskCount = removedCompletedSingleTaskCount
             }
             hasAnyUpdate = true
             appliedCount += 1
+            DiagnosticLogStore.recordStateChange(
+                "board_reset.applied",
+                details: [
+                    "board_id": String(board.id.uuidString.prefix(8)),
+                    "source": source,
+                    "mode": board.taskResetMode.rawValue,
+                    "custom_minutes": board.customResetMinutes.map(String.init) ?? "none",
+                    "task_count": "\(taskCells.count)",
+                    "completed_before": "\(clearedCompletedCount)",
+                    "preserved": "\(preservedTaskCount)",
+                    "removed": "\(removedTaskCount)",
+                    "removed_completed_single": "\(removedCompletedSingleTaskCount)",
+                    "reset_completion": "\(resetCompletionTaskCount)",
+                    "stale_force": "\(resetEvaluation.shouldForceApplyForStaleCompletion)"
+                ]
+            )
         }
 
         guard hasAnyUpdate else {
@@ -244,7 +319,8 @@ struct BoardResetCoordinator {
         return BoardResetResult(
             didReset: true,
             didResetActiveBoard: didResetActiveBoard,
-            clearedCompletedTaskCount: activeBoardClearedCompletedTaskCount
+            clearedCompletedTaskCount: activeBoardClearedCompletedTaskCount,
+            removedCompletedSingleTaskCount: activeBoardRemovedCompletedSingleTaskCount
         )
     }
 

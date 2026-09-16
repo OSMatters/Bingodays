@@ -40,7 +40,7 @@ struct RewardEditorSheet: View {
     @State private var isEmojiKeyboardPresented = false
     @State private var keyboardHeight: CGFloat = 0
     @State private var emojiHistory: [String]
-    @StateObject private var emojiKeyboardController = EmojiKeyboardController()
+    @StateObject private var inputSession = RewardEditorInputSession()
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var isPadLayout: Bool {
@@ -111,29 +111,25 @@ struct RewardEditorSheet: View {
 
     private func saveReward() {
         guard !isSaving else { return }
-        guard let requiredPoints = normalizedPoints, !normalizedTitle.isEmpty else {
-            finishEditingThenRetrySave()
-            return
-        }
+        endInputSession()
+        guard let requiredPoints = normalizedPoints, !normalizedTitle.isEmpty else { return }
         commitSave(requiredPoints: requiredPoints)
-    }
-
-    private func finishEditingThenRetrySave() {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        isEmojiKeyboardPresented = false
-
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 160_000_000)
-            guard !isSaving, let requiredPoints = normalizedPoints, !normalizedTitle.isEmpty else { return }
-            commitSave(requiredPoints: requiredPoints)
-        }
     }
 
     private func commitSave(requiredPoints: Int) {
         rememberEmoji(selectedEmoji)
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        isEmojiKeyboardPresented = false
         onSave(normalizedTitle, requiredPoints, selectedEmoji, selectedThemeImageName)
+    }
+
+    private func endInputSession() {
+        isEmojiKeyboardPresented = false
+        keyboardHeight = 0
+        inputSession.endEditing()
+    }
+
+    private func cancelEditing() {
+        endInputSession()
+        onCancel()
     }
 
     private var skinPickerContentHeight: CGFloat {
@@ -199,19 +195,11 @@ struct RewardEditorSheet: View {
                         .zIndex(3)
                 }
 
-                if isPadDevice {
+                if isEmojiKeyboardPresented {
                     EmojiKeyboardHost(
                         text: $emojiInputBuffer,
                         isPresented: $isEmojiKeyboardPresented,
-                        activationController: emojiKeyboardController
-                    )
-                        .frame(width: 1, height: 1)
-                        .opacity(0.01)
-                } else if isEmojiKeyboardPresented {
-                    EmojiKeyboardHost(
-                        text: $emojiInputBuffer,
-                        isPresented: $isEmojiKeyboardPresented,
-                        activationController: nil
+                        inputSession: inputSession
                     )
                         .frame(width: 1, height: 1)
                         .opacity(0.01)
@@ -239,6 +227,9 @@ struct RewardEditorSheet: View {
             guard !firstCluster.isEmpty else { return }
             selectedEmoji = firstCluster
             rememberEmoji(firstCluster)
+        }
+        .onDisappear {
+            inputSession.endEditing()
         }
     }
 
@@ -277,7 +268,7 @@ struct RewardEditorSheet: View {
     private var editorHeader: some View {
         HStack {
             Button {
-                onCancel()
+                cancelEditing()
             } label: {
                 LiquidGlassIconBadge(
                     systemName: "chevron.left",
@@ -318,8 +309,9 @@ struct RewardEditorSheet: View {
                 .opacity(canSave ? 1 : 0.52)
             }
             .buttonStyle(.plain)
-            .disabled(isSaving)
+            .disabled(!canSave || isSaving)
         }
+        .appGlassEffectContainer()
     }
 
     private func rewardTicketPreview(cardWidth previewCardWidth: CGFloat, scale: CGFloat) -> some View {
@@ -369,7 +361,8 @@ struct RewardEditorSheet: View {
             font: .systemFont(ofSize: max(scaled(18, pad: 22) * scale, scaled(13, pad: 15)), weight: .regular),
             textColor: UIColor(NeumorphicColors.text),
             placeholderColor: UIColor(red: 0.51, green: 0.51, blue: 0.51, alpha: 1),
-            textAlignment: .center
+            textAlignment: .center,
+            inputSession: inputSession
         )
         .frame(maxWidth: .infinity)
         .frame(height: height)
@@ -389,7 +382,8 @@ struct RewardEditorSheet: View {
                 font: .systemFont(ofSize: max(scaled(16, pad: 19) * scale, scaled(12, pad: 14)), weight: .medium),
                 textColor: UIColor(NeumorphicColors.text),
                 placeholderColor: UIColor(red: 0.51, green: 0.51, blue: 0.51, alpha: 1),
-                textAlignment: .center
+                textAlignment: .center,
+                inputSession: inputSession
             )
                 .frame(width: max(scaled(64, pad: 80) * scale, scaled(44, pad: 54)))
 
@@ -566,7 +560,7 @@ struct RewardEditorSheet: View {
                 ForEach(RewardThemeSkin.all) { skin in
                     Button {
                         selectedThemeImageName = skin.imageName
-                        isEmojiKeyboardPresented = false
+                        endInputSession()
                         emojiInputBuffer = ""
                     } label: {
                         ZStack(alignment: .topTrailing) {
@@ -598,34 +592,16 @@ struct RewardEditorSheet: View {
     }
 
     private func presentEmojiKeyboard() {
-        if isPadDevice {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                selectedThemeImageName = nil
-                selectedSkinTab = .emoji
-                emojiInputBuffer = ""
-                isEmojiKeyboardPresented = true
-            }
-
-            if !emojiKeyboardController.activate() {
-                DispatchQueue.main.async {
-                    emojiKeyboardController.activate()
-                }
-            }
-        } else {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            selectedThemeImageName = nil
-            selectedSkinTab = .emoji
-            emojiInputBuffer = ""
-            isEmojiKeyboardPresented = true
-        }
+        inputSession.endEditing()
+        selectedThemeImageName = nil
+        selectedSkinTab = .emoji
+        emojiInputBuffer = ""
+        isEmojiKeyboardPresented = true
     }
 
     private func dismissKeyboard() {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        endInputSession()
         emojiInputBuffer = ""
-        isEmojiKeyboardPresented = false
     }
 
     private func updateKeyboardHeight(from notification: Notification) {
@@ -654,6 +630,7 @@ private struct RewardInlineTextField: UIViewRepresentable {
     let textColor: UIColor
     let placeholderColor: UIColor
     let textAlignment: NSTextAlignment
+    let inputSession: RewardEditorInputSession
 
     func makeUIView(context: Context) -> UITextField {
         let textField = UITextField(frame: .zero)
@@ -671,6 +648,7 @@ private struct RewardInlineTextField: UIViewRepresentable {
         textField.adjustsFontSizeToFitWidth = true
         textField.minimumFontSize = max(font.pointSize * 0.72, 10)
         applyConfiguration(to: textField)
+        inputSession.register(textField)
         return textField
     }
 
@@ -685,6 +663,11 @@ private struct RewardInlineTextField: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
+    }
+
+    static func dismantleUIView(_ uiView: UITextField, coordinator: Coordinator) {
+        coordinator.parent.inputSession.unregister(uiView)
+        uiView.resignFirstResponder()
     }
 
     private func applyConfiguration(to textField: UITextField) {
@@ -777,10 +760,10 @@ private struct RewardInlineTextField: UIViewRepresentable {
 private struct EmojiKeyboardHost: UIViewRepresentable {
     @Binding var text: String
     @Binding var isPresented: Bool
-    let activationController: EmojiKeyboardController?
+    let inputSession: RewardEditorInputSession
 
-    func makeUIView(context: Context) -> EmojiPreferredTextField {
-        let textField = EmojiPreferredTextField(frame: .zero)
+    func makeUIView(context: Context) -> UITextField {
+        let textField = UITextField(frame: .zero)
         textField.delegate = context.coordinator
         textField.addTarget(context.coordinator, action: #selector(Coordinator.editingChanged(_:)), for: .editingChanged)
         textField.autocorrectionType = .no
@@ -792,39 +775,69 @@ private struct EmojiKeyboardHost: UIViewRepresentable {
         textField.textColor = .clear
         textField.backgroundColor = .clear
         textField.returnKeyType = .done
-        activationController?.attach(textField)
+        inputSession.register(textField)
         return textField
     }
 
-    func updateUIView(_ uiView: EmojiPreferredTextField, context: Context) {
+    func updateUIView(_ uiView: UITextField, context: Context) {
         if uiView.text != text {
             uiView.text = text
         }
 
-        if isPresented, !uiView.isFirstResponder {
-            if activationController == nil {
-                DispatchQueue.main.async {
-                    uiView.becomeFirstResponder()
-                }
-            } else {
-                uiView.becomeFirstResponder()
-            }
-        } else if !isPresented, uiView.isFirstResponder {
+        if isPresented {
+            context.coordinator.requestActivation(for: uiView)
+        } else {
+            context.coordinator.cancelActivation()
             uiView.resignFirstResponder()
         }
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, isPresented: $isPresented)
+        Coordinator(text: $text, isPresented: $isPresented, inputSession: inputSession)
+    }
+
+    static func dismantleUIView(_ uiView: UITextField, coordinator: Coordinator) {
+        coordinator.cancelActivation()
+        coordinator.inputSession?.unregister(uiView)
+        uiView.resignFirstResponder()
     }
 
     final class Coordinator: NSObject, UITextFieldDelegate {
         @Binding private var text: String
         @Binding private var isPresented: Bool
+        weak var inputSession: RewardEditorInputSession?
+        private var activationRequestID = 0
 
-        init(text: Binding<String>, isPresented: Binding<Bool>) {
+        init(
+            text: Binding<String>,
+            isPresented: Binding<Bool>,
+            inputSession: RewardEditorInputSession
+        ) {
             _text = text
             _isPresented = isPresented
+            self.inputSession = inputSession
+        }
+
+        func requestActivation(for textField: UITextField) {
+            guard isPresented, !textField.isFirstResponder else { return }
+
+            activationRequestID += 1
+            let requestID = activationRequestID
+            DispatchQueue.main.async { [weak self, weak textField] in
+                guard let self,
+                      requestID == self.activationRequestID,
+                      self.isPresented,
+                      let textField,
+                      textField.window != nil,
+                      !textField.isFirstResponder else {
+                    return
+                }
+                textField.becomeFirstResponder()
+            }
+        }
+
+        func cancelActivation() {
+            activationRequestID += 1
         }
 
         @objc func editingChanged(_ textField: UITextField) {
@@ -884,29 +897,39 @@ private struct EmojiKeyboardHost: UIViewRepresentable {
     }
 }
 
-@MainActor
-private final class EmojiKeyboardController: ObservableObject {
-    private weak var textField: EmojiPreferredTextField?
-
-    func attach(_ textField: EmojiPreferredTextField) {
-        self.textField = textField
-        _ = textField.textInputMode
-    }
-
-    @discardableResult
-    func activate() -> Bool {
-        guard let textField, textField.window != nil else { return false }
-        return textField.becomeFirstResponder()
-    }
-}
-
 enum CustomRewardThemeCardImage {
     static let aspectRatio: CGFloat = 561.0 / 680.0
     static let contentTopRatio: CGFloat = 0.66
 }
 
-private final class EmojiPreferredTextField: UITextField {
-    override var textInputMode: UITextInputMode? {
-        UITextInputMode.activeInputModes.first(where: { $0.primaryLanguage == "emoji" }) ?? super.textInputMode
+private final class RewardEditorInputSession: ObservableObject {
+    private final class WeakTextField {
+        weak var value: UITextField?
+
+        init(_ value: UITextField) {
+            self.value = value
+        }
+    }
+
+    private var textFields: [ObjectIdentifier: WeakTextField] = [:]
+
+    func register(_ textField: UITextField) {
+        removeReleasedTextFields()
+        textFields[ObjectIdentifier(textField)] = WeakTextField(textField)
+    }
+
+    func unregister(_ textField: UITextField) {
+        textFields.removeValue(forKey: ObjectIdentifier(textField))
+    }
+
+    func endEditing() {
+        removeReleasedTextFields()
+        textFields.values.compactMap(\.value).forEach { textField in
+            textField.resignFirstResponder()
+        }
+    }
+
+    private func removeReleasedTextFields() {
+        textFields = textFields.filter { $0.value.value != nil }
     }
 }

@@ -202,6 +202,7 @@ struct BingoDiaryScreen: View {
         .padding(.horizontal, scaled(12, pad: 20))
         .padding(.top, scaled(6, pad: 10))
         .padding(.bottom, scaled(4, pad: 8))
+        .appGlassEffectContainer()
     }
 
     private var statsSummarySection: some View {

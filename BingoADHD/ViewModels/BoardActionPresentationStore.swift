@@ -71,7 +71,8 @@ final class BoardActionPresentationStore: ObservableObject {
     static func deleteAvailability(
         for boardID: UUID,
         namedBoards: [BingoBoardStore.NamedBoard],
-        allowsDeletingFirstBoard: Bool
+        allowsDeletingFirstBoard: Bool,
+        protectedBoardID: UUID? = nil
     ) -> BoardDeleteAvailability {
         guard namedBoards.count > 1 else {
             return .blocked(
@@ -84,8 +85,7 @@ final class BoardActionPresentationStore: ObservableObject {
         }
 
         if !allowsDeletingFirstBoard,
-           let firstBoardID = namedBoards.first?.id,
-           boardID == firstBoardID {
+           boardID == (protectedBoardID ?? namedBoards.first?.id) {
             return .blocked(
                 L10n.tr(
                     "On Free plan, Board 1 cannot be deleted.",
@@ -101,12 +101,14 @@ final class BoardActionPresentationStore: ObservableObject {
     static func canDeleteBoard(
         _ boardID: UUID,
         namedBoards: [BingoBoardStore.NamedBoard],
-        allowsDeletingFirstBoard: Bool
+        allowsDeletingFirstBoard: Bool,
+        protectedBoardID: UUID? = nil
     ) -> Bool {
         switch deleteAvailability(
             for: boardID,
             namedBoards: namedBoards,
-            allowsDeletingFirstBoard: allowsDeletingFirstBoard
+            allowsDeletingFirstBoard: allowsDeletingFirstBoard,
+            protectedBoardID: protectedBoardID
         ) {
         case .allowed:
             return true

@@ -189,10 +189,6 @@ struct PointsStickerActionOverlay: View {
                     .scaledToFit()
                     .frame(width: scaled(230, pad: 310), height: scaled(270, pad: 350))
 
-                Text("\(sticker.requiredPoints) pts")
-                    .font(.appSystem(size: scaled(24, pad: 30), weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
-                    .offset(y: scaled(18, pad: 24))
             }
         }
     }

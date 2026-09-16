@@ -4,6 +4,9 @@ extension Notification.Name {
     static let nativeICloudPrimaryProjectionDidChange = Notification.Name(
         "NativeICloudPrimaryProjectionDidChange"
     )
+    static let nativeICloudSecondaryProjectionDidChange = Notification.Name(
+        "NativeICloudSecondaryProjectionDidChange"
+    )
 }
 
 /// Serializes primary-state projection with foreground task mutations inside a
@@ -71,6 +74,18 @@ enum NativeICloudPrimaryLocalProjection {
     static func apply(
         _ snapshot: NativeICloudPrimaryStateSnapshot,
         reloadWidgets: Bool = true
+    ) throws {
+        guard let outcome = BingoBoardStore.withBoardPersistenceLock({
+            Result { try applyUnderPersistenceLock(snapshot, reloadWidgets: reloadWidgets) }
+        }) else {
+            throw NativeICloudLocalProjectionError.primaryProjectionFailed
+        }
+        try outcome.get()
+    }
+
+    private static func applyUnderPersistenceLock(
+        _ snapshot: NativeICloudPrimaryStateSnapshot,
+        reloadWidgets: Bool
     ) throws {
         NativeICloudPrimaryMutationGate.acquire()
         defer { NativeICloudPrimaryMutationGate.release() }
@@ -164,11 +179,28 @@ enum NativeICloudPrimaryLocalProjection {
         let namedSnapshot = BingoBoardStore.NamedBoardsSnapshot(
             selectedBoardID: selectedID,
             boards: snapshot.boards,
-            deletedBoardIDs: snapshot.effectiveDeletedBoardIDs
+            deletedBoardIDs: snapshot.effectiveDeletedBoardIDs,
+            protectedBoardID: snapshot.effectiveProtectedBoardID,
+            boardOrderModifiedAt: snapshot.boardOrderModifiedAt
         )
+        // Applying an already-resolved cloud snapshot (including rollback) is a
+        // definition replacement, not an ordinary completion/status write.
+        let localBoards = BingoBoardStore.loadNamedBoardsSnapshot().boards
+        var authorizedRuleChanges = Dictionary(snapshot.boards.map { incoming in
+            (incoming.id, TaskRulePersistenceGuard.downgradedCellIDs(
+                from: localBoards.first { $0.id == incoming.id }?.board, to: incoming.board
+            ))
+        }, uniquingKeysWith: { $0.union($1) })
+        let activeRuleChanges = TaskRulePersistenceGuard.downgradedCellIDs(
+            from: BingoBoardStore.loadActiveNamedBoardID() == selectedID ? BingoBoardStore.loadBoard() : nil,
+            to: selectedBoard.board
+        )
+        authorizedRuleChanges[selectedID, default: []].formUnion(activeRuleChanges)
         let didSaveNamedBoards = BingoBoardStore.saveNamedBoardsSnapshot(
             namedSnapshot,
-            reloadWidgets: false
+            reloadWidgets: false,
+            source: "resolved_cloud_projection",
+            authorizedRuleChangeCellIDs: authorizedRuleChanges
         )
         guard didSaveNamedBoards || BingoBoardStore.loadNamedBoardsSnapshot() == namedSnapshot else {
             return false
@@ -178,7 +210,8 @@ enum NativeICloudPrimaryLocalProjection {
                 selectedBoard.board,
                 savedAt: selectedBoard.updatedAt,
                 associatedBoardID: selectedID,
-                reloadWidgets: false
+                reloadWidgets: false,
+                explicitlyEditedCellIDs: activeRuleChanges.union(authorizedRuleChanges[selectedID] ?? [])
               ) else {
             return false
         }

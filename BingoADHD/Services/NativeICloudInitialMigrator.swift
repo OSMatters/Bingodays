@@ -247,9 +247,19 @@ enum NativeICloudSecondaryLocalProjection {
             }
             throw NativeICloudLocalProjectionError.secondaryProjectionFailed
         }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .nativeICloudSecondaryProjectionDidChange,
+                object: nil
+            )
+        }
     }
 
     private static func applyWithoutRollback(_ snapshot: NativeICloudSecondaryStateSnapshot) -> Bool {
-        CommonTasksStore.saveLibrary(snapshot.taskLibrary) && TaskHistoryStore.save(snapshot.taskHistory)
+        CommonTasksStore.saveLibrary(snapshot.taskLibrary) &&
+            TaskHistoryStore.save(snapshot.taskHistory) &&
+            TaskCompletionHistoryStore.save(
+                TaskCompletionHistoryStore.mergedWithLocal(snapshot.taskCompletionHistory)
+            )
     }
 }

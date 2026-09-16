@@ -14,6 +14,7 @@ enum PremiumAnalyticsFeature: String {
     case customResetTime = "custom_reset_time"
     case limitedOffer = "limited_offer"
     case memberCenter = "member_center"
+    case boardShareImport = "board_share_import"
     case other
 }
 
@@ -41,6 +42,20 @@ struct CustomRewardVisualAnalyticsDescriptor: Equatable {
 }
 
 enum AnalyticsEventContract {
+    static func boardSharePayloadParameters(_ payload: BoardSharePayload) -> [String: Any] {
+        boardSharePayloadParameters(
+            gridSize: payload.gridSize,
+            cellCount: payload.cells.count
+        )
+    }
+
+    static func boardSharePayloadParameters(gridSize: Int, cellCount: Int) -> [String: Any] {
+        [
+            "grid_size": gridSize,
+            "cell_count": cellCount
+        ]
+    }
+
     static func customRewardVisual(
         emoji: String,
         themeImageName: String?
@@ -92,6 +107,9 @@ enum AnalyticsEventContract {
 
     static func premiumFeature(forSource source: String) -> PremiumAnalyticsFeature {
         let normalizedSource = source.lowercased()
+        if normalizedSource.contains("board_share_import") {
+            return .boardShareImport
+        }
         if normalizedSource.contains("limited_offer") {
             return .limitedOffer
         }
@@ -198,6 +216,86 @@ enum AnalyticsService {
             "campaign_id": sanitizedCampaignID(campaignID),
             "countdown_started": countdownStarted ? 1 : 0
         ])
+    }
+
+    static func logBoardShareMenuOpened(source: String) {
+        logCustomEvent("board_share_menu_opened", parameters: [
+            "source": source
+        ])
+    }
+
+    static func logBoardShareFlowSelected(action: String, source: String) {
+        logCustomEvent("board_share_flow_selected", parameters: [
+            "action": action,
+            "source": source
+        ])
+    }
+
+    static func logBoardSharePublishResult(
+        result: String,
+        payload: BoardSharePayload?,
+        source: String = "board_share_sheet"
+    ) {
+        var parameters: [String: Any] = [
+            "result": result,
+            "source": source
+        ]
+        if let payload {
+            parameters.merge(AnalyticsEventContract.boardSharePayloadParameters(payload)) { current, _ in current }
+        }
+        logCustomEvent("board_share_publish_result", parameters: parameters)
+    }
+
+    static func logBoardShareCodeCopied(payload: BoardSharePayload) {
+        var parameters = AnalyticsEventContract.boardSharePayloadParameters(payload)
+        parameters["source"] = "share_result"
+        logCustomEvent("board_share_code_copied", parameters: parameters)
+    }
+
+    static func logBoardShareSystemShareTapped(payload: BoardSharePayload) {
+        var parameters = AnalyticsEventContract.boardSharePayloadParameters(payload)
+        parameters["source"] = "share_result"
+        logCustomEvent("board_share_system_share_tapped", parameters: parameters)
+    }
+
+    static func logBoardImportLookupResult(result: String, payload: BoardSharePayload? = nil) {
+        var parameters: [String: Any] = [
+            "result": result
+        ]
+        if let payload {
+            parameters.merge(AnalyticsEventContract.boardSharePayloadParameters(payload)) { current, _ in current }
+        }
+        logCustomEvent("board_import_lookup_result", parameters: parameters)
+    }
+
+    static func logBoardImportPremiumGate(
+        source: String,
+        payload: BoardSharePayload,
+        action: String
+    ) {
+        var parameters = AnalyticsEventContract.boardSharePayloadParameters(payload)
+        parameters["source"] = source
+        parameters["feature"] = PremiumAnalyticsFeature.boardShareImport.rawValue
+        parameters["action"] = action
+        logCustomEvent("board_import_premium_gate", parameters: parameters)
+        logPremiumGateTriggered(feature: .boardShareImport, source: source)
+    }
+
+    static func logBoardImportResult(
+        result: String,
+        payload: BoardSharePayload,
+        action: String,
+        boardCountBefore: Int,
+        boardCountAfter: Int? = nil
+    ) {
+        var parameters = AnalyticsEventContract.boardSharePayloadParameters(payload)
+        parameters["result"] = result
+        parameters["action"] = action
+        parameters["board_count_before"] = boardCountBefore
+        if let boardCountAfter {
+            parameters["board_count_after"] = boardCountAfter
+        }
+        logCustomEvent("board_import_result", parameters: parameters)
     }
 
     static func logICloudSyncToggled(isEnabled: Bool) {
@@ -448,6 +546,31 @@ enum AnalyticsService {
     private static func sanitizedCampaignID(_ campaignID: String) -> String {
         let trimmed = campaignID.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "unknown" : String(trimmed.prefix(100))
+    }
+
+    static func boardShareErrorResult(_ error: Error) -> String {
+        switch error as? BoardShareError {
+        case .invalidCode:
+            return "invalid_code"
+        case .notFound:
+            return "not_found"
+        case .expired:
+            return "expired"
+        case .unsupportedSchema:
+            return "unsupported_schema"
+        case .invalidPayload:
+            return "invalid_payload"
+        case .accountUnavailable:
+            return "account_unavailable"
+        case .networkUnavailable:
+            return "network_unavailable"
+        case .unavailable:
+            return "unavailable"
+        case .collisionLimitReached:
+            return "collision_limit_reached"
+        case .none:
+            return "failed"
+        }
     }
 
     private static func logCustomEvent(_ name: String, parameters: [String: Any]) {

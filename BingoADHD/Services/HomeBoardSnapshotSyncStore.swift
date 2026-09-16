@@ -45,11 +45,26 @@ final class HomeBoardSnapshotSyncStore: ObservableObject {
         board: SavedBoard,
         countdownEndsAt: Date?
     ) -> HomeBoardSnapshotSyncResult {
-        syncSelectedBoardSnapshot(
+        let selectedBoardResult = syncSelectedBoardSnapshot(
             boardManagementStore: boardManagementStore,
             board: board,
             countdownEndsAt: countdownEndsAt,
             syncTaskReminders: false
+        )
+        // The selected-board write above already covers the single-board case.
+        // Avoid a second no-op persistence pass unless there are other board
+        // caches that can actually be stale.
+        guard boardManagementStore.namedBoards.count > 1,
+              TaskCompletionHistoryStore.ensureMigrated() else {
+            return selectedBoardResult
+        }
+
+        let didReconcileAllBoards = boardManagementStore.reconcileCompletionHistoryCounts(
+            TaskCompletionHistoryStore.load()
+        )
+        return HomeBoardSnapshotSyncResult(
+            didChangeSnapshot: selectedBoardResult.didChangeSnapshot || didReconcileAllBoards,
+            shouldSyncTaskReminders: false
         )
     }
 }

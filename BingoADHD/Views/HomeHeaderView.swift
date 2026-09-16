@@ -10,17 +10,14 @@ struct HomeHeaderView: View {
     let limitedTimeOfferCampaignID: String
     let themeColor: Color
     let onOpenThemePicker: () -> Void
+    let onOpenBoardShare: () -> Void
     let onOpenPointsFlow: () -> Void
     let onOpenLimitedOffer: () -> Void
 
     var body: some View {
-        let iconSize: CGFloat = isPadLayout ? 44 : 40
-
         ZStack {
-            HStack {
-                Button {
-                    onOpenThemePicker()
-                } label: {
+            HStack(spacing: 2) {
+                Button(action: onOpenThemePicker) {
                     Image("HomeSkin")
                         .resizable()
                         .interpolation(.high)
@@ -28,11 +25,16 @@ struct HomeHeaderView: View {
                         .foregroundColor(themeColor)
                         .scaledToFit()
                         .frame(width: scaled(24, pad: 28), height: scaled(24, pad: 28))
-                        .frame(width: iconSize, height: iconSize)
+                        .frame(width: headerIconSize, height: headerIconSize)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .offset(y: -20)
+
+                headerIconButton(
+                    systemImage: "paperplane.fill",
+                    action: onOpenBoardShare
+                )
 
                 Spacer()
 
@@ -91,5 +93,24 @@ struct HomeHeaderView: View {
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
         isPadLayout ? (pad ?? base * 1.15) : base
+    }
+
+    private var headerIconSize: CGFloat {
+        isPadLayout ? 44 : 40
+    }
+
+    private func headerIconButton(
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.appSystem(size: scaled(19, pad: 22), weight: .semibold))
+                .foregroundColor(themeColor)
+                .frame(width: headerIconSize, height: headerIconSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .offset(y: -20)
     }
 }

@@ -8,6 +8,7 @@ struct HomeBoardActionLayer: View {
     let bottomInset: CGFloat
     let isPadLayout: Bool
     let allowsDeletingFirstBoard: Bool
+    let protectedBoardID: UUID?
     let onBoardRules: (UUID) -> Void
     let onRenameBoard: (UUID) -> Void
     let onDeleteBoard: (UUID) -> Void
@@ -19,7 +20,8 @@ struct HomeBoardActionLayer: View {
                 canDelete: BoardActionPresentationStore.canDeleteBoard(
                     board.id,
                     namedBoards: namedBoards,
-                    allowsDeletingFirstBoard: allowsDeletingFirstBoard
+                    allowsDeletingFirstBoard: allowsDeletingFirstBoard,
+                    protectedBoardID: protectedBoardID
                 ),
                 contentWidth: contentWidth,
                 bottomInset: bottomInset,

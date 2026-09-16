@@ -36,6 +36,22 @@ struct BingoViewModelPersistenceCommitResult: Equatable {
 
 protocol BingoBoardRepository: BoardStateCommitRepository {
     func loadBoardLastSavedAt() -> Date?
+    func withTaskEditLock(_ operation: () -> Bool) -> Bool
+    func saveTaskEditBoard(_ board: SavedBoard, expected: SavedBoard?, boardID: UUID?, savedAt: Date, explicitlyEditedCellIDs: Set<UUID>) -> Bool
+}
+
+extension BingoBoardRepository {
+    func withTaskEditLock(_ operation: () -> Bool) -> Bool { operation() }
+
+    func saveTaskEditBoard(_ board: SavedBoard, expected: SavedBoard?, boardID: UUID?, savedAt: Date, explicitlyEditedCellIDs: Set<UUID> = []) -> Bool {
+        guard loadBoard() == expected, loadActiveNamedBoardID() == boardID else { return false }
+        guard TaskRulePersistenceGuard.downgradedCellIDs(from: expected, to: board)
+            .subtracting(explicitlyEditedCellIDs).isEmpty else { return false }
+        guard saveBoard(board, savedAt: savedAt, associatedBoardID: boardID, reloadWidgets: false),
+              let persisted = loadBoard() else { return false }
+        return BingoBoardStore.normalizedBoardForPersistence(persisted, referenceDate: savedAt) ==
+            BingoBoardStore.normalizedBoardForPersistence(board, referenceDate: savedAt)
+    }
 }
 
 protocol BingoDiaryRepository {
@@ -52,6 +68,11 @@ protocol BingoPointsRepository {
     func saveLifetimePoints(_ points: Int)
     func saveDailyRewardState(_ state: DailyRewardState)
     func saveState(totalPoints: Int, lifetimePoints: Int, dailyRewardState: DailyRewardState) -> Bool
+}
+
+protocol TaskCompletionHistoryRepository {
+    func loadCompletionHistory() -> [TaskCompletionHistoryRecord]
+    func replaceCompletionHistory(_ records: [TaskCompletionHistoryRecord]) -> Bool
 }
 
 extension BingoPointsRepository {
@@ -75,6 +96,7 @@ struct BingoPendingPersistenceTransaction: Codable, Equatable {
     let id: UUID
     var boardState: BoardState?
     var diaryEntries: [String: BingoDiaryEntry]
+    var taskCompletionHistory: [TaskCompletionHistoryRecord]
     var totalPoints: Int
     var lifetimePoints: Int
     var dailyRewardState: DailyRewardState
@@ -83,6 +105,7 @@ struct BingoPendingPersistenceTransaction: Codable, Equatable {
         id: UUID = UUID(),
         boardState: BoardState?,
         diaryEntries: [String: BingoDiaryEntry],
+        taskCompletionHistory: [TaskCompletionHistoryRecord] = [],
         totalPoints: Int,
         lifetimePoints: Int,
         dailyRewardState: DailyRewardState
@@ -90,9 +113,47 @@ struct BingoPendingPersistenceTransaction: Codable, Equatable {
         self.id = id
         self.boardState = boardState
         self.diaryEntries = diaryEntries
+        self.taskCompletionHistory = taskCompletionHistory
         self.totalPoints = totalPoints
         self.lifetimePoints = lifetimePoints
         self.dailyRewardState = dailyRewardState
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case boardState
+        case diaryEntries
+        case taskCompletionHistory
+        case totalPoints
+        case lifetimePoints
+        case dailyRewardState
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        boardState = try container.decodeIfPresent(BoardState.self, forKey: .boardState)
+        diaryEntries = try container.decode([String: BingoDiaryEntry].self, forKey: .diaryEntries)
+        // Transactions written before the live history total did not carry this
+        // snapshot. They remain valid and replay with the current history.
+        taskCompletionHistory = try container.decodeIfPresent(
+            [TaskCompletionHistoryRecord].self,
+            forKey: .taskCompletionHistory
+        ) ?? []
+        totalPoints = try container.decode(Int.self, forKey: .totalPoints)
+        lifetimePoints = try container.decode(Int.self, forKey: .lifetimePoints)
+        dailyRewardState = try container.decode(DailyRewardState.self, forKey: .dailyRewardState)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(boardState, forKey: .boardState)
+        try container.encode(diaryEntries, forKey: .diaryEntries)
+        try container.encode(taskCompletionHistory, forKey: .taskCompletionHistory)
+        try container.encode(totalPoints, forKey: .totalPoints)
+        try container.encode(lifetimePoints, forKey: .lifetimePoints)
+        try container.encode(dailyRewardState, forKey: .dailyRewardState)
     }
 }
 
@@ -106,17 +167,20 @@ struct BingoViewModelPersistenceDependencies {
     var boardRepository: any BingoBoardRepository
     var diaryRepository: any BingoDiaryRepository
     var pointsRepository: any BingoPointsRepository
+    var completionHistoryRepository: any TaskCompletionHistoryRepository
     var transactionRepository: any BingoPersistenceTransactionRepository
 
     init(
         boardRepository: any BingoBoardRepository,
         diaryRepository: any BingoDiaryRepository,
         pointsRepository: any BingoPointsRepository,
+        completionHistoryRepository: any TaskCompletionHistoryRepository = LiveTaskCompletionHistoryRepository(),
         transactionRepository: any BingoPersistenceTransactionRepository = LiveBingoPersistenceTransactionRepository()
     ) {
         self.boardRepository = boardRepository
         self.diaryRepository = diaryRepository
         self.pointsRepository = pointsRepository
+        self.completionHistoryRepository = completionHistoryRepository
         self.transactionRepository = transactionRepository
     }
 
@@ -125,6 +189,17 @@ struct BingoViewModelPersistenceDependencies {
         diaryRepository: LiveBingoDiaryRepository(),
         pointsRepository: LiveBingoPointsRepository()
     )
+}
+
+private struct LiveTaskCompletionHistoryRepository: TaskCompletionHistoryRepository {
+    func loadCompletionHistory() -> [TaskCompletionHistoryRecord] {
+        _ = TaskCompletionHistoryStore.ensureMigrated()
+        return TaskCompletionHistoryStore.load()
+    }
+
+    func replaceCompletionHistory(_ records: [TaskCompletionHistoryRecord]) -> Bool {
+        TaskCompletionHistoryStore.save(records)
+    }
 }
 
 protocol WidgetTimelineReloadScheduling: Sendable {
@@ -185,6 +260,25 @@ private struct LiveBingoBoardRepository: BingoBoardRepository {
 
     func loadBoard() -> SavedBoard? {
         BingoBoardStore.loadBoard()
+    }
+
+    func withTaskEditLock(_ operation: () -> Bool) -> Bool {
+        BingoBoardStore.withBoardPersistenceLock(operation) ?? false
+    }
+
+    func saveTaskEditBoard(_ board: SavedBoard, expected: SavedBoard?, boardID: UUID?, savedAt: Date, explicitlyEditedCellIDs: Set<UUID>) -> Bool {
+        BingoBoardStore.withBoardPersistenceLock {
+            guard BingoBoardStore.loadBoard() == expected,
+                  BingoBoardStore.loadActiveNamedBoardID() == boardID else {
+                DiagnosticLogStore.recordWarning("task_edit.stale_write_rejected")
+                return false
+            }
+            guard BingoBoardStore.saveBoard(
+                board, savedAt: savedAt, associatedBoardID: boardID, reloadWidgets: false,
+                explicitlyEditedCellIDs: explicitlyEditedCellIDs
+            ) else { return false }
+            return BingoBoardStore.loadBoard() == BingoBoardStore.normalizedBoardForPersistence(board, referenceDate: savedAt)
+        } ?? false
     }
 
     func loadBoardLastSavedAt() -> Date? {
@@ -398,6 +492,7 @@ enum BingoViewModelPersistence {
         _ snapshot: BingoViewModelPersistenceSnapshot,
         task: String,
         delta: Int,
+        completionHistoryDelta: Int = 0,
         savedAt: Date,
         dependencies: BingoViewModelPersistenceDependencies = .live
     ) -> BingoViewModelPersistenceCommitResult {
@@ -407,6 +502,8 @@ enum BingoViewModelPersistence {
                 savedAt: savedAt,
                 boardStateIncluded: true,
                 diaryMutation: .explicit(task: task, delta: delta),
+                completionHistoryTask: completionHistoryDelta == 0 ? nil : task,
+                completionHistoryDelta: completionHistoryDelta,
                 dependencies: dependencies
             ),
             dependencies: dependencies
@@ -438,6 +535,11 @@ enum BingoViewModelPersistence {
         guard let transaction = dependencies.transactionRepository.loadPendingTransaction() else {
             return nil
         }
+        DiagnosticLogStore.recordWarning("persistence.recovery_started", details: [
+            "transaction_id": transaction.id.uuidString,
+            "board_id": transaction.boardState?.associatedBoardID.map { String($0.uuidString.prefix(8)) } ?? "none",
+            "saved_at": transaction.boardState.map { String($0.savedAt.timeIntervalSince1970) } ?? "none"
+        ])
         return commit(transaction, dependencies: dependencies, forceCloudReport: true)
     }
 
@@ -446,6 +548,8 @@ enum BingoViewModelPersistence {
         savedAt: Date,
         boardStateIncluded: Bool,
         diaryMutation: DiaryMutation,
+        completionHistoryTask: String? = nil,
+        completionHistoryDelta: Int = 0,
         dependencies: BingoViewModelPersistenceDependencies
     ) -> BingoPendingPersistenceTransaction {
         let existingEntries = dependencies.diaryRepository.loadAllEntriesDictionary()
@@ -489,9 +593,22 @@ enum BingoViewModelPersistence {
                 associatedBoardID: dependencies.boardRepository.loadActiveNamedBoardID()
             )
             : nil
+        let existingHistory = dependencies.completionHistoryRepository.loadCompletionHistory()
+        let taskCompletionHistory: [TaskCompletionHistoryRecord]
+        if let completionHistoryTask {
+            taskCompletionHistory = TaskCompletionHistoryRuleEngine.recordsByApplyingCompletionDelta(
+                taskText: completionHistoryTask,
+                delta: completionHistoryDelta,
+                to: existingHistory,
+                at: savedAt
+            )
+        } else {
+            taskCompletionHistory = existingHistory
+        }
         return BingoPendingPersistenceTransaction(
             boardState: boardState,
             diaryEntries: diaryEntries,
+            taskCompletionHistory: taskCompletionHistory,
             totalPoints: snapshot.totalPoints,
             lifetimePoints: snapshot.lifetimePoints,
             dailyRewardState: snapshot.dailyRewardState
@@ -555,11 +672,28 @@ enum BingoViewModelPersistence {
         dependencies: BingoViewModelPersistenceDependencies,
         forceCloudReport: Bool = false
     ) -> BingoViewModelPersistenceCommitResult {
+        // A V3 journal may have been written before completion history was part
+        // of the transaction. Never let that legacy replay erase a newer total.
+        let completionHistoryToPersist = transaction.taskCompletionHistory.isEmpty
+            ? dependencies.completionHistoryRepository.loadCompletionHistory()
+            : transaction.taskCompletionHistory
         let hadPrimaryUserDataChanges = hasPrimaryUserDataChanges(
             transaction,
             dependencies: dependencies
         )
         var result = BingoViewModelPersistenceCommitResult()
+        defer {
+            DiagnosticLogStore.record("persistence.commit_result", category: "state_change",
+                level: result.failedToSaveBoard || result.failedToSaveTransaction ? .warning : .info,
+                details: [
+                    "transaction_id": transaction.id.uuidString,
+                    "board_id": transaction.boardState?.associatedBoardID.map { String($0.uuidString.prefix(8)) } ?? "none",
+                    "failed_board": String(result.failedToSaveBoard),
+                    "failed_transaction": String(result.failedToSaveTransaction),
+                    "saved_points": String(result.savedPoints),
+                    "recovery": String(forceCloudReport)
+                ])
+        }
 
         if let boardState = transaction.boardState {
             let boardResult = BoardStateCommitter.saveActiveBoardState(
@@ -608,6 +742,19 @@ enum BingoViewModelPersistence {
             return result
         }
         result.updatedDiary = true
+
+        guard dependencies.completionHistoryRepository.replaceCompletionHistory(completionHistoryToPersist),
+              dependencies.completionHistoryRepository.loadCompletionHistory() == completionHistoryToPersist else {
+            DiagnosticLogStore.recordWarning(
+                "points.persistence_failed",
+                details: [
+                    "stage": "save_completion_history",
+                    "target_total": "\(transaction.totalPoints)"
+                ]
+            )
+            result.failedToSaveTransaction = true
+            return result
+        }
 
         guard dependencies.pointsRepository.saveState(
             totalPoints: transaction.totalPoints,
@@ -660,6 +807,11 @@ enum BingoViewModelPersistence {
         }
 
         if dependencies.diaryRepository.loadAllEntriesDictionary() != transaction.diaryEntries {
+            return true
+        }
+
+        if !transaction.taskCompletionHistory.isEmpty,
+           dependencies.completionHistoryRepository.loadCompletionHistory() != transaction.taskCompletionHistory {
             return true
         }
 

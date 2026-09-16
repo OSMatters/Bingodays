@@ -45,6 +45,23 @@ final class PAGCompletionAssetCache {
 
     private var files: [String: PAGFile] = [:]
     private var warmupViews: [String: PAGImageView] = [:]
+    private var memoryWarningObserver: NSObjectProtocol?
+
+    private init() {
+        memoryWarningObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.releaseWarmupFrames()
+        }
+    }
+
+    deinit {
+        if let memoryWarningObserver {
+            NotificationCenter.default.removeObserver(memoryWarningObserver)
+        }
+    }
 
     func preload(
         resourceName: String,
@@ -77,6 +94,12 @@ final class PAGCompletionAssetCache {
             }
         }
         return file?.copyOriginal()
+    }
+
+    /// Keep lightweight source compositions available, but give memory pressure a way to drop
+    /// the decoded frame cache that only exists to make the first completion effect immediate.
+    private func releaseWarmupFrames() {
+        warmupViews.removeAll()
     }
 }
 
@@ -190,6 +213,7 @@ struct PAGCompletionView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
+            resourceName: resourceName,
             soundResourceName: soundResourceName,
             soundFileExtension: soundFileExtension,
             playsHaptic: playsHaptic,
@@ -210,10 +234,13 @@ struct PAGCompletionView: UIViewRepresentable {
         imageView.setCacheAllFramesInMemory(cacheAllFrames)
         imageView.setRepeatCount(1)
         imageView.add(context.coordinator)
-        context.coordinator.didFinish = false
-        context.coordinator.didReportNearEnd = false
+        context.coordinator.prepareForPresentation()
 
         guard let filePath = Bundle.main.path(forResource: resourceName, ofType: "pag") else {
+            DiagnosticLogStore.recordWarning(
+                "completion_pag_resource_missing",
+                details: ["resource": resourceName]
+            )
             context.coordinator.finishImmediately()
             return container
         }
@@ -229,6 +256,10 @@ struct PAGCompletionView: UIViewRepresentable {
             }
             imageView.setComposition(composition, maxFrameRate: maxFrameRate)
         } else if !imageView.setPath(filePath, maxFrameRate: maxFrameRate) {
+            DiagnosticLogStore.recordWarning(
+                "completion_pag_composition_load_failed",
+                details: ["resource": resourceName]
+            )
             context.coordinator.finishImmediately()
             return container
         }
@@ -243,12 +274,10 @@ struct PAGCompletionView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PAGCompletionContainerView, context: Context) {
-        let imageView = uiView.imageView
-        guard !context.coordinator.didFinish else { return }
-        if !imageView.isPlaying() {
-            imageView.setCurrentFrame(0)
-            imageView.play()
-        }
+        // Playback belongs exclusively to makeUIView. SwiftUI updates this representable when
+        // the board publishes its completion, points, and line state. Restarting here can send
+        // a one-shot PAG back to frame zero while it is still preparing a frame, which is most
+        // visible when a 4×4 Bingo starts four card effects simultaneously.
     }
 
     static func dismantleUIView(_ uiView: PAGCompletionContainerView, coordinator: Coordinator) {
@@ -260,6 +289,8 @@ struct PAGCompletionView: UIViewRepresentable {
     final class Coordinator: NSObject, PAGImageViewListener {
         var didFinish = false
         var didReportNearEnd = false
+        private var didStart = false
+        private let resourceName: String
         private let soundResourceName: String?
         private let soundFileExtension: String
         private let playsHaptic: Bool
@@ -271,6 +302,7 @@ struct PAGCompletionView: UIViewRepresentable {
         private let onFinished: () -> Void
 
         init(
+            resourceName: String,
             soundResourceName: String?,
             soundFileExtension: String,
             playsHaptic: Bool,
@@ -280,6 +312,7 @@ struct PAGCompletionView: UIViewRepresentable {
             onNearEnd: @escaping () -> Void,
             onFinished: @escaping () -> Void
         ) {
+            self.resourceName = resourceName
             self.soundResourceName = soundResourceName
             self.soundFileExtension = soundFileExtension
             self.playsHaptic = playsHaptic
@@ -290,7 +323,22 @@ struct PAGCompletionView: UIViewRepresentable {
             self.onFinished = onFinished
         }
 
+        func prepareForPresentation() {
+            didFinish = false
+            didReportNearEnd = false
+            didStart = false
+        }
+
         func onAnimationStart(_ pagView: PAGImageView) {
+            guard !didFinish, !didStart else { return }
+            didStart = true
+            DiagnosticLogStore.recordStateChange(
+                "completion_pag_started",
+                details: [
+                    "resource": resourceName,
+                    "frames": "\(pagView.numFrames())"
+                ]
+            )
             if let soundResourceName {
                 PAGRewardSoundPlayer.shared.play(
                     resourceName: soundResourceName,
@@ -323,8 +371,32 @@ struct PAGCompletionView: UIViewRepresentable {
         }
 
         func onAnimationEnd(_ pagView: PAGImageView) {
+            DiagnosticLogStore.recordStateChange(
+                "completion_pag_finished",
+                details: [
+                    "resource": resourceName,
+                    "frame": "\(pagView.currentFrame())",
+                    "frames": "\(pagView.numFrames())"
+                ]
+            )
             stopContinuousHaptics()
             reportNearEndIfNeeded()
+            finish()
+        }
+
+        func onAnimationCancel(_ pagView: PAGImageView) {
+            // A cancellation has no end callback. Finish this transient presentation once so a
+            // cancelled player cannot leave the board's motion state stuck indefinitely. The
+            // diagnostic distinguishes renderer/lifecycle cancellation from normal completion.
+            DiagnosticLogStore.recordWarning(
+                "completion_pag_cancelled",
+                details: [
+                    "resource": resourceName,
+                    "frame": "\(pagView.currentFrame())",
+                    "frames": "\(pagView.numFrames())"
+                ]
+            )
+            stopContinuousHaptics()
             finish()
         }
 
@@ -609,6 +681,7 @@ private struct BoardAllBingoPAGView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
+            resourceName: resourceName,
             nearEndProgress: nearEndProgress,
             bearFlightEndProgress: bearFlightEndProgress,
             onNearEnd: onNearEnd,
@@ -645,8 +718,8 @@ private struct BoardAllBingoPAGView: UIViewRepresentable {
     }
 
     func updateUIView(_ pagView: PAGView, context: Context) {
-        guard !context.coordinator.didFinish, !pagView.isPlaying() else { return }
-        pagView.play()
+        // This is a one-shot presentation. Restarting a temporarily paused or finished PAG from
+        // a SwiftUI update makes the visual lifecycle diverge from the CTA lifecycle below.
     }
 
     static func dismantleUIView(_ pagView: PAGView, coordinator: Coordinator) {
@@ -659,6 +732,7 @@ private struct BoardAllBingoPAGView: UIViewRepresentable {
     final class Coordinator: NSObject, PAGViewListener {
         var didFinish = false
         private var didReportNearEnd = false
+        private let resourceName: String
         private let nearEndProgress: Double
         private let bearFlightEndProgress: Double
         private let continuousHaptics = AppHapticContinuousPlayer()
@@ -666,11 +740,13 @@ private struct BoardAllBingoPAGView: UIViewRepresentable {
         private let onFinished: () -> Void
 
         init(
+            resourceName: String,
             nearEndProgress: Double,
             bearFlightEndProgress: Double,
             onNearEnd: @escaping () -> Void,
             onFinished: @escaping () -> Void
         ) {
+            self.resourceName = resourceName
             self.nearEndProgress = nearEndProgress
             self.bearFlightEndProgress = bearFlightEndProgress
             self.onNearEnd = onNearEnd
@@ -684,6 +760,10 @@ private struct BoardAllBingoPAGView: UIViewRepresentable {
         }
 
         func onAnimationStart(_ pagView: PAGView) {
+            DiagnosticLogStore.recordStateChange(
+                "board_completion_pag_started",
+                details: ["resource": resourceName]
+            )
             PAGRewardSoundPlayer.shared.play(resourceName: "complete_allbingo", fileExtension: "mp3")
             continuousHaptics.start(
                 initialIntensity: 0.10,
@@ -701,12 +781,41 @@ private struct BoardAllBingoPAGView: UIViewRepresentable {
                 return
             }
             didReportNearEnd = true
+            DiagnosticLogStore.recordStateChange(
+                "board_completion_pag_cta_threshold",
+                details: [
+                    "resource": resourceName,
+                    "progress": String(format: "%.3f", pagView.getProgress())
+                ]
+            )
             DispatchQueue.main.async {
                 self.onNearEnd()
             }
         }
 
         func onAnimationEnd(_ pagView: PAGView) {
+            DiagnosticLogStore.recordStateChange(
+                "board_completion_pag_finished",
+                details: [
+                    "resource": resourceName,
+                    "progress": String(format: "%.3f", pagView.getProgress())
+                ]
+            )
+            stopContinuousHaptics()
+            reportNearEndIfNeeded()
+            finish()
+        }
+
+        func onAnimationCancel(_ pagView: PAGView) {
+            // PAG cancellation has no end callback. Preserve the completion screen and advance
+            // it to its actionable state instead of leaving the user on an inert final frame.
+            DiagnosticLogStore.recordWarning(
+                "board_completion_pag_cancelled",
+                details: [
+                    "resource": resourceName,
+                    "progress": String(format: "%.3f", pagView.getProgress())
+                ]
+            )
             stopContinuousHaptics()
             reportNearEndIfNeeded()
             finish()
@@ -758,6 +867,10 @@ struct BoardAllBingoCompletionView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsContinueAction = false
+    /// `complete_allbingo_bmp.pag` is 5.12 seconds. The authored quiet beat begins before the
+    /// final frame, so the CTA belongs at 3.6 seconds rather than depending solely on a renderer
+    /// callback that may be skipped after a PAG cancellation.
+    private let continueActionFallbackNanoseconds: UInt64 = 3_600_000_000
 
     var body: some View {
         ZStack {
@@ -772,8 +885,8 @@ struct BoardAllBingoCompletionView: View {
                         resourceName: "complete_allbingo_bmp",
                         nearEndProgress: 0.68,
                         bearFlightEndProgress: 0.36,
-                        onNearEnd: showContinueAction,
-                        onFinished: showContinueAction
+                        onNearEnd: { showContinueAction(source: "pag_threshold") },
+                        onFinished: { showContinueAction(source: "pag_finished") }
                     )
                     .id(animationID)
                     .frame(width: geometry.size.width, height: geometry.size.height)
@@ -823,12 +936,22 @@ struct BoardAllBingoCompletionView: View {
         .onAppear {
             guard reduceMotion else { return }
             PAGRewardSoundPlayer.shared.play(resourceName: "complete_allbingo", fileExtension: "mp3")
-            showContinueAction()
+            showContinueAction(source: "reduce_motion")
+        }
+        .task(id: animationID) {
+            guard !reduceMotion else { return }
+            try? await Task.sleep(nanoseconds: continueActionFallbackNanoseconds)
+            guard !Task.isCancelled else { return }
+            showContinueAction(source: "timer_fallback")
         }
     }
 
-    private func showContinueAction() {
+    private func showContinueAction(source: String) {
         guard !showsContinueAction else { return }
+        DiagnosticLogStore.recordStateChange(
+            "board_completion_cta_shown",
+            details: ["source": source]
+        )
         AppHaptics.emphasis()
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
             showsContinueAction = true

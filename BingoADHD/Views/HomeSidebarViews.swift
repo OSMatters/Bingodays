@@ -1154,10 +1154,6 @@ struct MeSettingsScreen: View {
                         .font(.appSystem(size: scaled(17, pad: 19), weight: .bold))
                         .foregroundColor(MeScreenPalette.text)
                         .frame(width: scaled(40, pad: 46), height: scaled(40, pad: 46))
-                        .background(
-                            Circle()
-                                .fill(Color.white.opacity(0.72))
-                        )
                         .appLiquidGlass(in: Circle(), interactive: true)
                 }
                 .buttonStyle(.plain)

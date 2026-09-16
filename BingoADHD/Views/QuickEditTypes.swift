@@ -1,5 +1,16 @@
 import Foundation
 
+struct QuickEditBoardContext {
+    let boardID: UUID?
+    let board: SavedBoard
+
+    func matches(_ current: SavedBoard?, boardID: UUID?) -> Bool {
+        guard self.boardID == boardID, let current else { return false }
+        // Compare stored cells, not date-dependent projections or board metadata.
+        return TaskRulePersistenceGuard.matchesStoredTasks(board, current)
+    }
+}
+
 struct QuickEditTaskCandidate: Identifiable {
     let id: String
     let task: MyTaskItem
@@ -69,6 +80,27 @@ struct QuickEditPreviewSlot: Identifiable, Equatable {
             text: text,
             startMonth: cellState.startVisibleMonth,
             startDay: cellState.startVisibleDay
+        )
+    }
+}
+
+struct QuickEditDeselectedTaskDraft {
+    let sourceTask: MyTaskItem
+    let cellState: BingoCell
+
+    func restoredCell(for task: MyTaskItem, availableHistoryCount: Int) -> BingoCell {
+        // Candidate keys identify tasks; history candidates can have regenerated UUIDs.
+        if task.text == sourceTask.text,
+           task.startAt == sourceTask.startAt,
+           task.endAt == sourceTask.endAt,
+           task.startMonth == sourceTask.startMonth,
+           task.startDay == sourceTask.startDay {
+            return cellState
+        }
+        return quickEditMakePreviewCell(
+            from: task,
+            preserving: cellState,
+            availableHistoryCount: availableHistoryCount
         )
     }
 }
@@ -188,7 +220,11 @@ func quickEditNormalizedMonthDay(monthText: String, dayText: String) -> (Int?, I
     return (month, day)
 }
 
-func quickEditMakePreviewCell(from task: MyTaskItem, preserving existingCell: BingoCell? = nil) -> BingoCell {
+func quickEditMakePreviewCell(
+    from task: MyTaskItem,
+    preserving existingCell: BingoCell? = nil,
+    availableHistoryCount: Int = 0
+) -> BingoCell {
     var taskCopy = task
     taskCopy.text = String(task.text.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
     taskCopy.normalizeVisibilityWindow()
@@ -209,7 +245,12 @@ func quickEditMakePreviewCell(from task: MyTaskItem, preserving existingCell: Bi
             isForced: false,
             countdownEndsAt: nil,
             estimatedDurationMinutes: nil,
-            completionStreakCount: 0,
+            completionStreakCount: TaskCompletionHistoryRuleEngine.inheritedCompletionCount(
+                previousTaskText: "",
+                previousCompletionCount: 0,
+                updatedTaskText: taskCopy.trimmedText,
+                availableHistoryCount: availableHistoryCount
+            ),
             lastCompletedAt: nil
         )
     }
@@ -229,6 +270,12 @@ func quickEditMakePreviewCell(from task: MyTaskItem, preserving existingCell: Bi
     cell.isTaskHidden = false
     // Force flag is only set by explicit EditTaskSheet toggle.
     cell.isForced = false
+    cell.completionStreakCount = TaskCompletionHistoryRuleEngine.inheritedCompletionCount(
+        previousTaskText: existingCell.storedTaskText,
+        previousCompletionCount: existingCell.completionStreakCount,
+        updatedTaskText: taskCopy.trimmedText,
+        availableHistoryCount: availableHistoryCount
+    )
     return cell
 }
 
@@ -243,7 +290,8 @@ func quickEditMakePreviewCellFromEdit(
     startVisibleAt: Date?,
     endVisibleAt: Date?,
     startReminderEnabled: Bool = false,
-    startReminderOffsetMinutes: Int = BingoCell.defaultStartReminderOffsetMinutes
+    startReminderOffsetMinutes: Int = BingoCell.defaultStartReminderOffsetMinutes,
+    availableHistoryCount: Int = 0
 ) -> BingoCell? {
     let limitedText = String(text.prefix(AppSettings.maxTaskLength))
     let trimmedText = limitedText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -329,7 +377,15 @@ func quickEditMakePreviewCellFromEdit(
     }
 
     if didChangeTaskIdentity {
-        cell.completionStreakCount = 0
+        cell.completionStreakCount = TaskCompletionHistoryRuleEngine.inheritedCompletionCount(
+            previousTaskText: existingCell?.storedTaskText ?? "",
+            // A quick-edit schedule change is a new task identity. Keep the
+            // preview consistent with the normal editor, which clears the
+            // outgoing count before the history rule evaluates the new name.
+            previousCompletionCount: 0,
+            updatedTaskText: cell.storedTaskText,
+            availableHistoryCount: availableHistoryCount
+        )
         cell.lastCompletedAt = nil
     }
     if wasCompleted && didChangeTaskIdentity {
@@ -689,7 +745,10 @@ func quickEditAdjustPreviewSlots(
 func quickEditAddPreviewTask(
     key: String,
     candidateTaskMap: [String: MyTaskItem],
-    currentSlots: [QuickEditPreviewSlot]
+    currentSlots: [QuickEditPreviewSlot],
+    deselectedTaskDrafts: inout [String: QuickEditDeselectedTaskDraft],
+    source: String = "task_library",
+    completionHistoryCountProvider: (String) -> Int = { _ in 0 }
 ) -> (updatedSlots: [QuickEditPreviewSlot], wasAdded: Bool) {
     guard let task = candidateTaskMap[key], task.isStartDateReached() else {
         return (currentSlots, false)
@@ -697,7 +756,12 @@ func quickEditAddPreviewTask(
 
     var slots = currentSlots
     if let existingIndex = slots.firstIndex(where: { $0.sourceTaskKey == key }) {
-        slots[existingIndex].cellState = quickEditMakePreviewCell(from: task, preserving: slots[existingIndex].cellState)
+        slots[existingIndex].cellState = quickEditMakePreviewCell(
+            from: task,
+            preserving: slots[existingIndex].cellState,
+            availableHistoryCount: completionHistoryCountProvider(task.trimmedText)
+        )
+        deselectedTaskDrafts.removeValue(forKey: key)
         return (slots, true)
     }
 
@@ -705,15 +769,31 @@ func quickEditAddPreviewTask(
         return (slots, false)
     }
 
-    slots[emptyIndex].cellState = quickEditMakePreviewCell(from: task)
+    let historyCount = completionHistoryCountProvider(task.trimmedText)
+    if let draft = deselectedTaskDrafts.removeValue(forKey: key) {
+        slots[emptyIndex].cellState = draft.restoredCell(for: task, availableHistoryCount: historyCount)
+    } else {
+        slots[emptyIndex].cellState = quickEditMakePreviewCell(
+            from: task,
+            availableHistoryCount: historyCount
+        )
+    }
     slots[emptyIndex].sourceTaskKey = key
+    if let cell = slots[emptyIndex].cellState {
+        DiagnosticLogStore.recordStateChange("task_rule.preview_selected", details: [
+            "source": key.hasPrefix("history:") ? "task_history" : source,
+            "cell_id": cell.id.uuidString, "rule": cell.diagnosticTaskRuleKind
+        ])
+    }
     return (slots, true)
 }
 
 func quickEditAppendTasksToPreview(
     keys: [String],
     candidateTaskMap: [String: MyTaskItem],
-    currentSlots: [QuickEditPreviewSlot]
+    currentSlots: [QuickEditPreviewSlot],
+    deselectedTaskDrafts: inout [String: QuickEditDeselectedTaskDraft],
+    completionHistoryCountProvider: (String) -> Int = { _ in 0 }
 ) -> QuickEditPreviewAppendResult {
     var slots = currentSlots
     var addedTaskCount = 0
@@ -722,22 +802,23 @@ func quickEditAppendTasksToPreview(
     for key in keys {
         guard let task = candidateTaskMap[key], task.isStartDateReached() else { continue }
 
-        if let existingIndex = slots.firstIndex(where: { $0.sourceTaskKey == key }) {
-            slots[existingIndex].cellState = quickEditMakePreviewCell(
-                from: task,
-                preserving: slots[existingIndex].cellState
-            )
-            continue
-        }
-
-        guard let emptyIndex = slots.firstIndex(where: { $0.task == nil }) else {
+        let wasSelected = slots.contains { $0.sourceTaskKey == key }
+        let result = quickEditAddPreviewTask(
+            key: key,
+            candidateTaskMap: candidateTaskMap,
+            currentSlots: slots,
+            deselectedTaskDrafts: &deselectedTaskDrafts,
+            source: "group_apply",
+            completionHistoryCountProvider: completionHistoryCountProvider
+        )
+        guard result.wasAdded else {
             omittedTaskCount += 1
             continue
         }
-
-        slots[emptyIndex].cellState = quickEditMakePreviewCell(from: task)
-        slots[emptyIndex].sourceTaskKey = key
-        addedTaskCount += 1
+        slots = result.updatedSlots
+        if !wasSelected {
+            addedTaskCount += 1
+        }
     }
 
     return QuickEditPreviewAppendResult(
@@ -749,10 +830,18 @@ func quickEditAppendTasksToPreview(
 
 func quickEditRemovePreviewTask(
     key: String,
-    currentSlots: [QuickEditPreviewSlot]
+    currentSlots: [QuickEditPreviewSlot],
+    candidateTaskMap: [String: MyTaskItem],
+    deselectedTaskDrafts: inout [String: QuickEditDeselectedTaskDraft]
 ) -> [QuickEditPreviewSlot] {
     var slots = currentSlots
     guard let index = slots.firstIndex(where: { $0.sourceTaskKey == key }) else { return slots }
+    if let cell = slots[index].cellState, let sourceTask = candidateTaskMap[key] {
+        // Deselecting changes the preview, not the task configuration in this session.
+        deselectedTaskDrafts[key] = QuickEditDeselectedTaskDraft(sourceTask: sourceTask, cellState: cell)
+    } else {
+        deselectedTaskDrafts.removeValue(forKey: key)
+    }
     slots[index].cellState = nil
     slots[index].sourceTaskKey = nil
     return slots
@@ -761,7 +850,8 @@ func quickEditRemovePreviewTask(
 func quickEditSyncPreviewSlotsWithLibrary(
     currentSlots: [QuickEditPreviewSlot],
     candidateTaskMap: [String: MyTaskItem],
-    totalGridSlots: Int
+    totalGridSlots: Int,
+    completionHistoryCountProvider: (String) -> Int = { _ in 0 }
 ) -> [QuickEditPreviewSlot] {
     guard !currentSlots.isEmpty else { return currentSlots }
 
@@ -775,7 +865,11 @@ func quickEditSyncPreviewSlotsWithLibrary(
             slots[index].sourceTaskKey = nil
             continue
         }
-        slots[index].cellState = quickEditMakePreviewCell(from: task, preserving: slots[index].cellState)
+        slots[index].cellState = quickEditMakePreviewCell(
+            from: task,
+            preserving: slots[index].cellState,
+            availableHistoryCount: completionHistoryCountProvider(task.trimmedText)
+        )
     }
 
     if slots.count > totalGridSlots {

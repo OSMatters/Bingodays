@@ -275,7 +275,9 @@ struct BingoCellView: View {
 
     private var comboBadgeVisible: Bool {
         !cell.isEmpty &&
-        cell.completionStreakCount > 1 &&
+        TaskCompletionHistoryRuleEngine.shouldDisplayCompletionHistoryBadge(
+            count: cell.completionStreakCount
+        ) &&
         !isDragSource &&
         !isLocked &&
         !isScheduledInactive &&
@@ -306,6 +308,13 @@ struct BingoCellView: View {
         cellSize < 72 && hasFrontFooter ? 2 : 3
     }
 
+    private var auxiliaryStatusFontSize: CGFloat {
+        if cellSize < 72 {
+            return max(dynamicFontSize * 0.28, 7)
+        }
+        return max(dynamicFontSize * 0.34, 8)
+    }
+
     private var frontFace: some View {
         ZStack {
             backgroundSurface
@@ -319,7 +328,7 @@ struct BingoCellView: View {
                     }
 
                     if !cell.isEmpty {
-                        VStack(spacing: 0) {
+                        VStack(spacing: cellSize < 72 && auxiliaryStatusText != nil ? 8 : 0) {
                             Text(cell.text)
                                 .font(.appSystem(size: taskTitleFontSize, weight: .medium))
                                 .foregroundColor(cellTextColor)
@@ -327,7 +336,11 @@ struct BingoCellView: View {
                                 .lineLimit(taskTitleLineLimit)
                                 .minimumScaleFactor(0.5)
                                 .padding(.horizontal, cellSize < 72 ? 5 : 10)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                                .frame(
+                                    maxWidth: .infinity,
+                                    maxHeight: .infinity,
+                                    alignment: cellSize < 72 && hasFrontFooter ? .bottom : .center
+                                )
 
                             if hasFrontFooter {
                                 frontFooter
@@ -336,6 +349,9 @@ struct BingoCellView: View {
                         }
                         .padding(.top, cellSize < 72 ? 5 : 8)
                         .padding(.bottom, cellSize < 72 ? 4 : 8)
+                        .offset(
+                            y: cellSize < 72 && !cell.isCompleted && auxiliaryStatusText != nil ? 5 : 0
+                        )
                     } else if let emptyHintText, !emptyHintText.isEmpty {
                         Text(emptyHintText)
                             .font(.appSystem(size: max(dynamicFontSize * 0.68, 10), weight: .semibold, design: .rounded))
@@ -369,12 +385,17 @@ struct BingoCellView: View {
             }
         } else if let auxiliaryStatusText {
             Text(auxiliaryStatusText)
-                .font(.appSystem(size: max(dynamicFontSize * 0.34, 8), weight: .semibold, design: .rounded))
+                .font(.appSystem(size: auxiliaryStatusFontSize, weight: .semibold, design: .rounded))
                 .foregroundColor(primaryTextColor.opacity(isScheduledInactive ? 0.45 : 0.58))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 4)
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity,
+                    alignment: cellSize < 72 ? .top : .center
+                )
         }
     }
 
@@ -394,7 +415,7 @@ struct BingoCellView: View {
 
     private var comboBadge: some View {
         Text("x\(cell.completionStreakCount)")
-            .font(.appSystem(size: max(dynamicFontSize * 0.5, 11), weight: .bold, design: .rounded))
+            .font(.appSystem(size: max(dynamicFontSize * 0.4, 9), weight: .regular, design: .rounded))
             .foregroundColor(cellTextColor.opacity(0.9))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

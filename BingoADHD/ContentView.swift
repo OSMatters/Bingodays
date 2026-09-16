@@ -19,6 +19,7 @@ struct ContentView: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.displayScale) private var displayScale
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @EnvironmentObject private var iCloudSyncCoordinator: NativeICloudSyncCoordinator
     @Environment(\.openURL) private var openURL
@@ -29,7 +30,7 @@ struct ContentView: View {
     @StateObject private var toastStore = HomeToastStore()
     @StateObject private var pointsAnimationStore = PointsAnimationStore()
     @StateObject private var boardActionPresentationStore = BoardActionPresentationStore()
-    @StateObject private var boardSwitchAnimationStore = BoardSwitchAnimationStore()
+    @StateObject private var boardSharePresentationStore = BoardSharePresentationStore()
     @StateObject private var homeBoardSnapshotSyncStore = HomeBoardSnapshotSyncStore()
     @StateObject private var appReviewEvaluationStore = HomeAppReviewEvaluationStore()
     @StateObject private var taskStartReminderSyncStore: TaskStartReminderSyncStore
@@ -55,12 +56,15 @@ struct ContentView: View {
     @State private var selectedStickerID: UUID?
     @State private var isDiaryPresented = false
     @State private var isPremiumPaywallPresented = false
+    @State private var isBoardSharePresented = false
+    @State private var isBoardShareActionMenuPresented = false
     @State private var isLimitedTimeDiscountPresented = false
     @State private var premiumPaywallSource = "unknown"
     @State private var isQuickEditPresented = false
     @State private var isContactUsPresented = false
     @State private var isEditActionsExpanded = false
     @State private var isGridSizeSheetPresented = false
+    @State private var isBoardOrderPresented = false
     @State private var isClearBoardConfirmationPresented = false
     @State private var taskTimeoutDelayMinutes = 10
     @State private var boardTimeoutDelayMinutes = 10
@@ -72,6 +76,7 @@ struct ContentView: View {
     @State private var hasCheckedAppUpdateOnLaunch = false
     @State private var pendingUpdateInfo: AppUpdateInfo?
     @State private var hasStartedDeferredHomePreloads = false
+    @State private var hasDeferredExternalBoardSnapshotReload = false
     @State private var hasStartedDeferredSubscriptionRefresh = false
     @State private var firstStepGuideOverlay: FirstStepGuideOverlay?
     @State private var isCustomResetDowngradeAlertPresented = false
@@ -150,18 +155,17 @@ struct ContentView: View {
         boardManagementStore.selectedNamedBoardIndex
     }
 
-    private var boardSwipeBlockingState: BoardSwitchAnimationStore.SwipeBlockingState {
-        BoardSwitchAnimationStore.SwipeBlockingState(
-            isSidebarPresented: isSidebarPresented,
-            isQuickEditPresented: isQuickEditPresented,
-            isEditActionsExpanded: isEditActionsExpanded,
-            isBoardCountdownPresented: isBoardCountdownPresented,
-            isBoardRulesPresented: isBoardRulesPresented,
-            hasTimeoutDelayPicker: timeoutDelayPickerContext != nil,
-            hasExpiredTaskEvent: viewModel.expiredTaskEvent != nil,
-            hasExpiredBoardCountdownEvent: viewModel.expiredBoardCountdownEvent != nil,
-            hasScheduledTaskReplacementEvent: viewModel.scheduledTaskReplacementEvent != nil
-        )
+    private var allowsBoardSwipe: Bool {
+        !isSidebarPresented &&
+        !isQuickEditPresented &&
+        !isEditActionsExpanded &&
+        !isBoardCountdownPresented &&
+        !isBoardRulesPresented &&
+        timeoutDelayPickerContext == nil &&
+        viewModel.taskCompletionMotion?.kind != .bingo &&
+        viewModel.expiredTaskEvent == nil &&
+        viewModel.expiredBoardCountdownEvent == nil &&
+        viewModel.scheduledTaskReplacementEvent == nil
     }
 
     private var tileGestureOverlayDebugState: TileGestureDebugLogger.OverlayState {
@@ -180,19 +184,9 @@ struct ContentView: View {
             isGridSizeSheetPresented: isGridSizeSheetPresented
         )
     }
-    private var shouldShowMainTabBar: Bool {
-        guard !(selectedMainTab == .me && isMeSettingsPresented) else { return false }
-        switch selectedMainTab {
-        case .home:
-            return !isHomeMainTabBarSuppressed
-        case .points:
-            return !isPointsTabSubpagePresented
-        case .me:
-            return true
-        }
-    }
     private var isHomeMainTabBarSuppressed: Bool {
         boardActionPresentationStore.actionSheetBoardID != nil ||
+            isBoardShareActionMenuPresented ||
             firstStepGuideOverlay != nil ||
             isUpdatePromptPresented ||
             isAppReviewPromptPresented ||
@@ -229,7 +223,7 @@ struct ContentView: View {
     }
 
     private func diagnosticHomeStateDetails(source: String) -> [String: String] {
-        [
+        var details = [
             "source": source,
             "selected_board_id": shortDiagnosticID(selectedBoardID),
             "board_count": "\(namedBoards.count)",
@@ -258,6 +252,20 @@ struct ContentView: View {
             "expired_board": "\(viewModel.expiredBoardCountdownEvent != nil)",
             "scheduled_replace": "\(viewModel.scheduledTaskReplacementEvent != nil)"
         ]
+        if let selectedBoard = selectedBoardID
+            .flatMap({ selectedID in namedBoards.first(where: { $0.id == selectedID }) })
+            ?? namedBoards.first {
+            let taskCells = BoardEngine.expandedBoardCache(from: selectedBoard.board)
+                .flatMap { $0 }
+                .filter(\.hasStoredTask)
+            details["selected_reset_mode"] = selectedBoard.taskResetMode.rawValue
+            details["selected_custom_reset_minutes"] = selectedBoard.customResetMinutes.map(String.init) ?? "none"
+            details["selected_task_count"] = "\(taskCells.count)"
+            details["selected_completed_count"] = "\(taskCells.filter(\.isCompleted).count)"
+            details["selected_repeating_count"] = "\(taskCells.filter(\.hasRepeatingSchedule).count)"
+            details["selected_daily_count"] = "\(taskCells.filter { $0.diagnosticTaskRuleKind == TaskRecurrenceRule.Kind.daily.rawValue }.count)"
+        }
+        return details
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
@@ -448,25 +456,83 @@ struct ContentView: View {
             transaction.disablesAnimations = true
             withTransaction(transaction) {
                 pointsFeatureStore.reloadAfterExternalDataChange()
-                reloadBoardSwitcherSnapshotFromSharedStoreIfNeeded(
-                    now: .now,
-                    persistViewModelState: false
+                reloadBoardSwitcherSnapshotAfterCelebrationIfNeeded(now: .now)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .nativeICloudSecondaryProjectionDidChange)) { _ in
+            // Completion history is secondary iCloud state, while each board keeps
+            // only a repairable display cache. Reproject it without presenting a
+            // task-completion animation or touching the points ledger.
+            guard TaskCompletionHistoryStore.ensureMigrated() else { return }
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                reloadBoardSwitcherSnapshotAfterCelebrationIfNeeded(now: .now)
+                _ = boardManagementStore.reconcileCompletionHistoryCounts(
+                    TaskCompletionHistoryStore.load()
+                )
+            }
+        }
+        .onChange(of: viewModel.taskCompletionMotion?.id) { _, _ in
+            applyDeferredExternalBoardSnapshotReloadIfPossible()
+        }
+        .onChange(of: viewModel.boardCompletionAnimationID) { _, _ in
+            applyDeferredExternalBoardSnapshotReloadIfPossible()
+        }
+    }
+
+    private var mainScreenContent: some View {
+        TabView(selection: $selectedMainTab) {
+            homeScreenContent
+                .toolbar(isHomeMainTabBarSuppressed ? .hidden : .visible, for: .tabBar)
+                .tabItem { nativeTabLabel(.home) }
+                .tag(HomeMainTab.home)
+
+            pointsTabContent(bottomInset: 0)
+                .toolbar(isPointsTabSubpagePresented ? .hidden : .visible, for: .tabBar)
+                .tabItem { nativeTabLabel(.points) }
+                .tag(HomeMainTab.points)
+
+            meTabContent(bottomInset: 0)
+                .toolbar(isMeSettingsPresented ? .hidden : .visible, for: .tabBar)
+                .tabItem { nativeTabLabel(.me) }
+                .tag(HomeMainTab.me)
+        }
+        .overlay {
+            if let completionMotion = viewModel.taskCompletionMotion,
+               completionMotion.kind == .bingo {
+                BingoTopCompletionEffect(
+                    motion: completionMotion,
+                    onFinished: viewModel.dismissTaskCompletionMotion
                 )
             }
         }
     }
 
-    private var mainScreenContent: some View {
+    private func nativeTabLabel(_ tab: HomeMainTab) -> some View {
+        let assetName = selectedMainTab == tab ? tab.selectedIconName : tab.iconName
+        let renderer = ImageRenderer(content:
+            Image(assetName)
+                .renderingMode(.original)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 28, height: 28)
+        )
+        renderer.scale = displayScale
+        return Group {
+            if let icon = renderer.uiImage {
+                Image(uiImage: icon.withRenderingMode(.alwaysOriginal))
+                    .renderingMode(.original)
+            } else {
+                Image(systemName: tab == .home ? "house" : tab == .points ? "star" : "person.crop.circle")
+            }
+        }
+        .accessibilityLabel(tab.accessibilityTitle)
+    }
+
+    private var homeScreenContent: some View {
         GeometryReader { geo in
             let usesPadLayout = isPadLayout && geo.size.width >= 768
-            let isPadLandscapeWindow = UIDevice.current.userInterfaceIdiom == .pad
-                && geo.size.width > geo.size.height
-            let mainTabBarBottomSpacing: CGFloat = isPadLandscapeWindow
-                ? max(geo.safeAreaInsets.bottom, 16)
-                : 6
-            let mainTabBarExtraBottomReserve = isPadLandscapeWindow
-                ? max(mainTabBarBottomSpacing - 6, 0)
-                : 0
             let horizontalPadding: CGFloat = usesPadLayout ? 30 : 20
             let topLayoutSafeInset: CGFloat = 0
             let layoutLift: CGFloat = -30
@@ -475,7 +541,6 @@ struct ContentView: View {
                 - max(topLayoutSafeInset, 0)
                 - max(geo.safeAreaInsets.bottom, 0)
                 - (usesPadLayout ? 250 : 0)
-                - mainTabBarExtraBottomReserve
             let contentWidth = usesPadLayout
                 ? max(300, min(widthLimitedContent, heightLimitedContent))
                 : min(353, widthLimitedContent)
@@ -498,7 +563,7 @@ struct ContentView: View {
                         }
                 }
 
-                if selectedMainTab == .home {
+                Group {
                     VStack(spacing: 0) {
                     HomeHeaderView(
                         pointsAnimationStore: pointsAnimationStore,
@@ -515,6 +580,9 @@ struct ContentView: View {
                             )
                             selectedStickerID = nil
                             isThemePickerSheetPresented = true
+                        },
+                        onOpenBoardShare: {
+                            beginBoardShareActions()
                         },
                         onOpenPointsFlow: {
                             DiagnosticLogStore.recordUserAction(
@@ -540,7 +608,6 @@ struct ContentView: View {
 
                     HomeBoardMainContent(
                         viewModel: viewModel,
-                        boardSwitchAnimationStore: boardSwitchAnimationStore,
                         namedBoards: namedBoards,
                         selectedBoardID: selectedBoardID,
                         contentWidth: contentWidth,
@@ -554,7 +621,7 @@ struct ContentView: View {
                         isEditActionsExpanded: isEditActionsExpanded,
                         surfaceShadowColor: activeTheme.bingoSurfaceShadowColor,
                         themeColor: activeThemeColor,
-                        boardSwipeBlockingState: boardSwipeBlockingState,
+                        allowsBoardSwipe: allowsBoardSwipe,
                         onSelectBoard: selectBoard,
                         onBoardLongPress: beginBoardActions,
                         onCreateBoard: beginCreateBoard,
@@ -597,6 +664,14 @@ struct ContentView: View {
                             }
                             selectedStickerID = nil
                             beginBoardRules(for: boardID, source: "edit_actions")
+                        },
+                        onBoardOrder: {
+                            DiagnosticLogStore.recordUserAction(
+                                "edit_actions.board_order",
+                                details: diagnosticHomeStateDetails(source: "edit_actions")
+                            )
+                            selectedStickerID = nil
+                            isBoardOrderPresented = true
                         },
                         onShuffle: {
                             DiagnosticLogStore.recordUserAction(
@@ -690,12 +765,41 @@ struct ContentView: View {
                     bottomInset: geo.safeAreaInsets.bottom,
                     isPadLayout: isPadLayout,
                     allowsDeletingFirstBoard: subscriptionManager.hasPremiumAccess,
+                    protectedBoardID: boardManagementStore.freePlanProtectedBoardID,
                     onBoardRules: { boardID in
                         beginBoardRules(for: boardID)
                     },
                     onRenameBoard: beginRenameBoard,
                     onDeleteBoard: requestDeleteBoard
                 )
+
+                    if isBoardShareActionMenuPresented {
+                        BoardShareActionOverlayView(
+                            contentWidth: contentWidth,
+                            bottomInset: geo.safeAreaInsets.bottom,
+                            isPadLayout: isPadLayout,
+                            onDismiss: dismissBoardShareActions,
+                            onShareBoard: {
+                                AnalyticsService.logBoardShareFlowSelected(
+                                    action: "share",
+                                    source: "action_menu"
+                                )
+                                presentBoardShareFlow {
+                                    boardSharePresentationStore.showShareBoardPicker()
+                                }
+                            },
+                            onImportBoard: {
+                                AnalyticsService.logBoardShareFlowSelected(
+                                    action: "import",
+                                    source: "action_menu"
+                                )
+                                presentBoardShareFlow {
+                                    boardSharePresentationStore.showImportCodeEntry()
+                                }
+                            }
+                        )
+                        .transition(.opacity)
+                    }
 
                     HomeTimeoutOverlayLayer(
                         viewModel: viewModel,
@@ -709,33 +813,6 @@ struct ContentView: View {
                         timeoutDelayPickerMinutes: $timeoutDelayPickerMinutes,
                         onToast: showCommonTasksToast
                     )
-                } else if selectedMainTab == .points {
-                    pointsTabContent(bottomInset: geo.safeAreaInsets.bottom)
-                } else {
-                    meTabContent(bottomInset: geo.safeAreaInsets.bottom)
-                }
-
-                if shouldShowMainTabBar {
-                    VStack {
-                        Spacer()
-                        HomeMainTabBarView(
-                            selectedTab: $selectedMainTab,
-                            isPadLayout: isPadLayout
-                        )
-                        .padding(.bottom, mainTabBarBottomSpacing)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .transition(.opacity)
-                    .zIndex(5)
-                }
-
-                if let completionMotion = viewModel.taskCompletionMotion,
-                   completionMotion.kind == .bingo {
-                    BingoTopCompletionEffect(
-                        motion: completionMotion,
-                        onFinished: viewModel.dismissTaskCompletionMotion
-                    )
-                    .zIndex(20)
                 }
 
             }
@@ -750,7 +827,7 @@ struct ContentView: View {
             pointsFeatureStore: pointsFeatureStore,
             limitedOfferState: limitedOfferStateBinding,
             showsCloseButton: false,
-            bottomContentPadding: max(bottomInset, 0) + scaled(116, pad: 136),
+            bottomContentPadding: max(bottomInset, 0) + scaled(16, pad: 20),
             onSubpagePresentationChange: { isPresented in
                 isPointsTabSubpagePresented = isPresented
             },
@@ -1008,7 +1085,9 @@ struct ContentView: View {
                     isBoardRulesPresented: $isBoardRulesPresented,
                     boardRulesTargetBoardID: $boardRulesTargetBoardID,
                     isGridSizeSheetPresented: $isGridSizeSheetPresented,
+                    isBoardOrderPresented: $isBoardOrderPresented,
                     namedBoards: namedBoards,
+                    selectedBoardID: selectedBoardID,
                     restoredBoardRulesDraft: restoredBoardRulesDraft,
                     hasPremiumAccess: subscriptionManager.hasPremiumAccess,
                     boardCountdownEndsAt: viewModel.boardCountdownEndsAt,
@@ -1047,6 +1126,7 @@ struct ContentView: View {
                             customResetMinutes: customResetMinutes
                         )
                     },
+                    onSaveBoardOrder: saveBoardOrder,
                     gridSizeSheet: {
                         AnyView(
                             HomeGridSizeSheet(
@@ -1085,6 +1165,29 @@ struct ContentView: View {
                     }
                 )
             )
+            .sheet(isPresented: $isBoardSharePresented) {
+                BoardShareFlowSheet(
+                    store: boardSharePresentationStore,
+                    boards: namedBoards,
+                    hasPremiumAccess: subscriptionManager.hasPremiumAccess,
+                    onImport: commitBoardShareImport,
+                    onUpgradeRequested: { lookup in
+                        boardSharePresentationStore.savePendingPremiumImport(lookup)
+                        presentBoardShareImportPaywall(
+                            for: lookup.payload,
+                            action: .createNewBoard
+                        )
+                    },
+                    onCopyCode: {
+                        showCommonTasksToast(
+                            L10n.tr("Share code copied", zhHans: "分享码已复制", zhHant: "分享碼已複製")
+                        )
+                    },
+                    onReturnToActionMenu: restoreBoardShareActionMenu
+                )
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Color(hex: "FAF9F3"))
+            }
     }
 
     private func withBoardAlerts<Content: View>(content: Content) -> some View {
@@ -1113,7 +1216,16 @@ struct ContentView: View {
             "board.clear_confirm",
             details: diagnosticHomeStateDetails(source: "clear_board_alert")
         )
-        viewModel.resetBoard()
+        guard viewModel.resetBoard() else {
+            showCommonTasksToast(
+                L10n.tr(
+                    "Could not save task completion history. Please try again.",
+                    zhHans: "任务完成历史保存失败，请重试。",
+                    zhHant: "任務完成歷史儲存失敗，請重試。"
+                )
+            )
+            return
+        }
         syncTaskStartReminders()
         DiagnosticLogStore.recordStateChange(
             "board.cleared",
@@ -1695,6 +1807,9 @@ struct ContentView: View {
     private func openFeedbackEmail(kind: FeedbackEmailKind, source: String) {
         var details = diagnosticHomeStateDetails(source: source)
         details["kind"] = kind.logValue
+        details["feedback_membership_status"] = subscriptionManager.hasPremiumAccess
+            ? "premium"
+            : "free"
         DiagnosticLogStore.recordUserAction(
             "feedback_email.open",
             details: details
@@ -1764,9 +1879,14 @@ struct ContentView: View {
             return L10n.featureSuggestionEmailBody(
                 appVersion: version,
                 device: UIDevice.current.model,
-                system: system
+                system: system,
+                diagnosticMarker: feedbackMembershipDiagnosticMarker
             )
         }
+    }
+
+    private var feedbackMembershipDiagnosticMarker: String {
+        "feedback_membership_status=\(subscriptionManager.hasPremiumAccess ? "premium" : "free")"
     }
 
     private func showCommonTasksToast(_ message: String) {
@@ -1803,6 +1923,56 @@ struct ContentView: View {
         boardActionPresentationStore.presentActions(for: boardID)
     }
 
+    private func beginBoardShareActions() {
+        DiagnosticLogStore.recordUserAction(
+            "board_share.entry",
+            details: diagnosticHomeStateDetails(source: "home_header")
+        )
+        AnalyticsService.logBoardShareMenuOpened(source: "home_header")
+        selectedStickerID = nil
+        boardSharePresentationStore.showMenu()
+        withAnimation(.easeInOut(duration: 0.18)) {
+            isBoardShareActionMenuPresented = true
+        }
+    }
+
+    private func dismissBoardShareActions() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            isBoardShareActionMenuPresented = false
+        }
+    }
+
+    private func presentBoardShareFlow(_ selectPage: @escaping () -> Void) {
+        dismissBoardShareActions()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            selectPage()
+            isBoardSharePresented = true
+        }
+    }
+
+    private func restoreBoardShareActionMenu() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                isBoardShareActionMenuPresented = true
+            }
+        }
+    }
+
+    private func presentBoardShareImportPaywall(
+        for payload: BoardSharePayload,
+        action: BoardShareImportAction
+    ) {
+        let source = payload.gridSize == 5
+            ? "board_share_import_grid_5x5"
+            : "board_share_import"
+        AnalyticsService.logBoardImportPremiumGate(
+            source: source,
+            payload: payload,
+            action: action.rawValue
+        )
+        presentPremiumPaywall(source: source)
+    }
+
     private func beginBoardRules(for boardID: UUID, source: String = "board_actions") {
         DiagnosticLogStore.recordUserAction(
             "board.rules",
@@ -1816,6 +1986,23 @@ struct ContentView: View {
     }
 
     private func handlePremiumPaywallDismiss() {
+        if premiumPaywallSource == "board_share_import" ||
+            premiumPaywallSource == "board_share_import_grid_5x5" {
+            guard subscriptionManager.hasPremiumAccess else { return }
+            guard boardSharePresentationStore.restorePendingPremiumImport() else {
+                showCommonTasksToast(
+                    L10n.tr(
+                        "This share code is no longer available.",
+                        zhHans: "该分享码已不可用",
+                        zhHant: "該分享碼已不可用"
+                    )
+                )
+                return
+            }
+            isBoardSharePresented = true
+            return
+        }
+
         guard premiumPaywallSource == "board_rules_custom_reset_time",
               pendingPremiumBoardRulesDraft != nil else {
             return
@@ -2010,8 +2197,11 @@ struct ContentView: View {
             } ?? false
 
         var coordinator = makeBoardResetCoordinator()
-        let result = coordinator.evaluate(now: now, force: force, source: source)
-        commitBoardResetCoordinator(coordinator, shouldPersist: result.didReset)
+        let result = coordinator.evaluate(now: now, force: force, source: source) {
+            boardManagementStore.reconcileTaskRulesBeforeReset()
+            return namedBoards
+        }
+        guard commitBoardResetCoordinator(coordinator, shouldPersist: result.didReset) else { return }
 
         guard result.didResetActiveBoard else { return }
         refreshActiveBoardAfterReset(
@@ -2020,10 +2210,14 @@ struct ContentView: View {
             didBoardCountdownExist: didBoardCountdownExist,
             clearedCompletedTaskCount: result.clearedCompletedTaskCount
         )
+        if result.removedCompletedSingleTaskCount > 0 {
+            toastStore.showCompletedSingleTaskRemoval()
+        }
     }
 
     private func forceApplyBoardTaskResetRulesForDebug(now: Date) {
     #if DEBUG
+        boardManagementStore.reconcileTaskRulesBeforeReset()
         let activeBoardID = selectedBoardID ?? namedBoards.first?.id
         let didBoardCountdownExist = activeBoardID
             .flatMap { boardID in
@@ -2032,7 +2226,7 @@ struct ContentView: View {
 
         var coordinator = makeBoardResetCoordinator()
         let result = coordinator.forceApplyForDebug(now: now)
-        commitBoardResetCoordinator(coordinator, shouldPersist: result?.didReset == true)
+        guard commitBoardResetCoordinator(coordinator, shouldPersist: result?.didReset == true) else { return }
 
         guard let result, result.didResetActiveBoard else { return }
         refreshActiveBoardAfterReset(
@@ -2041,6 +2235,9 @@ struct ContentView: View {
             didBoardCountdownExist: didBoardCountdownExist,
             clearedCompletedTaskCount: result.clearedCompletedTaskCount
         )
+        if result.removedCompletedSingleTaskCount > 0 {
+            toastStore.showCompletedSingleTaskRemoval()
+        }
     #else
         _ = now
     #endif
@@ -2061,8 +2258,12 @@ struct ContentView: View {
         )
     }
 
-    private func commitBoardResetCoordinator(_ coordinator: BoardResetCoordinator, shouldPersist: Bool) {
-        namedBoards = coordinator.namedBoards
+    private func commitBoardResetCoordinator(_ coordinator: BoardResetCoordinator, shouldPersist: Bool) -> Bool {
+        if shouldPersist {
+            guard boardManagementStore.commitResetBoards(coordinator.namedBoards) else { return false }
+        } else {
+            namedBoards = coordinator.namedBoards
+        }
         lastBoardRulesEvaluationDateKey = coordinator.lastEvaluationDateKey
         hasAppliedDebugSimulatedResetThisLaunch = coordinator.hasAppliedDebugSimulatedResetThisLaunch
         lastCustomResetDebugToastKey = coordinator.lastCustomResetDebugToastKey
@@ -2079,9 +2280,7 @@ struct ContentView: View {
         }
     #endif
 
-        if shouldPersist {
-            persistNamedBoardsSnapshot()
-        }
+        return true
     }
 
     private func refreshActiveBoardAfterReset(
@@ -2134,6 +2333,23 @@ struct ContentView: View {
         return board.name
     }
 
+    private func saveBoardOrder(_ orderedBoardIDs: [UUID]) -> Bool {
+        guard boardManagementStore.reorderBoards(orderedBoardIDs) else {
+            DiagnosticLogStore.recordWarning(
+                "board.order_save_failed",
+                details: diagnosticHomeStateDetails(source: "board_order")
+            )
+            return false
+        }
+        NativeICloudLocalChangeReporter.primaryStateDidChange()
+        DiagnosticLogStore.recordStateChange(
+            "board.order_saved",
+            details: diagnosticHomeStateDetails(source: "board_order")
+                .merging(["board_count": "\(orderedBoardIDs.count)"]) { current, _ in current }
+        )
+        return true
+    }
+
     private func requestDeleteBoard(_ boardID: UUID) {
         DiagnosticLogStore.recordUserAction(
             "board.delete_request",
@@ -2144,7 +2360,8 @@ struct ContentView: View {
         switch BoardActionPresentationStore.deleteAvailability(
             for: boardID,
             namedBoards: namedBoards,
-            allowsDeletingFirstBoard: subscriptionManager.hasPremiumAccess
+            allowsDeletingFirstBoard: subscriptionManager.hasPremiumAccess,
+            protectedBoardID: boardManagementStore.freePlanProtectedBoardID
         ) {
         case .allowed:
             boardActionPresentationStore.beginDelete(boardID: boardID)
@@ -2155,7 +2372,7 @@ struct ContentView: View {
                     "board_id": shortDiagnosticID(boardID),
                     "board_count": "\(namedBoards.count)",
                     "has_premium": "\(subscriptionManager.hasPremiumAccess)",
-                    "is_first_board": "\(namedBoards.first?.id == boardID)"
+                    "is_protected_board": "\(boardManagementStore.freePlanProtectedBoardID == boardID)"
                 ]
             )
             showCommonTasksToast(message)
@@ -2170,7 +2387,8 @@ struct ContentView: View {
         guard BoardActionPresentationStore.canDeleteBoard(
             boardID,
             namedBoards: namedBoards,
-            allowsDeletingFirstBoard: subscriptionManager.hasPremiumAccess
+            allowsDeletingFirstBoard: subscriptionManager.hasPremiumAccess,
+            protectedBoardID: boardManagementStore.freePlanProtectedBoardID
         ) else {
             DiagnosticLogStore.recordWarning(
                 "board.delete_guard_failed",
@@ -2185,6 +2403,21 @@ struct ContentView: View {
         markBoardPanelInteracted()
 
         guard let boardToDelete = namedBoards.first(where: { $0.id == boardID }) else {
+            return
+        }
+        guard TaskCompletionHistoryStore.archive(board: boardToDelete.board) else {
+            DiagnosticLogStore.recordWarning(
+                "board.delete_completion_history_archive_failed",
+                details: ["board_id": shortDiagnosticID(boardID)]
+            )
+            showCommonTasksToast(
+                L10n.tr(
+                    "Could not save this board's task completion history. Please try again.",
+                    zhHans: "任务完成历史保存失败，请重试。",
+                    zhHant: "任務完成歷史儲存失敗，請重試。",
+                    ja: "タスクの完了履歴を保存できませんでした。もう一度お試しください。"
+                )
+            )
             return
         }
         guard TaskHistoryStore.archive(board: boardToDelete.board) else {
@@ -2249,11 +2482,18 @@ struct ContentView: View {
 
     private func ensureBoardSwitcherLoaded() {
         let wasAlreadyLoaded = boardManagementStore.hasLoadedBoardSwitcherState
-        guard let selectedBoard = boardManagementStore.loadIfNeeded(
+        guard boardManagementStore.loadIfNeeded(
             initialBoard: viewModel.makeSavedBoardSnapshot(),
             countdownEndsAt: viewModel.boardCountdownEndsAt
-        ) else { return }
+        ) != nil else { return }
         guard !wasAlreadyLoaded else { return }
+
+        if TaskCompletionHistoryStore.ensureMigrated() {
+            _ = boardManagementStore.reconcileCompletionHistoryCounts(
+                TaskCompletionHistoryStore.load()
+            )
+        }
+        guard let selectedBoard = boardManagementStore.selectedBoardSnapshot else { return }
 
         viewModel.applySavedBoardSnapshot(
             selectedBoard.board,
@@ -2279,6 +2519,38 @@ struct ContentView: View {
             reloadPersistedPoints: true,
             persist: persistViewModelState
         )
+    }
+
+    private func reloadBoardSwitcherSnapshotAfterCelebrationIfNeeded(now: Date) {
+        // Remote snapshots are durable state, but applying one recreates the visible grid and
+        // deliberately clears transient task motion. Let the current one-shot finish first;
+        // the latest remote snapshot is then applied by the motion observer above.
+        guard viewModel.taskCompletionMotion == nil,
+              viewModel.boardCompletionAnimationID == nil else {
+            hasDeferredExternalBoardSnapshotReload = true
+            return
+        }
+        reloadBoardSwitcherSnapshotFromSharedStoreIfNeeded(
+            now: now,
+            persistViewModelState: false
+        )
+    }
+
+    private func applyDeferredExternalBoardSnapshotReloadIfPossible() {
+        guard hasDeferredExternalBoardSnapshotReload,
+              viewModel.taskCompletionMotion == nil,
+              viewModel.boardCompletionAnimationID == nil else {
+            return
+        }
+        hasDeferredExternalBoardSnapshotReload = false
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            reloadBoardSwitcherSnapshotFromSharedStoreIfNeeded(
+                now: .now,
+                persistViewModelState: false
+            )
+        }
     }
 
     @discardableResult
@@ -2377,26 +2649,24 @@ struct ContentView: View {
         applyBoardManagementMutationResult(selection)
     }
 
-    private func selectBoard(_ boardID: UUID) {
+    @discardableResult
+    private func selectBoard(_ boardID: UUID) -> Bool {
         DiagnosticLogStore.recordUserAction(
             "board.select",
             details: diagnosticHomeStateDetails(source: "board_panel")
                 .merging(["target_board_id": shortDiagnosticID(boardID)]) { current, _ in current }
         )
+        // A Bingo sequence belongs to the currently displayed board. Switching the backing
+        // snapshot during its background/reveal phases would cancel it mid-flight.
+        guard viewModel.taskCompletionMotion?.kind != .bingo else { return false }
+
         selectedStickerID = nil
         guard selectedBoardID != boardID else {
             DiagnosticLogStore.recordStateChange(
                 "board.select_ignored_current",
                 details: ["board_id": shortDiagnosticID(boardID)]
             )
-            return
-        }
-        guard boardSwitchAnimationStore.beginSelection() else {
-            DiagnosticLogStore.recordWarning(
-                "board.select_blocked_animation",
-                details: ["board_id": shortDiagnosticID(boardID)]
-            )
-            return
+            return true
         }
         markBoardPanelInteracted()
 
@@ -2409,7 +2679,7 @@ struct ContentView: View {
                 "board.select_failed",
                 details: ["board_id": shortDiagnosticID(boardID)]
             )
-            return
+            return false
         }
 
         viewModel.applySavedBoardSnapshot(
@@ -2417,6 +2687,11 @@ struct ContentView: View {
             countdownEndsAt: selection.selectedBoard.countdownEndsAt,
             referenceDate: .now
         )
+        if TaskCompletionHistoryStore.ensureMigrated() {
+            _ = boardManagementStore.reconcileCompletionHistoryCounts(
+                TaskCompletionHistoryStore.load()
+            )
+        }
         applyBoardManagementMutationResult(selection)
         DiagnosticLogStore.recordStateChange(
             "board.selected",
@@ -2425,6 +2700,7 @@ struct ContentView: View {
                 "grid_size": "\(viewModel.gridSize)"
             ]
         )
+        return true
     }
 
     private func applyBoardManagementMutationResult(_ result: BoardManagementMutationResult) {
@@ -2441,6 +2717,209 @@ struct ContentView: View {
             shouldInvalidateCountdownTickSchedule: result.shouldInvalidateCountdownTickSchedule,
             shouldSyncTaskReminders: result.shouldSyncTaskReminders
         )
+    }
+
+    @discardableResult
+    private func commitBoardShareImport(
+        _ payload: BoardSharePayload,
+        action: BoardShareImportAction
+    ) -> Bool {
+        let boardCountBefore = namedBoards.count
+        do {
+            try payload.validate()
+        } catch {
+            AnalyticsService.logBoardImportResult(
+                result: AnalyticsService.boardShareErrorResult(error),
+                payload: payload,
+                action: action.rawValue,
+                boardCountBefore: boardCountBefore
+            )
+            showCommonTasksToast(
+                (error as? LocalizedError)?.errorDescription
+                    ?? L10n.tr("This shared board is invalid.", zhHans: "该分享棋盘数据无效", zhHant: "該分享棋盤資料無效")
+            )
+            return false
+        }
+
+        if !subscriptionManager.hasPremiumAccess {
+            guard payload.gridSize <= 4 else {
+                presentBoardShareImportPaywall(for: payload, action: action)
+                return false
+            }
+            if case .createNewBoard = action {
+                presentBoardShareImportPaywall(for: payload, action: action)
+                return false
+            }
+        }
+
+        // Bring the visible board into the durable multi-board snapshot before
+        // constructing the import transaction. This never changes board rules;
+        // it only prevents a stale active-board mirror from being overwritten.
+        syncSelectedBoardSnapshotIfNeeded(syncTaskReminders: false)
+
+        guard let currentBoardID = selectedBoardID ?? namedBoards.first?.id,
+              let currentBoard = namedBoards.first(where: { $0.id == currentBoardID }) else {
+            AnalyticsService.logBoardImportResult(
+                result: "missing_current_board",
+                payload: payload,
+                action: action.rawValue,
+                boardCountBefore: boardCountBefore
+            )
+            showCommonTasksToast(L10n.tr("Could not import this board. Please try again.", zhHans: "导入棋盘失败，请重试", zhHant: "匯入棋盤失敗，請重試"))
+            return false
+        }
+
+        let importedSavedBoard: SavedBoard
+        do {
+            importedSavedBoard = try payload.makeNewLocalBoard()
+        } catch {
+            AnalyticsService.logBoardImportResult(
+                result: AnalyticsService.boardShareErrorResult(error),
+                payload: payload,
+                action: action.rawValue,
+                boardCountBefore: boardCountBefore
+            )
+            showCommonTasksToast(
+                (error as? LocalizedError)?.errorDescription
+                    ?? L10n.tr("This shared board is invalid.", zhHans: "该分享棋盘数据无效", zhHant: "該分享棋盤資料無效")
+            )
+            return false
+        }
+
+        let now = Date()
+        let importedNamedBoard = BingoBoardStore.NamedBoard(
+            name: payload.boardName,
+            board: importedSavedBoard,
+            countdownEndsAt: nil,
+            taskResetMode: .resetStatusNextDay,
+            customResetMinutes: nil,
+            lastTaskResetAppliedAt: now,
+            origin: .user,
+            updatedAt: now
+        )
+
+        var snapshot = BingoBoardStore.loadNamedBoardsSnapshot()
+        var archivedTaskHistory: [TaskHistoryRecord]?
+        var additionalPersistenceSteps: [PersistenceWriteStep] = []
+        switch action {
+        case .createNewBoard:
+            guard subscriptionManager.hasPremiumAccess else {
+                presentBoardShareImportPaywall(for: payload, action: action)
+                return false
+            }
+            snapshot.boards.append(importedNamedBoard)
+            snapshot.selectedBoardID = importedNamedBoard.id
+
+        case .replaceCurrentBoard:
+            guard let replaceIndex = snapshot.boards.firstIndex(where: { $0.id == currentBoardID }) else {
+                AnalyticsService.logBoardImportResult(
+                    result: "missing_replacement_board",
+                    payload: payload,
+                    action: action.rawValue,
+                    boardCountBefore: boardCountBefore
+                )
+                showCommonTasksToast(L10n.tr("Could not import this board. Please try again.", zhHans: "导入棋盘失败，请重试", zhHant: "匯入棋盤失敗，請重試"))
+                return false
+            }
+
+            if BoardSharePayload.isShareable(currentBoard.board) {
+                let records = TaskHistoryStore.archivedRecords(
+                    for: currentBoard.board,
+                    baseRecords: TaskHistoryStore.load(),
+                    at: now
+                )
+                guard let historyStep = TaskHistoryStore.persistenceStep(replacing: records) else {
+                    AnalyticsService.logBoardImportResult(
+                        result: "history_archive_failed",
+                        payload: payload,
+                        action: action.rawValue,
+                        boardCountBefore: boardCountBefore
+                    )
+                    showCommonTasksToast(
+                        L10n.tr(
+                            "Could not archive the current board's task history. Please try again.",
+                            zhHans: "当前棋盘的任务历史归档失败，请重试",
+                            zhHant: "目前棋盤的任務歷史歸檔失敗，請重試"
+                        )
+                    )
+                    return false
+                }
+                archivedTaskHistory = records
+                additionalPersistenceSteps.append(historyStep)
+            }
+
+            let protectedBoardID = snapshot.effectiveProtectedBoardID
+            snapshot.boards[replaceIndex] = importedNamedBoard
+            snapshot.selectedBoardID = importedNamedBoard.id
+            snapshot.deletedBoardIDs = snapshot.effectiveDeletedBoardIDs.union([currentBoardID])
+            if protectedBoardID == currentBoardID {
+                snapshot.protectedBoardID = importedNamedBoard.id
+            }
+        }
+
+        guard BingoBoardStore.commitImportedBoardSnapshot(
+            snapshot,
+            activeBoardID: importedNamedBoard.id,
+            additionalPersistenceSteps: additionalPersistenceSteps,
+            savedAt: now
+        ) else {
+            AnalyticsService.logBoardImportResult(
+                result: "persistence_failed",
+                payload: payload,
+                action: action.rawValue,
+                boardCountBefore: boardCountBefore
+            )
+            showCommonTasksToast(L10n.tr("Could not import this board. Please try again.", zhHans: "导入棋盘失败，请重试", zhHant: "匯入棋盤失敗，請重試"))
+            return false
+        }
+
+        guard let committedBoard = boardManagementStore.reloadPersistedSnapshot(),
+              committedBoard.id == importedNamedBoard.id else {
+            AnalyticsService.logBoardImportResult(
+                result: "success_reload_missing",
+                payload: payload,
+                action: action.rawValue,
+                boardCountBefore: boardCountBefore,
+                boardCountAfter: BingoBoardStore.loadNamedBoardsSnapshot().boards.count
+            )
+            showCommonTasksToast(L10n.tr("The board was imported. Reopen the app if it is not visible yet.", zhHans: "棋盘已导入；如未显示，请重新打开 App", zhHant: "棋盤已匯入；如未顯示，請重新開啟 App"))
+            NativeICloudLocalChangeReporter.primaryStateDidChange()
+            if archivedTaskHistory != nil {
+                NativeICloudLocalChangeReporter.secondaryStateDidChange()
+            }
+            return true
+        }
+
+        viewModel.applySavedBoardSnapshot(
+            committedBoard.board,
+            countdownEndsAt: committedBoard.countdownEndsAt,
+            referenceDate: now,
+            persist: false
+        )
+        invalidateCountdownTickSchedule()
+        syncTaskStartReminders()
+        NativeICloudLocalChangeReporter.primaryStateDidChange()
+        if archivedTaskHistory != nil {
+            NativeICloudLocalChangeReporter.secondaryStateDidChange()
+        }
+        AnalyticsService.logBoardImportResult(
+            result: "success",
+            payload: payload,
+            action: action.rawValue,
+            boardCountBefore: boardCountBefore,
+            boardCountAfter: namedBoards.count
+        )
+        DiagnosticLogStore.recordStateChange(
+            "board_share.imported",
+            details: [
+                "action": action == .createNewBoard ? "new" : "replace",
+                "board_id": shortDiagnosticID(committedBoard.id),
+                "grid_size": "\(payload.gridSize)",
+                "has_premium": "\(subscriptionManager.hasPremiumAccess)"
+            ]
+        )
+        showCommonTasksToast(L10n.tr("Board imported", zhHans: "棋盘已导入", zhHant: "棋盤已匯入"))
+        return true
     }
 
     private func applyBoardSideEffects(

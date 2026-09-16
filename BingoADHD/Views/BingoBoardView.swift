@@ -7,9 +7,20 @@ struct BingoBoardView: View {
     struct EditingTarget: Identifiable, Equatable {
         let row: Int
         let col: Int
+        let cellID: UUID?
+
+        init(row: Int, col: Int, cellID: UUID? = nil) {
+            self.row = row
+            self.col = col
+            self.cellID = cellID
+        }
 
         var id: String {
             "\(row)-\(col)"
+        }
+
+        static func == (lhs: EditingTarget, rhs: EditingTarget) -> Bool {
+            lhs.row == rhs.row && lhs.col == rhs.col
         }
     }
 
@@ -38,6 +49,7 @@ struct BingoBoardView: View {
     @State private var undoDismissWorkItem: DispatchWorkItem?
     @State private var pendingDeleteTarget: EditingTarget?
     @State private var pendingPadEditorTargetAfterActions: EditingTarget?
+    @State private var taskMutationError: String?
     @State private var editSheetSessionID = UUID()
     private let boardSurfaceColor = Color(hex: "EBEBEB")
 
@@ -84,15 +96,18 @@ struct BingoBoardView: View {
                         HStack(spacing: cellSpacing) {
                             ForEach(0..<viewModel.gridSize, id: \.self) { col in
                                 if row < viewModel.cells.count && col < viewModel.cells[row].count {
-                                    let target = EditingTarget(row: row, col: col)
+                                    let target = EditingTarget(
+                                        row: row,
+                                        col: col,
+                                        cellID: viewModel.cells[row][col].id
+                                    )
                                     let isDragSource = dragState?.source == target
                                     let isDropTarget = dragState?.destination == target && dragState?.source != target
-                                    let canToggleComplete = viewModel.canToggleComplete(
+                                    let isScheduledInactive = !viewModel.isTaskCurrentlyTappable(
                                         row: row,
                                         col: col,
                                         referenceDate: currentTime
-                                    )
-                                    let isScheduledInactive = !canToggleComplete && !viewModel.cells[row][col].isEmpty
+                                    ) && !viewModel.cells[row][col].isCompleted
                                     let scheduleStatusText = scheduleStatusTextForCell(
                                         row: row,
                                         col: col,
@@ -127,16 +142,23 @@ struct BingoBoardView: View {
                                             : nil,
                                         onTap: {
                                             dismissActionMenu()
-                                            if !viewModel.cells[row][col].isEmpty &&
+                                            if let currentCell = currentVisibleCell(for: target),
+                                                !currentCell.isEmpty &&
                                                 !viewModel.isLocked(row: row, col: col) &&
                                                 viewModel.canToggleComplete(row: row, col: col, referenceDate: currentTime) {
-                                                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                                                    viewModel.toggleComplete(row: row, col: col, referenceDate: currentTime)
-                                                }
+                                                // The tapped cell owns its local 70% → spring-back
+                                                // feedback. Do not wrap the entire board mutation in
+                                                // an animation transaction: it causes unrelated cells
+                                                // and UIKit PAG views to be re-evaluated mid-playback.
+                                                viewModel.toggleComplete(row: row, col: col, referenceDate: currentTime)
                                                 onCellCompletionToggled?()
                                             }
                                         },
                                         onLongPressRelease: {
+                                            guard let currentCell = currentVisibleCell(for: target) else {
+                                                debugGesture("long press ignored stale target at \(row)-\(col)")
+                                                return
+                                            }
                                             guard !viewModel.isLocked(row: row, col: col) else {
                                                 debugGesture("long press blocked by lock at \(row)-\(col)")
                                                 return
@@ -144,9 +166,13 @@ struct BingoBoardView: View {
                                             // Fix 2: use hasStoredTask (checks storedTaskText) rather
                                             // than isEmpty (checks projected text). Resident tasks
                                             // on non-active days have text="" but storedTaskText!="".
-                                            if viewModel.cells[row][col].hasStoredTask {
+                                            if currentCell.hasStoredTask {
                                                 debugGesture("long press open action menu at \(row)-\(col)")
                                                 DispatchQueue.main.async {
+                                                    guard currentVisibleCell(for: target) != nil else {
+                                                        debugGesture("long press ignored stale action menu at \(row)-\(col)")
+                                                        return
+                                                    }
                                                     setActionTargetWithoutSystemAnimation(target)
                                                 }
                                             } else {
@@ -156,7 +182,8 @@ struct BingoBoardView: View {
                                         },
                                         onDragStart: {
                                             guard !viewModel.isLocked(row: row, col: col) else { return }
-                                            guard !viewModel.cells[row][col].isEmpty else { return }
+                                            guard let currentCell = currentVisibleCell(for: target),
+                                                  !currentCell.isEmpty else { return }
                                             dismissActionMenu()
                                             withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.82)) {
                                                 dragState = DragState(source: target)
@@ -224,13 +251,16 @@ struct BingoBoardView: View {
         }
         .onChange(of: viewModel.taskCompletionMotion?.id) { _, motionID in
             guard reduceMotion, let motionID else { return }
+            // The top-level presenter owns Bingo's reduced-motion fallback. Keeping the
+            // Bingo state alive until it responds prevents the board layer from cancelling
+            // its sound/haptic task before it begins.
             if viewModel.taskCompletionMotion?.kind == .singleTask {
 #if canImport(libpag)
                 PAGRewardSoundPlayer.shared.play(resourceName: "complete_once", fileExtension: "mp3")
 #endif
                 AppHaptics.completion()
+                viewModel.dismissTaskCompletionMotion(id: motionID)
             }
-            viewModel.dismissTaskCompletionMotion(id: motionID)
         }
         .overlay(alignment: .top) {
             if deletedCellSnapshot != nil {
@@ -282,6 +312,23 @@ struct BingoBoardView: View {
         } message: {
             Text(residentScheduleNotice ?? "")
         }
+        .alert(
+            L10n.tr("Could not remove task", zhHans: "无法移除任务", zhHant: "無法移除任務"),
+            isPresented: Binding(
+                get: { taskMutationError != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        taskMutationError = nil
+                    }
+                }
+            )
+        ) {
+            Button(L10n.ok, role: .cancel) {
+                taskMutationError = nil
+            }
+        } message: {
+            Text(taskMutationError ?? "")
+        }
         .alert(L10n.tr("Remove task?", zhHans: "移除任务？", zhHant: "移除任務？"), isPresented: Binding(
             get: { pendingDeleteTarget != nil },
             set: { newValue in
@@ -323,9 +370,10 @@ struct BingoBoardView: View {
         }
     }
 
+    @ViewBuilder
     private func editTaskSheet(for target: EditingTarget) -> some View {
-        let editingCell = viewModel.editingCell(row: target.row, col: target.col) ?? viewModel.cells[target.row][target.col]
-        return EditTaskSheet(
+        if let editingCell = currentEditingCell(for: target) {
+            EditTaskSheet(
             text: editingCell.storedTaskText,
             isForcedTask: editingCell.isForced,
             residentWeekdays: editingCell.residentWeekdays,
@@ -335,17 +383,23 @@ struct BingoBoardView: View {
             endVisibleAt: editingCell.endVisibleAt,
             startReminderEnabled: editingCell.startReminderEnabled,
             startReminderOffsetMinutes: editingCell.startReminderOffsetMinutes,
-            isCompletedTask: editingCell.isCompleted,
-            estimatedDurationMinutes: viewModel.remainingTaskCountdownMinutes(row: target.row, col: target.col),
-            usesClearPresentationBackground: isPadDevice,
-            onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, recurrenceRule, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes in
+                isCompletedTask: editingCell.isCompleted,
+                estimatedDurationMinutes: viewModel.remainingTaskCountdownMinutes(row: target.row, col: target.col),
+                usesClearPresentationBackground: isPadDevice,
+                completionHistoryCountProvider: viewModel.completionHistoryCount(for:),
+                diagnosticCellID: editingCell.id,
+                diagnosticSource: "home_cell_editor",
+                onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, recurrenceRule, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes in
+                guard currentVisibleCell(for: target) != nil else {
+                    return false
+                }
                 let scheduleNotice = residentVisibilityNotice(
                     text: newText,
                     residentWeekdays: residentWeekdays,
                     isOneTimeTask: isOneTimeTask,
                     recurrenceRule: recurrenceRule
                 )
-                viewModel.updateTask(
+                let didSave = viewModel.updateTask(
                     row: target.row,
                     col: target.col,
                     text: newText,
@@ -357,22 +411,32 @@ struct BingoBoardView: View {
                     startVisibleAt: startVisibleAt,
                     endVisibleAt: endVisibleAt,
                     startReminderEnabled: startReminderEnabled,
-                    startReminderOffsetMinutes: startReminderOffsetMinutes
+                    startReminderOffsetMinutes: startReminderOffsetMinutes,
+                    editSource: "home_cell_editor"
                 )
+                guard didSave else { return false }
                 editingTarget = nil
                 residentScheduleNotice = scheduleNotice
+                return true
             },
             onDelete: {
                 requestDelete(at: target)
             },
             onCancel: { editingTarget = nil }
-        )
-        .id(editSheetSessionID)
+            )
+            .id(editSheetSessionID)
+        } else {
+            Color.clear
+                .onAppear {
+                    editingTarget = nil
+                }
+        }
     }
 
+    @ViewBuilder
     private func taskActionsOverlay(for target: EditingTarget) -> some View {
-        let cell = viewModel.cells[target.row][target.col]
-        return TaskActionsOverlayView(
+        if let cell = currentVisibleCell(for: target) {
+            TaskActionsOverlayView(
             showsHideAction: cell.isCompleted,
             hideActionTitle: cell.isTaskHidden ? L10n.showTask : L10n.hideTask,
             showsCountdownAction: viewModel.canSetTaskCountdown(row: target.row, col: target.col, referenceDate: currentTime),
@@ -386,17 +450,35 @@ struct BingoBoardView: View {
                 }
             },
             onSetCountdown: {
+                guard currentVisibleCell(for: target) != nil else {
+                    dismissActionMenu()
+                    return
+                }
                 countdownTarget = target
             },
             onDelete: {
+                guard currentVisibleCell(for: target) != nil else {
+                    dismissActionMenu()
+                    return
+                }
                 pendingDeleteTarget = target
             },
             onToggleHidden: {
+                guard currentVisibleCell(for: target) != nil else {
+                    dismissActionMenu()
+                    return
+                }
                 withAnimation(.easeInOut(duration: 0.45)) {
                     viewModel.toggleTaskHidden(row: target.row, col: target.col)
                 }
             }
-        )
+            )
+        } else {
+            Color.clear
+                .onAppear {
+                    dismissActionMenu()
+                }
+        }
     }
 
     private func taskCountdownSheet(for target: EditingTarget) -> some View {
@@ -421,10 +503,18 @@ struct BingoBoardView: View {
             ),
             isPadLayout: isPadLayout,
             onSave: { minutes in
+                guard currentVisibleCell(for: target) != nil else {
+                    countdownTarget = nil
+                    return
+                }
                 _ = viewModel.setTaskCountdown(row: target.row, col: target.col, minutes: minutes)
                 countdownTarget = nil
             },
             onPauseToggle: {
+                guard currentVisibleCell(for: target) != nil else {
+                    countdownTarget = nil
+                    return
+                }
                 if isPaused {
                     _ = viewModel.resumeTaskCountdown(row: target.row, col: target.col)
                 } else {
@@ -433,6 +523,10 @@ struct BingoBoardView: View {
                 countdownTarget = nil
             },
             onCancelCountdown: {
+                guard currentVisibleCell(for: target) != nil else {
+                    countdownTarget = nil
+                    return
+                }
                 _ = viewModel.cancelTaskCountdown(row: target.row, col: target.col)
                 countdownTarget = nil
             }
@@ -453,52 +547,72 @@ struct BingoBoardView: View {
         }
     }
 
+    @ViewBuilder
     private func draggedCellOverlay(for dragState: DragState, cellSize: CGFloat) -> some View {
-        let sourceCell = viewModel.cells[dragState.source.row][dragState.source.col]
-        let startCenter = cellCenter(for: dragState.source, cellSize: cellSize)
-        let isScheduledInactive = !viewModel.canToggleComplete(
-            row: dragState.source.row,
-            col: dragState.source.col,
-            referenceDate: currentTime
-        ) && !sourceCell.isEmpty
-
-        return BingoCellView(
-            cell: sourceCell,
-            currentTime: currentTime,
-            isScheduledInactive: isScheduledInactive,
-            scheduleStatusText: scheduleStatusTextForCell(
+        if let sourceCell = currentVisibleCell(for: dragState.source) {
+            let startCenter = cellCenter(for: dragState.source, cellSize: cellSize)
+            let isScheduledInactive = !viewModel.isTaskCurrentlyTappable(
                 row: dragState.source.row,
                 col: dragState.source.col,
-                isScheduledInactive: isScheduledInactive
-            ),
-            debugIdentifier: "drag-overlay-\(dragState.source.row)-\(dragState.source.col)",
-            isInBingoLine: viewModel.isInCompletedLine(row: dragState.source.row, col: dragState.source.col),
-            isLocked: false,
-            cellSize: cellSize,
-            isFirstCell: false,
-            isInteractive: false,
-            isDragSource: false,
-            isDropTarget: false,
-            emptyHintText: nil,
-            onTap: {},
-            onLongPressRelease: {},
-            onDragStart: {},
-            onDragMove: { _ in },
-            onDragEnd: { _ in }
-        )
-        .position(
-            x: startCenter.x + dragState.translation.width,
-            y: startCenter.y + dragState.translation.height
-        )
-        .allowsHitTesting(false)
+                referenceDate: currentTime
+            ) && !sourceCell.isCompleted
+
+            BingoCellView(
+                cell: sourceCell,
+                currentTime: currentTime,
+                isScheduledInactive: isScheduledInactive,
+                scheduleStatusText: scheduleStatusTextForCell(
+                    row: dragState.source.row,
+                    col: dragState.source.col,
+                    isScheduledInactive: isScheduledInactive
+                ),
+                debugIdentifier: "drag-overlay-\(dragState.source.row)-\(dragState.source.col)",
+                isInBingoLine: viewModel.isInCompletedLine(row: dragState.source.row, col: dragState.source.col),
+                isLocked: false,
+                cellSize: cellSize,
+                isFirstCell: false,
+                isInteractive: false,
+                isDragSource: false,
+                isDropTarget: false,
+                emptyHintText: nil,
+                onTap: {},
+                onLongPressRelease: {},
+                onDragStart: {},
+                onDragMove: { _ in },
+                onDragEnd: { _ in }
+            )
+            .position(
+                x: startCenter.x + dragState.translation.width,
+                y: startCenter.y + dragState.translation.height
+            )
+            .allowsHitTesting(false)
+        } else {
+            Color.clear
+                .allowsHitTesting(false)
+        }
     }
 
     private func handleDelete(at target: EditingTarget) {
+        guard currentVisibleCell(for: target) != nil else {
+            dismissActionMenu()
+            return
+        }
         dismissActionMenu()
-        _ = viewModel.deleteCell(row: target.row, col: target.col)
+        guard viewModel.deleteCell(row: target.row, col: target.col) != nil else {
+            taskMutationError = L10n.tr(
+                "Could not save task completion history. Please try again.",
+                zhHans: "任务完成历史保存失败，请重试。",
+                zhHant: "任務完成歷史儲存失敗，請重試。"
+            )
+            return
+        }
     }
 
     private func requestDelete(at target: EditingTarget) {
+        guard currentVisibleCell(for: target) != nil else {
+            dismissActionMenu()
+            return
+        }
         dismissActionMenu()
         pendingDeleteTarget = target
     }
@@ -538,8 +652,22 @@ struct BingoBoardView: View {
     }
 
     private func presentEditor(for target: EditingTarget) {
+        guard currentVisibleCell(for: target) != nil else { return }
         editSheetSessionID = UUID()
         editingTarget = target
+    }
+
+    private func currentVisibleCell(for target: EditingTarget) -> BingoCell? {
+        viewModel.visibleCell(row: target.row, col: target.col, matching: target.cellID)
+    }
+
+    private func currentEditingCell(for target: EditingTarget) -> BingoCell? {
+        guard let visibleCell = currentVisibleCell(for: target),
+              let editingCell = viewModel.editingCell(row: target.row, col: target.col),
+              visibleCell.id == editingCell.id else {
+            return nil
+        }
+        return editingCell
     }
 
     private var isGestureDebugEnabled: Bool {
@@ -598,9 +726,12 @@ struct BingoBoardView: View {
                     soundResourceName: isSingleTaskTarget ? "complete_once" : nil,
                     soundFileExtension: "mp3",
                     playsHaptic: isSingleTaskTarget,
-                    cacheAllFrames: isSingleTaskTarget,
+                    // A 4×4 line starts four of these compact card canvases at once. Keeping
+                    // their frames in memory trades a small, bounded amount of memory during
+                    // the celebration for deterministic first-run playback.
+                    cacheAllFrames: true,
                     renderScale: 1,
-                    maxFrameRate: isSingleTaskTarget ? 60 : 24,
+                    maxFrameRate: 60,
                     playbackRate: 1,
                     onFinished: {
                         guard isSingleTaskTarget else { return }
@@ -772,7 +903,7 @@ struct BingoBoardView: View {
     private func activeRecurrenceLabel(for rule: TaskRecurrenceRule) -> String? {
         switch rule.kind {
         case .daily:
-            return L10n.tr("Daily", zhHans: "每天", zhHant: "每天", ja: "毎日")
+            return nil
         case .weekly:
             let orderedWeekdays = [2, 3, 4, 5, 6, 7, 1]
             let labels = orderedWeekdays

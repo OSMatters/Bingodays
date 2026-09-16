@@ -2,7 +2,6 @@ import SwiftUI
 
 struct HomeBoardMainContent: View {
     @ObservedObject var viewModel: BingoViewModel
-    @ObservedObject var boardSwitchAnimationStore: BoardSwitchAnimationStore
 
     let namedBoards: [BingoBoardStore.NamedBoard]
     let selectedBoardID: UUID?
@@ -17,8 +16,8 @@ struct HomeBoardMainContent: View {
     let isEditActionsExpanded: Bool
     let surfaceShadowColor: Color
     let themeColor: Color
-    let boardSwipeBlockingState: BoardSwitchAnimationStore.SwipeBlockingState
-    let onSelectBoard: (UUID) -> Void
+    let allowsBoardSwipe: Bool
+    let onSelectBoard: (UUID) -> Bool
     let onBoardLongPress: (UUID) -> Void
     let onCreateBoard: () -> Void
     let onDismissBoardEditHint: () -> Void
@@ -27,32 +26,40 @@ struct HomeBoardMainContent: View {
     let onEditActionsToggle: () -> Void
     let onDismissEditActions: () -> Void
     let onBoardRules: () -> Void
+    let onBoardOrder: () -> Void
     let onShuffle: () -> Void
     let onClearBoard: () -> Void
     let onGridSize: () -> Void
     let onQuickEdit: () -> Void
 
-    @GestureState private var boardDragTranslationX: CGFloat = 0
-    @State private var isCellReordering = false
-    @State private var displayedSelectedBoardID: UUID?
-
     var body: some View {
         VStack(spacing: 16) {
             BoardSwitcherControlsView(
                 boards: namedBoards,
-                selectedBoardID: displayedSelectedBoardID ?? selectedBoardID,
+                selectedBoardID: selectedBoardID,
                 contentWidth: contentWidth,
                 isPadLayout: isPadLayout,
                 shouldShowBoardEditHint: shouldShowBoardEditHint,
                 shouldReserveBoardEditHintSpace: shouldReserveBoardEditHintSpace,
-                onSelectBoard: onSelectBoard,
+                onSelectBoard: selectBoardFromControls,
                 onBoardLongPress: onBoardLongPress,
                 onCreateBoard: onCreateBoard,
                 onDismissBoardEditHint: onDismissBoardEditHint
             )
             .padding(.top, 14)
 
-            swipeableBoardView
+            BoardSwipePagerView(
+                viewModel: viewModel,
+                namedBoards: namedBoards,
+                selectedBoardID: selectedBoardID,
+                contentWidth: contentWidth,
+                currentTime: currentTime,
+                shouldShowCenterLongPressHint: shouldShowCenterLongPressHint,
+                allowsBoardSwipe: allowsBoardSwipe,
+                onSelectBoard: onSelectBoard,
+                onCellCompletionToggled: onCellCompletionToggled
+            )
+            .padding(.top, 8)
 
             BoardBottomControlsView(
                 countdownText: countdownText,
@@ -64,6 +71,7 @@ struct HomeBoardMainContent: View {
                 onEditActionsToggle: onEditActionsToggle,
                 onDismissEditActions: onDismissEditActions,
                 onBoardRules: onBoardRules,
+                onBoardOrder: onBoardOrder,
                 onShuffle: onShuffle,
                 onClearBoard: onClearBoard,
                 onGridSize: onGridSize,
@@ -74,58 +82,9 @@ struct HomeBoardMainContent: View {
         .frame(width: contentWidth)
         .padding(.top, 32)
         .offset(y: (usesPadLayout ? -35 : 0) - 65)
-        .onAppear {
-            displayedSelectedBoardID = selectedBoardID
-        }
-        .onChange(of: selectedBoardID) { _, newValue in
-            displayedSelectedBoardID = newValue
-        }
     }
 
-    private var swipeableBoardView: some View {
-        ZStack {
-            BingoBoardView(
-                viewModel: viewModel,
-                currentTime: currentTime,
-                shouldShowCenterLongPressHint: shouldShowCenterLongPressHint,
-                onCellCompletionToggled: onCellCompletionToggled,
-                onCellReorderActiveChanged: { isActive in
-                    isCellReordering = isActive
-                }
-            )
-        }
-        .animation(.interactiveSpring(response: 0.52, dampingFraction: 0.88, blendDuration: 0.15), value: selectedBoardID)
-        .frame(width: contentWidth, height: contentWidth)
-        .padding(.top, 8)
-        .offset(x: boardDragTranslationX + boardSwitchAnimationStore.offsetX)
-        .contentShape(Rectangle())
-        .simultaneousGesture(boardSwipeGesture)
-    }
-
-    private var boardSwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 28, coordinateSpace: .local)
-            .updating($boardDragTranslationX) { value, state, _ in
-                guard !isCellReordering else { return }
-                let horizontal = value.translation.width
-                let vertical = value.translation.height
-                guard abs(horizontal) > abs(vertical) else { return }
-                state = horizontal
-            }
-            .onEnded { value in
-                guard !isCellReordering else { return }
-                boardSwitchAnimationStore.completeSwipe(
-                    horizontalTranslation: value.translation.width,
-                    verticalTranslation: value.translation.height,
-                    boardWidth: contentWidth,
-                    isPadLayout: isPadLayout,
-                    blockingState: boardSwipeBlockingState,
-                    namedBoards: namedBoards,
-                    selectedBoardID: selectedBoardID,
-                    onTargetResolved: { targetBoardID in
-                        displayedSelectedBoardID = targetBoardID
-                    },
-                    selectBoard: onSelectBoard
-                )
-            }
+    private func selectBoardFromControls(_ boardID: UUID) {
+        _ = onSelectBoard(boardID)
     }
 }

@@ -1,5 +1,36 @@
 import Foundation
 
+enum TaskRulePersistenceGuard {
+    static func matchesStoredTasks(_ original: SavedBoard, _ current: SavedBoard) -> Bool {
+        guard original.gridSize == current.gridSize else { return false }
+        let originalCells = BoardEngine.expandedBoardCache(from: original).flatMap { $0 }
+        let currentCells = BoardEngine.expandedBoardCache(from: current).flatMap { $0 }
+        return zip(originalCells, currentCells).allSatisfy { original, current in
+            if !original.hasStoredTask && !current.hasStoredTask { return true }
+            return original == current
+        }
+    }
+
+    static func downgradedCellIDs(from previous: SavedBoard?, to next: SavedBoard) -> Set<UUID> {
+        guard let previous else { return [] }
+        let nextCells = BoardEngine.expandedBoardCache(from: next).flatMap { $0 }
+        return Set(BoardEngine.expandedBoardCache(from: previous).flatMap { $0 }.compactMap { cell in
+            guard cell.hasRepeatingSchedule,
+                  let replacement = nextCells.first(where: { $0.id == cell.id }),
+                  replacement.hasStoredTask, !replacement.hasRepeatingSchedule else { return nil }
+            return cell.id
+        })
+    }
+
+    static func matchesTaskDefinition(_ lhs: BingoCell, _ rhs: BingoCell) -> Bool {
+        lhs.id == rhs.id && lhs.storedTaskText == rhs.storedTaskText &&
+            lhs.recurrenceRule == rhs.recurrenceRule && lhs.residentWeekdays == rhs.residentWeekdays &&
+            lhs.oneTimeVisibleDate == rhs.oneTimeVisibleDate &&
+            lhs.startVisibleAt == rhs.startVisibleAt && lhs.endVisibleAt == rhs.endVisibleAt &&
+            lhs.startVisibleMonth == rhs.startVisibleMonth && lhs.startVisibleDay == rhs.startVisibleDay
+    }
+}
+
 enum BoardEngine {
     static let maxGridSize = 5
 
@@ -12,6 +43,7 @@ enum BoardEngine {
         let expiredByCountdown: Bool
         let expiredByVisibilityWindow: Bool
         let allowsPostpone: Bool
+        var taskDefinition: BingoCell? = nil
     }
 
     struct ScheduledTaskReplacementCandidate: Equatable {
@@ -50,6 +82,24 @@ enum BoardEngine {
         (0..<size).map { _ in
             (0..<size).map { _ in BingoCell() }
         }
+    }
+
+    static func cell(
+        in cells: [[BingoCell]],
+        row: Int,
+        col: Int,
+        matching cellID: UUID? = nil
+    ) -> BingoCell? {
+        guard row >= 0,
+              col >= 0,
+              row < cells.count,
+              col < cells[row].count else {
+            return nil
+        }
+
+        let cell = cells[row][col]
+        guard cellID == nil || cell.id == cellID else { return nil }
+        return cell
     }
 
     static func expandedBoardCache(from board: SavedBoard, maxSize: Int = maxGridSize) -> [[BingoCell]] {
@@ -326,7 +376,8 @@ enum BoardEngine {
                     expiredAt: deadline.date,
                     expiredByCountdown: deadline.expiredByCountdown,
                     expiredByVisibilityWindow: deadline.expiredByVisibilityWindow,
-                    allowsPostpone: !cell.hasRepeatingSchedule
+                    allowsPostpone: !cell.hasRepeatingSchedule,
+                    taskDefinition: cell
                 )
             }
         }
@@ -379,7 +430,7 @@ enum BoardEngine {
         guard let position = expiredTaskPosition(in: cells, candidate: candidate) else { return nil }
         var updatedCells = cells
         var cell = updatedCells[position.row][position.col]
-        guard !cell.isEmpty else { return nil }
+        guard isCurrentExpiredTask(cell, candidate: candidate, now: now) else { return nil }
 
         switch resolution {
         case .markAsCompleted:
@@ -492,6 +543,22 @@ enum BoardEngine {
         }
     }
 
+    static func isCurrentExpiredTask(_ cell: BingoCell, candidate: ExpiredTaskCandidate, now: Date) -> Bool {
+        guard cell.id == candidate.cellID,
+              cell.storedTaskText == candidate.taskText,
+              candidate.allowsPostpone == !cell.hasRepeatingSchedule,
+              let deadline = expiredTaskDeadline(for: cell, now: now),
+              deadline.date == candidate.expiredAt,
+              deadline.expiredByCountdown == candidate.expiredByCountdown,
+              deadline.expiredByVisibilityWindow == candidate.expiredByVisibilityWindow else { return false }
+        if let original = candidate.taskDefinition {
+            return TaskRulePersistenceGuard.matchesTaskDefinition(original, cell) &&
+                original.countdownEndsAt == cell.countdownEndsAt &&
+                original.countdownPausedRemainingSeconds == cell.countdownPausedRemainingSeconds
+        }
+        return true
+    }
+
     private struct ExpiredTaskDeadline: Equatable {
         let date: Date
         let expiredByCountdown: Bool
@@ -545,7 +612,8 @@ enum BoardEngine {
            candidate.col >= 0,
            candidate.row < cells.count,
            candidate.col < cells[candidate.row].count,
-           !cells[candidate.row][candidate.col].isEmpty {
+           !cells[candidate.row][candidate.col].isEmpty,
+           cells[candidate.row][candidate.col].id == candidate.cellID {
             return Position(row: candidate.row, col: candidate.col)
         }
 
@@ -557,18 +625,6 @@ enum BoardEngine {
             }
         }
 
-        let normalizedTask = candidate.taskText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedTask.isEmpty else { return nil }
-
-        for row in cells.indices {
-            for col in cells[row].indices {
-                let cell = cells[row][col]
-                guard !cell.isEmpty, !cell.isCompleted else { continue }
-                if cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTask {
-                    return Position(row: row, col: col)
-                }
-            }
-        }
         return nil
     }
 

@@ -107,12 +107,19 @@ struct HomeLifecycleObserversModifier: ViewModifier {
         Task(priority: .utility) {
             try? await Task.sleep(nanoseconds: 900_000_000)
             await MainActor.run {
-                PAGCompletionView.preload(resourceName: "complete_bingo_background_bmp")
+                PAGCompletionView.preload(
+                    resourceName: "complete_bingo_background_bmp",
+                    cacheAllFrames: true,
+                    renderScale: 1,
+                    maxFrameRate: 60
+                )
                 PAGCompletionView.preload(
                     resourceName: "complete_bingo_bmp",
                     playsSound: true,
                     soundResourceName: "complete_bingo",
-                    soundFileExtension: "mp3"
+                    soundFileExtension: "mp3",
+                    renderScale: 1,
+                    maxFrameRate: 60
                 )
                 PAGRewardSoundPlayer.shared.preload(
                     resourceName: "complete_bingo_background",

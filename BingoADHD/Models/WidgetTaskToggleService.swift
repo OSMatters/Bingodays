@@ -9,14 +9,24 @@ enum WidgetTaskToggleService {
     }
 
     static func toggled(
-        board namedBoard: BingoBoardStore.NamedBoard,
+        board inputBoard: BingoBoardStore.NamedBoard,
         row: Int,
         col: Int,
         now: Date,
         commitSideEffects: Bool = true
     ) -> BingoBoardStore.NamedBoard? {
+        let namedBoard = BingoBoardStore.taskRuleRecoveryBoard(inputBoard)
+        if namedBoard.board != inputBoard.board {
+            DiagnosticLogStore.recordWarning("task_rule.widget_reset_source_recovered", details: [
+                "board_id": namedBoard.id.uuidString
+            ])
+        }
         let preparedBoard = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(namedBoard, now: now)
         let didApplyBoardReset = preparedBoard.lastTaskResetAppliedAt != namedBoard.lastTaskResetAppliedAt
+        if didApplyBoardReset,
+           !TaskCompletionHistoryStore.archiveTasksRemovedByReset(from: namedBoard, at: now) {
+            return nil
+        }
         let gridSize = min(max(preparedBoard.board.gridSize, 0), maxGridSize)
         guard row >= 0, col >= 0, row < gridSize, col < gridSize else {
             return nil
@@ -38,6 +48,24 @@ enum WidgetTaskToggleService {
         guard !isNowCompleted || fullBoard[row][col].isCurrentlyTappable(on: now) else { return nil }
         guard !isLocked(row: row, col: col, in: visibleCells, referenceDate: now) else { return nil }
 
+        guard TaskCompletionHistoryStore.ensureMigrated() else { return nil }
+        let taskText = fullBoard[row][col].storedTaskText
+        let historyBeforeToggle = TaskCompletionHistoryRuleEngine.recordsByArchiving(
+            fullBoard.flatMap { $0 },
+            into: TaskCompletionHistoryStore.load(),
+            at: now
+        )
+        let projectedHistory = TaskCompletionHistoryRuleEngine.recordsByApplyingCompletionDelta(
+            taskText: taskText,
+            delta: isNowCompleted ? 1 : -1,
+            to: historyBeforeToggle,
+            at: now
+        )
+        let synchronizedCompletionCount = TaskCompletionHistoryRuleEngine.completionCount(
+            for: taskText,
+            in: projectedHistory
+        )
+
         fullBoard[row][col].isCompleted = isNowCompleted
         if isNowCompleted {
             registerCompletionIfNeeded(cell: &fullBoard[row][col], now: now)
@@ -53,6 +81,11 @@ enum WidgetTaskToggleService {
             fullBoard[row][col].estimatedDurationMinutes = nil
             fullBoard[row][col].lastCompletedAt = nil
         }
+        synchronizeCompletionHistoryCount(
+            taskText: taskText,
+            count: synchronizedCompletionCount,
+            in: &fullBoard
+        )
 
         let updatedVisibleCells = BoardEngine.projectVisibleCells(from: fullBoard, size: gridSize, referenceDate: now)
         let completedLines = BoardEngine.completedLines(in: updatedVisibleCells, size: gridSize)
@@ -73,7 +106,8 @@ enum WidgetTaskToggleService {
                 row: row,
                 col: col,
                 now: now,
-                didApplyBoardReset: didApplyBoardReset
+                didApplyBoardReset: didApplyBoardReset,
+                taskCompletionHistory: projectedHistory
             ) else { return nil }
         }
 
@@ -91,8 +125,21 @@ enum WidgetTaskToggleService {
         col: Int,
         now: Date,
         didApplyBoardReset: Bool,
-        settlePoints: Bool = true
+        settlePoints: Bool = true,
+        taskCompletionHistory: [TaskCompletionHistoryRecord]? = nil
     ) -> Bool {
+        var diagnosticStage = "validate_cell"
+        defer {
+            DiagnosticLogStore.record("widget.toggle_side_effects", category: "state_change",
+                level: diagnosticStage == "complete" ? .info : .warning,
+                details: [
+                    "board_id": String(previousBoard.id.uuidString.prefix(8)),
+                    "position": "\(row),\(col)",
+                    "previous_updated_at": String(previousBoard.updatedAt.timeIntervalSince1970),
+                    "stage": diagnosticStage,
+                    "reset_applied": String(didApplyBoardReset)
+                ])
+        }
         let previousCells = BoardEngine.expandedBoardCache(from: previousBoard.board)
         let updatedCells = BoardEngine.expandedBoardCache(from: updatedBoard.board)
         guard row >= 0, col >= 0,
@@ -108,6 +155,7 @@ enum WidgetTaskToggleService {
         }
 
         let previousPoints = settlePoints ? PointsStore.loadPersistenceSnapshot() : nil
+        diagnosticStage = "points"
         if settlePoints {
             guard settleRewards(
                 previousBoard: previousBoard.board,
@@ -117,6 +165,7 @@ enum WidgetTaskToggleService {
                 didApplyBoardReset: didApplyBoardReset
             ) else { return false }
         }
+        diagnosticStage = "diary"
         guard BingoDiaryStore.applyExplicitTaskDelta(
             task: updatedCell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines),
             delta: updatedCell.isCompleted ? 1 : -1,
@@ -128,9 +177,27 @@ enum WidgetTaskToggleService {
             }
             return false
         }
+        let didSaveCompletionHistory: Bool
+        diagnosticStage = "completion_history"
+        if let taskCompletionHistory {
+            didSaveCompletionHistory = TaskCompletionHistoryStore.save(taskCompletionHistory)
+        } else {
+            didSaveCompletionHistory = TaskCompletionHistoryStore.applyCompletionDelta(
+                taskText: updatedCell.storedTaskText,
+                delta: updatedCell.isCompleted ? 1 : -1,
+                at: now
+            )
+        }
+        guard didSaveCompletionHistory else {
+            if let previousPoints {
+                _ = PointsStore.replacePersistenceSnapshot(previousPoints)
+            }
+            return false
+        }
         if settlePoints, let totalPoints = PointsStore.loadTotalPoints() {
             PointRedemptionReconciler.reconcilePersistedRedemptionsIfNeeded(totalPoints: totalPoints)
         }
+        diagnosticStage = "complete"
         return true
     }
 
@@ -204,6 +271,13 @@ enum WidgetTaskToggleService {
         mergedBoard: BingoBoardStore.NamedBoard,
         now: Date
     ) -> Bool {
+        if let mutation = event.cellMutation,
+           !WidgetTaskEventMerge.containsAppliedMutation(mutation, in: mergedBoard.board) {
+            DiagnosticLogStore.recordWarning("task_rule.widget_stale_reward_replay_skipped", details: [
+                "board_id": event.boardID.uuidString, "cell_id": mutation.cellID.uuidString
+            ])
+            return true
+        }
         guard !event.didApplyBoardReset,
               let mutation = event.cellMutation,
               let position = WidgetTaskEventMerge.resolvedPosition(
@@ -335,6 +409,20 @@ enum WidgetTaskToggleService {
     private static func registerCompletionIfNeeded(cell: inout BingoCell, now: Date) {
         cell.completionStreakCount += 1
         cell.lastCompletedAt = now
+    }
+
+    private static func synchronizeCompletionHistoryCount(
+        taskText: String,
+        count: Int,
+        in cells: inout [[BingoCell]]
+    ) {
+        guard let key = TaskCompletionHistoryRuleEngine.normalizedKey(for: taskText) else { return }
+        for row in cells.indices {
+            for col in cells[row].indices where
+                TaskCompletionHistoryRuleEngine.normalizedKey(for: cells[row][col].storedTaskText) == key {
+                cells[row][col].completionStreakCount = count
+            }
+        }
     }
 
     private static func settleRewards(

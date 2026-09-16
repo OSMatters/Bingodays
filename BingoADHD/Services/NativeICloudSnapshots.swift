@@ -6,6 +6,8 @@ struct NativeICloudPrimaryStateSnapshot: Codable, Equatable {
     let schemaVersion: Int
     let boards: [BingoBoardStore.NamedBoard]
     let deletedBoardIDs: Set<UUID>?
+    let protectedBoardID: UUID?
+    let boardOrderModifiedAt: Date?
     let points: PointsPersistenceSnapshot
     let diaryEntries: [String: BingoDiaryEntry]
     let timeoutPayload: [String: [String: Int]]
@@ -18,6 +20,8 @@ struct NativeICloudPrimaryStateSnapshot: Codable, Equatable {
         schemaVersion: Int = Self.schemaVersion,
         boards: [BingoBoardStore.NamedBoard],
         deletedBoardIDs: Set<UUID> = [],
+        protectedBoardID: UUID? = nil,
+        boardOrderModifiedAt: Date? = nil,
         points: PointsPersistenceSnapshot,
         diaryEntries: [String: BingoDiaryEntry],
         timeoutPayload: [String: [String: Int]],
@@ -29,6 +33,8 @@ struct NativeICloudPrimaryStateSnapshot: Codable, Equatable {
         self.schemaVersion = schemaVersion
         self.boards = boards
         self.deletedBoardIDs = deletedBoardIDs
+        self.protectedBoardID = protectedBoardID
+        self.boardOrderModifiedAt = boardOrderModifiedAt
         self.points = points
         self.diaryEntries = diaryEntries
         self.timeoutPayload = timeoutPayload
@@ -54,6 +60,8 @@ struct NativeICloudPrimaryStateSnapshot: Codable, Equatable {
         return NativeICloudPrimaryStateSnapshot(
             boards: namedSnapshot.boards,
             deletedBoardIDs: namedSnapshot.effectiveDeletedBoardIDs,
+            protectedBoardID: namedSnapshot.effectiveProtectedBoardID,
+            boardOrderModifiedAt: namedSnapshot.boardOrderModifiedAt,
             points: PointsStore.loadPersistenceSnapshot(),
             diaryEntries: BingoDiaryStore.loadAllEntriesDictionary(),
             timeoutPayload: BingoTimeoutStore.loadAllPayload(),
@@ -128,6 +136,8 @@ struct NativeICloudPrimaryStateSnapshot: Codable, Equatable {
         schemaVersion == other.schemaVersion &&
             boards.map(PrimaryBoardUserState.init) == other.boards.map(PrimaryBoardUserState.init) &&
             effectiveDeletedBoardIDs == other.effectiveDeletedBoardIDs &&
+            effectiveProtectedBoardID == other.effectiveProtectedBoardID &&
+            boardOrderModifiedAt == other.boardOrderModifiedAt &&
             // The daily reward ledger belongs to the board currently displayed on
             // this device. Board selection intentionally remains device-local, so
             // treating another device's ledger as cloud-authoritative lets a
@@ -146,6 +156,14 @@ struct NativeICloudPrimaryStateSnapshot: Codable, Equatable {
 
     var effectiveDeletedBoardIDs: Set<UUID> {
         deletedBoardIDs ?? []
+    }
+
+    var effectiveProtectedBoardID: UUID? {
+        if let protectedBoardID,
+           boards.contains(where: { $0.id == protectedBoardID }) {
+            return protectedBoardID
+        }
+        return boards.first?.id
     }
 
     private struct PrimaryBoardUserState: Equatable {
@@ -194,6 +212,8 @@ enum NativeICloudPrimaryStateMerger {
                 schemaVersion: max(local.schemaVersion, incoming.schemaVersion),
                 boards: local.boards + incoming.boards,
                 deletedBoardIDs: local.effectiveDeletedBoardIDs.union(incoming.effectiveDeletedBoardIDs),
+                protectedBoardID: local.effectiveProtectedBoardID,
+                boardOrderModifiedAt: local.boardOrderModifiedAt,
                 points: local.points,
                 diaryEntries: local.diaryEntries,
                 timeoutPayload: local.timeoutPayload,
@@ -221,11 +241,19 @@ enum NativeICloudPrimaryStateMerger {
             preserveLocalProgressAgainstReset: boardMerge.preservedLocalProgressAgainstReset,
             localHasNewerUserChange: localHasNewerUserChange
         )
+        let boardOrder = mergedBoardOrder(
+            mergedBoards: boardMerge.boards,
+            local: local,
+            incoming: incoming,
+            preferIncomingCommit: preferIncomingCommit
+        )
 
         return removingRedundantStarterGuideBoards(from: NativeICloudPrimaryStateSnapshot(
             schemaVersion: max(local.schemaVersion, incoming.schemaVersion),
-            boards: boardMerge.boards,
+            boards: boardOrder.boards,
             deletedBoardIDs: local.effectiveDeletedBoardIDs.union(incoming.effectiveDeletedBoardIDs),
+            protectedBoardID: boardOrder.protectedBoardID,
+            boardOrderModifiedAt: boardOrder.modifiedAt,
             points: points,
             diaryEntries: localHasNewerUserChange ? local.diaryEntries : incoming.diaryEntries,
             timeoutPayload: localHasNewerUserChange ? local.timeoutPayload : incoming.timeoutPayload,
@@ -243,7 +271,9 @@ enum NativeICloudPrimaryStateMerger {
             BingoBoardStore.NamedBoardsSnapshot(
                 selectedBoardID: nil,
                 boards: snapshot.boards,
-                deletedBoardIDs: snapshot.effectiveDeletedBoardIDs
+                deletedBoardIDs: snapshot.effectiveDeletedBoardIDs,
+                protectedBoardID: snapshot.effectiveProtectedBoardID,
+                boardOrderModifiedAt: snapshot.boardOrderModifiedAt
             )
         )
         guard normalizedBoards.boards != snapshot.boards ||
@@ -254,6 +284,8 @@ enum NativeICloudPrimaryStateMerger {
             schemaVersion: snapshot.schemaVersion,
             boards: normalizedBoards.boards,
             deletedBoardIDs: normalizedBoards.effectiveDeletedBoardIDs,
+            protectedBoardID: normalizedBoards.effectiveProtectedBoardID,
+            boardOrderModifiedAt: snapshot.boardOrderModifiedAt,
             points: snapshot.points,
             diaryEntries: snapshot.diaryEntries,
             timeoutPayload: snapshot.timeoutPayload,
@@ -262,6 +294,47 @@ enum NativeICloudPrimaryStateMerger {
             stickerInventory: snapshot.stickerInventory,
             stickerPlacements: snapshot.stickerPlacements
         )
+    }
+
+    private static func mergedBoardOrder(
+        mergedBoards: [BingoBoardStore.NamedBoard],
+        local: NativeICloudPrimaryStateSnapshot,
+        incoming: NativeICloudPrimaryStateSnapshot,
+        preferIncomingCommit: Bool
+    ) -> (boards: [BingoBoardStore.NamedBoard], protectedBoardID: UUID?, modifiedAt: Date?) {
+        let shouldUseIncomingOrder: Bool
+        switch (local.boardOrderModifiedAt, incoming.boardOrderModifiedAt) {
+        case let (localDate?, incomingDate?):
+            shouldUseIncomingOrder = incomingDate > localDate ||
+                (incomingDate == localDate && preferIncomingCommit)
+        case (nil, .some):
+            shouldUseIncomingOrder = true
+        case (.some, nil):
+            shouldUseIncomingOrder = false
+        case (nil, nil):
+            // Preserve the historical merger's incoming-first order for snapshots
+            // created before board ordering became an explicit user preference.
+            shouldUseIncomingOrder = true
+        }
+
+        let orderSource = shouldUseIncomingOrder ? incoming : local
+        let boardsByID = Dictionary(uniqueKeysWithValues: mergedBoards.map { ($0.id, $0) })
+        var orderedIDs = orderSource.boards.map(\.id)
+        let existingIDs = Set(orderedIDs)
+        orderedIDs.append(contentsOf: mergedBoards.map(\.id).filter { !existingIDs.contains($0) })
+        let boards = orderedIDs.compactMap { boardsByID[$0] }
+        let protectedBoardID = orderSource.effectiveProtectedBoardID.flatMap { protectedID in
+            boards.contains(where: { $0.id == protectedID }) ? protectedID : boards.first?.id
+        } ?? boards.first?.id
+        let modifiedAt: Date?
+        if local.boardOrderModifiedAt == nil && incoming.boardOrderModifiedAt == nil {
+            modifiedAt = nil
+        } else {
+            modifiedAt = shouldUseIncomingOrder
+                ? incoming.boardOrderModifiedAt
+                : local.boardOrderModifiedAt
+        }
+        return (boards, protectedBoardID, modifiedAt)
     }
 
     private static func mergedPoints(

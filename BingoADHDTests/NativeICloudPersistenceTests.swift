@@ -4,6 +4,28 @@ import XCTest
 @testable import Bingodays
 
 final class NativeICloudPersistenceTests: XCTestCase {
+    func testSecondarySnapshotRoundTripsCompletionHistoryWithoutChangingTaskHistorySchema() throws {
+        let snapshot = NativeICloudSecondaryStateSnapshot(
+            taskLibrary: MyTasksLibrary(),
+            taskHistory: [],
+            taskCompletionHistory: [
+                TaskCompletionHistoryRecord(
+                    key: "focus",
+                    completionCount: 12,
+                    lastArchivedAt: Date(timeIntervalSince1970: 1_800_000_000)
+                )
+            ]
+        )
+
+        let decoded = try JSONDecoder().decode(
+            NativeICloudSecondaryStateSnapshot.self,
+            from: JSONEncoder().encode(snapshot)
+        )
+
+        XCTAssertEqual(decoded.schemaVersion, NativeICloudSecondaryStateSnapshot.schemaVersion)
+        XCTAssertEqual(decoded.taskCompletionHistory, snapshot.taskCompletionHistory)
+    }
+
     func testManualSyncWaitConfirmsOnlyAFinishedExpectedCloudEvent() async throws {
         let runtime = NativeICloudRuntime()
         let checkpoint = await runtime.cloudActivityCheckpoint()
@@ -976,6 +998,50 @@ final class NativeICloudPersistenceTests: XCTestCase {
         XCTAssertEqual(merged.effectiveDeletedBoardIDs, [deletedBoard.id])
     }
 
+    func testNewerBoardOrderWinsWithoutDiscardingIncomingTaskProgress() {
+        let now = Date(timeIntervalSince1970: 1_774_176_000)
+        let boardA = BingoBoardStore.NamedBoard(
+            name: "A",
+            board: SavedBoard(gridSize: 1, cells: [[BingoCell(text: "A")]], completedLines: []),
+            updatedAt: now
+        )
+        let boardB = BingoBoardStore.NamedBoard(
+            name: "B",
+            board: SavedBoard(gridSize: 1, cells: [[BingoCell(text: "B")]], completedLines: []),
+            updatedAt: now
+        )
+        var incomingBoardB = boardB
+        incomingBoardB.board = SavedBoard(
+            gridSize: 1,
+            cells: [[BingoCell(text: "B", isCompleted: true)]],
+            completedLines: []
+        )
+        incomingBoardB.updatedAt = now.addingTimeInterval(60)
+
+        let local = primarySnapshot(
+            boards: [boardB, boardA],
+            protectedBoardID: boardA.id,
+            boardOrderModifiedAt: now.addingTimeInterval(120)
+        )
+        let incoming = primarySnapshot(
+            boards: [boardA, incomingBoardB],
+            protectedBoardID: boardA.id,
+            boardOrderModifiedAt: now.addingTimeInterval(30)
+        )
+
+        let merged = NativeICloudPrimaryStateMerger.merged(
+            local: local,
+            incoming: incoming,
+            localHasNewerUserChange: false,
+            referenceDate: now.addingTimeInterval(180)
+        )
+
+        XCTAssertEqual(merged.boards.map(\.id), [boardB.id, boardA.id])
+        XCTAssertTrue(merged.boards[0].board.cells[0][0].isCompleted)
+        XCTAssertEqual(merged.boardOrderModifiedAt, now.addingTimeInterval(120))
+        XCTAssertEqual(merged.effectiveProtectedBoardID, boardA.id)
+    }
+
     func testPrimaryHistoryKeepsConsecutiveBoardDeletionsAgainstOlderSnapshots() throws {
         let now = Date(timeIntervalSince1970: 1_774_176_000)
         let emptyBoard = SavedBoard(gridSize: 1, cells: [[BingoCell()]], completedLines: [])
@@ -1228,11 +1294,15 @@ final class NativeICloudPersistenceTests: XCTestCase {
 
     private func primarySnapshot(
         boards: [BingoBoardStore.NamedBoard],
-        deletedBoardIDs: Set<UUID> = []
+        deletedBoardIDs: Set<UUID> = [],
+        protectedBoardID: UUID? = nil,
+        boardOrderModifiedAt: Date? = nil
     ) -> NativeICloudPrimaryStateSnapshot {
         NativeICloudPrimaryStateSnapshot(
             boards: boards,
             deletedBoardIDs: deletedBoardIDs,
+            protectedBoardID: protectedBoardID,
+            boardOrderModifiedAt: boardOrderModifiedAt,
             points: PointsPersistenceSnapshot(
                 totalPoints: 0,
                 lifetimePoints: 0,

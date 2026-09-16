@@ -14,6 +14,20 @@ enum BingoTaskBoardHelpers {
     }
 }
 
+enum TaskTimeWindowValidationRules {
+    /// Matches the editor's minimum selectable time: a newly saved task cannot
+    /// begin or end before the moment it is saved.
+    static func isStartTimeAllowed(_ date: Date?, now: Date) -> Bool {
+        guard let date else { return true }
+        return date >= now
+    }
+
+    static func isEndTimeAllowed(_ date: Date?, now: Date) -> Bool {
+        guard let date else { return true }
+        return date >= now
+    }
+}
+
 struct TaskEditRuleInput {
     let previousCell: BingoCell
     let text: String
