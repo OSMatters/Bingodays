@@ -108,6 +108,10 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
+            argument = "-DebugBlindBoxPreview"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
             argument = "-DebugCustomResetToast"
             isEnabled = "NO">
          </CommandLineArgument>
