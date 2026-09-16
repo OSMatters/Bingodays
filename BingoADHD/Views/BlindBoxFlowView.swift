@@ -1142,14 +1142,14 @@ private struct BlindBoxLobbyView: View {
     private let referenceWidth: CGFloat = 393
 
     var body: some View {
-        BlindBoxCanvas(backgroundAssetName: "BlindBoxLobbyBackground", backgroundVerticalOffset: 30) {
+        BlindBoxCanvas(backgroundAssetName: "BlindBoxLobbyBackground", backgroundVerticalOffset: 20) {
             ZStack {
                 Button(action: onSelectCustomRewards ?? onDismiss) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 44, height: 44)
-                        .background(.white.opacity(0.18), in: Circle())
+                        .appLiquidGlass(in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(BlindBoxL10n.back)
@@ -1159,16 +1159,18 @@ private struct BlindBoxLobbyView: View {
                     .position(x: 292, y: 257)
 
                 Button(action: onShowMyBox) {
-                    BlindBoxMyBoxIcon()
+                    BlindBoxMyBoxIcon(artworkHorizontalOffset: -15)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(BlindBoxL10n.myBox)
                 .position(x: 100, y: 257)
 
                 Button(action: onShowRules) {
-                    BlindBoxRulesIcon()
+                    Image(systemName: "questionmark")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
                         .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                        .appLiquidGlass(in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(BlindBoxL10n.rulesTitle)
@@ -1176,22 +1178,23 @@ private struct BlindBoxLobbyView: View {
 
                 BlindBoxShelf()
                     .frame(width: 360, height: 530)
-                    .position(x: 196, y: 546)
+                    .position(x: 196, y: 536)
 
                 lobbyCandidates
-                    .offset(y: 30)
+                    .offset(y: 20)
 
                 if hasCollectedEveryActiveTheme, candidates.isEmpty {
                     BlindBoxCollectionCompleteNotice(onShowMyBox: onShowMyBox)
-                        .position(x: 196, y: 525)
+                        .position(x: 196, y: 515)
                 }
 
                 if !isPremium {
                     premiumPlaceholders
-                        .offset(y: 30)
+                        .offset(y: 20)
                 }
 
             }
+            .appGlassEffectContainer()
         }
     }
 
@@ -3495,6 +3498,8 @@ private struct BlindBoxRulesIcon: View {
 }
 
 private struct BlindBoxMyBoxIcon: View {
+    var artworkHorizontalOffset: CGFloat = 0
+
     var body: some View {
         ZStack(alignment: .leading) {
             Capsule()
@@ -3510,6 +3515,7 @@ private struct BlindBoxMyBoxIcon: View {
             BlindBoxImage("BlindBoxMyBoxIcon")
                 .frame(width: 40, height: 40)
                 .frame(width: 46, height: 46)
+                .offset(x: artworkHorizontalOffset)
         }
         .frame(width: 92, height: 43)
         .accessibilityHidden(true)
