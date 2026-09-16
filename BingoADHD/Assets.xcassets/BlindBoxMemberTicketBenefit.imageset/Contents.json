@@ -1,0 +1,13 @@
+{
+  "images" : [
+    {
+      "filename" : "img_3ticket.png",
+      "idiom" : "universal",
+      "scale" : "1x"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

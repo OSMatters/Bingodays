@@ -1,0 +1,23 @@
+Writing result bundle at path:
+	/tmp/BlindBoxBoundaryRegression-20260907.xcresult
+
+2026-09-07 23:52:12.056 xcodebuild[27809:15386448] [MT] IDETestOperationsObserverDebug: 164.590 elapsed -- Testing started completed.
+2026-09-07 23:52:12.056 xcodebuild[27809:15386448] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-09-07 23:52:12.056 xcodebuild[27809:15386448] [MT] IDETestOperationsObserverDebug: 164.590 sec, +164.590 sec -- end
+** TEST FAILED **
+
+Testing started
+Test suite 'BlindBoxFullRegressionTests' started on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)'
+Test case 'BlindBoxFullRegressionTests.testA12ReceiptAggregatesOnlyUnseenTickets()' passed on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)' (0.008 seconds)
+Test case 'BlindBoxFullRegressionTests.testB01B02DailyAllowanceMatrix()' passed on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)' (0.004 seconds)
+Test case 'BlindBoxFullRegressionTests.testB03B04C04C05C06RepeatedSettlementAndMembershipChanges()' passed on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)' (0.079 seconds)
+Test case 'BlindBoxFullRegressionTests.testB05B06B13CalendarBoundaries()' passed on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)' (0.004 seconds)
+Test case 'BlindBoxFullRegressionTests.testB09B10AbsenceAndReceiptReplacement()' passed on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)' (0.004 seconds)
+Test case 'BlindBoxFullRegressionTests.testB11ClockRollbackMustNotUnlockAnotherExchange()' failed on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)' (0.960 seconds)
+Test case 'BlindBoxFullRegressionTests.testB12ChangingTimezoneMustNotGrantAgainAtSameInstant()' failed on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)' (0.004 seconds)
+Test case 'BlindBoxFullRegressionTests.testB14E10PendingReservationAcrossDayAndCapacity()' passed on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)' (0.006 seconds)
+Test case 'BlindBoxFullRegressionTests.testC12LegacyAccountMustReceiveUpgradeDifference()' failed on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)' (0.009 seconds)
+Test case 'BlindBoxFullRegressionTests.testD01ToD05ExchangeMatrix()' passed on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)' (0.025 seconds)
+Test case 'BlindBoxFullRegressionTests.testE13ReceiptAcknowledgementRejectsStaleIDs()' passed on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)' (0.090 seconds)
+Test case 'BlindBoxFullRegressionTests.testF04F05WholeBoxRemainingMatrix()' passed on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)' (0.010 seconds)
+Test case 'BlindBoxFullRegressionTests.testH09DecodedOutOfRangeBalanceMustNotSurviveSettlement()' failed on 'Clone 1 of BingoADHD iPhone 15 iOS 26.3 - Bingodays (28214)' (0.006 seconds)

@@ -13,9 +13,9 @@ enum BlindBoxConnectivityStatus: Equatable, Sendable {
     var unavailableMessage: String {
         switch self {
         case .checking:
-            return "Checking your connection. Please try again."
+            return L10n.tr("Checking your connection. Please try again.", zhHans: "正在检查网络连接，请稍后重试。", zhHant: "正在檢查網路連線，請稍後重試。", ja: "接続を確認しています。しばらくしてから再試行してください。")
         case .offline:
-            return "You're offline. Connect to the internet and try again."
+            return L10n.tr("You're offline. Connect to the internet and try again.", zhHans: "当前无网络连接，请联网后重试。", zhHant: "目前沒有網路連線，請連線後再試。", ja: "オフラインです。インターネットに接続してから再試行してください。")
         case .online:
             return ""
         }

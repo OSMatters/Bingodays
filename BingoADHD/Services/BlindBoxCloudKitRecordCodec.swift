@@ -13,7 +13,7 @@ struct BlindBoxCloudAccountEnvelope: Codable, Equatable, Sendable {
 
     init(
         schemaVersion: Int = BlindBoxCloudAccountEnvelope.currentSchemaVersion,
-        accountState: BlindBoxAccountState = BlindBoxAccountState(),
+        accountState: BlindBoxAccountState = .newAccount(),
         completedLegacyMigrationVersions: Set<Int> = []
     ) {
         self.schemaVersion = schemaVersion

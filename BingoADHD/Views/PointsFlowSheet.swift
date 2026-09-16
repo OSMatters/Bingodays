@@ -11,56 +11,67 @@ struct PointsFlowPresenter: View {
     var showsCloseButton = true
     var bottomContentPadding: CGFloat = 32
     var onSubpagePresentationChange: (Bool) -> Void = { _ in }
+    var enteredFromBottomTab = false
+    var onNavigationOpacityChange: (Double) -> Void = { _ in }
     let onAddStickerToHomeSuccess: () -> Void
 
-    @State private var isShowingBlindBoxPreview = AppDebugFlags.blindBoxPreviewEnabled &&
-        !AppDebugFlags.blindBoxLiveFlowEnabled
-    @State private var isShowingBlindBoxLiveFlow = AppDebugFlags.blindBoxLiveFlowEnabled
     @State private var isShowingBlindBoxPremiumPaywall = false
+    @State private var rewardsSubpagePresented = false
+    @State private var portalPresented = false
 
     var body: some View {
-        Group {
-            if isShowingBlindBoxLiveFlow {
+        BlindBoxPullPortal(
+            enteredFromBottomTab: enteredFromBottomTab,
+            isEnabled: AppDebugFlags.blindBoxLiveFlowEnabled || AppDebugFlags.blindBoxPreviewEnabled,
+            isRewardsSubpagePresented: rewardsSubpagePresented,
+            onPresentationChange: { presented in
+                portalPresented = presented
+                onSubpagePresentationChange(presented || rewardsSubpagePresented)
+            },
+            onNavigationOpacityChange: onNavigationOpacityChange
+        ) {
+            rewardsContent
+        } blindBox: { close in
+            if AppDebugFlags.blindBoxLiveFlowEnabled {
                 BlindBoxLiveFlowView(
                     pointsFeatureStore: pointsFeatureStore,
                     totalPoints: totalPoints,
-                    onSelectCustomRewards: {
-                        isShowingBlindBoxLiveFlow = false
-                    },
+                    onSelectCustomRewards: close,
                     onShowPremiumPaywall: {
                         isShowingBlindBoxPremiumPaywall = true
                     }
                 )
-                .onAppear {
-                    onSubpagePresentationChange(true)
-                }
-                .onDisappear {
-                    onSubpagePresentationChange(false)
-                }
-            } else if isShowingBlindBoxPreview {
+            } else {
                 BlindBoxFlowView(
                     previewAvailablePoints: points,
-                    onSelectCustomRewards: {
-                        isShowingBlindBoxPreview = false
-                    },
+                    onSelectCustomRewards: close,
                     onShowPremiumPaywall: {
                         isShowingBlindBoxPremiumPaywall = true
                     }
                 )
-                .onAppear {
-                    onSubpagePresentationChange(true)
-                }
-                .onDisappear {
-                    onSubpagePresentationChange(false)
-                }
-            } else {
-                PointsFlowSheet(
+            }
+        }
+        .fullScreenCover(isPresented: $isShowingBlindBoxPremiumPaywall, onDismiss: {
+            NotificationCenter.default.post(name: BlindBoxPremiumPaywallEntry.didDismiss, object: nil)
+        }) {
+            PremiumPaywallView(
+                entrySource: BlindBoxPremiumPaywallEntry.source,
+                limitedOfferState: $limitedOfferState
+            )
+        }
+    }
+
+    private var rewardsContent: some View {
+        PointsFlowSheet(
                     isPadLayout: isPadLayout,
                     points: points,
                     limitedOfferState: $limitedOfferState,
                     showsCloseButton: showsCloseButton,
                     bottomContentPadding: bottomContentPadding,
-                    onSubpagePresentationChange: onSubpagePresentationChange,
+                    onSubpagePresentationChange: { presented in
+                        rewardsSubpagePresented = presented
+                        onSubpagePresentationChange(presented || portalPresented)
+                    },
                     inventoryCounts: pointsFeatureStore.stickerInventoryCounts,
                     usedCounts: pointsFeatureStore.currentStickerUsageCounts,
                     rewards: pointsFeatureStore.activeRewards,
@@ -104,14 +115,6 @@ struct PointsFlowPresenter: View {
                         )
                     }
                 )
-            }
-        }
-        .fullScreenCover(isPresented: $isShowingBlindBoxPremiumPaywall) {
-            PremiumPaywallView(
-                entrySource: BlindBoxPremiumPaywallEntry.source,
-                limitedOfferState: $limitedOfferState
-            )
-        }
     }
 }
 
@@ -139,7 +142,7 @@ struct PointsFlowSheet: View {
     let onUpdateReward: (CustomReward, String, Int, String, String?) -> Void
 
     @State private var screen: Screen = .details
-    @State private var detailsInitialTab: PointsTab = .stickers
+    @State private var detailsInitialTab: PointsTab = .rewards
     @State private var selectedStickerForDetail: StickerKind?
     @State private var selectedRewardForDetail: CustomReward?
     @State private var isPremiumPaywallPresented = false
@@ -545,8 +548,6 @@ private struct PointsDetailSheet: View {
                         }
                         .padding(.top, scaled(-12, pad: -8))
 
-                        tabSelector
-
                         if selectedTab == .stickers {
                             LazyVGrid(
                                 columns: stickerGridColumns,
@@ -584,7 +585,16 @@ private struct PointsDetailSheet: View {
                             bottomContentPadding
                         )
                     )
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(
+                                key: RewardsScrollTopPreference.self,
+                                value: geometry.frame(in: .named("rewardsScroll")).minY
+                            )
+                        }
+                    }
                 }
+                .coordinateSpace(name: "rewardsScroll")
                 .simultaneousGesture(
                     TapGesture().onEnded {
                         if actionRewardID != nil {

@@ -108,13 +108,21 @@ struct PremiumPaywallView: View {
 
     private let designWidth: CGFloat = 393
     private let designHeight: CGFloat = 852
-    private let classicPaywallContentHeight: CGFloat = 1320
-    private let classicPlanCardsTop: CGFloat = 343
+    @State private var measuredBlindBoxHeroHeight: CGFloat = 0
+    private var isBlindBoxHero: Bool { classicHeroBenefit.id == "blindBox" && !isAllFeaturesEntrySource }
+    private var blindBoxHeroExtraHeight: CGFloat {
+        isBlindBoxHero ? max(0, 188 + measuredBlindBoxHeroHeight + 24 - 343) : 0
+    }
+    /// Keeps the Blind Box offer close to its hero artwork without changing the
+    /// normal paywall layout.
+    private let blindBoxPlanCardsLift: CGFloat = 66
+    private var classicPaywallContentHeight: CGFloat { 1372 + blindBoxHeroExtraHeight }
+    private var classicPlanCardsTop: CGFloat { 343 + blindBoxHeroExtraHeight }
     private let classicPlanCardsHeight: CGFloat = 144
     private let classicPinnedCountdownExtraHeight: CGFloat = 12
     private let classicPinnedBackgroundBleed: CGFloat = 2
-    private let classicBenefitsTop: CGFloat = 519
-    private let classicBenefitsHeight: CGFloat = 469
+    private var classicBenefitsTop: CGFloat { 519 + blindBoxHeroExtraHeight }
+    private let classicBenefitsHeight: CGFloat = 521
     private let classicLegalFooterTopSpacing: CGFloat = 24
 
     private var classicPaywallBodyTop: CGFloat {
@@ -255,6 +263,12 @@ struct PremiumPaywallView: View {
                 iconAssetName: "PaywallBenefitRewards",
                 title: L10n.paywallBenefitCustomRewardsTitle,
                 subtitle: L10n.paywallBenefitCustomRewardsSubtitle
+            ),
+            PaywallBenefit(
+                id: "blindBox",
+                iconAssetName: "PaywallBenefitBlindBox",
+                title: L10n.tr("More Blind Box Surprises", zhHans: "更多盲盒惊喜", zhHant: "更多盲盒驚喜", ja: "ブラインドボックスをもっと楽しむ"),
+                subtitle: L10n.tr("Unlock All the Fun of Blind Box", zhHans: "解锁盲盒所有有趣玩法", zhHant: "解鎖盲盒所有有趣玩法", ja: "ブラインドボックスの楽しい遊び方をすべて解放")
             ),
             PaywallBenefit(
                 id: "history",
@@ -443,7 +457,9 @@ struct PremiumPaywallView: View {
         return ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                 heroSection
-                    .frame(width: designWidth, height: classicPlanCardsTop - pinnedTopInset, alignment: .topLeading)
+                    // The pinned header paints its inset too; reserve the entire hero
+                    // so that background cannot cover the last subtitle lines.
+                    .frame(width: designWidth, height: classicPlanCardsTop - (isBlindBoxHero ? blindBoxPlanCardsLift : pinnedTopInset), alignment: .topLeading)
 
                 Section {
                     ZStack(alignment: .topLeading) {
@@ -457,12 +473,12 @@ struct PremiumPaywallView: View {
                     pinnedPlanCardsHeader(topInset: pinnedTopInset)
                 }
             }
-            .frame(width: designWidth, height: classicPaywallContentHeight, alignment: .topLeading)
+            .frame(width: designWidth, height: classicPaywallContentHeight + (isBlindBoxHero ? pinnedTopInset - blindBoxPlanCardsLift : 0), alignment: .topLeading)
             .background(alignment: .top) {
                 classicPaywallScrollBackground
             }
             .scaleEffect(scale, anchor: .top)
-            .frame(width: contentWidth, height: classicPaywallContentHeight * scale, alignment: .top)
+            .frame(width: contentWidth, height: (classicPaywallContentHeight + (isBlindBoxHero ? pinnedTopInset - blindBoxPlanCardsLift : 0)) * scale, alignment: .top)
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .frame(width: geo.size.width, height: geo.size.height)
@@ -846,7 +862,8 @@ struct PremiumPaywallView: View {
                 .interpolation(.high)
                 .renderingMode(.original)
                 .frame(width: designWidth, height: designHeight)
-                .offset(y: -(classicPlanCardsTop - topInset - classicPinnedBackgroundBleed))
+                // Match the header's actual starting position in the scroll content.
+                .offset(y: -(classicPlanCardsTop - (isBlindBoxHero ? blindBoxPlanCardsLift : topInset) - classicPinnedBackgroundBleed))
         }
         .frame(
             width: designWidth,
@@ -880,17 +897,22 @@ struct PremiumPaywallView: View {
                     .font(paywallFont(size: 16, weight: .semibold))
                     .foregroundColor(Color(hex: "C8BBB3"))
                     .lineSpacing(2)
-                    .lineLimit(2)
+                    .lineLimit(isBlindBoxHero ? nil : 2)
                     .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
                     .frame(width: 190, alignment: .topLeading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(minHeight: 42, alignment: .topLeading)
                     .minimumScaleFactor(0.9)
             }
             .frame(width: 260, alignment: .topLeading)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.height
+            } action: { height in
+                if isBlindBoxHero { measuredBlindBoxHeroHeight = height }
+            }
             .offset(x: 23, y: 188)
         }
-        .frame(width: designWidth, height: 320, alignment: .topLeading)
+        .frame(width: designWidth, height: 320 + blindBoxHeroExtraHeight, alignment: .topLeading)
     }
 
     private var backButton: some View {
@@ -1059,12 +1081,13 @@ struct PremiumPaywallView: View {
             }
             .offset(x: 20, y: 47)
         }
-        .frame(width: 355, height: 469, alignment: .topLeading)
+        .frame(width: 355, height: classicBenefitsHeight, alignment: .topLeading)
         .offset(x: 0, y: classicBenefitsTop)
     }
 
     private func benefitRow(_ benefit: PaywallBenefit) -> some View {
         let isLast = benefit.id == "more"
+        let isBlindBox = benefit.id == "blindBox"
 
         return HStack(alignment: .top, spacing: 12) {
             Image(benefit.iconAssetName)
@@ -1085,12 +1108,15 @@ struct PremiumPaywallView: View {
                 Text(benefit.subtitle)
                     .font(paywallFont(size: 14, weight: .regular))
                     .foregroundColor(Color(hex: "828282"))
-                    .lineLimit(isLast ? 2 : 1)
+                    .lineLimit(isBlindBox ? nil : (isLast ? 2 : 1))
                     .minimumScaleFactor(0.82)
-                    .frame(width: 306, height: isLast ? 36 : 18, alignment: .topLeading)
+                    .frame(width: 306, alignment: .topLeading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: isLast ? 36 : 18, alignment: .topLeading)
             }
         }
-        .frame(width: 350, height: isLast ? 58 : 40, alignment: .topLeading)
+        .frame(width: 350, alignment: .topLeading)
+        .frame(minHeight: isLast ? 58 : 40, alignment: .topLeading)
     }
 
     private var subscribeButton: some View {

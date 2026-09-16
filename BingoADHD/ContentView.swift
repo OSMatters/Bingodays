@@ -47,6 +47,8 @@ struct ContentView: View {
     @State private var isICloudSyncPresented = false
     @State private var isPointsFlowPresented = false
     @State private var isPointsTabSubpagePresented = false
+    @State private var pointsEntryFromBottomTab = true
+    @State private var pointsNavigationOpacity: Double = 1
     @State private var isBoardCountdownPresented = false
     @State private var isBoardRulesPresented = false
     @State private var boardRulesTargetBoardID: UUID?
@@ -392,6 +394,7 @@ struct ContentView: View {
                 )
             )
         )
+        .modifier(BlindBoxSilentTicketRefresh())
         .adaptivePadBottomHalfSheet(
             isPresented: $isThemePickerSheetPresented,
             usePadPresentation: usesPadBottomHalfSheets,
@@ -523,6 +526,7 @@ struct ContentView: View {
                             )
                             selectedStickerID = nil
                             withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                                pointsEntryFromBottomTab = false
                                 selectedMainTab = .points
                             }
                         },
@@ -719,10 +723,18 @@ struct ContentView: View {
                     VStack {
                         Spacer()
                         HomeMainTabBarView(
-                            selectedTab: $selectedMainTab,
+                            selectedTab: Binding(
+                                get: { selectedMainTab },
+                                set: { tab in
+                                    if tab == .points { pointsEntryFromBottomTab = true }
+                                    selectedMainTab = tab
+                                }
+                            ),
                             isPadLayout: isPadLayout
                         )
                         .padding(.bottom, mainTabBarBottomSpacing)
+                        .opacity(selectedMainTab == .points ? pointsNavigationOpacity : 1)
+                        .allowsHitTesting(selectedMainTab != .points || pointsNavigationOpacity == 1)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.opacity)
@@ -754,6 +766,8 @@ struct ContentView: View {
             onSubpagePresentationChange: { isPresented in
                 isPointsTabSubpagePresented = isPresented
             },
+            enteredFromBottomTab: pointsEntryFromBottomTab,
+            onNavigationOpacityChange: { pointsNavigationOpacity = $0 },
             onAddStickerToHomeSuccess: {
                 selectedStickerID = nil
                 withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {

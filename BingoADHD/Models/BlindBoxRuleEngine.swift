@@ -273,7 +273,7 @@ struct BlindBoxEconomyConfiguration: Codable, Equatable, Sendable {
         isBlindBoxOpeningEnabled: true,
         isPointExchangeEnabled: true,
         pointExchangePrice: 100,
-        maximumPointExchangesPerGrantDay: 1
+        maximumPointExchangesPerGrantDay: 3
     )
 
     let version: Int
@@ -281,6 +281,8 @@ struct BlindBoxEconomyConfiguration: Codable, Equatable, Sendable {
     let isPointExchangeEnabled: Bool
     let pointExchangePrice: Int
     let maximumPointExchangesPerGrantDay: Int
+    // Older catalogs advertised one exchange. This client supports the updated daily allowance.
+    var effectivePointExchangesPerGrantDay: Int { max(3, maximumPointExchangesPerGrantDay) }
 
     init(
         version: Int,
@@ -301,7 +303,7 @@ struct BlindBoxEconomyConfiguration: Codable, Equatable, Sendable {
         guard (50...9_999).contains(pointExchangePrice) else {
             return .invalidPointExchangePrice
         }
-        guard maximumPointExchangesPerGrantDay == 1 else {
+        guard (1...3).contains(maximumPointExchangesPerGrantDay) else {
             return .invalidMaximumPointExchangesPerGrantDay
         }
         return nil
@@ -745,7 +747,7 @@ enum BlindBoxPointExchangePolicy {
         guard ticketBalance < BlindBoxRuleConfiguration.maximumTicketBalance else {
             return .ticketBalanceAtCapacity
         }
-        guard exchangesUsedThisGrantDay < economyConfiguration.maximumPointExchangesPerGrantDay else {
+        guard exchangesUsedThisGrantDay < economyConfiguration.effectivePointExchangesPerGrantDay else {
             return .grantDayLimitReached
         }
         guard availablePoints >= economyConfiguration.pointExchangePrice else {
@@ -759,6 +761,32 @@ enum BlindBoxPointExchangePolicy {
 }
 
 enum BlindBoxCatalog {
+    static let zodiac = BlindBoxThemeDefinition(
+        id: BlindBoxThemeID(rawValue: "zodiac"),
+        catalogVersion: 1,
+        stickers: (1...13).map { index in
+            let name = "zodiac_\(String(format: "%02d", index))"
+            return BlindBoxStickerDefinition(
+                id: BlindBoxStickerID(rawValue: name), assetName: "sticker_\(name)", isHidden: index == 13
+            )
+        },
+        presentation: BlindBoxThemePresentation(collectionPlacements:
+            [BlindBoxCollectionPlacement(stickerID: BlindBoxStickerID(rawValue: "zodiac_13"), centerX: 156.5, centerY: 367.5, displaySize: 80, isSpecialSlot: true)]
+            + (1...12).map { index in
+                // Fill the space below Secret with a pair, then stagger the
+                // remaining stickers in compact groups ending with two together.
+                let centers: [(Double, Double)] = [
+                    (280, 347), (285, 431),
+                    (119, 468), (202, 481), (286, 546),
+                    (118, 552), (202, 566), (285, 634),
+                    (119, 641), (202, 652), (150, 726), (264, 724)
+                ]
+                let center = centers[index - 1]
+                return BlindBoxCollectionPlacement(stickerID: BlindBoxStickerID(rawValue: "zodiac_\(String(format: "%02d", index))"), centerX: center.0, centerY: center.1, displaySize: 70)
+            }
+        ),
+        artwork: BlindBoxThemeArtwork(lobbyCardAssetName: "BlindBoxLobbyZodiac", detailHeaderAssetName: "BlindBoxZodiacHeader", detailBoardAssetName: "BlindBoxZodiacBoard", collectionPickerAssetName: "BlindBoxZodiacPackage")
+    )
     /// The local fallback mirrors the assets exported from the user-supplied Figma
     /// page. Remote catalog work later replaces this list without changing IDs.
     static let builtInThemes: [BlindBoxThemeDefinition] = [
@@ -787,6 +815,7 @@ enum BlindBoxCatalog {
                     isHidden: index == 9
                 )
             }
-        )
+        ),
+        zodiac
     ]
 }

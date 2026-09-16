@@ -27,6 +27,47 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
         self.themes = themes
         self.previewAvailablePoints = max(previewAvailablePoints, 0)
         self.state = Self.makeFixture(themes: themes, referenceDate: referenceDate)
+#if DEBUG
+        // Explicit preview-only regression fixtures; never applied to the live wallet.
+        if AppDebugFlags.blindBoxPreviewEnabled {
+            let environment = ProcessInfo.processInfo.environment
+            if let value = environment["BLINDBOX_QA_POINTS"].flatMap(Int.init) {
+                self.previewAvailablePoints = max(0, value)
+            }
+            if let value = environment["BLINDBOX_QA_TICKETS"].flatMap(Int.init) {
+                self.state.ticketBalance = min(20, max(0, value))
+                self.state.lastTicketGrantDayIdentifier = BlindBoxGrantDay.identifier(for: referenceDate, calendar: .current)
+                self.state.settledDailyTicketAllowance = 1
+                self.state.pendingTicketReceipt = nil
+            }
+            // Presentation fixtures only; lifecycle transitions are tested against
+            // the production state machine and coordinator, not this preview store.
+            if let collection = environment["BLINDBOX_QA_COLLECTION"],
+               ["normals", "complete"].contains(collection) {
+                self.state.ownedStickerCounts = Dictionary(uniqueKeysWithValues:
+                    themes.flatMap { collection == "complete" ? $0.stickers : $0.normalStickers }
+                        .map { ($0.id.rawValue, 1) })
+                self.state.candidateBatches = []
+                var generator = SystemBlindBoxRandomNumberGenerator()
+                _ = try? BlindBoxCandidateCoordinator.reconcile(
+                    state: &self.state, themes: themes, hasPremiumAccess: false,
+                    reason: .initialLoad, now: referenceDate, generator: &generator
+                )
+            }
+        }
+#endif
+    }
+
+    func refreshTickets(hasPremiumAccess: Bool) {
+        BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state, hasPremiumAccess: hasPremiumAccess, now: .now, calendar: .current
+        )
+    }
+
+    func consumeTicketReceipt() -> BlindBoxTicketReceipt? {
+        let receipt = state.pendingTicketReceipt
+        state.pendingTicketReceipt = nil
+        return receipt
     }
 
     func theme(for id: BlindBoxThemeID) -> BlindBoxThemeDefinition? {
@@ -213,7 +254,10 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
                     firstPresentedAt: referenceDate.addingTimeInterval(-2 * 60 * 60),
                     soldOutAt: referenceDate.addingTimeInterval(-2 * 60 * 60)
                 ),
-                BlindBoxCandidateBatch(plan: petsSecondBatch),
+                BlindBoxCandidateBatch(plan: themes.first(where: { $0.id.rawValue == "zodiac" }).map {
+                    fixturePlan(id: "A0000000-0000-4000-8000-000000000007", theme: $0,
+                                stickerIDs: (1...9).map { "zodiac_\(String(format: "%02d", $0))" }, createdAt: referenceDate)
+                } ?? petsSecondBatch),
                 BlindBoxCandidateBatch(plan: cozyThirdBatch),
                 BlindBoxCandidateBatch(
                     plan: cozyBatch,

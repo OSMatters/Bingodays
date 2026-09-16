@@ -17,7 +17,7 @@ final class BlindBoxFeatureStore: ObservableObject {
     }
 
     @Published private(set) var availability: Availability = .idle
-    @Published private(set) var accountState = BlindBoxAccountState()
+    @Published private(set) var accountState = BlindBoxAccountState.newAccount()
     @Published private(set) var lastMaintenanceResult: BlindBoxAccountMaintenanceResult?
 
     @Published private(set) var themes: [BlindBoxThemeDefinition]
@@ -43,14 +43,16 @@ final class BlindBoxFeatureStore: ObservableObject {
             Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
         ) ?? 0
         let cachedRelease = BlindBoxCatalogBundleCache.load(currentBuild: currentBuild)?.release
+        let catalogThemes = cachedRelease?.themes ?? themes
+        let addsZodiac = !catalogThemes.contains(where: { $0.id == BlindBoxCatalog.zodiac.id })
         let database = BlindBoxCloudKitDatabase(
             database: CKContainer(
                 identifier: NativeICloudConfiguration.containerIdentifier
             ).privateCloudDatabase
         )
         self.init(
-            themes: cachedRelease?.themes ?? themes,
-            activeThemeIDs: cachedRelease?.activeThemeIDs,
+            themes: catalogThemes + (addsZodiac ? [BlindBoxCatalog.zodiac] : []),
+            activeThemeIDs: cachedRelease.map { $0.activeThemeIDs + (addsZodiac ? [BlindBoxCatalog.zodiac.id] : []) },
             economyConfiguration: cachedRelease?.economyConfiguration ?? .defaultValue,
             database: database,
             legacyInventoryProvider: legacyInventoryProvider,
@@ -120,7 +122,7 @@ final class BlindBoxFeatureStore: ObservableObject {
             return
         }
 
-        availability = .loading
+        if availability != .ready { availability = .loading }
         do {
             await refreshRemoteCatalogIfAvailable()
 
@@ -152,6 +154,15 @@ final class BlindBoxFeatureStore: ObservableObject {
         } catch {
             availability = .failed(message: Self.message(for: error))
         }
+    }
+
+    func consumeTicketReceipt() async throws -> BlindBoxTicketReceipt? {
+        guard let receipt = accountState.pendingTicketReceipt else { return nil }
+        let consumed = try await accountRepository.acknowledgeTicketReceipt(receipt.id)
+        if accountState.pendingTicketReceipt?.id == receipt.id {
+            accountState.pendingTicketReceipt = nil
+        }
+        return consumed ? receipt : nil
     }
 
     func open(
@@ -345,6 +356,12 @@ final class BlindBoxFeatureStore: ObservableObject {
 
         themes = cachedEntry.release.themes
         activeThemeIDs = Set(cachedEntry.release.activeThemeIDs)
+        // Older remote releases predate the bundled Zodiac launch. A release
+        // that explicitly includes Zodiac retains control of its active state.
+        if !themes.contains(where: { $0.id == BlindBoxCatalog.zodiac.id }) {
+            themes.append(BlindBoxCatalog.zodiac)
+            activeThemeIDs.insert(BlindBoxCatalog.zodiac.id)
+        }
         economyConfiguration = cachedEntry.release.economyConfiguration
         if catalogCacheRootDirectory == nil {
             BlindBoxCatalogArtworkStore.shared.reload()

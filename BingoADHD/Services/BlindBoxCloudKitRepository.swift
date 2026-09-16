@@ -330,6 +330,29 @@ final class BlindBoxCloudKitAccountStateRepository {
         throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
     }
 
+    func acknowledgeTicketReceipt(_ id: UUID) async throws -> Bool {
+        for attempt in 0..<Self.maximumContentionAttempts {
+            do {
+                let records = try await database.fetchRecords([BlindBoxCloudKitRecordCodec.accountRecordID])
+                guard let record = records[BlindBoxCloudKitRecordCodec.accountRecordID] else {
+                    throw BlindBoxCloudKitRepositoryError.accountNotInitialized
+                }
+                var account = try BlindBoxCloudKitRecordCodec.decodeAccountRecord(record)
+                guard account.accountState.pendingTicketReceipt?.id == id else { return false }
+                account.accountState.pendingTicketReceipt = nil
+                try BlindBoxCloudKitRecordCodec.updateAccountRecord(record, with: account)
+                try await database.saveRecordsAtomically([record])
+                return true
+            } catch {
+                guard Self.isServerRecordChanged(error) else { throw error }
+                if attempt == Self.maximumContentionAttempts - 1 {
+                    throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+                }
+            }
+        }
+        throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+    }
+
     /// Clears only the reveal that the user has finished viewing. If another
     /// device has already committed a newer reveal, this deliberately leaves
     /// it in place so the older device cannot hide a result it never showed.

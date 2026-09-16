@@ -1,10 +1,67 @@
 import CloudKit
 import XCTest
+import Testing
 @testable import Bingodays
+
+@MainActor
+struct BlindBoxPullInteractionTests {
+    @Test(arguments: [CGSize(width: 375, height: 667), CGSize(width: 393, height: 852), CGSize(width: 430, height: 932)])
+    func ropeStaysAttachedToLocalArc(size: CGSize) {
+        let diameter = max(size.width * 3, size.height * 2.4)
+        let radius = diameter / 2
+        let ropeX: CGFloat = 44 - 45 / 2 + 13 * 45 / 68
+        let inset = radius - sqrt(radius * radius - pow(ropeX - size.width / 2, 2))
+        for bottom: CGFloat in [52, 100, 300] {
+            let center = BlindBoxPullInteraction.ropeCenterY(circleBottom: bottom, size: size, diameter: diameter)
+            let ropeTop = center - (99 * 45 / 68) / 2
+            #expect(abs(ropeTop - (bottom - inset) + 2) < 0.001)
+        }
+        #expect(BlindBoxPullInteraction.ropeCenterY(circleBottom: -30, size: size, diameter: diameter) == 38)
+    }
+
+    @Test(arguments: ["blinbox_la", "blinbox_box", "blindbox_shou", "scroll_down"])
+    func suppliedAnimationsArePackaged(name: String) throws {
+        let url = try #require(Bundle.main.url(forResource: name, withExtension: "json", subdirectory: "BlindBoxMotion"))
+        let data = try Data(contentsOf: url)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect((json["fr"] as? Double ?? 0) > 0)
+        #expect(!(json["layers"] as? [Any] ?? []).isEmpty)
+    }
+
+    @Test func onlyDownwardPullAtScrollTopCanBegin() {
+        #expect(BlindBoxPullInteraction.canBegin(scrollTop: 0, translation: CGSize(width: 2, height: 18)))
+        #expect(!BlindBoxPullInteraction.canBegin(scrollTop: -100, translation: CGSize(width: 0, height: 40)))
+        #expect(!BlindBoxPullInteraction.canBegin(scrollTop: 0, translation: CGSize(width: 40, height: 10)))
+        #expect(!BlindBoxPullInteraction.canBegin(scrollTop: 0, translation: CGSize(width: 0, height: -40)))
+    }
+
+    @Test func reversedAndTinyPullsCancel() {
+        #expect(!BlindBoxPullInteraction.shouldEnter(translation: CGSize(width: 0, height: 10)))
+        #expect(!BlindBoxPullInteraction.shouldEnter(translation: CGSize(width: 0, height: -5)))
+        #expect(BlindBoxPullInteraction.shouldEnter(translation: CGSize(width: 0, height: 28)))
+        #expect(BlindBoxPullInteraction.shouldEnter(translation: CGSize(width: 0, height: 400)))
+    }
+
+    @Test(arguments: [CGSize(width: 375, height: 667), CGSize(width: 393, height: 852), CGSize(width: 1024, height: 768)])
+    func circleCoversAllFourCorners(size: CGSize) {
+        let diameter = max(size.width * 3, size.height * 2.4)
+        let radius = diameter / 2
+        let centerY = BlindBoxPullInteraction.coveredBottom(size: size, diameter: diameter) - radius
+        for y in [CGFloat.zero, size.height] {
+            let distance = hypot(size.width / 2, y - centerY)
+            #expect(distance < radius)
+        }
+    }
+}
 
 final class BlindBoxRuleEngineTests: XCTestCase {
     func testBuiltInThemesMatchConfiguredContentCounts() {
-        XCTAssertEqual(BlindBoxCatalog.builtInThemes.count, 2)
+        XCTAssertEqual(BlindBoxCatalog.builtInThemes.count, 3)
+        let zodiac = BlindBoxCatalog.zodiac
+        XCTAssertEqual(zodiac.normalStickers.count, 12)
+        XCTAssertEqual(zodiac.hiddenSticker?.id.rawValue, "zodiac_13")
+        XCTAssertEqual(zodiac.presentation?.collectionPlacements.count, 13)
+        XCTAssertNil(zodiac.validationError())
 
         let pets = BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "pets" }
         XCTAssertEqual(pets?.normalStickers.count, 11)
@@ -555,7 +612,7 @@ final class BlindBoxRuleEngineTests: XCTestCase {
     }
 
     @MainActor
-    func testFeatureStoreUsesOnlyActiveRemoteThemesForNewCandidates() async throws {
+    func testFeatureStoreIncludesBundledZodiacWithActiveRemoteThemes() async throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -583,10 +640,10 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(store.availability, .ready)
-        XCTAssertEqual(store.themes, remoteBundle.release.themes)
+        XCTAssertEqual(store.themes, remoteBundle.release.themes + [BlindBoxCatalog.zodiac])
         XCTAssertEqual(
             Set(store.accountState.candidateBatches.map(\.plan.themeID)),
-            Set(remoteBundle.release.activeThemeIDs)
+            Set(remoteBundle.release.activeThemeIDs + [BlindBoxCatalog.zodiac.id])
         )
     }
 
@@ -863,7 +920,12 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         XCTAssertEqual(BlindBoxTicketPolicy.candidateCount(hasPremiumAccess: true), 6)
     }
 
-    func testPointExchangeIsLimitedToOnePerGrantDayAtOneHundredPoints() {
+    func testPointExchangeIsLimitedToThreePerGrantDayAtOneHundredPoints() {
+        for used in 0...2 {
+            XCTAssertEqual(BlindBoxPointExchangePolicy.eligibility(
+                availablePoints: 100, ticketBalance: 19, exchangesUsedThisGrantDay: used
+            ), .eligible)
+        }
         XCTAssertEqual(
             BlindBoxPointExchangePolicy.eligibility(
                 availablePoints: 100,
@@ -892,10 +954,38 @@ final class BlindBoxRuleEngineTests: XCTestCase {
             BlindBoxPointExchangePolicy.eligibility(
                 availablePoints: 1_000,
                 ticketBalance: 0,
-                exchangesUsedThisGrantDay: 1
+                exchangesUsedThisGrantDay: 3
             ),
             .grantDayLimitReached
         )
+    }
+
+    func testLegacyCatalogAllowsThreeExchangesAndCapacityStillWins() throws {
+        let legacy = BlindBoxEconomyConfiguration(
+            version: 1, isBlindBoxOpeningEnabled: true, isPointExchangeEnabled: true,
+            pointExchangePrice: 100, maximumPointExchangesPerGrantDay: 1
+        )
+        XCTAssertNil(legacy.validationError())
+        for used in 1...2 {
+            XCTAssertEqual(BlindBoxPointExchangePolicy.eligibility(
+                availablePoints: 100, ticketBalance: 0, exchangesUsedThisGrantDay: used,
+                economyConfiguration: legacy
+            ), .eligible)
+        }
+        XCTAssertEqual(BlindBoxPointExchangePolicy.eligibility(
+            availablePoints: 100, ticketBalance: 0, exchangesUsedThisGrantDay: 3,
+            economyConfiguration: legacy
+        ), .grantDayLimitReached)
+        XCTAssertEqual(BlindBoxPointExchangePolicy.eligibility(
+            availablePoints: 100, ticketBalance: 20, exchangesUsedThisGrantDay: 1,
+            economyConfiguration: legacy
+        ), .ticketBalanceAtCapacity)
+        XCTAssertEqual(BlindBoxPointExchangePolicy.eligibility(
+            availablePoints: 99, ticketBalance: 0, exchangesUsedThisGrantDay: 2,
+            economyConfiguration: legacy
+        ), .insufficientPoints(required: 100, current: 99))
+        let invalid = BlindBoxAccountState(pointExchangesUsedOnLastGrantDay: 4)
+        XCTAssertThrowsError(try JSONDecoder().decode(BlindBoxAccountState.self, from: JSONEncoder().encode(invalid)))
     }
 
     func testVersionedEconomyControlsPointExchangeAndSnapshotsItsPrice() throws {
@@ -1645,7 +1735,12 @@ final class BlindBoxStateMachineTests: XCTestCase {
         XCTAssertFalse(monitor.status.canMakeNetworkRequests)
         XCTAssertEqual(
             monitor.status.unavailableMessage,
-            "You're offline. Connect to the internet and try again."
+            L10n.tr(
+                "You're offline. Connect to the internet and try again.",
+                zhHans: "当前无网络连接，请联网后重试。",
+                zhHant: "目前沒有網路連線，請連線後再試。",
+                ja: "オフラインです。インターネットに接続してから再試行してください。"
+            )
         )
     }
 
@@ -1914,6 +2009,8 @@ private final class InMemoryBlindBoxCloudRecordDatabase: BlindBoxCloudRecordData
     private var storedRecords: [CKRecord.ID: CKRecord] = [:]
     private var hasZone = false
     private var conflictingSaveAttempts: Int
+    private var failingBeforeCommittedSaveAttempts: Int
+    private var failingAfterCommittedSaveAttempts: Int
 
     private(set) var saveAttemptCount = 0
 
@@ -1921,8 +2018,14 @@ private final class InMemoryBlindBoxCloudRecordDatabase: BlindBoxCloudRecordData
         hasZone
     }
 
-    init(conflictingSaveAttempts: Int = 0) {
+    init(
+        conflictingSaveAttempts: Int = 0,
+        failingBeforeCommittedSaveAttempts: Int = 0,
+        failingAfterCommittedSaveAttempts: Int = 0
+    ) {
         self.conflictingSaveAttempts = conflictingSaveAttempts
+        self.failingBeforeCommittedSaveAttempts = failingBeforeCommittedSaveAttempts
+        self.failingAfterCommittedSaveAttempts = failingAfterCommittedSaveAttempts
     }
 
     func seed(_ record: CKRecord) throws {
@@ -1961,12 +2064,24 @@ private final class InMemoryBlindBoxCloudRecordDatabase: BlindBoxCloudRecordData
                 code: CKError.Code.serverRecordChanged.rawValue
             )
         }
+        if failingBeforeCommittedSaveAttempts > 0 {
+            failingBeforeCommittedSaveAttempts -= 1
+            throw URLError(.notConnectedToInternet)
+        }
 
         var nextRecords = storedRecords
         for record in records {
             nextRecords[record.recordID] = try clone(record)
         }
         storedRecords = nextRecords
+
+        // Models an ambiguous client result: CloudKit committed atomically but
+        // the connection failed before the client received the acknowledgement.
+        // A subsequent command must therefore safely replay the same request.
+        if failingAfterCommittedSaveAttempts > 0 {
+            failingAfterCommittedSaveAttempts -= 1
+            throw URLError(.timedOut)
+        }
     }
 
     private func clone(_ record: CKRecord) throws -> CKRecord {
@@ -2114,7 +2229,7 @@ final class BlindBoxCandidateCoordinatorTests: XCTestCase {
         XCTAssertEqual(freeResult.candidateCount, 4)
         XCTAssertEqual(state.candidateBatches.count, 4)
         XCTAssertTrue(state.candidateBatches.allSatisfy {
-            ["pets", "cozy_daily"].contains($0.plan.themeID.rawValue)
+            ["pets", "cozy_daily", "zodiac"].contains($0.plan.themeID.rawValue)
         })
 
         let premiumResult = try BlindBoxCandidateCoordinator.reconcile(
@@ -2128,6 +2243,44 @@ final class BlindBoxCandidateCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(premiumResult.candidateCount, 6)
         XCTAssertEqual(state.candidateBatches.count, 6)
+    }
+
+    func testCollectionJourneyPreservesOldOddsBoostsNewBatchesAndStopsAfterCompletion() throws {
+        for theme in BlindBoxCatalog.builtInThemes {
+            for premium in [false, true] {
+                let now = Date(timeIntervalSince1970: 2_000)
+                let oldPlan = makePlan(theme: theme, identifier: "C0FFEE00-0000-4000-8000-000000000099")
+                var state = BlindBoxAccountState(
+                    ticketBalance: 20,
+                    ownedStickerCounts: Dictionary(uniqueKeysWithValues: theme.normalStickers.dropFirst().map { ($0.id.rawValue, 1) }),
+                    candidateBatches: [BlindBoxCandidateBatch(plan: oldPlan)]
+                )
+                _ = try BlindBoxStateMachine.openSingle(state: &state, batchID: oldPlan.id, positionIndex: 0, openedAt: now)
+                XCTAssertEqual(state.ticketBalance, 19)
+                XCTAssertTrue(theme.normalStickers.allSatisfy { state.ownedCount(for: $0.id) > 0 })
+                var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0])
+                _ = try BlindBoxCandidateCoordinator.reconcile(state: &state, themes: [theme], hasPremiumAccess: premium, reason: .themeCompleted, now: now, generator: &generator)
+                XCTAssertEqual(state.candidateBatches.first?.plan, oldPlan, "Existing results and odds must not change")
+                let newBatch = try XCTUnwrap(state.candidateBatches.first { $0.id != oldPlan.id })
+                XCTAssertEqual(newBatch.plan.probabilityMode, .hiddenHunt)
+                let oldOdds = try BlindBoxProbabilityEngine.disclosure(for: theme, mode: oldPlan.probabilityMode)
+                let newOdds = try BlindBoxProbabilityEngine.disclosure(for: theme, mode: newBatch.plan.probabilityMode)
+                XCTAssertEqual(oldOdds.hiddenStickerProbability, 0.01, accuracy: 0.000001)
+                XCTAssertEqual(newOdds.hiddenStickerProbability, 0.05, accuracy: 0.000001)
+                XCTAssertEqual(newOdds.hiddenInclusionProbabilityPerBatch, 0.45, accuracy: 0.000001)
+                let hidden = try XCTUnwrap(theme.hiddenSticker)
+                let position = try XCTUnwrap(newBatch.plan.positions.first { $0.stickerID == hidden.id })
+                _ = try BlindBoxStateMachine.openSingle(state: &state, batchID: newBatch.id, positionIndex: position.index, openedAt: now)
+                XCTAssertEqual(state.ticketBalance, 18)
+                XCTAssertTrue(theme.stickers.allSatisfy { state.ownedCount(for: $0.id) > 0 })
+                _ = try BlindBoxCandidateCoordinator.reconcile(state: &state, themes: [theme], hasPremiumAccess: premium, reason: .themeCompleted, now: now, generator: &generator)
+                XCTAssertTrue(state.candidateBatches.isEmpty)
+                state = try JSONDecoder().decode(BlindBoxAccountState.self, from: JSONEncoder().encode(state))
+                _ = try BlindBoxCandidateCoordinator.reconcile(state: &state, themes: [theme], hasPremiumAccess: premium, reason: .initialLoad, now: now.addingTimeInterval(172800), generator: &generator)
+                XCTAssertTrue(state.candidateBatches.isEmpty, "Completed theme must not return after reload or restock")
+                XCTAssertEqual(state.ticketBalance, 18)
+            }
+        }
     }
 
     func testCompletedThemeIsRemovedAndDoesNotReturnToCandidates() throws {
@@ -2368,7 +2521,73 @@ final class BlindBoxForegroundMaintenanceScheduleTests: XCTestCase {
 }
 
 final class BlindBoxWalletStateMachineTests: XCTestCase {
-    func testDailyTicketRefreshBackfillsMissedDaysButNeverExceedsTwentyTickets() {
+    func testUpgradePaysOnlyDailyDifferenceAndNeverRepeats() throws {
+        var state = BlindBoxAccountState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        let calendar = Calendar(identifier: .gregorian)
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: now, calendar: calendar)
+        XCTAssertEqual(state.pendingTicketReceipt?.count, 1)
+        state.pendingTicketReceipt = nil
+        _ = try BlindBoxWalletStateMachine.exchangePointsForOneTicket(state: &state, availablePoints: 100, now: now, calendar: calendar)
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: true, now: now, calendar: calendar)
+        XCTAssertEqual(state.ticketBalance, 4)
+        XCTAssertEqual(state.pendingTicketReceipt?.count, 2)
+        let receipt = state.pendingTicketReceipt
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: true, now: now, calendar: calendar)
+        XCTAssertEqual(state.ticketBalance, 4)
+        XCTAssertEqual(state.pendingTicketReceipt, receipt)
+    }
+
+    func testCappedAllowanceCannotBeReclaimedAfterSpending() {
+        var state = BlindBoxAccountState(ticketBalance: 19)
+        let now = Date(timeIntervalSince1970: 1_000)
+        let calendar = Calendar(identifier: .gregorian)
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: true, now: now, calendar: calendar)
+        XCTAssertEqual(state.pendingTicketReceipt?.count, 1)
+        state.ticketBalance = 15
+        state.pendingTicketReceipt = nil
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: true, now: now, calendar: calendar)
+        XCTAssertEqual(state.ticketBalance, 15)
+        XCTAssertNil(state.pendingTicketReceipt)
+    }
+
+    func testCappedUpgradeDoesNotBankTheUnpaidDifference() {
+        var state = BlindBoxAccountState(ticketBalance: 19)
+        let now = Date(timeIntervalSince1970: 1_000)
+        let calendar = Calendar(identifier: .gregorian)
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: now, calendar: calendar)
+        state.pendingTicketReceipt = nil
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: true, now: now, calendar: calendar)
+        XCTAssertNil(state.pendingTicketReceipt)
+        state.ticketBalance = 10
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: true, now: now, calendar: calendar)
+        XCTAssertEqual(state.ticketBalance, 10)
+    }
+
+    func testUnseenReceiptIsReplacedOnNextDayAndOnlyTodayIsGranted() {
+        var state = BlindBoxAccountState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        let calendar = Calendar(identifier: .gregorian)
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: now, calendar: calendar)
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: now.addingTimeInterval(86400 * 5), calendar: calendar)
+        XCTAssertEqual(state.ticketBalance, 2)
+        XCTAssertEqual(state.pendingTicketReceipt?.count, 1)
+    }
+
+    func testGrantReceiptSurvivesEncodingAndLegacyStateDecodes() throws {
+        var state = BlindBoxAccountState()
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: .now, calendar: .current)
+        let data = try JSONEncoder().encode(state)
+        XCTAssertEqual(try JSONDecoder().decode(BlindBoxAccountState.self, from: data), state)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        json.removeValue(forKey: "pendingTicketReceipt")
+        json.removeValue(forKey: "settledDailyTicketAllowance")
+        let legacy = try JSONDecoder().decode(BlindBoxAccountState.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertNil(legacy.pendingTicketReceipt)
+        XCTAssertNil(legacy.settledDailyTicketAllowance)
+    }
+
+    func testDailyTicketRefreshAfterMissedDaysNeverExceedsTwentyTickets() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let formatter = ISO8601DateFormatter()
@@ -2416,6 +2635,24 @@ final class BlindBoxWalletStateMachineTests: XCTestCase {
         XCTAssertEqual(result.resultingTicketBalance, 1)
     }
 
+    func testNewAccountStartsWithThreeLaunchTicketsWithoutFirstDayTopUp() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        var state = BlindBoxAccountState.newAccount()
+
+        let result = BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state,
+            hasPremiumAccess: false,
+            now: Date(timeIntervalSince1970: 1_000),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(state.ticketBalance, BlindBoxAccountState.initialTicketBalance)
+        XCTAssertEqual(result.processedGrantDays, 0)
+        XCTAssertEqual(result.grantedTicketCount, 0)
+        XCTAssertNil(state.pendingTicketReceipt)
+    }
+
     func testPointExchangeChargesOneHundredAndResetsAtFourAM() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -2431,6 +2668,18 @@ final class BlindBoxWalletStateMachineTests: XCTestCase {
         XCTAssertEqual(first.deductedPoints, 100)
         XCTAssertEqual(first.grantedTickets, 1)
         XCTAssertEqual(state.ticketBalance, 3)
+
+        for expectedCount in 2...3 {
+            let result = try BlindBoxWalletStateMachine.exchangePointsForOneTicket(
+                state: &state, availablePoints: 100,
+                now: formatter.date(from: "2026-09-02T03:59:10Z")!, calendar: calendar
+            )
+            XCTAssertEqual(result.deductedPoints, 100)
+            XCTAssertEqual(result.grantedTickets, 1)
+            XCTAssertEqual(state.pointExchangesUsedOnLastGrantDay, expectedCount)
+            let decoded = try JSONDecoder().decode(BlindBoxAccountState.self, from: JSONEncoder().encode(state))
+            XCTAssertEqual(decoded.pointExchangesUsedOnLastGrantDay, expectedCount)
+        }
 
         XCTAssertThrowsError(
             try BlindBoxWalletStateMachine.exchangePointsForOneTicket(
@@ -2452,7 +2701,7 @@ final class BlindBoxWalletStateMachineTests: XCTestCase {
             now: formatter.date(from: "2026-09-02T04:00:00Z")!,
             calendar: calendar
         )
-        XCTAssertEqual(afterReset.resultingTicketBalance, 4)
+        XCTAssertEqual(afterReset.resultingTicketBalance, 6)
         XCTAssertEqual(state.pointExchangesUsedOnLastGrantDay, 1)
         XCTAssertEqual(state.lastPointExchangeDayIdentifier, "2026-09-02")
     }
@@ -2477,6 +2726,577 @@ final class BlindBoxWalletStateMachineTests: XCTestCase {
             )
         }
         XCTAssertEqual(state, original)
+    }
+}
+
+/// Executable boundary cases from sticker-blind-box-regression-test-cases.md.
+/// Assertions describe the regression contract, including currently failing cases.
+final class BlindBoxFullRegressionTests: XCTestCase {
+    private var utc: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }
+    private func date(_ value: String) -> Date { ISO8601DateFormatter().date(from: value)! }
+    private var now: Date { date("2026-09-07T12:00:00Z") }
+
+    func testB01B02DailyAllowanceMatrix() {
+        for premium in [false, true] {
+            for initial in [0, 17, 18, 19, 20] {
+                var state = BlindBoxAccountState(ticketBalance: initial)
+                let allowance = premium ? 3 : 1
+                let result = BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: premium, now: now, calendar: utc)
+                XCTAssertEqual(result.grantedTicketCount, min(allowance, 20 - initial))
+                XCTAssertEqual(state.ticketBalance, min(20, initial + allowance))
+                XCTAssertEqual(state.settledDailyTicketAllowance, allowance)
+                XCTAssertEqual(state.pendingTicketReceipt?.count ?? 0, result.grantedTicketCount)
+            }
+        }
+    }
+
+    func testB03B04C04C05C06RepeatedSettlementAndMembershipChanges() throws {
+        for initial in [0, 18, 19, 20] {
+            var state = BlindBoxAccountState(ticketBalance: initial)
+            BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: now, calendar: utc)
+            BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: true, now: now, calendar: utc)
+            XCTAssertEqual(state.ticketBalance, min(20, initial + 3))
+            state.ticketBalance = 0
+            for _ in 0..<20 {
+                state = try JSONDecoder().decode(BlindBoxAccountState.self, from: JSONEncoder().encode(state))
+                for premium in [false, true] {
+                    BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: premium, now: now, calendar: utc)
+                    XCTAssertEqual(state.ticketBalance, 0)
+                }
+            }
+        }
+    }
+
+    func testB05B06B13CalendarBoundaries() throws {
+        for day in ["2026-09-07", "2026-12-31", "2028-02-29"] {
+            let boundary = date("\(day)T04:00:00Z")
+            var state = BlindBoxAccountState()
+            BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: boundary.addingTimeInterval(-1), calendar: utc)
+            BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: boundary, calendar: utc)
+            BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: boundary.addingTimeInterval(1), calendar: utc)
+            XCTAssertEqual(state.ticketBalance, 2, day)
+        }
+        var state = BlindBoxAccountState()
+        for stamp in ["2026-09-07T23:59:59Z", "2026-09-08T00:00:00Z", "2026-09-08T03:59:59Z"] {
+            BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: date(stamp), calendar: utc)
+        }
+        XCTAssertEqual(state.ticketBalance, 1)
+    }
+
+    func testB09B10AbsenceAndReceiptReplacement() {
+        for days in [1, 5, 30, 365] {
+            for premium in [false, true] {
+                var state = BlindBoxAccountState(ticketBalance: 2, lastTicketGrantDayIdentifier: "2026-09-07")
+                state.settledDailyTicketAllowance = premium ? 3 : 1
+                state.pendingTicketReceipt = BlindBoxTicketReceipt(day: "2026-09-07", count: 1)
+                BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: premium, now: now.addingTimeInterval(Double(days) * 86400), calendar: utc)
+                XCTAssertEqual(state.ticketBalance, premium ? 5 : 3)
+                XCTAssertEqual(state.pendingTicketReceipt?.count, premium ? 3 : 1)
+            }
+        }
+    }
+
+    func testB11ClockRollbackMustNotUnlockAnotherExchange() throws {
+        var state = BlindBoxAccountState()
+        _ = try BlindBoxWalletStateMachine.exchangePointsForOneTicket(state: &state, availablePoints: 1000, now: now, calendar: utc)
+        XCTAssertThrowsError(try BlindBoxWalletStateMachine.exchangePointsForOneTicket(state: &state, availablePoints: 900, now: now.addingTimeInterval(-86400), calendar: utc))
+        XCTAssertEqual(state.ticketBalance, 1)
+    }
+
+    func testB12ChangingTimezoneMustNotGrantAgainAtSameInstant() {
+        var west = utc
+        west.timeZone = TimeZone(secondsFromGMT: -12 * 3600)!
+        var east = utc
+        east.timeZone = TimeZone(secondsFromGMT: 14 * 3600)!
+        var state = BlindBoxAccountState()
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: now, calendar: west)
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: now, calendar: east)
+        XCTAssertEqual(state.ticketBalance, 1)
+    }
+
+    func testC12KnownFreeLegacyAccountReceivesUpgradeDifferenceAfterReload() throws {
+        let suite = "BlindBoxRegression-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var state = BlindBoxAccountState(ticketBalance: 1, lastTicketGrantDayIdentifier: "2026-09-07")
+        XCTAssertNil(state.settledDailyTicketAllowance)
+        // Observe the actual free entitlement before upgrading; balance alone is not evidence.
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: now, calendar: utc)
+        XCTAssertTrue(BlindBoxLocalStateStore.save(state, defaults: defaults))
+        state = BlindBoxLocalStateStore.load(defaults: defaults)
+        XCTAssertEqual(state.settledDailyTicketAllowance, 1)
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: true, now: now, calendar: utc)
+        XCTAssertEqual(state.ticketBalance, 3)
+        XCTAssertEqual(state.pendingTicketReceipt?.count, 2)
+        XCTAssertTrue(BlindBoxLocalStateStore.save(state, defaults: defaults))
+        state = BlindBoxLocalStateStore.load(defaults: defaults)
+        XCTAssertEqual(state.pendingTicketReceipt?.count, 2)
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: true, now: now, calendar: utc)
+        XCTAssertEqual(state.ticketBalance, 3)
+    }
+
+    func testC12UnknownLegacyMembershipDoesNotInventASecondGrant() {
+        var state = BlindBoxAccountState(ticketBalance: 1, lastTicketGrantDayIdentifier: "2026-09-07")
+        // This may be a member who received 3 and spent 2; never infer free status from T=1.
+        BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: true, now: now, calendar: utc)
+        XCTAssertEqual(state.ticketBalance, 1)
+        XCTAssertEqual(state.settledDailyTicketAllowance, 3)
+    }
+
+    func testH09DecoderRejectsInvalidWalletAndKeepsValidBoundaryValues() throws {
+        let data = try JSONEncoder().encode(BlindBoxAccountState())
+        let baseline = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        for value in [0, 1, 19, 20] {
+            var json = baseline
+            json["ticketBalance"] = value
+            let decoded = try JSONDecoder().decode(BlindBoxAccountState.self, from: JSONSerialization.data(withJSONObject: json))
+            XCTAssertEqual(decoded.ticketBalance, value)
+        }
+        for value in [-1, -10, 21, Int.max] {
+            var json = baseline
+            json["ticketBalance"] = value
+            XCTAssertThrowsError(try JSONDecoder().decode(BlindBoxAccountState.self, from: JSONSerialization.data(withJSONObject: json)))
+        }
+        for value in [-1, 4] {
+            var json = baseline
+            json["pointExchangesUsedOnLastGrantDay"] = value
+            XCTAssertThrowsError(try JSONDecoder().decode(BlindBoxAccountState.self, from: JSONSerialization.data(withJSONObject: json)))
+        }
+    }
+
+    func testD01ToD05ExchangeMatrix() throws {
+        for points in [0, 99, 100, 101, 199, 200, 10000] {
+            for tickets in [0, 1, 17, 18, 19, 20] {
+                for used in [0, 1, 2, 3] {
+                    var state = BlindBoxAccountState(ticketBalance: tickets, lastPointExchangeDayIdentifier: "2026-09-07", pointExchangesUsedOnLastGrantDay: used)
+                    let original = state
+                    if points >= 100 && tickets < 20 && used < 3 {
+                        let result = try BlindBoxWalletStateMachine.exchangePointsForOneTicket(state: &state, availablePoints: points, now: now, calendar: utc)
+                        XCTAssertEqual(result.deductedPoints, 100)
+                        XCTAssertEqual(state.ticketBalance, tickets + 1)
+                        XCTAssertEqual(state.pointExchangesUsedOnLastGrantDay, used + 1)
+                    } else {
+                        XCTAssertThrowsError(try BlindBoxWalletStateMachine.exchangePointsForOneTicket(state: &state, availablePoints: points, now: now, calendar: utc))
+                        XCTAssertEqual(state, original)
+                    }
+                }
+            }
+        }
+    }
+
+    func testA12ReceiptAggregatesOnlyUnseenTickets() {
+        for viewed in [false, true] {
+            var state = BlindBoxAccountState()
+            BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: now, calendar: utc)
+            if viewed { state.pendingTicketReceipt = nil }
+            BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: true, now: now, calendar: utc)
+            XCTAssertEqual(state.pendingTicketReceipt?.count, viewed ? 2 : 3)
+            XCTAssertEqual(state.ticketBalance, 3)
+        }
+    }
+
+    func testB14E10PendingReservationAcrossDayAndCapacity() throws {
+        for initial in [18, 19] {
+            var state = BlindBoxAccountState(ticketBalance: initial)
+            let key = UUID()
+            _ = try BlindBoxWalletStateMachine.reservePointsForOneTicketExchange(state: &state, idempotencyKey: key, availablePoints: 1000, now: date("2026-09-07T03:59:59Z"), calendar: utc)
+            BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: true, now: date("2026-09-07T04:00:00Z"), calendar: utc)
+            _ = try BlindBoxWalletStateMachine.completeReservedPointExchange(state: &state, idempotencyKey: key)
+            XCTAssertEqual(state.ticketBalance, 20)
+            state.ticketBalance = 19
+            _ = try BlindBoxWalletStateMachine.exchangePointsForOneTicket(state: &state, availablePoints: 900, now: date("2026-09-07T04:00:01Z"), calendar: utc)
+            XCTAssertEqual(state.ticketBalance, 20)
+            XCTAssertThrowsError(try BlindBoxWalletStateMachine.exchangePointsForOneTicket(state: &state, availablePoints: 800, now: date("2026-09-07T04:00:02Z"), calendar: utc))
+        }
+    }
+
+    @MainActor
+    func testE13ReceiptAcknowledgementRejectsStaleIDs() async throws {
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        _ = try await database.createZone(BlindBoxCloudKitRecordCodec.zoneID)
+        var state = BlindBoxAccountState(ticketBalance: 3)
+        let receipt = BlindBoxTicketReceipt(day: "2026-09-07", count: 2)
+        state.pendingTicketReceipt = receipt
+        try database.seed(BlindBoxCloudKitRecordCodec.makeAccountRecord(BlindBoxCloudAccountEnvelope(accountState: state, completedLegacyMigrationVersions: [])))
+        let repository = BlindBoxCloudKitAccountStateRepository(database: database)
+        let stale = try await repository.acknowledgeTicketReceipt(UUID())
+        XCTAssertFalse(stale)
+        let first = try await repository.acknowledgeTicketReceipt(receipt.id)
+        let second = try await repository.acknowledgeTicketReceipt(receipt.id)
+        XCTAssertTrue(first)
+        XCTAssertFalse(second)
+        let account = try await repository.loadAccount()
+        XCTAssertEqual(account.accountState.ticketBalance, 3)
+        XCTAssertNil(account.accountState.pendingTicketReceipt)
+    }
+
+    func testF04F05WholeBoxRemainingMatrix() throws {
+        let theme = BlindBoxCatalog.builtInThemes[0]
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0.5])
+        let plan = try BlindBoxBatchGenerator.generate(theme: theme, ownedCounts: [:], generator: &generator)
+        for remaining in [1, 2, 8, 9] {
+            let batch = BlindBoxCandidateBatch(plan: plan, openedPositionIndices: Set(0..<(9 - remaining)))
+            var state = BlindBoxAccountState(ticketBalance: remaining, candidateBatches: [batch])
+            let result = try BlindBoxStateMachine.openWholeBox(state: &state, batchID: plan.id, openedAt: now)
+            XCTAssertEqual(result.ticketCost, remaining)
+            XCTAssertEqual(result.openedStickers.count, remaining)
+            XCTAssertEqual(state.ticketBalance, 0)
+            state = BlindBoxAccountState(ticketBalance: remaining - 1, candidateBatches: [batch])
+            let original = state
+            XCTAssertThrowsError(try BlindBoxStateMachine.openWholeBox(state: &state, batchID: plan.id, openedAt: now))
+            XCTAssertEqual(state, original)
+        }
+    }
+
+    func testH09DecodedOutOfRangeBalanceMustNotSurviveSettlement() throws {
+        let data = try JSONEncoder().encode(BlindBoxAccountState())
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        for balance in [-10, 21] {
+            json["ticketBalance"] = balance
+            do {
+                var state = try JSONDecoder().decode(BlindBoxAccountState.self, from: JSONSerialization.data(withJSONObject: json))
+                BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: now, calendar: utc)
+                XCTAssertTrue((0...20).contains(state.ticketBalance), "Decoded balance \(balance) became \(state.ticketBalance)")
+            } catch { /* Rejecting corrupt account payloads is acceptable. */ }
+        }
+    }
+}
+
+/// High-risk lifecycle cases that cannot be trusted to the happy-path UI alone.
+/// They simulate a fresh app/repository after interruption while preserving the
+/// same authoritative private-zone records.
+final class BlindBoxInterruptionAndEntitlementRegressionTests: XCTestCase {
+    private var utc: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }
+
+    private func date(_ value: String) -> Date {
+        ISO8601DateFormatter().date(from: value)!
+    }
+
+    private func seededPlan() throws -> BlindBoxBatchPlan {
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0.99])
+        return try BlindBoxBatchGenerator.generate(
+            theme: BlindBoxCatalog.builtInThemes[0],
+            ownedCounts: [:],
+            generator: &generator
+        )
+    }
+
+    @MainActor
+    func testKilledDuringCommittedDrawRestartsWithTheSameRevealAndNoSecondCharge() async throws {
+        let plan = try seededPlan()
+        let committedAt = date("2026-09-08T03:59:59Z")
+        let request = BlindBoxDrawRequest.single(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000301")!,
+            batchID: plan.id,
+            positionIndex: 0
+        )
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        try await database.createZone(BlindBoxCloudKitRecordCodec.zoneID)
+        try database.seed(
+            BlindBoxCloudKitRecordCodec.makeAccountRecord(
+                BlindBoxCloudAccountEnvelope(
+                    accountState: BlindBoxAccountState(
+                        ticketBalance: 2,
+                        candidateBatches: [BlindBoxCandidateBatch(plan: plan)]
+                    )
+                )
+            )
+        )
+
+        let resultBeforeTermination = try await BlindBoxCloudKitDrawRepository(
+            database: database,
+            now: { committedAt }
+        ).open(request)
+
+        // Simulate termination: discard the repository and restore only from
+        // persisted records, as a relaunched process would.
+        let restoredAccountRepository = BlindBoxCloudKitAccountStateRepository(database: database)
+        let restoredAccount = try await restoredAccountRepository.loadAccount()
+        XCTAssertEqual(restoredAccount.accountState.ticketBalance, 1)
+        XCTAssertEqual(restoredAccount.accountState.pendingReveal?.result, resultBeforeTermination)
+
+        let retryAfterRestart = try await BlindBoxCloudKitDrawRepository(
+            database: database,
+            now: { committedAt.addingTimeInterval(11) }
+        ).open(request)
+        XCTAssertEqual(retryAfterRestart, resultBeforeTermination)
+        let accountAfterRetry = try await restoredAccountRepository.loadAccount()
+        XCTAssertEqual(accountAfterRetry.accountState.ticketBalance, 1)
+
+        let newRequest = BlindBoxDrawRequest.single(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000302")!,
+            batchID: plan.id,
+            positionIndex: 1
+        )
+        do {
+            _ = try await BlindBoxCloudKitDrawRepository(database: database).open(newRequest)
+            XCTFail("A fresh draw must wait until the interrupted reveal is acknowledged.")
+        } catch {
+            XCTAssertEqual(error as? BlindBoxOpenError, .pendingRevealMustBeAcknowledged)
+        }
+
+        let didAcknowledge = try await restoredAccountRepository.acknowledgePendingReveal(
+            idempotencyKey: request.idempotencyKey
+        )
+        XCTAssertTrue(didAcknowledge)
+        let nextResult = try await BlindBoxCloudKitDrawRepository(database: database).open(newRequest)
+        XCTAssertEqual(nextResult.ticketCost, 1)
+        let finalAccount = try await restoredAccountRepository.loadAccount()
+        XCTAssertEqual(finalAccount.accountState.ticketBalance, 0)
+    }
+
+    @MainActor
+    func testKilledAfterPointExchangeReservationCompletesTheOriginalIntentOnRestart() async throws {
+        let requestedAt = date("2026-09-08T03:59:59Z")
+        let request = BlindBoxPointExchangeRequest(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000303")!,
+            requestedAt: requestedAt
+        )
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        _ = try await BlindBoxCloudKitAccountBootstrapper(database: database).bootstrap(
+            legacyInventoryCounts: [:]
+        )
+
+        let reservation = try await BlindBoxCloudKitPointExchangeRepository(database: database).begin(
+            request,
+            availablePoints: 100,
+            calendar: utc
+        )
+        XCTAssertNil(reservation.completion)
+
+        // The request was reserved before termination. A new process must use
+        // that same intent, not create another point charge or ticket grant.
+        let restartedRepository = BlindBoxCloudKitPointExchangeRepository(database: database)
+        let pendingOptional = try await restartedRepository.pendingExchange()
+        let pending = try XCTUnwrap(pendingOptional)
+        XCTAssertEqual(pending.request, request)
+        let completed = try await restartedRepository.complete(request, completedAt: requestedAt)
+        XCTAssertEqual(completed.deductedPoints, 100)
+        XCTAssertEqual(completed.grantedTickets, 1)
+
+        let replay = try await restartedRepository.complete(request, completedAt: requestedAt)
+        XCTAssertEqual(replay, completed)
+        let restoredAccount = try await BlindBoxCloudKitAccountStateRepository(database: database).loadAccount()
+        XCTAssertEqual(restoredAccount.accountState.ticketBalance, 1)
+        XCTAssertNil(restoredAccount.accountState.pendingPointExchange)
+        XCTAssertEqual(restoredAccount.accountState.pointExchangesUsedOnLastGrantDay, 1)
+    }
+
+    @MainActor
+    func testForegroundSessionCrossingFourAMRefreshesExactlyOnceAndReschedulesTomorrow() async throws {
+        let beforeFour = date("2026-09-08T03:59:59Z")
+        let atFour = date("2026-09-08T04:00:00Z")
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        try await database.createZone(BlindBoxCloudKitRecordCodec.zoneID)
+        var initialState = BlindBoxAccountState(
+            ticketBalance: 6,
+            lastTicketGrantDayIdentifier: "2026-09-07"
+        )
+        initialState.settledDailyTicketAllowance = 1
+        try database.seed(
+            BlindBoxCloudKitRecordCodec.makeAccountRecord(
+                BlindBoxCloudAccountEnvelope(
+                    accountState: initialState
+                )
+            )
+        )
+        let repository = BlindBoxCloudKitAccountStateRepository(database: database)
+        func request(now: Date) -> BlindBoxCloudMaintenanceRequest {
+            BlindBoxCloudMaintenanceRequest(
+                themes: [],
+                hasPremiumAccess: false,
+                candidateZoneWasPresented: false,
+                now: now,
+                calendar: utc
+            )
+        }
+
+        let accountBeforeFour = try await repository.loadAccount()
+        let nextMaintenance = BlindBoxForegroundMaintenanceSchedule.nextMaintenanceDate(
+            for: accountBeforeFour.accountState,
+            now: beforeFour,
+            calendar: utc
+        )
+        XCTAssertEqual(nextMaintenance, atFour)
+
+        let beforeResult = try await repository.maintain(request(now: beforeFour))
+        XCTAssertEqual(beforeResult.dailyTicketRefresh.grantedTicketCount, 0)
+        let boundaryResult = try await repository.maintain(request(now: atFour))
+        XCTAssertEqual(boundaryResult.dailyTicketRefresh.grantedTicketCount, 1)
+        let repeatedResult = try await repository.maintain(request(now: atFour.addingTimeInterval(1)))
+        XCTAssertEqual(repeatedResult.dailyTicketRefresh.grantedTicketCount, 0)
+
+        let settled = try await repository.loadAccount().accountState
+        XCTAssertEqual(settled.ticketBalance, 7)
+        XCTAssertEqual(settled.pendingTicketReceipt?.count, 1)
+        let tomorrowMaintenance = BlindBoxForegroundMaintenanceSchedule.nextMaintenanceDate(
+            for: settled,
+            now: atFour,
+            calendar: utc
+        )
+        XCTAssertEqual(tomorrowMaintenance, date("2026-09-09T04:00:00Z"))
+    }
+
+    @MainActor
+    func testOfflineAndAmbiguousTimeoutRetriesNeverDoubleChargeOrDoubleGrant() async throws {
+        let plan = try seededPlan()
+        let request = BlindBoxDrawRequest.single(
+            idempotencyKey: UUID(uuidString: "FACEFEED-0000-4000-8000-000000000304")!,
+            batchID: plan.id,
+            positionIndex: 0
+        )
+
+        // Offline before commit: no state transition occurred, so retry later
+        // is the one and only paid opening.
+        let offlineDatabase = InMemoryBlindBoxCloudRecordDatabase(
+            failingBeforeCommittedSaveAttempts: 1
+        )
+        try await offlineDatabase.createZone(BlindBoxCloudKitRecordCodec.zoneID)
+        try offlineDatabase.seed(
+            BlindBoxCloudKitRecordCodec.makeAccountRecord(
+                BlindBoxCloudAccountEnvelope(
+                    accountState: BlindBoxAccountState(ticketBalance: 1, candidateBatches: [BlindBoxCandidateBatch(plan: plan)])
+                )
+            )
+        )
+        do {
+            _ = try await BlindBoxCloudKitDrawRepository(database: offlineDatabase).open(request)
+            XCTFail("The pre-commit offline request must surface its transport error.")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .notConnectedToInternet)
+        }
+        let offlineAccountBeforeRetry = try await BlindBoxCloudKitAccountStateRepository(
+            database: offlineDatabase
+        ).loadAccount()
+        XCTAssertEqual(offlineAccountBeforeRetry.accountState.ticketBalance, 1)
+        let offlineRetry = try await BlindBoxCloudKitDrawRepository(database: offlineDatabase).open(request)
+        XCTAssertEqual(offlineRetry.ticketCost, 1)
+        let offlineAccountAfterRetry = try await BlindBoxCloudKitAccountStateRepository(
+            database: offlineDatabase
+        ).loadAccount()
+        XCTAssertEqual(offlineAccountAfterRetry.accountState.ticketBalance, 0)
+
+        // Timeout after an atomic server commit: client retry finds the stored
+        // draw by idempotency key instead of opening (and charging) again.
+        let timeoutDatabase = InMemoryBlindBoxCloudRecordDatabase(
+            failingAfterCommittedSaveAttempts: 1
+        )
+        try await timeoutDatabase.createZone(BlindBoxCloudKitRecordCodec.zoneID)
+        try timeoutDatabase.seed(
+            BlindBoxCloudKitRecordCodec.makeAccountRecord(
+                BlindBoxCloudAccountEnvelope(
+                    accountState: BlindBoxAccountState(ticketBalance: 1, candidateBatches: [BlindBoxCandidateBatch(plan: plan)])
+                )
+            )
+        )
+        do {
+            _ = try await BlindBoxCloudKitDrawRepository(database: timeoutDatabase).open(request)
+            XCTFail("The post-commit timeout must surface its ambiguous transport error.")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .timedOut)
+        }
+        let timeoutRetry = try await BlindBoxCloudKitDrawRepository(database: timeoutDatabase).open(request)
+        XCTAssertEqual(timeoutRetry.ticketCost, 1)
+        let timeoutAccount = try await BlindBoxCloudKitAccountStateRepository(
+            database: timeoutDatabase
+        ).loadAccount()
+        XCTAssertEqual(timeoutAccount.accountState.ticketBalance, 0)
+        XCTAssertEqual(timeoutAccount.accountState.pendingReveal?.result, timeoutRetry)
+    }
+
+    func testMembershipExpiryAndRestorationPreserveTicketsAndRefreshVisibleCapacity() throws {
+        let firstDay = date("2026-09-08T12:00:00Z")
+        let secondDay = date("2026-09-09T12:00:00Z")
+        var state = BlindBoxAccountState()
+
+        // Active member: receives the full daily allowance and six slots.
+        BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state,
+            hasPremiumAccess: true,
+            now: firstDay,
+            calendar: utc
+        )
+        XCTAssertEqual(state.ticketBalance, 3)
+        XCTAssertEqual(state.settledDailyTicketAllowance, 3)
+        XCTAssertEqual(BlindBoxTicketPolicy.candidateCount(hasPremiumAccess: true), 6)
+
+        // Expiry does not reclaim a ticket or create a negative adjustment;
+        // the lobby immediately presents only the free four-slot capacity.
+        BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state,
+            hasPremiumAccess: false,
+            now: firstDay,
+            calendar: utc
+        )
+        XCTAssertEqual(state.ticketBalance, 3)
+        XCTAssertEqual(state.settledDailyTicketAllowance, 3)
+        XCTAssertEqual(BlindBoxTicketPolicy.candidateCount(hasPremiumAccess: false), 4)
+
+        // Restoring on the same grant day is idempotent: no duplicate tickets.
+        BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state,
+            hasPremiumAccess: true,
+            now: firstDay,
+            calendar: utc
+        )
+        XCTAssertEqual(state.ticketBalance, 3)
+
+        // On the next day, a lapsed account gets one ticket. Restoring later
+        // that same day supplies only the two-ticket entitlement difference.
+        BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state,
+            hasPremiumAccess: false,
+            now: secondDay,
+            calendar: utc
+        )
+        XCTAssertEqual(state.ticketBalance, 4)
+        XCTAssertEqual(state.settledDailyTicketAllowance, 1)
+        BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state,
+            hasPremiumAccess: true,
+            now: secondDay,
+            calendar: utc
+        )
+        XCTAssertEqual(state.ticketBalance, 6)
+        XCTAssertEqual(state.pendingTicketReceipt?.count, 3)
+
+        var candidates = BlindBoxAccountState()
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0.99])
+        _ = try BlindBoxCandidateCoordinator.reconcile(
+            state: &candidates,
+            themes: BlindBoxCatalog.builtInThemes,
+            hasPremiumAccess: true,
+            reason: .initialLoad,
+            now: firstDay,
+            generator: &generator
+        )
+        XCTAssertEqual(candidates.candidateBatches.count, 6)
+        _ = try BlindBoxCandidateCoordinator.reconcile(
+            state: &candidates,
+            themes: BlindBoxCatalog.builtInThemes,
+            hasPremiumAccess: false,
+            reason: .initialLoad,
+            now: secondDay,
+            generator: &generator
+        )
+        XCTAssertEqual(candidates.candidateBatches.count, 4)
+        _ = try BlindBoxCandidateCoordinator.reconcile(
+            state: &candidates,
+            themes: BlindBoxCatalog.builtInThemes,
+            hasPremiumAccess: true,
+            reason: .initialLoad,
+            now: secondDay,
+            generator: &generator
+        )
+        XCTAssertEqual(candidates.candidateBatches.count, 6)
     }
 }
 

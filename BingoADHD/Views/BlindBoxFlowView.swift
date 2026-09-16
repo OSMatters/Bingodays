@@ -1,13 +1,45 @@
 import SwiftUI
 import UIKit
+import CoreText
 
 enum BlindBoxPremiumPaywallEntry {
     static let source = "blind_box"
+    static let didDismiss = Notification.Name("blindBoxPaywallDidDismiss")
+}
+
+/// Settle tickets while the app is active; presentation remains click-triggered.
+struct BlindBoxSilentTicketRefresh: ViewModifier {
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
+    @EnvironmentObject private var sync: NativeICloudSyncCoordinator
+    @Environment(\.scenePhase) private var scenePhase
+
+    func body(content: Content) -> some View {
+        content.task(id: "\(subscriptionManager.hasPremiumAccess)-\(sync.state)-\(scenePhase)") {
+            guard AppDebugFlags.blindBoxLiveFlowEnabled,
+                  scenePhase == .active,
+                  case .ready = sync.state else { return }
+            let store = BlindBoxFeatureStore()
+            while !Task.isCancelled {
+                await store.refresh(
+                    hasPremiumAccess: subscriptionManager.hasPremiumAccess,
+                    candidateZoneWasPresented: false,
+                    nativeICloudInitialImportComplete: true
+                )
+                let next = Calendar.current.nextDate(
+                    after: .now, matching: DateComponents(hour: 4),
+                    matchingPolicy: .nextTime
+                ) ?? Date.now.addingTimeInterval(86400)
+                do { try await Task.sleep(for: .seconds(max(next.timeIntervalSinceNow, 1))) }
+                catch { return }
+            }
+        }
+    }
 }
 
 /// The Figma-backed, development-only blind-box flow. It intentionally uses a
 /// separate preview store until the CloudKit transaction repository is ready.
 struct BlindBoxFlowView: View {
+    @Environment(\.blindBoxEntranceReady) private var entranceReady
     private enum Route {
         case lobby
         case detail(UUID)
@@ -21,7 +53,15 @@ struct BlindBoxFlowView: View {
     @State private var toastMessage: String?
     @State private var toastDismissalTask: Task<Void, Never>?
     @State private var isShowingTicketExchange = false
-    @State private var isConfirmingTicketExchange = false
+    @AppStorage("blindBox.suppressFreeTicketReminder") private var suppressFreeTicketReminder = false
+    @State private var isDailyTicketReceipt = false
+    @State private var isExplicitTicketWalletEntry = false
+    @State private var receivedTickets: Int?
+    @State private var isExchangeReceipt = false
+    @State private var requiredTickets = 0
+    @State private var isProcessingTickets = false
+    @State private var isAwaitingUpgrade = false
+    @State private var restoreWalletAfterPaywall = false
     @State private var isShowingRules = false
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @Environment(\.dismiss) private var dismiss
@@ -55,6 +95,7 @@ struct BlindBoxFlowView: View {
             switch route {
             case .lobby:
                 BlindBoxLobbyView(
+                    highlightsAvailableBoxes: toastMessage == BlindBoxL10n.chooseBoxToOpen,
                     ticketBalance: store.state.ticketBalance,
                     candidates: store.candidates(hasPremiumAccess: subscriptionManager.hasPremiumAccess),
                     themes: store.themes,
@@ -69,16 +110,14 @@ struct BlindBoxFlowView: View {
                     onShowRules: {
                         isShowingRules = true
                     },
-                    onSelectTicketBalance: {
-                        isShowingTicketExchange = true
-                    },
+                    onSelectTicketBalance: { showTicketWallet() },
                     onSelectBatch: { batchID in
                         route = .detail(batchID)
                     },
                     onShowMyBox: {
                         route = .myBox
                     },
-                    onShowPremiumPaywall: onShowPremiumPaywall,
+                    onShowPremiumPaywall: beginUpgrade,
                     onDismiss: {
                         dismiss()
                     }
@@ -91,6 +130,7 @@ struct BlindBoxFlowView: View {
                         batch: batch,
                         theme: theme,
                         ticketBalance: store.state.ticketBalance,
+                        onTickets: showTicketWallet,
                         onBack: {
                             route = .lobby
                         },
@@ -134,7 +174,8 @@ struct BlindBoxFlowView: View {
             if let toastMessage {
                 BlindBoxToast(message: toastMessage)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(5)
+                    .allowsHitTesting(false)
+                    .zIndex(20)
             }
 
             if isShowingRules {
@@ -152,33 +193,78 @@ struct BlindBoxFlowView: View {
                         hasPremiumAccess: subscriptionManager.hasPremiumAccess
                     ),
                     eligibility: store.pointExchangeEligibility(),
+                    isLobbyEntry: routeDescription == "lobby",
+                    isExplicitTicketWalletEntry: isExplicitTicketWalletEntry,
+                    isDailyTicketReceipt: isDailyTicketReceipt,
+                    receivedTickets: receivedTickets,
+                    isExchangeReceipt: isExchangeReceipt,
+                    requiredTickets: requiredTickets,
+                    exchangesToday: store.state.lastPointExchangeDayIdentifier == BlindBoxGrantDay.identifier(for: .now, calendar: .current) ? store.state.pointExchangesUsedOnLastGrantDay : 0,
+                    isProcessing: isProcessingTickets,
+                    onUpgrade: beginUpgrade,
+                    onGoOpen: {
+                        isShowingTicketExchange = false
+                        if case .lobby = route {
+                            presentToast(BlindBoxL10n.chooseBoxToOpen)
+                        }
+                    },
                     onClose: {
                         isShowingTicketExchange = false
                     },
-                    onRequestExchange: { _ in
-                        isConfirmingTicketExchange = true
-                    }
+                    onRequestExchange: { _ in confirmTicketExchange() }
                 )
                 .zIndex(10)
             }
 
-            if isConfirmingTicketExchange {
-                BlindBoxTicketExchangeConfirmation(
-                    onCancel: {
-                        isConfirmingTicketExchange = false
-                    },
-                    onConfirm: {
-                        confirmTicketExchange()
-                    }
-                )
-                .zIndex(11)
-            }
+        }
+        .task(id: subscriptionManager.hasPremiumAccess) {
+            store.refreshTickets(hasPremiumAccess: subscriptionManager.hasPremiumAccess)
+        }
+        .task(id: "\(entranceReady)-\(routeDescription)-\(store.state.pendingTicketReceipt?.id.uuidString ?? "none")-\(isShowingTicketExchange)-\(isShowingRules)") {
+            guard entranceReady, case .lobby = route, !isShowingTicketExchange, !isShowingRules,
+                  !isAwaitingUpgrade, let receipt = store.consumeTicketReceipt(), receipt.count > 0,
+                  !suppressFreeTicketReminder else { return }
+            receivedTickets = receipt.count
+            isDailyTicketReceipt = true
+            isExchangeReceipt = false
+            requiredTickets = 0
+            isShowingTicketExchange = true
         }
         .animation(.easeInOut(duration: 0.22), value: routeDescription)
+        .onReceive(NotificationCenter.default.publisher(for: BlindBoxPremiumPaywallEntry.didDismiss)) { _ in
+            if isAwaitingUpgrade {
+                isAwaitingUpgrade = false
+                if subscriptionManager.hasPremiumAccess { presentTicketWallet(showReceipt: true) }
+                else { isShowingTicketExchange = restoreWalletAfterPaywall }
+            }
+        }
         .animation(.easeOut(duration: 0.24), value: isShowingRules)
         .onDisappear {
             toastDismissalTask?.cancel()
         }
+    }
+
+    private func beginUpgrade() {
+        isAwaitingUpgrade = true
+        restoreWalletAfterPaywall = isShowingTicketExchange
+        isShowingTicketExchange = false
+        onShowPremiumPaywall()
+    }
+
+    private func showTicketWallet() {
+        isExplicitTicketWalletEntry = true
+        presentTicketWallet(showReceipt: false)
+    }
+
+    private func presentTicketWallet(showReceipt: Bool) {
+        isDailyTicketReceipt = false
+        if showReceipt { isExplicitTicketWalletEntry = false }
+        store.refreshTickets(hasPremiumAccess: subscriptionManager.hasPremiumAccess)
+        requiredTickets = 0
+        let receipt = store.consumeTicketReceipt()?.count
+        receivedTickets = showReceipt ? receipt : nil
+        isExchangeReceipt = false
+        isShowingTicketExchange = true
     }
 
     private var routeDescription: String {
@@ -204,11 +290,26 @@ struct BlindBoxFlowView: View {
     }
 
     private func open(_ request: BlindBoxDrawRequest) {
+        guard !isProcessingTickets else { return }
+        store.refreshTickets(hasPremiumAccess: subscriptionManager.hasPremiumAccess)
+        let cost = request.mode == .wholeBox
+            ? store.state.candidateBatches.first(where: { $0.id == request.batchID })?.remainingPositionCount ?? 1 : 1
+        if store.state.ticketBalance < cost {
+            isDailyTicketReceipt = false
+            isExplicitTicketWalletEntry = false
+            requiredTickets = cost
+            receivedTickets = nil
+            _ = store.consumeTicketReceipt()
+            isShowingTicketExchange = true
+            return
+        }
         guard connectivity.status.canMakeNetworkRequests else {
             presentToast(connectivity.status.unavailableMessage)
             return
         }
+        isProcessingTickets = true
         Task {
+            defer { isProcessingTickets = false }
             do {
                 let result = try await store.open(request)
                 route = .reveal(result)
@@ -235,15 +336,17 @@ struct BlindBoxFlowView: View {
     }
 
     private func confirmTicketExchange() {
-        isConfirmingTicketExchange = false
+        guard !isProcessingTickets else { return }
+        isProcessingTickets = true
+        defer { isProcessingTickets = false }
         guard connectivity.status.canMakeNetworkRequests else {
             presentToast(connectivity.status.unavailableMessage)
             return
         }
         do {
             _ = try store.exchangePointsForOneTicket()
-            isShowingTicketExchange = false
-            presentToast("1 Blind Box ticket added.")
+            receivedTickets = 1
+            isExchangeReceipt = true
         } catch {
             presentFailure(error)
         }
@@ -313,6 +416,7 @@ struct BlindBoxFlowView: View {
 /// CloudKit-backed feature store. This view is enabled only through the debug
 /// launch flag until the final release gate is opened.
 struct BlindBoxLiveFlowView: View {
+    @Environment(\.blindBoxEntranceReady) private var entranceReady
     private enum Route {
         case lobby
         case detail(UUID)
@@ -331,10 +435,18 @@ struct BlindBoxLiveFlowView: View {
     @State private var toastMessage: String?
     @State private var toastDismissalTask: Task<Void, Never>?
     @State private var isShowingTicketExchange = false
-    @State private var isConfirmingTicketExchange = false
-    @State private var ticketExchangeConfiguration: BlindBoxEconomyConfiguration?
+    @AppStorage("blindBox.suppressFreeTicketReminder") private var suppressFreeTicketReminder = false
+    @State private var isDailyTicketReceipt = false
+    @State private var isExplicitTicketWalletEntry = false
+    @State private var receivedTickets: Int?
+    @State private var isExchangeReceipt = false
+    @State private var requiredTickets = 0
+    @State private var isProcessingTickets = false
+    @State private var isAwaitingUpgrade = false
+    @State private var restoreWalletAfterPaywall = false
     @State private var isShowingRules = false
     @State private var isAcknowledgingReveal = false
+    @State private var isConsumingDailyTicketReceipt = false
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @EnvironmentObject private var iCloudSyncCoordinator: NativeICloudSyncCoordinator
     @Environment(\.dismiss) private var dismiss
@@ -349,13 +461,13 @@ struct BlindBoxLiveFlowView: View {
                 BlindBoxLiveStatusView(
                     title: BlindBoxL10n.blindBoxNeedsUpdate,
                     message: BlindBoxL10n.collectionNeedsReview,
-                    onBack: { dismiss() }
+                    onBack: { if let onSelectCustomRewards { onSelectCustomRewards() } else { dismiss() } }
                 )
             case .failed(let message):
                 BlindBoxLiveStatusView(
                     title: BlindBoxL10n.blindBoxUnavailable,
                     message: message,
-                    onBack: { dismiss() }
+                    onBack: { if let onSelectCustomRewards { onSelectCustomRewards() } else { dismiss() } }
                 )
             case .idle, .loading, .waitingForICloudInitialImport:
                 BlindBoxLiveStatusView(
@@ -364,7 +476,7 @@ struct BlindBoxLiveFlowView: View {
                         ? BlindBoxL10n.preparingBlindBoxDetail
                         : BlindBoxL10n.syncingCollectionDetail,
                     showsProgress: true,
-                    onBack: { dismiss() }
+                    onBack: { if let onSelectCustomRewards { onSelectCustomRewards() } else { dismiss() } }
                 )
             }
         }
@@ -378,14 +490,79 @@ struct BlindBoxLiveFlowView: View {
         .task(id: foregroundMaintenanceScheduleIdentifier) {
             await runForegroundMaintenanceWhenDue()
         }
+        .task(id: "\(entranceReady)-\(routeDescription)-\(store.accountState.pendingTicketReceipt?.id.uuidString ?? "none")-\(store.availability)-\(isShowingTicketExchange)-\(isShowingRules)-\(isProcessingTickets)-\(scenePhase)") {
+            await presentDailyTicketReceiptIfNeeded()
+        }
         .onChange(of: store.accountState.pendingReveal) { _, pendingReveal in
             guard let pendingReveal else { return }
             route = .reveal(pendingReveal.result)
         }
         .animation(.easeInOut(duration: 0.22), value: routeDescription)
+        .onReceive(NotificationCenter.default.publisher(for: BlindBoxPremiumPaywallEntry.didDismiss)) { _ in
+            if isAwaitingUpgrade {
+                isAwaitingUpgrade = false
+                if subscriptionManager.hasPremiumAccess { presentTicketWallet(showReceipt: true) }
+                else { isShowingTicketExchange = restoreWalletAfterPaywall }
+            }
+        }
         .animation(.easeOut(duration: 0.24), value: isShowingRules)
         .onDisappear {
             toastDismissalTask?.cancel()
+        }
+    }
+
+    private func beginUpgrade() {
+        isAwaitingUpgrade = true
+        restoreWalletAfterPaywall = isShowingTicketExchange
+        isShowingTicketExchange = false
+        onShowPremiumPaywall()
+    }
+
+    private func showTicketWallet() {
+        isExplicitTicketWalletEntry = true
+        presentTicketWallet(showReceipt: false)
+    }
+
+    @MainActor
+    private func presentDailyTicketReceiptIfNeeded() async {
+        guard entranceReady, isDisplayingLobby, scenePhase == .active, store.availability == .ready,
+              !isShowingTicketExchange, !isShowingRules, !isProcessingTickets, !isAwaitingUpgrade,
+              !isConsumingDailyTicketReceipt,
+              store.accountState.pendingTicketReceipt != nil else { return }
+        isConsumingDailyTicketReceipt = true
+        defer { isConsumingDailyTicketReceipt = false }
+        do {
+            guard let receipt = try await store.consumeTicketReceipt(), receipt.count > 0,
+                  !suppressFreeTicketReminder, isDisplayingLobby,
+                  !isShowingTicketExchange, !isAwaitingUpgrade else { return }
+            receivedTickets = receipt.count
+            isDailyTicketReceipt = true
+            isExchangeReceipt = false
+            requiredTickets = 0
+            isShowingTicketExchange = true
+        } catch { presentFailure(error) }
+    }
+
+    private func presentTicketWallet(showReceipt: Bool) {
+        isDailyTicketReceipt = false
+        if showReceipt { isExplicitTicketWalletEntry = false }
+        guard !isProcessingTickets else { return }
+        isProcessingTickets = true
+        Task {
+            defer { isProcessingTickets = false }
+            await store.refresh(
+                hasPremiumAccess: subscriptionManager.hasPremiumAccess,
+                candidateZoneWasPresented: false,
+                nativeICloudInitialImportComplete: nativeICloudInitialImportComplete
+            )
+            do {
+                guard store.availability == .ready else { return }
+                let receipt = try await store.consumeTicketReceipt()?.count
+                receivedTickets = showReceipt ? receipt : nil
+                isExchangeReceipt = false
+                requiredTickets = 0
+                isShowingTicketExchange = true
+            } catch { presentFailure(error) }
         }
     }
 
@@ -461,6 +638,7 @@ struct BlindBoxLiveFlowView: View {
             switch route {
         case .lobby:
             BlindBoxLobbyView(
+                highlightsAvailableBoxes: toastMessage == BlindBoxL10n.chooseBoxToOpen,
                 ticketBalance: store.accountState.ticketBalance,
                 candidates: store.candidates(hasPremiumAccess: subscriptionManager.hasPremiumAccess),
                 themes: store.themes,
@@ -471,9 +649,7 @@ struct BlindBoxLiveFlowView: View {
                     AnalyticsService.logBlindBoxRulesViewed()
                     isShowingRules = true
                 },
-                onSelectTicketBalance: {
-                    isShowingTicketExchange = true
-                },
+                onSelectTicketBalance: { showTicketWallet() },
                 onSelectBatch: { batchID in
                     if let batch = store.accountState.candidateBatches.first(where: { $0.id == batchID }) {
                         AnalyticsService.logBlindBoxBatchViewed(batch)
@@ -487,7 +663,7 @@ struct BlindBoxLiveFlowView: View {
                     )
                     route = .myBox
                 },
-                onShowPremiumPaywall: onShowPremiumPaywall,
+                onShowPremiumPaywall: beginUpgrade,
                 onDismiss: {
                     dismiss()
                 }
@@ -516,6 +692,7 @@ struct BlindBoxLiveFlowView: View {
                     batch: batch,
                     theme: theme,
                     ticketBalance: store.accountState.ticketBalance,
+                    onTickets: showTicketWallet,
                     onBack: {
                         route = .lobby
                     },
@@ -559,7 +736,8 @@ struct BlindBoxLiveFlowView: View {
             if let toastMessage {
                 BlindBoxToast(message: toastMessage)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(5)
+                    .allowsHitTesting(false)
+                    .zIndex(20)
             }
 
             if isShowingRules {
@@ -578,29 +756,29 @@ struct BlindBoxLiveFlowView: View {
                     ),
                     eligibility: pointExchangeEligibility,
                     economyConfiguration: store.economyConfiguration,
+                    isLobbyEntry: routeDescription == "lobby",
+                    isExplicitTicketWalletEntry: isExplicitTicketWalletEntry,
+                    isDailyTicketReceipt: isDailyTicketReceipt,
+                    receivedTickets: receivedTickets,
+                    isExchangeReceipt: isExchangeReceipt,
+                    requiredTickets: requiredTickets,
+                    exchangesToday: store.accountState.lastPointExchangeDayIdentifier == BlindBoxGrantDay.identifier(for: .now, calendar: .current) ? store.accountState.pointExchangesUsedOnLastGrantDay : 0,
+                    isProcessing: isProcessingTickets,
+                    onUpgrade: beginUpgrade,
+                    onGoOpen: {
+                        isShowingTicketExchange = false
+                        if case .lobby = route {
+                            presentToast(BlindBoxL10n.chooseBoxToOpen)
+                        }
+                    },
                     onClose: {
                         isShowingTicketExchange = false
                     },
-                    onRequestExchange: { configuration in
-                        ticketExchangeConfiguration = configuration
-                        isConfirmingTicketExchange = true
-                    }
+                    onRequestExchange: { configuration in confirmTicketExchange(configuration) }
                 )
                 .zIndex(10)
             }
 
-            if isConfirmingTicketExchange, let ticketExchangeConfiguration {
-                BlindBoxTicketExchangeConfirmation(
-                    pointExchangePrice: ticketExchangeConfiguration.pointExchangePrice,
-                    onCancel: {
-                        isConfirmingTicketExchange = false
-                    },
-                    onConfirm: {
-                        confirmTicketExchange(ticketExchangeConfiguration)
-                    }
-                )
-                .zIndex(11)
-            }
         }
     }
 
@@ -635,10 +813,30 @@ struct BlindBoxLiveFlowView: View {
             presentToast(connectivity.status.unavailableMessage)
             return
         }
+        guard !isProcessingTickets else { return }
+        isProcessingTickets = true
         let openedBatch = store.accountState.candidateBatches.first { $0.id == request.batchID }
         let openedTheme = openedBatch.flatMap { store.theme(for: $0.plan.themeID) }
         Task {
+            defer { isProcessingTickets = false }
+            await store.refresh(
+                hasPremiumAccess: subscriptionManager.hasPremiumAccess,
+                candidateZoneWasPresented: false,
+                nativeICloudInitialImportComplete: nativeICloudInitialImportComplete
+            )
             do {
+                guard store.availability == .ready else { return }
+                let cost = request.mode == .wholeBox
+                    ? store.accountState.candidateBatches.first(where: { $0.id == request.batchID })?.remainingPositionCount ?? 1 : 1
+                if store.accountState.ticketBalance < cost {
+                    isDailyTicketReceipt = false
+                    isExplicitTicketWalletEntry = false
+                    requiredTickets = cost
+                    receivedTickets = nil
+                    _ = try await store.consumeTicketReceipt()
+                    isShowingTicketExchange = true
+                    return
+                }
                 let result = try await store.open(
                     request,
                     hasPremiumAccess: subscriptionManager.hasPremiumAccess
@@ -717,7 +915,7 @@ struct BlindBoxLiveFlowView: View {
     }
 
     private func confirmTicketExchange(_ configuration: BlindBoxEconomyConfiguration) {
-        isConfirmingTicketExchange = false
+        guard !isProcessingTickets else { return }
         guard connectivity.status.canMakeNetworkRequests else {
             AnalyticsService.logBlindBoxActionFailed(
                 action: .pointExchange,
@@ -726,7 +924,9 @@ struct BlindBoxLiveFlowView: View {
             presentToast(connectivity.status.unavailableMessage)
             return
         }
+        isProcessingTickets = true
         Task {
+            defer { isProcessingTickets = false }
             do {
                 let result = try await store.exchangePointsForOneTicket(
                     availablePoints: pointsFeatureStore.availablePoints(totalPoints: totalPoints),
@@ -734,8 +934,8 @@ struct BlindBoxLiveFlowView: View {
                 )
                 AnalyticsService.logBlindBoxPointTicketExchanged(result: result)
                 pointsFeatureStore.reloadAfterExternalDataChange()
-                isShowingTicketExchange = false
-                presentToast("1 Blind Box ticket added.")
+                receivedTickets = 1
+                isExchangeReceipt = true
             } catch {
                 presentFailure(error, action: .pointExchange)
             }
@@ -925,6 +1125,7 @@ private enum BlindBoxOpenRequest: Identifiable {
 }
 
 private struct BlindBoxLobbyView: View {
+    var highlightsAvailableBoxes = false
     let ticketBalance: Int
     let candidates: [BlindBoxCandidateBatch]
     let themes: [BlindBoxThemeDefinition]
@@ -943,25 +1144,35 @@ private struct BlindBoxLobbyView: View {
     var body: some View {
         BlindBoxCanvas(backgroundAssetName: "BlindBoxLobbyBackground") {
             ZStack {
-                lobbyTabs
-                    .position(x: 196.5, y: 73)
+                Button(action: onSelectCustomRewards ?? onDismiss) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(.white.opacity(0.18), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(BlindBoxL10n.back)
+                .position(x: 38, y: 73)
 
                 ticketBadge
-                    .position(x: 62, y: 224)
+                    .position(x: 272, y: 73)
 
                 Button(action: onShowMyBox) {
                     BlindBoxMyBoxIcon()
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(BlindBoxL10n.myBox)
-                .position(x: 350, y: 223)
+                .position(x: 185, y: 73)
 
                 Button(action: onShowRules) {
                     BlindBoxRulesIcon()
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(BlindBoxL10n.rulesTitle)
-                .position(x: 130, y: 223)
+                .position(x: 355, y: 73)
 
                 BlindBoxShelf()
                     .frame(width: 360, height: 530)
@@ -978,42 +1189,36 @@ private struct BlindBoxLobbyView: View {
                     premiumPlaceholders
                 }
 
-                BlindBoxTabBar()
-                    .frame(width: 292, height: 56)
-                    .position(x: 196, y: 792)
-                    .allowsHitTesting(false)
-
-                Button(action: onDismiss) {
-                    Color.clear.frame(width: 62, height: 56)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(BlindBoxL10n.home)
-                .position(x: 113, y: 792)
             }
         }
     }
 
     private var lobbyTabs: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 12) {
             Button {
                 onSelectCustomRewards?()
             } label: {
-            Text(BlindBoxL10n.customRewards)
-                    .font(.appSystem(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.82))
-                    .frame(width: 145, height: 36)
-                    .background(Color(hex: "7A6757").opacity(0.83), in: Capsule())
+                Text(BlindBoxL10n.customRewards)
+                    .font(.appSystem(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.65))
+                    .frame(width: 164, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             Text(BlindBoxL10n.blindBoxStickers)
-                .font(.appSystem(size: 13, weight: .bold, design: .rounded))
+                .font(.appSystem(size: 15, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
-                .frame(width: 160, height: 36)
-                .background(Color(hex: "E2AD78"), in: Capsule())
-                .offset(x: -14)
+                .frame(width: 164, height: 44)
+                .overlay(alignment: .bottom) {
+                    Capsule()
+                        .fill(Color(hex: "E5A05E"))
+                        .frame(width: 32, height: 4)
+                        .offset(y: -3)
+                }
+                .accessibilityAddTraits(.isSelected)
         }
-        .frame(width: 291, height: 36)
+        .frame(width: 340, height: 44)
     }
 
     private var ticketBadge: some View {
@@ -1027,8 +1232,8 @@ private struct BlindBoxLobbyView: View {
                             .stroke(.white.opacity(0.9), lineWidth: 1.5)
                     }
                     .offset(x: 14)
-                Text("\(ticketBalance)")
-                    .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                Text("\(ticketBalance)/\(BlindBoxRuleConfiguration.maximumTicketBalance)")
+                    .font(.appSystem(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(width: 44)
                     .offset(x: 39)
@@ -1053,6 +1258,8 @@ private struct BlindBoxLobbyView: View {
                     theme: theme,
                     onTap: { onSelectBatch(batch.id) }
                 )
+                .shadow(color: .white.opacity(highlightsAvailableBoxes && batch.remainingPositionCount > 0 ? 0.8 : 0), radius: 8)
+                .animation(.easeOut(duration: 0.2), value: highlightsAvailableBoxes)
                 .position(x: slots[index].0, y: slots[index].1)
             }
         }
@@ -1062,9 +1269,9 @@ private struct BlindBoxLobbyView: View {
     private var premiumPlaceholders: some View {
         if let firstTheme = themes.first {
             let secondTheme = themes.dropFirst().first ?? firstTheme
-            BlindBoxPremiumPlaceholder(theme: firstTheme, onTap: onShowPremiumPaywall)
+            BlindBoxPremiumPlaceholder(theme: firstTheme, isCollectionComplete: hasCollectedEveryActiveTheme, onTap: onShowPremiumPaywall)
                 .position(x: 116, y: 670)
-            BlindBoxPremiumPlaceholder(theme: secondTheme, onTap: onShowPremiumPaywall)
+            BlindBoxPremiumPlaceholder(theme: secondTheme, isCollectionComplete: hasCollectedEveryActiveTheme, onTap: onShowPremiumPaywall)
                 .position(x: 262, y: 670)
         }
     }
@@ -1118,13 +1325,13 @@ private struct BlindBoxLobbyCard: View {
         } label: {
             ZStack(alignment: .bottom) {
                 BlindBoxThemeMiniBox(theme: theme)
-                    .frame(width: 131, height: 149)
+                    .frame(width: 137.5, height: 156.5)
                     .opacity(batch.isSoldOut ? 0.5 : 1)
                     .offset(y: -8)
 
                 if batch.isSoldOut {
                     BlindBoxShelfStatusOverlay(title: BlindBoxL10n.restocking, fontSize: 11)
-                        .frame(width: 131, height: 149)
+                        .frame(width: 137.5, height: 156.5)
                         .offset(y: -8)
 
                     Capsule()
@@ -1168,6 +1375,7 @@ private struct BlindBoxDetailView: View {
     let batch: BlindBoxCandidateBatch
     let theme: BlindBoxThemeDefinition
     let ticketBalance: Int
+    let onTickets: () -> Void
     let onBack: () -> Void
     let onOpenPosition: (Int) -> Void
     let onOpenRandom: () -> Void
@@ -1210,7 +1418,9 @@ private struct BlindBoxDetailView: View {
             .accessibilityLabel(BlindBoxL10n.back)
             .position(x: 41, y: 74)
 
-            detailTicketBadge
+            Button(action: onTickets) { detailTicketBadge }
+                .buttonStyle(.plain)
+                .accessibilityLabel(BlindBoxL10n.getTickets)
                 .position(x: 192, y: 74)
 
             Button {
@@ -1260,13 +1470,13 @@ private struct BlindBoxDetailView: View {
                         .stroke(.white.opacity(0.9), lineWidth: 1.5)
                 }
                 .offset(x: 14)
-            Text("\(ticketBalance)")
-                .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+            Text("\(ticketBalance)/\(BlindBoxRuleConfiguration.maximumTicketBalance)")
+                .font(.appSystem(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .frame(width: 44)
-                .offset(x: 42)
+                .offset(x: 39)
             BlindBoxTicketIcon()
-                .frame(width: 42, height: 42)
+                .frame(width: 46, height: 46)
         }
         .frame(width: 92, height: 43)
     }
@@ -1410,6 +1620,22 @@ private struct BlindBoxRevealView: View {
     let themes: [BlindBoxThemeDefinition]
     var isContinuing = false
     let onContinue: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var startedOpening = false
+    @State private var boxAngle = 0.0
+    @State private var boxOffset = 0.0
+    @State private var boxOpened = false
+    @State private var showsResult = false
+    @State private var openingFinished = false
+    @State private var stickerRising = false
+    @State private var boxFaded = false
+    @State private var starsExpanded = false
+
+    private var openedTheme: BlindBoxThemeDefinition? {
+        guard let openedSticker else { return nil }
+        return themes.first { $0.stickers.contains { $0.id == openedSticker.stickerID } }
+    }
 
     private var openedSticker: BlindBoxOpenedSticker? {
         result.openedStickers.first
@@ -1430,13 +1656,133 @@ private struct BlindBoxRevealView: View {
                     .frame(width: 393, height: 852)
                 Color.black.opacity(0.58)
 
-                if result.openedStickers.count == 1, let openedSticker, let stickerDefinition {
-                    singleReveal(openedSticker: openedSticker, stickerDefinition: stickerDefinition)
-                } else {
-                    wholeBoxReveal
+                Group {
+                    if result.openedStickers.count == 1, let openedSticker, let stickerDefinition {
+                        singleReveal(openedSticker: openedSticker, stickerDefinition: stickerDefinition)
+                    } else {
+                        wholeBoxReveal
+                    }
+                }
+                .offset(y: 40)
+                .allowsHitTesting(openingFinished)
+                .accessibilityHidden(!openingFinished)
+
+                if !openingFinished, let openedTheme {
+                    openingBox(theme: openedTheme)
+                        .offset(y: 40)
+                        .accessibilityLabel(BlindBoxL10n.tr("Opening your box", "正在开盒", "正在開盒", "ボックスを開封中"))
                 }
             }
         }
+        .task { await animateOpening() }
+        .onChange(of: scenePhase) { _, phase in
+            // The draw is already committed. Backgrounding must never delay access to it.
+            if phase != .active { finishOpening() }
+        }
+        .onChange(of: reduceMotion) { _, reduced in
+            if reduced { finishOpening() }
+        }
+    }
+
+    private func openingBox(theme: BlindBoxThemeDefinition) -> some View {
+        ZStack {
+            BlindBoxMyBoxThemePackage(theme: theme)
+                .frame(width: 180, height: 228)
+                .mask(alignment: .top) { Rectangle().frame(height: 82) }
+                .offset(y: boxOpened && !reduceMotion ? -95 : 0)
+                .rotationEffect(.degrees(boxOpened && !reduceMotion ? -18 : 0))
+                .opacity(boxFaded ? 0 : 1)
+
+            if !reduceMotion {
+                ForEach(0..<8) { index in
+                    let angle = Double(index) * .pi / 4
+                    Image(systemName: "star.fill")
+                        .font(.system(size: index.isMultiple(of: 2) ? 22 : 14))
+                        .foregroundStyle(index.isMultiple(of: 2) ? Color(hex: "FFE49A") : .white)
+                        .rotationEffect(.degrees(starsExpanded ? Double(index * 35) : 0))
+                        .offset(
+                            x: cos(angle) * (starsExpanded ? 145 : 28),
+                            y: sin(angle) * (starsExpanded ? 135 : 18) + (starsExpanded ? -20 : 50)
+                        )
+                        .animation(
+                            .timingCurve(0.23, 1, 0.32, 1, duration: 0.5)
+                                .delay(index.isMultiple(of: 2) ? 0 : 0.05),
+                            value: starsExpanded
+                        )
+                        .opacity(boxOpened && !showsResult ? 1 : 0)
+                }
+                .accessibilityHidden(true)
+            }
+
+            BlindBoxMyBoxThemePackage(theme: theme)
+                .frame(width: 180, height: 228)
+                .mask(alignment: .bottom) { Rectangle().frame(height: 146) }
+                .offset(y: boxOpened && !reduceMotion ? 55 : 0)
+                .opacity(boxFaded ? 0 : 1)
+        }
+        .rotationEffect(.degrees(reduceMotion ? 0 : boxAngle), anchor: .bottom)
+        .offset(x: reduceMotion ? 0 : boxOffset)
+        .position(x: 196.5, y: 377.5)
+    }
+
+    @MainActor
+    private func animateOpening() async {
+        guard !startedOpening else { return }
+        startedOpening = true
+        AppHaptics.prepareForInteraction()
+        do {
+            if !reduceMotion {
+                // Build amplitude across six quick shakes, then settle straight into opening.
+                let angles = [-5.0, 5, -7, 7, -10, 10, -12, 12, -9, 9, -5, 5, 0]
+                for (index, angle) in angles.enumerated() {
+                    guard !openingFinished, scenePhase == .active else { return }
+                    withAnimation(.easeInOut(duration: 0.075)) {
+                        boxAngle = angle
+                        boxOffset = angle * 0.6
+                    }
+                    if index.isMultiple(of: 2), angle != 0 { AppHaptics.control() }
+                    try await Task.sleep(for: .milliseconds(75))
+                }
+            }
+            try Task.checkCancellation()
+            guard !openingFinished, scenePhase == .active else { return }
+            AppHaptics.emphasis()
+            PointsSoundPlayer.shared.playRewardRedeemed()
+            withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.25)) {
+                boxOpened = true
+            }
+            try await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 50))
+            guard !openingFinished else { return }
+            withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(duration: 0.5, bounce: 0.2)) {
+                stickerRising = true
+            }
+            withAnimation(.easeOut(duration: 0.6)) {
+                starsExpanded = true
+            }
+            try await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 200))
+            guard !openingFinished else { return }
+            withAnimation(.easeOut(duration: 0.25)) {
+                boxFaded = true
+            }
+            try await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 400))
+            guard !openingFinished else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                showsResult = true
+            }
+            try await Task.sleep(for: .milliseconds(200))
+            openingFinished = true
+        } catch {
+            finishOpening()
+        }
+    }
+
+    private func finishOpening() {
+        boxOpened = true
+        stickerRising = true
+        boxFaded = true
+        starsExpanded = true
+        showsResult = true
+        openingFinished = true
     }
 
     private func singleReveal(
@@ -1454,16 +1800,23 @@ private struct BlindBoxRevealView: View {
                 .foregroundStyle(.white)
                 .frame(width: 353)
                 .position(x: 196.5, y: 170)
+                .opacity(showsResult ? 1 : 0)
 
             ZStack {
                 if stickerDefinition.isHidden {
                     BlindBoxImage("BlindBoxRevealLight")
                         .frame(width: 369, height: 369)
+                        .opacity(showsResult ? 1 : 0)
                 }
                 BlindBoxImage(stickerDefinition.assetName)
                     .frame(width: 231, height: 231)
                     .scaledToFit()
             }
+            // Keep this same image alive from the box interior through the settled result.
+            .scaleEffect(reduceMotion || stickerRising ? 1 : 0.65)
+            .rotationEffect(.degrees(reduceMotion || stickerRising ? 0 : -8))
+            .offset(y: reduceMotion || stickerRising ? 0 : 95)
+            .opacity(boxOpened ? 1 : 0)
             .position(x: 196.5, y: 377.5)
 
             if openedSticker.isDuplicate {
@@ -1471,6 +1824,7 @@ private struct BlindBoxRevealView: View {
                     .font(.appSystem(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.9))
                     .position(x: 196.5, y: 525)
+                    .opacity(showsResult ? 1 : 0)
             }
 
             Button(action: onContinue) {
@@ -1483,6 +1837,7 @@ private struct BlindBoxRevealView: View {
             .buttonStyle(.plain)
             .disabled(isContinuing)
             .position(x: 196.75, y: 623)
+            .opacity(showsResult ? 1 : 0)
         }
         .frame(width: 393, height: 852)
     }
@@ -1501,6 +1856,7 @@ private struct BlindBoxRevealView: View {
                 .foregroundStyle(.white)
                 .frame(width: 353)
                 .position(x: 196.5, y: 170)
+                .opacity(showsResult ? 1 : 0)
 
             let positions: [(CGFloat, CGFloat)] = [
                 (99.2, 290.4), (195.2, 290.4), (294.2, 290.4),
@@ -1520,7 +1876,13 @@ private struct BlindBoxRevealView: View {
                             .frame(width: 86.4, height: 86.4)
                             .scaledToFit()
                     }
-                    .position(x: positions[index].0, y: positions[index].1)
+                    .opacity(boxOpened ? 1 : 0)
+                    .scaleEffect(reduceMotion || stickerRising ? 1 : 0.9)
+                    // Every result leaves the same box together, then settles into its slot.
+                    .position(
+                        x: reduceMotion || stickerRising ? positions[index].0 : 196.5,
+                        y: reduceMotion || stickerRising ? positions[index].1 : 415
+                    )
                 }
             }
 
@@ -1534,12 +1896,14 @@ private struct BlindBoxRevealView: View {
             .buttonStyle(.plain)
             .disabled(isContinuing)
             .position(x: 196.75, y: 623)
+            .opacity(showsResult ? 1 : 0)
         }
         .frame(width: 393, height: 852)
     }
 }
 
 private struct BlindBoxCollectionView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let themes: [BlindBoxThemeDefinition]
     let ownedStickerCounts: [String: Int]
     let onBack: () -> Void
@@ -1599,13 +1963,8 @@ private struct BlindBoxCollectionView: View {
 
             collectionThemePicker
 
-            BlindBoxImage("BlindBoxCollectionBook")
-                .frame(width: 345, height: 520)
+            collectionPager
                 .position(x: 194.5, y: 522)
-
-            if let selectedTheme {
-                collectionStickers(for: selectedTheme)
-            }
         }
         .offset(y: 25)
     }
@@ -1621,10 +1980,12 @@ private struct BlindBoxCollectionView: View {
                 .frame(width: 353, height: 109)
                 .position(x: 196.5, y: 177.5)
 
-            let pickerPositions: [CGFloat] = [69.5, 152.6, 236.6]
+            let pickerPositions: [CGFloat] = [69.5, 152.6, 236.6, 320.6]
             ForEach(Array(visibleThemes.enumerated()), id: \.element.id) { index, theme in
                 Button {
-                    selectedThemeID = theme.id
+                    withAnimation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0)) {
+                        selectedThemeID = theme.id
+                    }
                 } label: {
                     BlindBoxMyBoxThemePackage(theme: theme)
                         .frame(width: 59.21, height: 75)
@@ -1645,7 +2006,7 @@ private struct BlindBoxCollectionView: View {
                 .position(x: pickerPositions[index], y: 179.5)
             }
 
-            if visibleThemes.count < 3 {
+            if selectedPageIndex == max(themePages.count - 1, 0) {
                 BlindBoxComingSoonTile()
                     .frame(width: 59.21, height: 75)
                     .position(x: pickerPositions[visibleThemes.count], y: 179.5)
@@ -1654,8 +2015,52 @@ private struct BlindBoxCollectionView: View {
         .frame(width: 393, height: 852)
     }
 
+    private var collectionPager: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(spacing: 0) {
+                ForEach(themes, id: \.id) { theme in
+                    BlindBoxImage("BlindBoxCollectionBook")
+                    .frame(width: 345, height: 520)
+                    .overlay {
+                        // Position stickers in the book's own coordinate space.
+                        // An oversized 852pt child would recenter the entire page
+                        // before the scroll viewport clips it.
+                        ZStack {
+                            collectionStickers(for: theme, origin: CGPoint(x: 22, y: 262))
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .clipped()
+                    .scrollTransition(.interactive, axis: .horizontal) { [reduceMotion] content, phase in
+                        content
+                            .rotation3DEffect(
+                                .degrees(reduceMotion ? 0 : -phase.value * 28),
+                                axis: (x: 0, y: 1, z: 0),
+                                anchor: phase.value < 0 ? .trailing : .leading,
+                                perspective: 0.35
+                            )
+                            .scaleEffect(reduceMotion ? 1 : 1 - abs(phase.value) * 0.04)
+                            .opacity(reduceMotion ? 1 : 1 - abs(phase.value) * 0.2)
+                    }
+                    .id(theme.id)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollTargetBehavior(.paging)
+        .scrollPosition(id: Binding<BlindBoxThemeID?>(
+            get: { selectedTheme?.id },
+            set: { id in
+                guard let id, let index = themes.firstIndex(where: { $0.id == id }) else { return }
+                selectedThemeID = id
+                selectedPageIndex = index / 3
+            }
+        ))
+        .frame(width: 345, height: 520)
+    }
+
     @ViewBuilder
-    private func collectionStickers(for theme: BlindBoxThemeDefinition) -> some View {
+    private func collectionStickers(for theme: BlindBoxThemeDefinition, origin: CGPoint = .zero) -> some View {
         ForEach(collectionLayout(for: theme), id: \.stickerID) { item in
             if let sticker = theme.stickers.first(where: { $0.id == item.stickerID }) {
                 BlindBoxCollectionSticker(
@@ -1663,12 +2068,13 @@ private struct BlindBoxCollectionView: View {
                     ownedCount: ownedStickerCounts[sticker.id.rawValue] ?? 0,
                     displaySize: CGFloat(item.displaySize)
                 )
-                .position(x: item.centerX, y: item.centerY)
+                .position(x: item.centerX - origin.x, y: item.centerY - origin.y)
             }
         }
     }
 
     private func collectionLayout(for theme: BlindBoxThemeDefinition) -> [BlindBoxCollectionPlacement] {
+        if let presentation = theme.presentation { return presentation.collectionPlacements }
         // The latest Book artwork contains a dedicated Secret frame from
         // x:99...214, y:302...417. Keep the hidden sticker exactly at its center;
         // normal stickers use a deliberately scattered, collision-free layout
@@ -1735,23 +2141,23 @@ private struct BlindBoxCollectionView: View {
     /// The Pets book follows the supplied illustration: the Secret space is
     /// reserved for the hidden sticker, while the regular collection is spread
     /// through the remaining safe area instead of being forced into a grid.
-    /// Two regular stickers sit to the right of Secret; the remaining rows
-    /// begin below the Secret frame so no artwork crosses its border.
+    /// A sticker below Secret fills the gap above the orange cat; the bottom
+    /// pair balances the page without crowding the rings or page border.
     private func petNormalPlacements(
         for stickers: [BlindBoxStickerDefinition]
     ) -> [BlindBoxCollectionPlacement] {
         let referenceCenters: [String: (x: Double, y: Double)] = [
             "pets_01": (281, 354),
-            "pets_07": (281, 446),
-            "pets_03": (120, 518),
-            "pets_02": (196, 533),
-            "pets_08": (281, 523),
-            "pets_05": (120, 625),
-            "pets_11": (196, 610),
-            "pets_04": (281, 620),
-            "pets_10": (120, 700),
-            "pets_06": (196, 715),
-            "pets_09": (281, 705)
+            "pets_07": (285, 446),
+            "pets_03": (118, 539),
+            "pets_02": (198, 551),
+            "pets_08": (283, 540),
+            "pets_05": (118, 634),
+            "pets_11": (199, 642),
+            "pets_04": (283, 630),
+            "pets_10": (139, 721),
+            "pets_06": (196, 466),
+            "pets_09": (259, 726)
         ]
 
         return stickers.enumerated().map { index, sticker in
@@ -2045,8 +2451,7 @@ private struct BlindBoxRulesSheet: View {
                     .padding(.top, 10)
                     .padding(.bottom, 8)
 
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 11) {
+                VStack(alignment: .leading, spacing: 11) {
                     Text(BlindBoxL10n.rulesTitle)
                         .font(.appSystem(size: 19, weight: .bold, design: .rounded))
                         .foregroundStyle(Color(hex: "5A412C"))
@@ -2068,13 +2473,11 @@ private struct BlindBoxRulesSheet: View {
                         title: BlindBoxL10n.revealedSurprisesTitle,
                         detail: BlindBoxL10n.revealedSurprisesDetail
                     )
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 50)
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 470)
             .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
             .overlay {
                 RoundedRectangle(cornerRadius: 24)
@@ -2107,6 +2510,35 @@ private struct BlindBoxRuleRow: View {
 }
 
 private enum BlindBoxL10n {
+    static var receivedTicketsTitle: String { tr("Tickets Received", "获得盲盒券", "獲得盲盒券", "チケット獲得") }
+    static var exchangeTicketsTitle: String { tr("Exchange Tickets", "兑换盲盒券", "兌換盲盒券", "チケット交換") }
+    static var ticketUnit: String { tr("tickets", "张盲盒券", "張盲盒券", "枚") }
+    static var oneTicket: String { tr("1 ticket", "1 张盲盒券", "1 張盲盒券", "チケット1枚") }
+    static var goOpenBox: String { tr("Go open a box", "去开盲盒", "去開盲盒", "ボックスを開けよう") }
+    static var memberTicketBenefit: String { tr("Get 2 more tickets every day with Premium!", "成为会员，每天多领 2 张盲盒券！", "成為會員，每天多領 2 張盲盒券！", "プレミアムなら毎日チケットが2枚多く！") }
+    static var memberTicketComparison: String { tr("Premium: 3 daily · Free: 1 daily", "会员每日 3 张 · 普通用户每日 1 张", "會員每日 3 張 · 一般用戶每日 1 張", "プレミアム：毎日3枚 · 無料：毎日1枚") }
+    static var memberTicketAction: String { tr("Get more tickets", "领取更多盲盒券", "領取更多盲盒券", "チケットをもっと受け取る") }
+    static var exchangeResetsAtFour: String { tr("Daily limit reached. Exchanges reset at 4 AM.", "今日兑换次数已用完，凌晨 4 点刷新。", "今日兌換次數已用完，凌晨 4 點刷新。", "本日の交換回数を使い切りました。午前4時にリセットされます。") }
+    static func pointsAmount(_ count: Int) -> String { tr("\(count) points", "\(count) 积分", "\(count) 積分", "\(count)ポイント") }
+    static var dailyExchangeLimit: String { tr("Up to 3 exchanges daily", "每日限兑 3 次", "每日限兌 3 次", "交換は1日3回まで") }
+    static func exchangeProgress(_ count: Int) -> String { tr("Daily exchanges: \(count)/3", "今日已兑 \(count)/3 次", "今日已兌 \(count)/3 次", "本日の交換：\(count)/3回") }
+    static var dailyTicketRule: String { tr("Free blind-box tickets arrive at 4 AM daily. Remember to claim them!", "每日凌晨4点发放免费盲盒券，记得来领取～", "每日凌晨4點發放免費盲盒券，記得來領取～", "毎日午前4時に無料のブラインドボックスチケットを配布。忘れずに受け取ろう！") }
+    static var pointExchangeRule: String { tr("You can exchange points for blind-box tickets up to 3 times a day", "每日可以用积分兑换盲盒券3次", "每日可以用積分兌換盲盒券3次", "ポイントでブラインドボックスチケットを1日3回まで交換できます") }
+    static var ticketsExhaustedTitle: String { tr("Not Enough Tickets", "盲盒券不足", "盲盒券不足", "チケットが足りません") }
+    static var ticketsFullTitle: String { tr("My Tickets", "我的盲盒券", "我的盲盒券", "所持チケット") }
+    static func ticketArrival(_ count: Int) -> String { tr("+\(count) tickets added", "\(count) 张盲盒券已到账", "\(count) 張盲盒券已到帳", "チケット\(count)枚を受け取りました") }
+    static var ticketCapacityHint: String { tr("Store up to 20 tickets at a time. Use some to make room for more.", "盲盒券最多可同时存放 20 张，使用后可继续获取", "盲盒券最多可同時存放 20 張，使用後可繼續獲取", "同時に保管できるのは20枚まで。使用するとまた受け取れます") }
+    static var ticketsFullDetail: String { tr("You can keep up to 20 tickets. Open a box and discover a new sticker!", "最多可存 20 张，先开个盲盒，收获新贴纸吧！", "最多可存 20 張，先開個盲盒，收穫新貼紙吧！", "チケットは20枚まで。ボックスを開けてステッカーを集めよう！") }
+    static var chooseBoxToOpen: String { tr("Choose an available box on the shelf", "点选架上可开启的盲盒，收获新贴纸吧", "點選架上可開啟的盲盒，收穫新貼紙吧", "棚から開けられるボックスを選んでね") }
+    static var zeroTickets: String { tr("0 tickets", "0 张盲盒券", "0 張盲盒券", "チケット0枚") }
+    static var ticketsExhaustedReturn: String { tr("Come back for more surprises! New tickets arrive at 4 AM.", "明日再继续来抽吧，凌晨 4:00 自动发放新的盲盒券～", "明日再繼續來抽吧，凌晨 4:00 自動發放新的盲盒券～", "また引きに来てね。午前4時に新しいチケットが届きます！") }
+    static var exchangedTodayLabel: String { tr("Daily limit reached", "今日已兑 3/3 次", "今日已兌 3/3 次", "本日の交換：3/3回") }
+    static var exchangeComeBackTomorrow: String { tr("All 3 exchanges used. Come back tomorrow for more surprises!", "今日 3 次已兑完，明天再来收获惊喜", "今日 3 次已兌完，明天再來收穫驚喜", "本日の3回は交換済み。明日もサプライズを楽しもう！") }
+    static var exchangeSuccessTomorrow: String { tr("Enjoy your next surprise!", "去开盲盒，收获下一份惊喜吧", "去開盲盒，收穫下一份驚喜吧", "ボックスを開けて次のサプライズを楽しもう！") }
+    static var exchangeRefreshTime: String { tr("Resets daily at 4 AM", "每日凌晨 4 点刷新", "每日凌晨 4 點刷新", "毎日午前4時にリセット") }
+    static func dailyExchangeDescription(_ points: Int) -> String { tr("\(points) points for 1 ticket, up to 3 exchanges daily", "\(points) 积分兑换 1 张，每日限兑 3 次", "\(points) 積分兌換 1 張，每日限兌 3 次", "\(points)ポイントで1枚、1日3回まで") }
+    static func missingTickets(_ count: Int) -> String { tr("You need \(count) more tickets.", "还差 \(count) 张盲盒券。", "還差 \(count) 張盲盒券。", "チケットがあと\(count)枚必要です。") }
+    static func dailyAllowanceCaption(_ count: Int) -> String { tr("\(count) daily tickets · Refreshes at 4 AM", "每日凌晨 4 点发放 \(count) 张盲盒券", "每日凌晨 4 點發放 \(count) 張盲盒券", "毎日午前4時にチケット\(count)枚を付与") }
     static func tr(_ english: String, _ zhHans: String, _ zhHant: String, _ japanese: String) -> String {
         L10n.tr(english, zhHans: zhHans, zhHant: zhHant, ja: japanese)
     }
@@ -2115,7 +2547,7 @@ private enum BlindBoxL10n {
     static var closeRules: String { tr("Close Blind Box rules", "关闭盲盒规则", "關閉盲盒規則", "ブラインドボックスのルールを閉じる") }
     static var gotIt: String { tr("Got it", "知道了", "知道了", "わかった") }
 
-    static var dailyTicketsTitle: String { tr("Fresh tickets every day", "每天都有新盲盒券", "每天都有新盲盒券", "毎日チケットが届く") }
+    static var dailyTicketsTitle: String { tr("Fresh Tickets Every Day", "每天都有新盲盒券", "每天都有新盲盒券", "毎日チケットが届く") }
     static var dailyTicketsDetail: String {
         tr(
             "Tickets refresh at 4:00 AM. Come back tomorrow for another chance to open a box!",
@@ -2151,13 +2583,13 @@ private enum BlindBoxL10n {
             "シークレットはレアで、各ボックスに入る確率は9%です。通常ステッカーをすべて集めると、確率は45%まで上がります。"
         )
     }
-    static var pointsTicketsTitle: String { tr("Need another ticket?", "券不够？", "券不夠？", "チケットが足りない？") }
+    static var pointsTicketsTitle: String { tr("Need Another Ticket?", "券不够？", "券不夠？", "チケットが足りない？") }
     static var pointsTicketsDetail: String {
         tr(
-            "You can exchange 100 points for 1 ticket once a day.",
-            "每天可用 100 积分兑换 1 张盲盒券。",
-            "每天可用 100 積分兌換 1 張盲盒券。",
-            "1日1回、100ポイントでチケット1枚に交換できます。"
+            "100 points for 1 ticket, up to 3 exchanges daily.",
+            "100 积分兑换 1 张盲盒券，每日限兑 3 次。",
+            "100 積分兌換 1 張盲盒券，每日限兌 3 次。",
+            "100ポイントでチケット1枚、1日3回まで交換できます。"
         )
     }
     static var revealedSurprisesTitle: String { tr("See what has been revealed", "先看看已揭晓的惊喜", "先看看已揭曉的驚喜", "すでに明かされたサプライズを見よう") }
@@ -2175,6 +2607,10 @@ private enum BlindBoxL10n {
     static var customRewards: String { tr("Custom Rewards", "自定义奖励", "自訂獎勵", "カスタム報酬") }
     static var blindBoxStickers: String { tr("Blind box stickers", "盲盒贴纸", "盲盒貼紙", "ブラインドボックスステッカー") }
     static var restocking: String { tr("Restocking", "补货中", "補貨中", "補充中") }
+    static var moreStylesComing: String { tr("More new styles are on the way", "更多新款正在路上", "更多新款正在路上", "新しいラインナップが登場予定です") }
+    static var moreStylesComingTitle: String { tr("More new styles", "更多新款", "更多新款", "新しいラインナップ") }
+    static var moreStylesComingSubtitle: String { tr("are on the way", "正在路上", "正在路上", "登場予定です") }
+
     static var unlockMoreBoxes: String {
         tr(
             "Upgrade to unlock more box slots",
@@ -2207,10 +2643,10 @@ private enum BlindBoxL10n {
         tr("Left: \(count)/\(total)", "剩余：\(count)/\(total)", "剩餘：\(count)/\(total)", "残り：\(count)/\(total)")
     }
     static func refreshIn(_ countdown: String) -> String {
-        tr("Countdown \(countdown)", "倒计时 \(countdown)", "倒計時 \(countdown)", "カウントダウン \(countdown)")
+        tr("Countdown \(countdown)", "倒计时 \(countdown)", "倒計時 \(countdown)", "更新まで \(countdown)")
     }
     static func restocksIn(_ countdown: String) -> String {
-        tr("Restocks in \(countdown)", "将在 \(countdown) 后补货", "將在 \(countdown) 後補貨", "補充まで \(countdown)")
+        tr("Restocks in \(countdown)", "将在 \(countdown) 后补货", "將在 \(countdown) 後補貨", "更新まで \(countdown)")
     }
     static func owned(_ count: Int) -> String {
         tr("Owned ×\(count)", "拥有 ×\(count)", "擁有 ×\(count)", "所持 ×\(count)")
@@ -2228,7 +2664,7 @@ private enum BlindBoxL10n {
     static var ticketExchangeUnavailable: String { tr("Ticket exchange is temporarily unavailable.", "盲盒券兑换暂不可用。", "盲盒券兌換暫不可用。", "チケット交換は現在利用できません。") }
     static func needMorePoints(_ count: Int) -> String { tr("You need \(count) more points.", "还需要 \(count) 积分。", "還需要 \(count) 積分。", "あと\(count)ポイント必要です。") }
     static var ticketBalanceFull: String { tr("Your Blind Box ticket balance is full.", "盲盒券已达到上限。", "盲盒券已達到上限。", "ブラインドボックスチケットは上限です。") }
-    static var exchangedToday: String { tr("You already exchanged a ticket today.", "今天已兑换过盲盒券。", "今天已兌換過盲盒券。", "今日はすでにチケットを交換しています。") }
+    static var exchangedToday: String { tr("All 3 exchanges used today. Come back tomorrow!", "今日 3 次兑换已用完，明天再来吧！", "今日 3 次兌換已用完，明天再來吧！", "本日の3回は交換済みです。また明日！") }
     static var ticketExchangeFailed: String { tr("Unable to exchange points. Please try again.", "积分兑换失败，请再试一次。", "積分兌換失敗，請再試一次。", "ポイント交換に失敗しました。もう一度お試しください。") }
     static var boxUnavailable: String { tr("This Blind Box is no longer available.", "该盲盒已不可用。", "該盲盒已不可用。", "このブラインドボックスは利用できません。") }
     static var previousThemes: String { tr("Previous sticker themes", "上一页贴纸主题", "上一頁貼紙主題", "前のステッカーテーマ") }
@@ -2243,7 +2679,7 @@ private enum BlindBoxL10n {
     static func exchangePoints(_ points: Int) -> String { tr("Exchange \(points) points", "用 \(points) 积分兑换", "用 \(points) 積分兌換", "\(points)ポイントで交換") }
     static func exchangeHint(_ points: Int) -> String { tr("Exchanges \(points) points for one Blind Box ticket", "\(points) 积分兑换 1 张盲盒券", "\(points) 積分兌換 1 張盲盒券", "\(points)ポイントをチケット1枚に交換") }
     static func exchangeOnceAvailable(_ limit: Int) -> String { tr("Available \(limit == 1 ? "once" : "\(limit) times") each day. Resets at 4:00 AM.", "每天可兑换 \(limit) 次，凌晨 4 点重置。", "每天可兌換 \(limit) 次，凌晨 4 點重置。", "1日\(limit)回まで交換できます。午前4時にリセットされます。") }
-    static func exchangeConfirmTitle(_ points: Int) -> String { tr("Exchange \(points) points?", "确认用 \(points) 积分兑换？", "確認用 \(points) 積分兌換？", "\(points)ポイントを交換しますか？") }
+    static func exchangeConfirmTitle(_ points: Int) -> String { tr("Exchange \(points) Points?", "确认用 \(points) 积分兑换？", "確認用 \(points) 積分兌換？", "\(points)ポイントを交換しますか？") }
     static var exchangeConfirmDetail: String { tr("You will receive 1 Blind Box ticket. This exchange can’t be undone.", "你将获得 1 张盲盒券。兑换后不可撤销。", "你將獲得 1 張盲盒券。兌換後不可撤銷。", "チケットを1枚受け取ります。この交換は取り消せません。") }
     static var cancel: String { tr("Cancel", "取消", "取消", "キャンセル") }
     static var exchange: String { tr("Exchange", "兑换", "兌換", "交換") }
@@ -2259,7 +2695,8 @@ private enum BlindBoxL10n {
     static var pets: String { tr("Pets", "宠物", "寵物", "ペット") }
     static var cozyDaily: String { tr("Cozy Daily", "治愈日常", "療癒日常", "ほっこり日常") }
     static func themeName(_ theme: BlindBoxThemeDefinition) -> String {
-        theme.id.rawValue == "pets" ? pets : cozyDaily
+        if theme.id.rawValue == "zodiac" { return tr("Zodiac", "星座", "星座", "星座") }
+        return theme.id.rawValue == "pets" ? pets : cozyDaily
     }
     static var viewOdds: String { tr("View odds", "查看概率", "查看機率", "確率を見る") }
     static var oddsTitle: String { tr("Current box odds", "当前盲盒概率", "目前盲盒機率", "このボックスの確率") }
@@ -2378,154 +2815,643 @@ private struct BlindBoxOpenConfirmation: View {
     }
 }
 
-/// The Figma board does not prescribe this small state. It is intentionally a
-/// compact continuation of the ticket badge rather than a new primary screen.
+/// Click-triggered receipt and exchange states share the supplied popup artwork.
 private struct BlindBoxTicketExchangeSheet: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var successVisible = false
     let availablePoints: Int
     let ticketBalance: Int
     let dailyTicketAllowance: Int
     let eligibility: BlindBoxPointExchangeEligibility
     var economyConfiguration: BlindBoxEconomyConfiguration = .defaultValue
+    var isLobbyEntry = false
+    var isExplicitTicketWalletEntry = false
+    var isDailyTicketReceipt = false
+    @AppStorage("blindBox.suppressFreeTicketReminder") private var suppressFreeTicketReminder = false
+    var receivedTickets: Int? = nil
+    var isExchangeReceipt = false
+    var requiredTickets: Int = 0
+    var exchangesToday: Int = 0
+    var isProcessing = false
+    var onUpgrade: () -> Void = {}
+    var onGoOpen: () -> Void = {}
     let onClose: () -> Void
     let onRequestExchange: (BlindBoxEconomyConfiguration) -> Void
 
-    private var canExchange: Bool {
-        eligibility == .eligible
+    private var isPremium: Bool { dailyTicketAllowance == 3 }
+    private var hasExchangedToday: Bool { exchangesToday >= economyConfiguration.effectivePointExchangesPerGrantDay || eligibility == .grantDayLimitReached }
+    private var canExchange: Bool { eligibility == .eligible && !hasExchangedToday && !isProcessing }
+    private var showsTicketsFull: Bool {
+        ticketBalance >= BlindBoxRuleConfiguration.maximumTicketBalance && receivedTickets == nil
     }
-
-    private var statusMessage: String {
+    private var showsExchangeOptions: Bool {
+        !showsWalletOverview && !showsTicketsFull && receivedTickets == nil
+    }
+    private var lacksExchangePoints: Bool {
+        if case .insufficientPoints = eligibility { return true }
+        return false
+    }
+    /// A full wallet is informational when the user explicitly taps its balance,
+    /// regardless of whether that tap happened in the lobby or a box detail page.
+    private var showsWalletOverview: Bool {
+        !isDailyTicketReceipt && (isLobbyEntry || (isExplicitTicketWalletEntry && showsTicketsFull))
+    }
+    private var nextFreeTicketsMessage: String {
+        BlindBoxL10n.tr("Come back tomorrow! Get \(dailyTicketAllowance) free tickets at 4 AM.",
+            "明天再来，凌晨 4 点可领取 \(dailyTicketAllowance) 张免费盲盒券～",
+            "明天再來，凌晨 4 點可領取 \(dailyTicketAllowance) 張免費盲盒券～",
+            "明日も来てね！午前4時に無料チケット\(dailyTicketAllowance)枚を受け取れます。")
+    }
+    /// An opening attempt needs more tickets than the user currently has.
+    /// This changes the popup's visual context without hiding an available exchange.
+    private var showsOpeningTicketShortfall: Bool {
+        requiredTickets > ticketBalance && receivedTickets == nil
+    }
+    private var showsInsufficientTicketHeader: Bool {
+        !showsWalletOverview && receivedTickets == nil
+            && (ticketBalance == 0 || showsOpeningTicketShortfall)
+    }
+    /// Give non-members a next step whenever points cannot solve the current ticket need.
+    private var shouldShowPremiumTicketBenefit: Bool {
+        guard !isDailyTicketReceipt, !showsWalletOverview, !isPremium, !showsTicketsFull else { return false }
+        if showsExchangeOptions { return true }
+        if requiredTickets > ticketBalance || receivedTickets != nil { return true }
+        if hasExchangedToday { return true }
+        if case .insufficientPoints = eligibility { return true }
+        return false
+    }
+    private var statusMessage: String? {
+        if hasExchangedToday { return BlindBoxL10n.exchangeComeBackTomorrow }
         switch eligibility {
-        case .eligible:
-            let exchangeLimit = economyConfiguration.maximumPointExchangesPerGrantDay
-            return BlindBoxL10n.exchangeOnceAvailable(exchangeLimit)
-        case .disabled:
-            return BlindBoxL10n.ticketExchangeUnavailable
+        case .eligible: return nil
+        case .disabled: return BlindBoxL10n.ticketExchangeUnavailable
         case let .insufficientPoints(required, current):
-            return BlindBoxL10n.needMorePoints(max(required - current, 0))
-        case .ticketBalanceAtCapacity:
-            return BlindBoxL10n.ticketBalanceFull
-        case .grantDayLimitReached:
-            return BlindBoxL10n.exchangedToday
+            return BlindBoxL10n.needMorePoints(max(required - current, 0)) + " " + BlindBoxL10n.tr("Complete tasks to earn points.", "完成任务即可获得积分。", "完成任務即可獲得積分。", "タスクを完了してポイントを獲得しましょう。")
+        case .ticketBalanceAtCapacity: return BlindBoxL10n.ticketBalanceFull
+        case .grantDayLimitReached: return BlindBoxL10n.exchangeResetsAtFour
         }
     }
 
     var body: some View {
-        ZStack {
-            Button(action: onClose) {
-                Color.black.opacity(0.38)
+        GeometryReader { proxy in
+            ZStack {
+                Color.black.opacity(0.62)
                     .ignoresSafeArea()
+                    .onTapGesture { if !isProcessing { onClose() } }
+
+                if !showsWalletOverview, isExchangeReceipt, let receivedTickets {
+                    exchangeSuccess(count: receivedTickets)
+                        .transition(.opacity)
+                } else {
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Image(showsInsufficientTicketHeader ? "BlindBoxTicketExhaustedTop" : "BlindBoxTicketPopupTop")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 288, height: 169)
+                            .scaleEffect(1.08, anchor: .bottom)
+                            .offset(
+                                x: showsInsufficientTicketHeader ? 8 : 0,
+                                y: showsInsufficientTicketHeader ? 14 : 0
+                            )
+                            .overlay(alignment: .bottom) {
+                                outlinedTitle
+                                    .offset(y: 32)
+                            }
+                            .padding(.top, 15)
+                            .padding(.bottom, -56)
+                            // The exchange controls sit closer to the title, while the
+                            // bear artwork and its title remain in their original place.
+                            .offset(y: 10 + (showsExchangeOptions ? 35 : 0))
+                            .zIndex(2)
+
+                        VStack(spacing: 18) {
+                            // Reserve the title's space; it is drawn above the bear artwork.
+                            Color.clear.frame(height: showsWalletOverview || showsTicketsFull ? 55 : 70).accessibilityHidden(true)
+                            if showsWalletOverview {
+                                VStack(spacing: 22) {
+                                    walletBalanceDisplay
+                                    walletRules
+                                }
+                            } else if showsTicketsFull {
+                                walletBalanceDisplay
+                            } else if showsExchangeOptions {
+                                exchangeOptions
+                            } else if let receivedTickets {
+                                HStack(spacing: 14) {
+                                    Image("BlindBoxTicketIcon")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 62, height: 70)
+                                        .accessibilityHidden(true)
+                                    receiptCount(receivedTickets)
+                                    Text(BlindBoxL10n.ticketUnit)
+                                        .font(.appSystem(size: 15, weight: .semibold, design: .rounded))
+                                }
+                                .foregroundStyle(Color(hex: "A2692A"))
+                                .frame(maxWidth: .infinity, minHeight: 90)
+                                .background(Color(hex: "FFFBEA"), in: RoundedRectangle(cornerRadius: 20))
+                                Text(isExchangeReceipt
+                                     ? BlindBoxL10n.exchangeSuccessTomorrow
+                                     : BlindBoxL10n.dailyAllowanceCaption(dailyTicketAllowance))
+                                    .font(.appSystem(size: 13, design: .rounded))
+                                    .foregroundStyle(Color(hex: "8B8172"))
+                                    .multilineTextAlignment(.center)
+                                    .lineLimit(nil)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                if isExchangeReceipt {
+                                    Text(BlindBoxL10n.exchangeRefreshTime)
+                                        .font(.appSystem(size: 11, design: .rounded))
+                                        .foregroundStyle(Color(hex: "8B8172"))
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 24)
+                        .padding(.bottom, showsWalletOverview || showsTicketsFull ? 16 : 28)
+                        .frame(maxWidth: .infinity)
+                        .background(Color(hex: "FCF3DC"), in: RoundedRectangle(cornerRadius: 22))
+
+                        if shouldShowPremiumTicketBenefit {
+                            premiumCard
+                                .padding(.top, 14)
+                                .overlay(alignment: .top) {
+                                    HStack {
+                                        connector
+                                        Spacer()
+                                        connector
+                                    }
+                                    .padding(.horizontal, 28)
+                                    .offset(y: -20)
+                                    .allowsHitTesting(false)
+                                }
+                        }
+
+                        if showsTicketsFull && !showsWalletOverview {
+                            Button(action: onGoOpen) {
+                                Text(BlindBoxL10n.goOpenBox)
+                                    .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Color(hex: "57361F"))
+                                    .frame(width: 180, height: 48)
+                                    .background(.white, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isProcessing)
+                            .padding(.top, 22)
+                        } else if !showsWalletOverview && receivedTickets != nil && !showsTicketsFull {
+                        Button {
+                            if receivedTickets != nil { onGoOpen() }
+                            else { onRequestExchange(economyConfiguration) }
+                        } label: {
+                            Text(receivedTickets != nil ? BlindBoxL10n.goOpenBox
+                                 : isProcessing ? BlindBoxL10n.saving
+                                 : hasExchangedToday ? BlindBoxL10n.exchangedTodayLabel : BlindBoxL10n.exchange)
+                                .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                                .foregroundStyle(Color(hex: "57361F"))
+                                .frame(width: 160, height: 44)
+                                .background(
+                                    receivedTickets != nil || canExchange
+                                        ? .white
+                                        : Color(hex: "F4E6D0"),
+                                    in: Capsule()
+                                )
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color(hex: "C59565").opacity(receivedTickets != nil || canExchange ? 0 : 0.6), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isProcessing || (receivedTickets == nil && !canExchange))
+                        .opacity(receivedTickets != nil || canExchange ? 1 : 0.82)
+                        .padding(.top, 22)
+                        }
+
+                        if isDailyTicketReceipt {
+                            Button { suppressFreeTicketReminder.toggle() } label: {
+                                HStack(spacing: 7) {
+                                    Image(systemName: suppressFreeTicketReminder ? "checkmark.square.fill" : "square")
+                                    Text(BlindBoxL10n.tr("Don't remind me again", "不再提醒", "不再提醒", "今後表示しない"))
+                                }
+                                .font(.appSystem(size: 13))
+                                .foregroundStyle(.white)
+                                .frame(minHeight: 44)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityValue(suppressFreeTicketReminder ? BlindBoxL10n.tr("Selected", "已勾选", "已勾選", "選択済み") : BlindBoxL10n.tr("Not selected", "未勾选", "未勾選", "未選択"))
+                            .padding(.top, 6)
+                        }
+
+                        Button(action: onClose) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(.white.opacity(0.14), in: Circle())
+                                .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isProcessing)
+                        .accessibilityLabel(BlindBoxL10n.close)
+                        .padding(.top, 18)
+                    }
+                    .frame(width: min(proxy.size.width - 40, 350))
+                    .padding(.vertical, 24)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: proxy.size.height)
+                    .offset(y: -30)
+                    .offset(y: showsExchangeOptions ? -35 : 0)
+                }
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(BlindBoxL10n.close)
+            .animation(.easeOut(duration: 0.2), value: isExchangeReceipt)
+        }
+        .accessibilityAddTraits(.isModal)
+    }
+
+    private func exchangeSuccess(count: Int) -> some View {
+        VStack(spacing: 24) {
+            Spacer(minLength: 24)
+            Image("BlindBoxTicketIcon")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 110, height: 120)
+                .rotationEffect(.degrees(reduceMotion || successVisible ? 0 : -8))
+                .scaleEffect(reduceMotion || successVisible ? 1 : 0.9)
+                .offset(y: reduceMotion || successVisible ? 0 : 16)
+                .opacity(successVisible ? 1 : 0)
+                .accessibilityHidden(true)
 
             VStack(spacing: 14) {
-                HStack {
-                    Text(BlindBoxL10n.getTickets)
-                        .font(.appSystem(size: 22, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(hex: "5A412C"))
-                    Spacer()
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(Color(hex: "8A6E59"))
-                            .frame(width: 32, height: 32)
-                            .background(.white.opacity(0.75), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(BlindBoxL10n.close)
-                }
-
-                VStack(spacing: 8) {
-                    Text(BlindBoxL10n.pointsForTicket(economyConfiguration.pointExchangePrice))
-                        .font(.appSystem(size: 19, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(hex: "A46D4C"))
-                    Text(BlindBoxL10n.ticketWallet(points: availablePoints, tickets: ticketBalance))
-                        .font(.appSystem(size: 14, weight: .medium, design: .rounded))
-                        .foregroundStyle(Color(hex: "8A6E59"))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(Color.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 18))
-
-                Text(BlindBoxL10n.dailyGrant(dailyTicketAllowance))
-                    .font(.appSystem(size: 13, weight: .medium, design: .rounded))
-                    .foregroundStyle(Color(hex: "8A6E59"))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Text(statusMessage)
-                    .font(.appSystem(size: 13, weight: .medium, design: .rounded))
-                    .foregroundStyle(canExchange ? Color(hex: "8A6E59") : Color(hex: "B56D56"))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button(BlindBoxL10n.exchangePoints(economyConfiguration.pointExchangePrice)) {
-                    onRequestExchange(economyConfiguration)
-                }
-                    .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                Text(BlindBoxL10n.tr("Exchange Successful", "兑换成功", "兌換成功", "交換しました"))
+                    .font(.appSystem(size: 26, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(
-                        canExchange ? Color(hex: "DCAF7A") : Color(hex: "C9B9A8"),
-                        in: Capsule()
-                    )
-                    .buttonStyle(.plain)
-                    .disabled(!canExchange)
-                    .accessibilityHint(BlindBoxL10n.exchangeHint(economyConfiguration.pointExchangePrice))
+                    .accessibilityAddTraits(.isHeader)
+                HStack(spacing: 12) {
+                    receiptCount(count)
+                    Text(BlindBoxL10n.ticketUnit)
+                        .font(.appSystem(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
             }
-            .padding(22)
-            .frame(width: 330)
-            .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24)
-                    .stroke(Color(hex: "E7B880"), lineWidth: 2)
+            .opacity(successVisible ? 1 : 0)
+
+            Spacer(minLength: 36)
+            Button(action: onClose) {
+                Text(BlindBoxL10n.goOpenBox)
+                    .font(.appSystem(size: 17, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: "57361F"))
+                    .frame(width: 180, height: 48)
+                    .background(.white, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(isProcessing)
+            .padding(.bottom, 52)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 70)
+        .task {
+            guard !successVisible else { return }
+            AppHaptics.completion()
+            withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(duration: 0.5, bounce: 0.2)) {
+                successVisible = true
             }
         }
+    }
+
+    private var outlinedTitle: some View {
+        let title = showsWalletOverview || showsTicketsFull ? BlindBoxL10n.ticketsFullTitle
+            : showsInsufficientTicketHeader ? BlindBoxL10n.ticketsExhaustedTitle
+            : receivedTickets != nil ? BlindBoxL10n.receivedTicketsTitle : BlindBoxL10n.exchangeTicketsTitle
+        return Canvas { context, size in
+            let baseFont = UIFont.systemFont(ofSize: 44, weight: .heavy)
+            let font = UIFont(descriptor: baseFont.fontDescriptor.withDesign(.rounded) ?? baseFont.fontDescriptor, size: 44)
+            let letters = title.map { String($0) }
+            let lines = letters.map {
+                CTLineCreateWithAttributedString(NSAttributedString(string: $0, attributes: [.font: font]))
+            }
+            let widths = lines.map { CTLineGetTypographicBounds($0, nil, nil, nil) }
+            let letterSpacing = -3.5
+            let totalWidth = max(widths.reduce(0, +) + Double(max(letters.count - 1, 0)) * letterSpacing, 1)
+            let scale = min(1, (Double(size.width) - 20) / totalWidth)
+            let titlePath = CGMutablePath()
+            var cursor = 0.0
+            for index in letters.indices {
+                let midpoint = cursor + widths[index] / 2
+                let progress = (midpoint / totalWidth - 0.5) * 2
+                var transform = CGAffineTransform(
+                    translationX: (Double(size.width) - totalWidth * scale) / 2 + midpoint * scale,
+                    y: Double(size.height) / 2 - 4 + 8 * progress * progress
+                )
+                transform = transform.rotated(by: atan(32 * progress / (totalWidth * scale))).scaledBy(x: scale, y: -scale)
+                let linePath = CGMutablePath()
+                for run in CTLineGetGlyphRuns(lines[index]) as! [CTRun] {
+                    let runFont = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] as! CTFont
+                    let count = CTRunGetGlyphCount(run)
+                    var glyphs = [CGGlyph](repeating: 0, count: count)
+                    var positions = [CGPoint](repeating: .zero, count: count)
+                    CTRunGetGlyphs(run, CFRange(location: 0, length: count), &glyphs)
+                    CTRunGetPositions(run, CFRange(location: 0, length: count), &positions)
+                    for glyphIndex in glyphs.indices {
+                        if let path = CTFontCreatePathForGlyph(runFont, glyphs[glyphIndex], nil) {
+                            linePath.addPath(path, transform: CGAffineTransform(translationX: positions[glyphIndex].x, y: positions[glyphIndex].y))
+                        }
+                    }
+                }
+                let bounds = linePath.boundingBoxOfPath
+                if !bounds.isNull {
+                    transform = transform.translatedBy(x: -widths[index] / 2, y: -bounds.midY)
+                    titlePath.addPath(linePath, transform: transform)
+                }
+                cursor += widths[index] + letterSpacing
+            }
+            // Draw the entire outline first so neighboring letters cannot cover each other's fill.
+            let path = Path(titlePath)
+            context.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: 9, lineJoin: .round))
+            context.fill(path, with: .color(Color(hex: "BF8A72")))
+        }
+        .frame(height: 70)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(.isHeader)
+        .allowsHitTesting(false)
+    }
+
+    private var connector: some View {
+        Image("BlindBoxTicketConnector")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 22, height: 54)
+            .accessibilityHidden(true)
+    }
+
+    private var walletBalanceDisplay: some View {
+        HStack(spacing: 8) {
+            Image("BlindBoxTicketIcon")
+                .resizable().scaledToFit()
+                .frame(width: 52, height: 58)
+                .accessibilityHidden(true)
+            HStack(alignment: .bottom, spacing: 0) {
+                receiptGlyph("\(ticketBalance)", size: 36, rounded: false,
+                             color: Color(hex: ticketBalance == 0 ? "E66C43" : "A2692A"))
+                    .offset(x: -4)
+                Text("/\(BlindBoxRuleConfiguration.maximumTicketBalance)")
+                    .font(.appSystem(size: 17, weight: .heavy))
+                    .foregroundStyle(Color(hex: "929292"))
+                    .padding(.bottom, 8)
+            }
+        }
+        .frame(maxWidth: 260, minHeight: 72)
+        .background(Color(hex: "F5E9CC"), in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(BlindBoxL10n.ticketsBalance(ticketBalance))
+    }
+
+    private var walletRules: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array([BlindBoxL10n.dailyTicketRule, BlindBoxL10n.pointExchangeRule, BlindBoxL10n.ticketCapacityHint].enumerated()), id: \.offset) { index, rule in
+                HStack(alignment: .top, spacing: 4) {
+                    Text("\(index + 1).")
+                    Text(rule).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .font(.appSystem(size: 13))
+        .foregroundStyle(Color(hex: "928B7E"))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 10)
+    }
+
+    private var exchangeActionTitle: String {
+        if hasExchangedToday {
+            return BlindBoxL10n.tr("Tomorrow", "明日再来", "明日再來", "また明日")
+        }
+        if lacksExchangePoints {
+            return BlindBoxL10n.tr("Need points", "积分不足", "積分不足", "ポイント不足")
+        }
+        if isProcessing { return BlindBoxL10n.saving }
+        if eligibility != .eligible {
+            return BlindBoxL10n.tr("Unavailable", "暂不可兑", "暫不可兌", "交換できません")
+        }
+        return BlindBoxL10n.exchange
+    }
+
+    private var exchangeOptions: some View {
+        let limit = economyConfiguration.effectivePointExchangesPerGrantDay
+        let remaining = hasExchangedToday ? 0 : max(limit - max(exchangesToday, 0), 0)
+        let price = economyConfiguration.pointExchangePrice
+        return VStack(spacing: 16) {
+            HStack(spacing: 42) {
+                exchangeBalanceBadge(value: "\(ticketBalance)/\(BlindBoxRuleConfiguration.maximumTicketBalance)", isTicket: true)
+                exchangeBalanceBadge(value: "\(availablePoints)", isTicket: false)
+            }
+            .offset(y: 15)
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 4) {
+                        Image("BlindBoxTicketIcon")
+                            .resizable().scaledToFit()
+                            .frame(width: 28, height: 32)
+                            .accessibilityHidden(true)
+                        Text(BlindBoxL10n.tr("Tickets", "盲盒券", "盲盒券", "チケット"))
+                            .font(.appSystem(size: 17, weight: .semibold))
+                            .foregroundStyle(Color(hex: "57361F"))
+                    }
+                    Text(BlindBoxL10n.tr("\(price) points for 1 ticket", "\(price)积分兑换1张盲盒券", "\(price)積分兌換1張盲盒券", "\(price)ポイントで1枚"))
+                    Text(BlindBoxL10n.tr("\(remaining)/\(limit) exchanges left today", "今日剩余 \(remaining)/\(limit) 次", "今日剩餘 \(remaining)/\(limit) 次", "本日の残り \(remaining)/\(limit) 回"))
+                }
+                .font(.appSystem(size: 12))
+                .foregroundStyle(Color(hex: "929292"))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button { onRequestExchange(economyConfiguration) } label: {
+                    Text(exchangeActionTitle)
+                        .font(.appSystem(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(width: 84, height: 36)
+                        .background(Color(hex: canExchange ? "E5A05E" : "BEBBB8"), in: Capsule())
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canExchange)
+            }
+            .padding(14)
+            .background(Color.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 18))
+
+            VStack(spacing: 6) {
+                if !hasExchangedToday, let statusMessage {
+                    Text(statusMessage)
+                        .foregroundStyle(Color(hex: "A2692A"))
+                }
+                Text(hasExchangedToday || lacksExchangePoints
+                     ? nextFreeTicketsMessage
+                     : BlindBoxL10n.tr("Free tickets arrive daily at 4 AM", "每日凌晨4点赠送免费盲盒券", "每日凌晨4點贈送免費盲盒券", "毎日午前4時に無料チケットを配布"))
+                    .foregroundStyle(Color(hex: "928B7E"))
+            }
+            .font(.appSystem(size: 12))
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func exchangeBalanceBadge(value: String, isTicket: Bool) -> some View {
+        HStack(spacing: 6) {
+            if isTicket {
+                Image("BlindBoxTicketIcon")
+                    .resizable().scaledToFit()
+                    .frame(width: 36, height: 42)
+                    .offset(x: -5)
+                    .accessibilityHidden(true)
+            } else {
+                Image("BlindBoxPointIcon")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 29, height: 29)
+                .offset(x: -8)
+                    .accessibilityHidden(true)
+            }
+            Text(value)
+                .font(.appSystem(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .monospacedDigit()
+                .padding(.trailing, 9)
+        }
+        .frame(minHeight: 30)
+        .background {
+            Capsule().fill(Color(hex: "E3A65E"))
+                .overlay(Capsule().stroke(.white, lineWidth: 1.5))
+                .frame(height: 26)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(isTicket ? BlindBoxL10n.ticketsBalance(ticketBalance) : BlindBoxL10n.pointsAmount(availablePoints))
+    }
+
+    private func receiptCount(_ count: Int) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            receiptGlyph("+", size: 40, rounded: true)
+            receiptGlyph("\(count)", size: 52, rounded: false)
+        }
+        .fixedSize()
+        .padding(.horizontal, 6)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("+\(count)")
+    }
+
+    private func receiptGlyph(_ value: String, size: CGFloat, rounded: Bool, color: Color = Color(hex: "A2692A")) -> some View {
+        let baseFont = UIFont.systemFont(ofSize: size, weight: .heavy)
+        let descriptor = rounded
+            ? baseFont.fontDescriptor.withDesign(.rounded) ?? baseFont.fontDescriptor
+            : baseFont.fontDescriptor
+        let font = CTFontCreateWithFontDescriptor(descriptor, size, nil)
+        let characters = Array(value.utf16)
+        var glyphs = [CGGlyph](repeating: 0, count: characters.count)
+        CTFontGetGlyphsForCharacters(font, characters, &glyphs, characters.count)
+        var advances = [CGSize](repeating: .zero, count: glyphs.count)
+        CTFontGetAdvancesForGlyphs(font, .horizontal, glyphs, &advances, glyphs.count)
+        let outline = CGMutablePath()
+        var cursor: CGFloat = 0
+        for index in glyphs.indices {
+            if let glyphPath = CTFontCreatePathForGlyph(font, glyphs[index], nil) {
+                outline.addPath(glyphPath, transform: CGAffineTransform(translationX: cursor, y: 0))
+            }
+            cursor += advances[index].width
+        }
+        let bounds = outline.boundingBoxOfPath
+        let glyphPath = Path(outline)
+        return Canvas { context, canvasSize in
+            context.translateBy(x: (canvasSize.width - bounds.width) / 2 - bounds.minX,
+                                y: (canvasSize.height + bounds.height) / 2 + bounds.minY)
+            context.scaleBy(x: 1, y: -1)
+            // Round joins prevent acute glyph corners from extending into miter spikes.
+            context.stroke(glyphPath, with: .color(.white),
+                           style: StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round))
+            context.fill(glyphPath, with: .color(color))
+        }
+        .frame(width: bounds.width + 12, height: size * 1.2 + 8)
+        .accessibilityHidden(true)
+        .compositingGroup()
+        .shadow(color: Color(hex: "E7B653").opacity(0.48), radius: 4, x: 0, y: 7)
+        .fixedSize()
+    }
+
+    private var premiumCard: some View {
+        VStack(spacing: 18) {
+            HStack(spacing: 14) {
+                Image("BlindBoxMemberTicketBenefit")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 112, height: 75)
+                .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(BlindBoxL10n.memberTicketBenefit)
+                        .font(.appSystem(size: 15, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: "57361F"))
+                }
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .offset(y: 8)
+            }
+            Button(action: onUpgrade) {
+                Text(BlindBoxL10n.memberTicketAction)
+                    .font(.appSystem(size: 15, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .background(Color(hex: "65CEFF"), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(isProcessing)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 26)
+        .background(
+            LinearGradient(colors: [Color(hex: "CFF1FF"), .white], startPoint: .top, endPoint: .bottom),
+            in: RoundedRectangle(cornerRadius: 22)
+        )
     }
 }
 
-private struct BlindBoxTicketExchangeConfirmation: View {
-    var pointExchangePrice = BlindBoxEconomyConfiguration.defaultValue.pointExchangePrice
-    let onCancel: () -> Void
-    let onConfirm: () -> Void
+/// A soft-cornered star keeps the points badge playful without the sharp spikes
+/// of the system symbol at this compact size.
+private struct BlindBoxRoundedStar: Shape {
+    var cornerRadius: CGFloat
 
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.42)
-                .ignoresSafeArea()
-
-            VStack(spacing: 16) {
-                Text(BlindBoxL10n.exchangeConfirmTitle(pointExchangePrice))
-                    .font(.appSystem(size: 22, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(hex: "5A412C"))
-                Text(BlindBoxL10n.exchangeConfirmDetail)
-                    .font(.appSystem(size: 15, weight: .medium, design: .rounded))
-                    .foregroundStyle(Color(hex: "8A6E59"))
-                    .multilineTextAlignment(.center)
-
-                HStack(spacing: 12) {
-                    Button(BlindBoxL10n.cancel, action: onCancel)
-                        .font(.appSystem(size: 16, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(hex: "A46D4C"))
-                        .frame(width: 118, height: 44)
-                        .background(.white, in: Capsule())
-
-                    Button(BlindBoxL10n.exchange, action: onConfirm)
-                        .font(.appSystem(size: 16, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .frame(width: 118, height: 44)
-                        .background(Color(hex: "DCAF7A"), in: Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.vertical, 24)
-            .padding(.horizontal, 20)
-            .frame(width: 300)
-            .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24)
-                    .stroke(Color(hex: "E7B880"), lineWidth: 2)
-            }
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let outerRadius = min(rect.width, rect.height) / 2
+        let innerRadius = outerRadius * 0.48
+        let points: [CGPoint] = (0..<10).map { index in
+            let angle = -CGFloat.pi / 2 + CGFloat(index) * .pi / 5
+            let radius = index.isMultiple(of: 2) ? outerRadius : innerRadius
+            return CGPoint(
+                x: center.x + cos(angle) * radius,
+                y: center.y + sin(angle) * radius
+            )
         }
+        guard let first = points.first else { return Path() }
+        let radius = min(cornerRadius, outerRadius * 0.32)
+
+        func roundedPoint(from source: CGPoint, toward destination: CGPoint, by distance: CGFloat) -> CGPoint {
+            let dx = destination.x - source.x
+            let dy = destination.y - source.y
+            let length = max(hypot(dx, dy), .leastNonzeroMagnitude)
+            return CGPoint(x: source.x + dx / length * distance, y: source.y + dy / length * distance)
+        }
+
+        var path = Path()
+        let previous = points[points.count - 1]
+        path.move(to: roundedPoint(from: first, toward: previous, by: radius))
+        for index in points.indices {
+            let point = points[index]
+            let next = points[(index + 1) % points.count]
+            path.addQuadCurve(
+                to: roundedPoint(from: point, toward: next, by: radius),
+                control: point
+            )
+        }
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -2565,9 +3491,23 @@ private struct BlindBoxRulesIcon: View {
 
 private struct BlindBoxMyBoxIcon: View {
     var body: some View {
-        BlindBoxImage("BlindBoxMyBoxIcon")
-            .frame(width: 35, height: 35)
-            .accessibilityHidden(true)
+        ZStack(alignment: .leading) {
+            Capsule()
+                .fill(Color(hex: "E3A65E"))
+                .frame(width: 70, height: 26)
+                .overlay(Capsule().stroke(.white.opacity(0.9), lineWidth: 1.5))
+                .offset(x: 14)
+            Text("My box")
+                .font(.appSystem(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(width: 44)
+                .offset(x: 39)
+            BlindBoxImage("BlindBoxMyBoxIcon")
+                .frame(width: 40, height: 40)
+                .frame(width: 46, height: 46)
+        }
+        .frame(width: 92, height: 43)
+        .accessibilityHidden(true)
     }
 }
 
@@ -2613,7 +3553,7 @@ private struct BlindBoxThemeMiniBox: View {
     let theme: BlindBoxThemeDefinition
 
     var body: some View {
-        BlindBoxImage(theme.id.rawValue == "pets" ? "BlindBoxLobbyPets" : "BlindBoxLobbyCozy")
+        BlindBoxImage(theme.artwork?.lobbyCardAssetName ?? (theme.id.rawValue == "pets" ? "BlindBoxLobbyPets" : "BlindBoxLobbyCozy"))
             .accessibilityLabel("\(BlindBoxL10n.themeName(theme)) \(BlindBoxL10n.blindBoxStickers)")
     }
 }
@@ -2622,7 +3562,7 @@ private struct BlindBoxThemeHeader: View {
     let theme: BlindBoxThemeDefinition
 
     var body: some View {
-        BlindBoxImage(theme.id.rawValue == "pets" ? "BlindBoxPetsHeader" : "BlindBoxCozyHeader")
+        BlindBoxImage(theme.artwork?.detailHeaderAssetName ?? (theme.id.rawValue == "pets" ? "BlindBoxPetsHeader" : "BlindBoxCozyHeader"))
             .accessibilityLabel("\(BlindBoxL10n.themeName(theme)) \(BlindBoxL10n.blindBoxStickers)")
     }
 }
@@ -2645,7 +3585,7 @@ private struct BlindBoxMyBoxThemePackage: View {
     let theme: BlindBoxThemeDefinition
 
     var body: some View {
-        BlindBoxImage(theme.id.rawValue == "pets" ? "BlindBoxPetsPackage" : "BlindBoxCozyPackage")
+        BlindBoxImage(theme.artwork?.collectionPickerAssetName ?? (theme.id.rawValue == "pets" ? "BlindBoxPetsPackage" : "BlindBoxCozyPackage"))
             .accessibilityLabel("\(BlindBoxL10n.themeName(theme)) \(BlindBoxL10n.tr("sticker pack", "贴纸包", "貼紙包", "ステッカーパック"))")
     }
 }
@@ -2686,28 +3626,37 @@ private struct BlindBoxShelfStatusOverlay: View {
 
 private struct BlindBoxPremiumPlaceholder: View {
     let theme: BlindBoxThemeDefinition
+    var isCollectionComplete = false
     let onTap: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
+        if isCollectionComplete {
+            artwork
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(BlindBoxL10n.moreStylesComing)
+        } else {
+            Button(action: onTap) { artwork }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(BlindBoxL10n.unlockMoreBoxes)
+        }
+    }
+
+    private var artwork: some View {
             ZStack {
                 BlindBoxThemeMiniBox(theme: theme)
-                    .frame(width: 131, height: 149)
+                    .frame(width: 137.5, height: 156.5)
                     .opacity(0.5)
                     .offset(y: -8)
                 BlindBoxShelfStatusOverlay(
-                    title: BlindBoxL10n.unlockMoreBoxesTitle,
-                    subtitle: BlindBoxL10n.unlockMoreBoxesSubtitle,
+                    title: isCollectionComplete ? BlindBoxL10n.moreStylesComingTitle : BlindBoxL10n.unlockMoreBoxesTitle,
+                    subtitle: isCollectionComplete ? BlindBoxL10n.moreStylesComingSubtitle : BlindBoxL10n.unlockMoreBoxesSubtitle,
                     fontSize: 11
                 )
-                    .frame(width: 131, height: 149)
+                    .frame(width: 137.5, height: 156.5)
                     .offset(y: -8)
             }
             .frame(width: 146, height: 176)
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(BlindBoxL10n.unlockMoreBoxes)
     }
 }
 
@@ -2728,30 +3677,38 @@ private struct BlindBoxCanvas<Content: View>: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let screenSize = UIScreen.main.bounds.size
-            let canvasWidth = max(proxy.size.width, screenSize.width)
-            let canvasHeight = max(proxy.size.height, screenSize.height)
-            let scale = canvasWidth / 393
+            // Fit the artwork and its hit targets into the current window,
+            // including iPad landscape and multitasking presentations.
+            let scale = min(proxy.size.width / 393, proxy.size.height / 852)
 
-            ZStack(alignment: .topLeading) {
-                if let backgroundAssetName {
-                    Image(backgroundAssetName)
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFill()
-                        .frame(width: 393, height: 852)
-                        .scaleEffect(scale, anchor: .topLeading)
-                        .accessibilityHidden(true)
+            ZStack {
+                // The lobby's supplied artwork is transparent around the cabinet.
+                // Let the pull portal's circle remain visible behind it.
+                if backgroundAssetName != "BlindBoxLobbyBackground" {
+                    Color(hex: "F7E9D5")
                 }
 
-                content()
-                    .frame(width: 393, height: 852)
-                    .scaleEffect(scale, anchor: .topLeading)
-                    .offset(x: contentHorizontalOffset * scale)
+                ZStack(alignment: .topLeading) {
+                    if let backgroundAssetName {
+                        Image(backgroundAssetName)
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFill()
+                            .frame(width: 393, height: 852)
+                            .accessibilityHidden(true)
+                    }
+
+                    content()
+                        .frame(width: 393, height: 852)
+                        .offset(x: contentHorizontalOffset)
+                }
+                .frame(width: 393, height: 852)
+                .scaleEffect(scale)
+                // scaleEffect changes rendering, not the layout footprint.
+                .frame(width: 393 * scale, height: 852 * scale)
             }
-            .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height, alignment: .topLeading)
         .ignoresSafeArea()
     }
 }
