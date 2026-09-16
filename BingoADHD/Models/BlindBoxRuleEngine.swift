@@ -792,27 +792,37 @@ enum BlindBoxCatalog {
     static let builtInThemes: [BlindBoxThemeDefinition] = [
         BlindBoxThemeDefinition(
             id: BlindBoxThemeID(rawValue: "pets"),
-            catalogVersion: 1,
-            stickers: (1...12).map { index in
+            catalogVersion: 2,
+            stickers: (1...13).map { index in
                 BlindBoxStickerDefinition(
                     id: BlindBoxStickerID(rawValue: "pets_\(String(format: "%02d", index))"),
-                    assetName: index == 12
-                        ? "sticker_pets_12_hidden"
-                        : "sticker_pets_\(String(format: "%02d", index))",
-                    isHidden: index == 12
+                    assetName: "sticker_pets_\(String(format: "%02d", index))",
+                    isHidden: index == 13
                 )
             }
         ),
         BlindBoxThemeDefinition(
             id: BlindBoxThemeID(rawValue: "cozy_daily"),
-            catalogVersion: 1,
-            stickers: (1...9).map { index in
+            catalogVersion: 2,
+            stickers: (2...8).map { index in
                 BlindBoxStickerDefinition(
                     id: BlindBoxStickerID(rawValue: "cozy_\(String(format: "%02d", index))"),
-                    assetName: index == 9
-                        ? "sticker_cozy_09_hidden"
-                        : "sticker_cozy_\(String(format: "%02d", index))",
-                    isHidden: index == 9
+                    assetName: "sticker_cozy_\(String(format: "%02d", index))",
+                    isHidden: false
+                )
+            }
+            + [
+                BlindBoxStickerDefinition(
+                    id: BlindBoxStickerID(rawValue: "cozy_09"),
+                    assetName: "sticker_cozy_09_hidden",
+                    isHidden: true
+                )
+            ]
+            + (10...13).map { index in
+                BlindBoxStickerDefinition(
+                    id: BlindBoxStickerID(rawValue: "cozy_\(String(format: "%02d", index))"),
+                    assetName: "sticker_cozy_\(String(format: "%02d", index))",
+                    isHidden: false
                 )
             }
         ),

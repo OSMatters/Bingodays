@@ -190,37 +190,37 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
         let petsBatch = fixturePlan(
             id: "A0000000-0000-4000-8000-000000000001",
             theme: pets,
-            stickerIDs: ["pets_01", "pets_02", "pets_03", "pets_04", "pets_05", "pets_11", "pets_07", "pets_08", "pets_09"],
+            stickerIDs: ["pets_01", "pets_02", "pets_03", "pets_04", "pets_05", "pets_11", "pets_07", "pets_08", "pets_13"],
             createdAt: referenceDate
         )
         let cozyBatch = fixturePlan(
             id: "A0000000-0000-4000-8000-000000000002",
             theme: cozy,
-            stickerIDs: ["cozy_01", "cozy_02", "cozy_03", "cozy_04", "cozy_05", "cozy_06", "cozy_07", "cozy_08", "cozy_01"],
+            stickerIDs: ["cozy_02", "cozy_03", "cozy_04", "cozy_05", "cozy_06", "cozy_07", "cozy_08", "cozy_10", "cozy_11"],
             createdAt: referenceDate
         )
         let petsSecondBatch = fixturePlan(
             id: "A0000000-0000-4000-8000-000000000003",
             theme: pets,
-            stickerIDs: ["pets_10", "pets_04", "pets_08", "pets_06", "pets_11", "pets_03", "pets_05", "pets_02", "pets_01"],
+            stickerIDs: ["pets_10", "pets_04", "pets_08", "pets_06", "pets_11", "pets_03", "pets_05", "pets_12", "pets_01"],
             createdAt: referenceDate
         )
         let cozySecondBatch = fixturePlan(
             id: "A0000000-0000-4000-8000-000000000004",
             theme: cozy,
-            stickerIDs: ["cozy_08", "cozy_07", "cozy_06", "cozy_05", "cozy_04", "cozy_03", "cozy_02", "cozy_01", "cozy_07"],
+            stickerIDs: ["cozy_12", "cozy_13", "cozy_06", "cozy_05", "cozy_04", "cozy_03", "cozy_02", "cozy_09", "cozy_07"],
             createdAt: referenceDate
         )
         let petsThirdBatch = fixturePlan(
             id: "A0000000-0000-4000-8000-000000000005",
             theme: pets,
-            stickerIDs: ["pets_09", "pets_10", "pets_08", "pets_07", "pets_06", "pets_05", "pets_04", "pets_03", "pets_02"],
+            stickerIDs: ["pets_09", "pets_10", "pets_08", "pets_07", "pets_06", "pets_05", "pets_04", "pets_13", "pets_02"],
             createdAt: referenceDate
         )
         let cozyThirdBatch = fixturePlan(
             id: "A0000000-0000-4000-8000-000000000006",
             theme: cozy,
-            stickerIDs: ["cozy_02", "cozy_03", "cozy_04", "cozy_05", "cozy_06", "cozy_07", "cozy_08", "cozy_01", "cozy_04"],
+            stickerIDs: ["cozy_02", "cozy_03", "cozy_04", "cozy_05", "cozy_06", "cozy_07", "cozy_08", "cozy_10", "cozy_13"],
             createdAt: referenceDate
         )
 
@@ -233,7 +233,7 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
                 "pets_08": 1,
                 "pets_09": 1,
                 "pets_11": 1,
-                "cozy_01": 1,
+                "cozy_12": 1,
                 "cozy_04": 1
             ],
             candidateBatches: [

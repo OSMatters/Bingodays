@@ -65,15 +65,20 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         XCTAssertNil(zodiac.validationError())
 
         let pets = BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "pets" }
-        XCTAssertEqual(pets?.normalStickers.count, 11)
-        XCTAssertEqual(pets?.hiddenSticker?.id.rawValue, "pets_12")
-        XCTAssertEqual(pets?.hiddenSticker?.assetName, "sticker_pets_12_hidden")
+        XCTAssertEqual(pets?.normalStickers.count, 12)
+        XCTAssertEqual(pets?.hiddenSticker?.id.rawValue, "pets_13")
+        XCTAssertEqual(pets?.hiddenSticker?.assetName, "sticker_pets_13")
+        XCTAssertTrue(pets?.normalStickers.contains(where: { $0.id.rawValue == "pets_12" }) == true)
         XCTAssertNil(pets?.validationError())
 
         let cozyDaily = BlindBoxCatalog.builtInThemes.first { $0.id.rawValue == "cozy_daily" }
-        XCTAssertEqual(cozyDaily?.normalStickers.count, 8)
+        XCTAssertEqual(cozyDaily?.normalStickers.count, 11)
         XCTAssertEqual(cozyDaily?.hiddenSticker?.id.rawValue, "cozy_09")
         XCTAssertEqual(cozyDaily?.hiddenSticker?.assetName, "sticker_cozy_09_hidden")
+        XCTAssertFalse(cozyDaily?.stickers.contains(where: { $0.id.rawValue == "cozy_01" }) == true)
+        XCTAssertTrue((10...13).allSatisfy { index in
+            cozyDaily?.normalStickers.contains(where: { $0.id.rawValue == "cozy_\(String(format: "%02d", index))" }) == true
+        })
         XCTAssertNil(cozyDaily?.validationError())
     }
 
@@ -106,12 +111,12 @@ final class BlindBoxRuleEngineTests: XCTestCase {
     func testProbabilityDisclosureUsesApprovedOneAndFivePercentRules() throws {
         let standard = try BlindBoxProbabilityEngine.disclosure(for: petsTheme, mode: .standard)
         XCTAssertEqual(standard.hiddenStickerProbability, 0.01, accuracy: 0.000_001)
-        XCTAssertEqual(standard.normalStickerProbability, 0.09, accuracy: 0.000_001)
+        XCTAssertEqual(standard.normalStickerProbability, 0.99 / 12, accuracy: 0.000_001)
         XCTAssertEqual(standard.hiddenInclusionProbabilityPerBatch, 0.09, accuracy: 0.000_001)
 
         let hiddenHunt = try BlindBoxProbabilityEngine.disclosure(for: petsTheme, mode: .hiddenHunt)
         XCTAssertEqual(hiddenHunt.hiddenStickerProbability, 0.05, accuracy: 0.000_001)
-        XCTAssertEqual(hiddenHunt.normalStickerProbability, 0.95 / 11, accuracy: 0.000_001)
+        XCTAssertEqual(hiddenHunt.normalStickerProbability, 0.95 / 12, accuracy: 0.000_001)
         XCTAssertEqual(hiddenHunt.hiddenInclusionProbabilityPerBatch, 0.45, accuracy: 0.000_001)
     }
 
@@ -146,7 +151,7 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         XCTAssertEqual(Set(stickers).count, BlindBoxRuleConfiguration.batchPositionCount)
     }
 
-    func testGeneratedCozyBatchFillsNinePositionsWithOneAllowedRepeat() throws {
+    func testGeneratedCozyBatchFillsNineUniquePositions() throws {
         var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0.99])
 
         let plan = try BlindBoxBatchGenerator.generate(
@@ -158,8 +163,8 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         let stickers = plan.positions.map(\.stickerID)
         let counts = Dictionary(grouping: stickers, by: { $0 }).mapValues(\.count)
         XCTAssertEqual(stickers.count, 9)
-        XCTAssertEqual(counts.count, 8)
-        XCTAssertEqual(counts.values.sorted(), [1, 1, 1, 1, 1, 1, 1, 2])
+        XCTAssertEqual(counts.count, 9)
+        XCTAssertEqual(counts.values.sorted(), [1, 1, 1, 1, 1, 1, 1, 1, 1])
         XCTAssertFalse(stickers.contains(cozyDailyTheme.hiddenSticker!.id))
     }
 

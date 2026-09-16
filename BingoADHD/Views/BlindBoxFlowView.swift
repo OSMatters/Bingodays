@@ -2148,6 +2148,7 @@ private struct BlindBoxCollectionView: View {
     ) -> [BlindBoxCollectionPlacement] {
         let referenceCenters: [String: (x: Double, y: Double)] = [
             "pets_01": (281, 354),
+            "pets_12": (118, 446),
             "pets_07": (285, 446),
             "pets_03": (118, 539),
             "pets_02": (198, 551),
@@ -2173,21 +2174,23 @@ private struct BlindBoxCollectionView: View {
         }
     }
 
-    /// Mirrors the Cozy Daily reference composition: a hidden sticker in the
-    /// Secret frame, then the eight regular poses scattered across the right
-    /// and lower parts of the book with clear breathing room between them.
+    /// Keeps Cozy Daily's Secret frame while arranging all eleven regular
+    /// stickers in a compact, staggered composition around it.
     private func cozyDailyNormalPlacements(
         for stickers: [BlindBoxStickerDefinition]
     ) -> [BlindBoxCollectionPlacement] {
         let referenceCenters: [String: (x: Double, y: Double)] = [
-            "cozy_01": (286, 371),
+            "cozy_02": (285, 371),
             "cozy_07": (281, 455),
-            "cozy_06": (136, 501),
-            "cozy_02": (204, 556),
-            "cozy_04": (288, 556),
-            "cozy_03": (136, 654),
-            "cozy_05": (204, 708),
-            "cozy_08": (288, 654)
+            "cozy_06": (132, 490),
+            "cozy_03": (204, 520),
+            "cozy_04": (286, 548),
+            "cozy_05": (130, 592),
+            "cozy_08": (204, 625),
+            "cozy_10": (288, 635),
+            "cozy_11": (132, 696),
+            "cozy_12": (210, 716),
+            "cozy_13": (288, 704)
         ]
 
         return stickers.enumerated().map { index, sticker in
@@ -2197,7 +2200,7 @@ private struct BlindBoxCollectionView: View {
                 stickerID: sticker.id,
                 centerX: center.x,
                 centerY: center.y,
-                displaySize: 85,
+                displaySize: 75,
                 isSpecialSlot: false
             )
         }
