@@ -2332,7 +2332,6 @@ private struct BlindBoxLiveStatusView: View {
 /// discloses that mode and its published odds without inspecting or revealing
 /// any unopened position in the already-locked batch.
 private struct BlindBoxBatchOddsSheet: View {
-    @Environment(\.dismiss) private var dismiss
     let normalStickerCount: Int
     let probabilityMode: BlindBoxProbabilityMode
 
@@ -2368,18 +2367,15 @@ private struct BlindBoxBatchOddsSheet: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Color.white)
             .navigationTitle(BlindBoxL10n.oddsTitle)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(BlindBoxL10n.gotIt) {
-                        dismiss()
-                    }
-                }
-            }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .presentationBackground(.white)
+        .preferredColorScheme(.light)
     }
 
     private func percent(_ value: Double) -> String {
@@ -2391,8 +2387,6 @@ private struct BlindBoxBatchOddsSheet: View {
 /// panel. This compact sheet makes the agreed odds and wallet constraints
 /// inspectable before a ticket is spent.
 private struct BlindBoxRulesSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
     var body: some View {
         NavigationStack {
             List {
@@ -2404,18 +2398,15 @@ private struct BlindBoxRulesSheet: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Color.white)
             .navigationTitle(BlindBoxL10n.rulesTitle)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(BlindBoxL10n.close) {
-                        dismiss()
-                    }
-                }
-            }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .presentationBackground(.white)
+        .preferredColorScheme(.light)
     }
 }
 
@@ -3226,13 +3217,13 @@ private struct BlindBoxTicketExchangeSheet: View {
             Capsule()
                 .fill(Color(hex: "E3A65E"))
                 .overlay(Capsule().stroke(.white, lineWidth: 1.5))
-                .frame(width: 112, height: 30)
+                .frame(width: 88, height: 30)
 
             Text(value)
                 .font(.appSystem(size: 14, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .monospacedDigit()
-                .frame(width: 112, height: 30, alignment: .center)
+                .frame(width: 88, height: 30, alignment: .center)
         }
         .overlay(alignment: .leading) {
             if isTicket {
@@ -3250,7 +3241,7 @@ private struct BlindBoxTicketExchangeSheet: View {
                     .accessibilityHidden(true)
             }
         }
-        .frame(width: 112, height: 42)
+        .frame(width: 88, height: 42)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(isTicket ? BlindBoxL10n.ticketsBalance(ticketBalance) : BlindBoxL10n.pointsAmount(availablePoints))
     }
