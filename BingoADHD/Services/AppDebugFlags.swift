@@ -53,11 +53,13 @@ enum AppDebugFlags {
 #endif
     }
 
-    /// Enables the isolated Blind Box fixture flow for visual and interaction
-    /// testing. It deliberately never reads or writes production wallet data.
+    /// Debug installs expose the isolated Blind Box fixture flow by default,
+    /// so one standard Xcode run can exercise the whole app. Pass
+    /// `-DebugDisableBlindBoxPreview` only when a focused non-Blind Box test
+    /// needs it hidden. The fixture never reads or writes production wallet data.
     static var blindBoxPreviewEnabled: Bool {
 #if DEBUG
-        ProcessInfo.processInfo.arguments.contains("-DebugBlindBoxPreview")
+        !ProcessInfo.processInfo.arguments.contains("-DebugDisableBlindBoxPreview")
 #else
         false
 #endif
