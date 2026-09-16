@@ -181,13 +181,6 @@ struct BlindBoxFlowView: View {
                     .zIndex(20)
             }
 
-            if isShowingRules {
-                BlindBoxRulesSheet(onClose: {
-                    isShowingRules = false
-                })
-                .zIndex(10)
-            }
-
             if isShowingTicketExchange {
                 BlindBoxTicketExchangeSheet(
                     availablePoints: store.previewAvailablePoints,
@@ -244,9 +237,11 @@ struct BlindBoxFlowView: View {
                 else { isShowingTicketExchange = restoreWalletAfterPaywall }
             }
         }
-        .animation(.easeOut(duration: 0.24), value: isShowingRules)
         .onDisappear {
             toastDismissalTask?.cancel()
+        }
+        .sheet(isPresented: $isShowingRules) {
+            BlindBoxRulesSheet()
         }
     }
 
@@ -511,9 +506,11 @@ struct BlindBoxLiveFlowView: View {
                 else { isShowingTicketExchange = restoreWalletAfterPaywall }
             }
         }
-        .animation(.easeOut(duration: 0.24), value: isShowingRules)
         .onDisappear {
             toastDismissalTask?.cancel()
+        }
+        .sheet(isPresented: $isShowingRules) {
+            BlindBoxRulesSheet()
         }
     }
 
@@ -744,13 +741,6 @@ struct BlindBoxLiveFlowView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .allowsHitTesting(false)
                     .zIndex(20)
-            }
-
-            if isShowingRules {
-                BlindBoxRulesSheet(onClose: {
-                    isShowingRules = false
-                })
-                .zIndex(10)
             }
 
             if isShowingTicketExchange {
@@ -1401,17 +1391,14 @@ private struct BlindBoxDetailView: View {
 
                 detailContent
 
-                if isShowingOdds {
-                    BlindBoxBatchOddsSheet(
-                        normalStickerCount: theme.normalStickers.count,
-                        probabilityMode: batch.plan.probabilityMode,
-                        onClose: { isShowingOdds = false }
-                    )
-                    .zIndex(10)
-                }
             }
         }
-        .animation(.easeOut(duration: 0.24), value: isShowingOdds)
+        .sheet(isPresented: $isShowingOdds) {
+            BlindBoxBatchOddsSheet(
+                normalStickerCount: theme.normalStickers.count,
+                probabilityMode: batch.plan.probabilityMode
+            )
+        }
     }
 
     private var detailContent: some View {
@@ -2341,9 +2328,9 @@ private struct BlindBoxLiveStatusView: View {
 /// discloses that mode and its published odds without inspecting or revealing
 /// any unopened position in the already-locked batch.
 private struct BlindBoxBatchOddsSheet: View {
+    @Environment(\.dismiss) private var dismiss
     let normalStickerCount: Int
     let probabilityMode: BlindBoxProbabilityMode
-    let onClose: () -> Void
 
     private var hiddenPerPositionPercent: String {
         percent(probabilityMode.hiddenStickerProbability)
@@ -2360,61 +2347,35 @@ private struct BlindBoxBatchOddsSheet: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Button(action: onClose) {
-                Color.black.opacity(0.38)
-                .ignoresSafeArea()
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(BlindBoxL10n.close)
-
-            VStack(spacing: 0) {
-                Capsule()
-                    .fill(Color(hex: "D8B994"))
-                    .frame(width: 38, height: 5)
-                    .padding(.top, 10)
-                    .padding(.bottom, 8)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(BlindBoxL10n.oddsTitle)
-                        .font(.appSystem(size: 22, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(hex: "5A412C"))
-
-                    VStack(spacing: 8) {
-                        BlindBoxOddsSummaryRow(
-                            title: BlindBoxL10n.regularSticker,
-                            detail: BlindBoxL10n.normalOddsDetail(normalPerPositionPercent)
+        NavigationStack {
+            List {
+                Section {
+                    BlindBoxNativeInformationRow(
+                        title: BlindBoxL10n.regularSticker,
+                        detail: BlindBoxL10n.normalOddsDetail(normalPerPositionPercent)
+                    )
+                    BlindBoxNativeInformationRow(
+                        title: BlindBoxL10n.hiddenSticker,
+                        detail: BlindBoxL10n.hiddenOddsDetail(
+                            perDraw: hiddenPerPositionPercent,
+                            perBox: hiddenPerBoxPercent
                         )
-                        BlindBoxOddsSummaryRow(
-                            title: BlindBoxL10n.hiddenSticker,
-                            detail: BlindBoxL10n.hiddenOddsDetail(
-                                perDraw: hiddenPerPositionPercent,
-                                perBox: hiddenPerBoxPercent
-                            )
-                        )
-                    }
-
-                    Button(action: onClose) {
-                        Text(BlindBoxL10n.gotIt)
-                            .font(.appSystem(size: 16, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(Color(hex: "DCAF7A"), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
+                    )
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 24)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 330)
-            .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24)
-                    .stroke(Color(hex: "E7B880"), lineWidth: 2)
+            .listStyle(.insetGrouped)
+            .navigationTitle(BlindBoxL10n.oddsTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(BlindBoxL10n.gotIt) {
+                        dismiss()
+                    }
+                }
             }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private func percent(_ value: Double) -> String {
@@ -2422,104 +2383,51 @@ private struct BlindBoxBatchOddsSheet: View {
     }
 }
 
-private struct BlindBoxOddsSummaryRow: View {
-    let title: String
-    let detail: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.appSystem(size: 14, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(hex: "6A4B33"))
-            Text(detail)
-                .font(.appSystem(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle(Color(hex: "8A6E59"))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 11)
-        .padding(.vertical, 10)
-        .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 12))
-    }
-}
-
 /// The main Figma screens include a rules affordance but no corresponding
 /// panel. This compact sheet makes the agreed odds and wallet constraints
 /// inspectable before a ticket is spent.
 private struct BlindBoxRulesSheet: View {
-    let onClose: () -> Void
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Button(action: onClose) {
-                Color.black.opacity(0.38)
-                .ignoresSafeArea()
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(BlindBoxL10n.closeRules)
-
-            VStack(spacing: 0) {
-                Capsule()
-                    .fill(Color(hex: "D8B994"))
-                    .frame(width: 38, height: 5)
-                    .padding(.top, 10)
-                    .padding(.bottom, 8)
-
-                VStack(alignment: .leading, spacing: 11) {
-                    Text(BlindBoxL10n.rulesTitle)
-                        .font(.appSystem(size: 19, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(hex: "5A412C"))
-                        .frame(maxWidth: .infinity, alignment: .center)
-
-                    BlindBoxRuleRow(
-                        title: BlindBoxL10n.dailyTicketsTitle,
-                        detail: BlindBoxL10n.dailyTicketsDetail
-                    )
-                    BlindBoxRuleRow(
-                        title: BlindBoxL10n.mixedBoxTitle,
-                        detail: BlindBoxL10n.mixedBoxDetail
-                    )
-                    BlindBoxRuleRow(
-                        title: BlindBoxL10n.hiddenOddsTitle,
-                        detail: BlindBoxL10n.hiddenOddsDetail
-                    )
-                    BlindBoxRuleRow(
-                        title: BlindBoxL10n.revealedSurprisesTitle,
-                        detail: BlindBoxL10n.revealedSurprisesDetail
-                    )
+        NavigationStack {
+            List {
+                Section {
+                    BlindBoxNativeInformationRow(title: BlindBoxL10n.dailyTicketsTitle, detail: BlindBoxL10n.dailyTicketsDetail)
+                    BlindBoxNativeInformationRow(title: BlindBoxL10n.mixedBoxTitle, detail: BlindBoxL10n.mixedBoxDetail)
+                    BlindBoxNativeInformationRow(title: BlindBoxL10n.hiddenOddsTitle, detail: BlindBoxL10n.hiddenOddsDetail)
+                    BlindBoxNativeInformationRow(title: BlindBoxL10n.revealedSurprisesTitle, detail: BlindBoxL10n.revealedSurprisesDetail)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
             }
-            .frame(maxWidth: .infinity)
-            .background(Color(hex: "FFF8EC"), in: RoundedRectangle(cornerRadius: 24))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24)
-                    .stroke(Color(hex: "E7B880"), lineWidth: 2)
+            .listStyle(.insetGrouped)
+            .navigationTitle(BlindBoxL10n.rulesTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(BlindBoxL10n.close) {
+                        dismiss()
+                    }
+                }
             }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }
 
-private struct BlindBoxRuleRow: View {
+private struct BlindBoxNativeInformationRow: View {
     let title: String
     let detail: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(title)
-                .font(.appSystem(size: 13, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(hex: "6A4B33"))
+                .font(.headline)
             Text(detail)
-                .font(.appSystem(size: 11, weight: .medium, design: .rounded))
-                .foregroundStyle(Color(hex: "8A6E59"))
-                .fixedSize(horizontal: false, vertical: true)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 11)
-        .padding(.vertical, 8)
-        .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.vertical, 3)
     }
 }
 
@@ -2813,13 +2721,13 @@ private struct BlindBoxOpenConfirmation: View {
                     .stroke(Color(hex: "E7B880"), lineWidth: 2)
             }
 
-            if isShowingOdds, let theme, let probabilityMode {
+        }
+        .sheet(isPresented: $isShowingOdds) {
+            if let theme, let probabilityMode {
                 BlindBoxBatchOddsSheet(
                     normalStickerCount: theme.normalStickers.count,
-                    probabilityMode: probabilityMode,
-                    onClose: { isShowingOdds = false }
+                    probabilityMode: probabilityMode
                 )
-                .zIndex(1)
             }
         }
     }
