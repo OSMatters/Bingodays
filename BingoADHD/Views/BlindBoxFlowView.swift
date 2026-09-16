@@ -1156,14 +1156,14 @@ private struct BlindBoxLobbyView: View {
                 .position(x: 38, y: 73)
 
                 ticketBadge
-                    .position(x: 292, y: 257)
+                    .position(x: 292, y: 252)
 
                 Button(action: onShowMyBox) {
-                    BlindBoxMyBoxIcon(artworkHorizontalOffset: -15)
+                    BlindBoxMyBoxIcon()
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(BlindBoxL10n.myBox)
-                .position(x: 100, y: 257)
+                .position(x: 85, y: 252)
 
                 Button(action: onShowRules) {
                     Image(systemName: "questionmark")
@@ -3498,8 +3498,6 @@ private struct BlindBoxRulesIcon: View {
 }
 
 private struct BlindBoxMyBoxIcon: View {
-    var artworkHorizontalOffset: CGFloat = 0
-
     var body: some View {
         ZStack(alignment: .leading) {
             Capsule()
@@ -3515,7 +3513,6 @@ private struct BlindBoxMyBoxIcon: View {
             BlindBoxImage("BlindBoxMyBoxIcon")
                 .frame(width: 40, height: 40)
                 .frame(width: 46, height: 46)
-                .offset(x: artworkHorizontalOffset)
         }
         .frame(width: 92, height: 43)
         .accessibilityHidden(true)
