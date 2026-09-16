@@ -9,11 +9,12 @@ struct BlindBoxPullInteractionTests {
     func ropeStaysAttachedToLocalArc(size: CGSize) {
         let diameter = max(size.width * 3, size.height * 2.4)
         let radius = diameter / 2
-        let ropeX: CGFloat = 44 - 45 / 2 + 13 * 45 / 68
+        let artworkScale: CGFloat = 45.0 / 68.0
+        let ropeX: CGFloat = 21.5 + 13.0 * artworkScale
         let inset = radius - sqrt(radius * radius - pow(ropeX - size.width / 2, 2))
         for bottom: CGFloat in [52, 100, 300] {
             let center = BlindBoxPullInteraction.ropeCenterY(circleBottom: bottom, size: size, diameter: diameter)
-            let ropeTop = center - (99 * 45 / 68) / 2
+            let ropeTop = center - 49.5 * artworkScale
             #expect(abs(ropeTop - (bottom - inset) + 2) < 0.001)
         }
         #expect(BlindBoxPullInteraction.ropeCenterY(circleBottom: -30, size: size, diameter: diameter) == 38)

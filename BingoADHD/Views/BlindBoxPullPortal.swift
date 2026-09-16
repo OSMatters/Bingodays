@@ -27,14 +27,16 @@ enum BlindBoxPullInteraction {
     static func ropeCenterY(circleBottom: CGFloat, size: CGSize, diameter: CGFloat) -> CGFloat {
         // The first rope bead is at x=13 in the 68px-wide animation,
         // displayed at 45pt inside a button centered at x=44.
-        let ropeX: CGFloat = 44 - 45 / 2 + 13 * 45 / 68
+        let artworkScale: CGFloat = 45.0 / 68.0
+        let ropeX: CGFloat = 21.5 + 13.0 * artworkScale
         let radius = diameter / 2
         let distanceX = ropeX - size.width / 2
         let arcInset = radius - sqrt(max(0, radius * radius - distanceX * distanceX))
         let arcY = circleBottom - arcInset
         // The 99px animation fits to 45pt wide, giving a 65.51pt height.
         // Overlap its top with the arc by 2pt so no detached gap is visible.
-        return max(38, arcY + (99 * 45 / 68) / 2 - 2)
+        let halfArtworkHeight = 49.5 * artworkScale
+        return max(38, arcY + halfArtworkHeight - 2)
     }
 
     static func canBegin(scrollTop: CGFloat, translation: CGSize) -> Bool {

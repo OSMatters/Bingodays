@@ -3511,12 +3511,6 @@ private struct BlindBoxMyBoxIcon: View {
     }
 }
 
-private struct BlindBoxTabBar: View {
-    var body: some View {
-        HomeMainTabBarView(selectedTab: .constant(.points), isPadLayout: false)
-    }
-}
-
 private struct BlindBoxShelf: View {
     var body: some View {
         VStack(spacing: 0) {

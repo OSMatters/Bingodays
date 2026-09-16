@@ -1,5 +1,9 @@
 # Sticker 盲盒：分支、Worktree 与发版协作规范
 
+> 2026-09-16 更新：下文为历史流程，已由 `docs/main-development-workflow.md` 取代。
+> 日常与盲盒开发统一在 `/Users/m98/Desktop/BingoADHD 2` 的本地 `main`。
+> 远程 `origin/main` 仍为独立历史，本次不修改；不要直接 pull、push、强推或使用 allow-unrelated-histories。
+
 状态：已启用  
 建立日期：2026-09-02  
 盲盒基线：`9a9d625`（`release: prepare 4.2.0`）  
@@ -133,4 +137,3 @@ codex/optimization-checkpoint  ───────▶  codex/sticker-blind-box
 - “这是盲盒任务” → 使用 `/Users/m98/Desktop/BingoADHD BlindBox`。
 
 如果请求同时包含两条线，先拆成两个独立提交/任务，再按“常规发布线先完成，盲盒线随后同步”的顺序执行。
-
