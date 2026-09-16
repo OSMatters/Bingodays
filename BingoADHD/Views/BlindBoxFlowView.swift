@@ -3660,6 +3660,41 @@ private struct BlindBoxPremiumPlaceholder: View {
     }
 }
 
+/// Keeps the Figma-authored phone canvas intact while making its presentation
+/// safe for iPad, Split View, and rotation.  Blind Box's artwork and tap
+/// targets share this coordinate system, so scaling the whole canvas is less
+/// error-prone than independently resizing every positioned element.
+enum BlindBoxCanvasLayout {
+    static let referenceSize = CGSize(width: 393, height: 852)
+
+    struct Metrics: Equatable {
+        let scale: CGFloat
+        let canvasSize: CGSize
+        let origin: CGPoint
+    }
+
+    static func metrics(in containerSize: CGSize) -> Metrics {
+        let availableWidth = max(containerSize.width, 1)
+        let availableHeight = max(containerSize.height, 1)
+        let scale = min(
+            availableWidth / referenceSize.width,
+            availableHeight / referenceSize.height
+        )
+        let canvasSize = CGSize(
+            width: referenceSize.width * scale,
+            height: referenceSize.height * scale
+        )
+        return Metrics(
+            scale: scale,
+            canvasSize: canvasSize,
+            origin: CGPoint(
+                x: (availableWidth - canvasSize.width) / 2,
+                y: (availableHeight - canvasSize.height) / 2
+            )
+        )
+    }
+}
+
 private struct BlindBoxCanvas<Content: View>: View {
     let backgroundAssetName: String?
     let contentHorizontalOffset: CGFloat
@@ -3677,15 +3712,14 @@ private struct BlindBoxCanvas<Content: View>: View {
 
     var body: some View {
         GeometryReader { proxy in
-            // Fit the artwork and its hit targets into the current window,
-            // including iPad landscape and multitasking presentations.
-            let scale = min(proxy.size.width / 393, proxy.size.height / 852)
+            let layout = BlindBoxCanvasLayout.metrics(in: proxy.size)
 
             ZStack {
-                // The lobby's supplied artwork is transparent around the cabinet.
-                // Let the pull portal's circle remain visible behind it.
                 if backgroundAssetName != "BlindBoxLobbyBackground" {
-                    Color(hex: "F7E9D5")
+                    BlindBoxCanvasBackdrop(
+                        assetName: backgroundAssetName,
+                        containerSize: proxy.size
+                    )
                 }
 
                 ZStack(alignment: .topLeading) {
@@ -3694,22 +3728,56 @@ private struct BlindBoxCanvas<Content: View>: View {
                             .resizable()
                             .interpolation(.high)
                             .scaledToFill()
-                            .frame(width: 393, height: 852)
+                            .frame(
+                                width: BlindBoxCanvasLayout.referenceSize.width,
+                                height: BlindBoxCanvasLayout.referenceSize.height
+                            )
                             .accessibilityHidden(true)
                     }
 
                     content()
-                        .frame(width: 393, height: 852)
+                        .frame(
+                            width: BlindBoxCanvasLayout.referenceSize.width,
+                            height: BlindBoxCanvasLayout.referenceSize.height
+                        )
                         .offset(x: contentHorizontalOffset)
                 }
-                .frame(width: 393, height: 852)
-                .scaleEffect(scale)
-                // scaleEffect changes rendering, not the layout footprint.
-                .frame(width: 393 * scale, height: 852 * scale)
+                .frame(
+                    width: BlindBoxCanvasLayout.referenceSize.width,
+                    height: BlindBoxCanvasLayout.referenceSize.height,
+                    alignment: .topLeading
+                )
+                .scaleEffect(layout.scale)
+                .frame(width: layout.canvasSize.width, height: layout.canvasSize.height)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .ignoresSafeArea()
+    }
+}
+
+private struct BlindBoxCanvasBackdrop: View {
+    let assetName: String?
+    let containerSize: CGSize
+
+    var body: some View {
+        ZStack {
+            Color(hex: "F7E9D5")
+
+            if let assetName {
+                Image(assetName)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFill()
+                    .frame(width: containerSize.width, height: containerSize.height)
+                    .blur(radius: 24)
+                    .scaleEffect(1.08)
+                    .opacity(0.36)
+                    .accessibilityHidden(true)
+            }
+        }
+        .clipped()
+        .accessibilityHidden(true)
     }
 }
 
