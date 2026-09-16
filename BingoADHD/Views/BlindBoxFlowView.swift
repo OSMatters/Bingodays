@@ -1327,7 +1327,9 @@ private struct BlindBoxLobbyCard: View {
             ZStack(alignment: .bottom) {
                 BlindBoxThemeMiniBox(theme: theme)
                     .frame(width: 137.5, height: 156.5)
-                    .opacity(batch.isSoldOut ? 0.5 : 1)
+                    .saturation(batch.isSoldOut ? 0.08 : 1)
+                    .blur(radius: batch.isSoldOut ? 12 : 0, opaque: batch.isSoldOut)
+                    .opacity(batch.isSoldOut ? 0.32 : 1)
                     .offset(y: -8)
 
                 if batch.isSoldOut {
@@ -1335,18 +1337,15 @@ private struct BlindBoxLobbyCard: View {
                         .frame(width: 137.5, height: 156.5)
                         .offset(y: -8)
 
-                    Capsule()
-                        .fill(Color.white)
-                        .frame(width: 100, height: 22)
-                        .overlay {
-                            BlindBoxRestockCountdownLabel(
-                                restockAt: batch.restockAt(),
-                                prefix: "Refresh in",
-                                font: .appSystem(size: 10, weight: .medium, design: .rounded),
-                                foregroundColor: Color(hex: "594A3D")
-                            )
-                        }
-                        .offset(y: -5)
+                    BlindBoxRestockCountdownLabel(
+                        restockAt: batch.restockAt(),
+                        prefix: "Refresh in",
+                        font: .appSystem(size: 10, weight: .bold, design: .rounded),
+                        foregroundColor: .white
+                    )
+                    .shadow(color: .black.opacity(0.5), radius: 2, y: 1)
+                    .frame(width: 100, height: 22)
+                    .offset(y: -5)
                 } else {
                     Capsule()
                         .fill(Color.white)
@@ -3513,18 +3512,14 @@ private struct BlindBoxShelfStatusOverlay: View {
                 Text(subtitle)
             }
         }
-            .font(.appSystem(size: fontSize, weight: .medium, design: .rounded))
-            .foregroundStyle(.black)
+            .font(.appSystem(size: fontSize, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .minimumScaleFactor(0.62)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white)
-            }
-            .shadow(color: .white.opacity(0.75), radius: 6)
+            .shadow(color: .black.opacity(0.58), radius: 2, y: 1)
         .accessibilityHidden(true)
     }
 }
@@ -3551,7 +3546,9 @@ private struct BlindBoxPremiumPlaceholder: View {
             ZStack {
                 BlindBoxThemeMiniBox(theme: theme)
                     .frame(width: 137.5, height: 156.5)
-                    .opacity(0.5)
+                    .saturation(0.08)
+                    .blur(radius: 12, opaque: true)
+                    .opacity(0.32)
                     .offset(y: -8)
                 BlindBoxShelfStatusOverlay(
                     title: isCollectionComplete ? BlindBoxL10n.moreStylesComingTitle : BlindBoxL10n.unlockMoreBoxesTitle,
