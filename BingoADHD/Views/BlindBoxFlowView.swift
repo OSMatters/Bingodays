@@ -1142,7 +1142,7 @@ private struct BlindBoxLobbyView: View {
     private let referenceWidth: CGFloat = 393
 
     var body: some View {
-        BlindBoxCanvas(backgroundAssetName: "BlindBoxLobbyBackground") {
+        BlindBoxCanvas(backgroundAssetName: "BlindBoxLobbyBackground", backgroundVerticalOffset: 30) {
             ZStack {
                 Button(action: onSelectCustomRewards ?? onDismiss) {
                     Image(systemName: "chevron.left")
@@ -1156,14 +1156,14 @@ private struct BlindBoxLobbyView: View {
                 .position(x: 38, y: 73)
 
                 ticketBadge
-                    .position(x: 272, y: 73)
+                    .position(x: 292, y: 257)
 
                 Button(action: onShowMyBox) {
                     BlindBoxMyBoxIcon()
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(BlindBoxL10n.myBox)
-                .position(x: 185, y: 73)
+                .position(x: 100, y: 257)
 
                 Button(action: onShowRules) {
                     BlindBoxRulesIcon()
@@ -1176,17 +1176,19 @@ private struct BlindBoxLobbyView: View {
 
                 BlindBoxShelf()
                     .frame(width: 360, height: 530)
-                    .position(x: 196, y: 516)
+                    .position(x: 196, y: 546)
 
                 lobbyCandidates
+                    .offset(y: 30)
 
                 if hasCollectedEveryActiveTheme, candidates.isEmpty {
                     BlindBoxCollectionCompleteNotice(onShowMyBox: onShowMyBox)
-                        .position(x: 196, y: 495)
+                        .position(x: 196, y: 525)
                 }
 
                 if !isPremium {
                     premiumPlaceholders
+                        .offset(y: 30)
                 }
 
             }
@@ -3694,15 +3696,18 @@ enum BlindBoxCanvasLayout {
 
 private struct BlindBoxCanvas<Content: View>: View {
     let backgroundAssetName: String?
+    let backgroundVerticalOffset: CGFloat
     let contentHorizontalOffset: CGFloat
     @ViewBuilder let content: () -> Content
 
     init(
         backgroundAssetName: String? = nil,
+        backgroundVerticalOffset: CGFloat = 0,
         contentHorizontalOffset: CGFloat = 5,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.backgroundAssetName = backgroundAssetName
+        self.backgroundVerticalOffset = backgroundVerticalOffset
         self.contentHorizontalOffset = contentHorizontalOffset
         self.content = content
     }
@@ -3730,6 +3735,7 @@ private struct BlindBoxCanvas<Content: View>: View {
                                 height: BlindBoxCanvasLayout.referenceSize.height
                             )
                             .accessibilityHidden(true)
+                            .offset(y: backgroundVerticalOffset)
                     }
 
                     content()
