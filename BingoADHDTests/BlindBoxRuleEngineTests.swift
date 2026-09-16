@@ -1427,7 +1427,7 @@ final class BlindBoxStateMachineTests: XCTestCase {
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let database = InMemoryBlindBoxCloudRecordDatabase()
         try database.seed(
-            BlindBoxCloudKitRecordCodec.makeAccountRecord(BlindBoxCloudAccountEnvelope())
+            BlindBoxCloudKitRecordCodec.makeAccountRecord(BlindBoxCloudAccountEnvelope(accountState: BlindBoxAccountState()))
         )
         try await database.createZone(BlindBoxCloudKitRecordCodec.zoneID)
         let repository = BlindBoxCloudKitAccountStateRepository(database: database)
@@ -1537,7 +1537,7 @@ final class BlindBoxStateMachineTests: XCTestCase {
         )
 
         XCTAssertEqual(store.availability, .ready)
-        XCTAssertEqual(store.accountState.ticketBalance, 1)
+        XCTAssertEqual(store.accountState.ticketBalance, BlindBoxAccountState.initialTicketBalance)
         let batch = try XCTUnwrap(store.accountState.candidateBatches.first)
         let result = try await store.open(
             .single(batchID: batch.id, positionIndex: batch.unopenedPositionPlans[0].index),
@@ -1546,7 +1546,7 @@ final class BlindBoxStateMachineTests: XCTestCase {
         )
 
         XCTAssertEqual(result.ticketCost, 1)
-        XCTAssertEqual(store.accountState.ticketBalance, 0)
+        XCTAssertEqual(store.accountState.ticketBalance, BlindBoxAccountState.initialTicketBalance - 1)
         XCTAssertEqual(store.accountState.ownedStickerCounts.count, 1)
     }
 
@@ -1663,7 +1663,7 @@ final class BlindBoxStateMachineTests: XCTestCase {
 
         let accountRepository = BlindBoxCloudKitAccountStateRepository(database: database)
         var account = try await accountRepository.loadAccount()
-        XCTAssertEqual(account.accountState.ticketBalance, 0)
+        XCTAssertEqual(account.accountState.ticketBalance, BlindBoxAccountState.initialTicketBalance)
         XCTAssertEqual(account.accountState.pendingPointExchange?.idempotencyKey, request.idempotencyKey)
         XCTAssertEqual(account.accountState.pointExchangesUsedOnLastGrantDay, 1)
 
@@ -3086,7 +3086,7 @@ final class BlindBoxInterruptionAndEntitlementRegressionTests: XCTestCase {
         let replay = try await restartedRepository.complete(request, completedAt: requestedAt)
         XCTAssertEqual(replay, completed)
         let restoredAccount = try await BlindBoxCloudKitAccountStateRepository(database: database).loadAccount()
-        XCTAssertEqual(restoredAccount.accountState.ticketBalance, 1)
+        XCTAssertEqual(restoredAccount.accountState.ticketBalance, BlindBoxAccountState.initialTicketBalance + 1)
         XCTAssertNil(restoredAccount.accountState.pendingPointExchange)
         XCTAssertEqual(restoredAccount.accountState.pointExchangesUsedOnLastGrantDay, 1)
     }
