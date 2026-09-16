@@ -11,9 +11,21 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
         let result: BlindBoxOpenResult
     }
 
-    @Published private(set) var state: BlindBoxAccountState
+    private struct SavedPreview: Codable {
+        let state: BlindBoxAccountState
+        let availablePoints: Int
+    }
+
+    private static let persistenceKey = "blindBox.preview.savedState.v1"
+    private var persistence: UserDefaults?
+
+    @Published private(set) var state: BlindBoxAccountState {
+        didSet { savePreview() }
+    }
     @Published private(set) var lastOpenResult: BlindBoxOpenResult?
-    @Published private(set) var previewAvailablePoints: Int
+    @Published private(set) var previewAvailablePoints: Int {
+        didSet { savePreview() }
+    }
 
     private var completedDraws: [UUID: CompletedDraw] = [:]
 
@@ -22,7 +34,8 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
     init(
         themes: [BlindBoxThemeDefinition] = BlindBoxCatalog.builtInThemes,
         previewAvailablePoints: Int = 320,
-        referenceDate: Date = .now
+        referenceDate: Date = .now,
+        persistence: UserDefaults? = nil
     ) {
         self.themes = themes
         self.previewAvailablePoints = max(previewAvailablePoints, 0)
@@ -56,6 +69,28 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
             }
         }
 #endif
+        // Automated fixtures remain isolated; ordinary app sessions resume the
+        // same local wallet and immutable box plans, including opened slots.
+        let hasQAFixture = ProcessInfo.processInfo.environment.keys.contains {
+            $0.hasPrefix("BLINDBOX_QA_")
+        }
+        if !hasQAFixture {
+            if let data = persistence?.data(forKey: Self.persistenceKey),
+               let saved = try? JSONDecoder().decode(SavedPreview.self, from: data) {
+                self.state = saved.state
+                self.previewAvailablePoints = saved.availablePoints
+            }
+            self.persistence = persistence
+            savePreview()
+        }
+    }
+
+    private func savePreview() {
+        guard let persistence,
+              let data = try? JSONEncoder().encode(
+                SavedPreview(state: state, availablePoints: previewAvailablePoints)
+              ) else { return }
+        persistence.set(data, forKey: Self.persistenceKey)
     }
 
     func refreshTickets(hasPremiumAccess: Bool) {

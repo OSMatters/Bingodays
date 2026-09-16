@@ -79,7 +79,10 @@ struct BlindBoxFlowView: View {
         onShowPremiumPaywall: @escaping () -> Void = {}
     ) {
         _store = StateObject(
-            wrappedValue: BlindBoxPreviewStore(previewAvailablePoints: previewAvailablePoints)
+            wrappedValue: BlindBoxPreviewStore(
+                previewAvailablePoints: previewAvailablePoints,
+                persistence: .standard
+            )
         )
         _connectivity = StateObject(
             wrappedValue: BlindBoxConnectivityMonitor(
@@ -218,6 +221,9 @@ struct BlindBoxFlowView: View {
 
         }
         .task(id: subscriptionManager.hasPremiumAccess) {
+            if let pendingReveal = store.state.pendingReveal {
+                route = .reveal(pendingReveal.result)
+            }
             store.refreshTickets(hasPremiumAccess: subscriptionManager.hasPremiumAccess)
         }
         .task(id: "\(entranceReady)-\(routeDescription)-\(store.state.pendingTicketReceipt?.id.uuidString ?? "none")-\(isShowingTicketExchange)-\(isShowingRules)") {
