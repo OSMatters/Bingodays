@@ -1,0 +1,13 @@
+{
+  "images" : [
+    {
+      "filename" : "blindbox_none.png",
+      "idiom" : "universal",
+      "scale" : "1x"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

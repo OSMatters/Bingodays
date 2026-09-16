@@ -36,6 +36,33 @@ enum NativeICloudAnalyticsResult: String {
     case failed
 }
 
+/// The blind-box feature emits only aggregated, product-level events. In
+/// particular, it never sends a draw request UUID, a CloudKit record ID, a
+/// sticker image name or an individual ownership history.
+enum BlindBoxAnalyticsAction: String {
+    case open
+    case pointExchange = "point_exchange"
+}
+
+enum BlindBoxAnalyticsFailureReason: String {
+    case offline
+    case connectionChecking = "connection_checking"
+    case insufficientTickets = "insufficient_tickets"
+    case soldOut = "sold_out"
+    case positionAlreadyOpened = "position_already_opened"
+    case pendingReveal = "pending_reveal"
+    case accountUnavailable = "account_unavailable"
+    case accountContention = "account_contention"
+    case pointBalance = "point_balance"
+    case ticketCap = "ticket_cap"
+    case grantDayLimit = "grant_day_limit"
+    case remoteCatalogUnavailable = "remote_catalog_unavailable"
+    case openingPaused = "opening_paused"
+    case pointExchangeDisabled = "point_exchange_disabled"
+    case pointExchangeConfigurationChanged = "point_exchange_configuration_changed"
+    case requestFailed = "request_failed"
+}
+
 struct CustomRewardVisualAnalyticsDescriptor: Equatable {
     let type: String
     let id: String
@@ -164,6 +191,85 @@ enum AnalyticsService {
         Analytics.logEvent("sticker_redeemed", parameters: [
             "sticker_id": kind.rawValue,
             "required_points": kind.requiredPoints
+        ])
+    }
+
+    static func logBlindBoxLobbyViewed(
+        ticketBalance: Int,
+        candidateCount: Int,
+        hasPremiumAccess: Bool
+    ) {
+        logCustomEvent("blind_box_lobby_viewed", parameters: [
+            "ticket_balance": max(ticketBalance, 0),
+            "candidate_count": max(candidateCount, 0),
+            "is_premium": hasPremiumAccess ? 1 : 0
+        ])
+    }
+
+    static func logBlindBoxBatchViewed(_ batch: BlindBoxCandidateBatch) {
+        logCustomEvent("blind_box_batch_viewed", parameters: [
+            "theme_id": sanitizedBlindBoxThemeID(batch.plan.themeID.rawValue),
+            "catalog_version": batch.plan.catalogVersion,
+            "remaining_positions": batch.remainingPositionCount,
+            "probability_mode": batch.plan.probabilityMode.rawValue
+        ])
+    }
+
+    static func logBlindBoxCollectionViewed(themeCount: Int, ownedStickerTypeCount: Int) {
+        logCustomEvent("blind_box_collection_viewed", parameters: [
+            "theme_count": max(themeCount, 0),
+            "owned_sticker_type_count": max(ownedStickerTypeCount, 0)
+        ])
+    }
+
+    static func logBlindBoxRulesViewed() {
+        logCustomEvent("blind_box_rules_viewed", parameters: [:])
+    }
+
+    static func logBlindBoxOpened(
+        request: BlindBoxDrawRequest,
+        result: BlindBoxOpenResult,
+        theme: BlindBoxThemeDefinition,
+        probabilityMode: BlindBoxProbabilityMode,
+        didCompleteTheme: Bool
+    ) {
+        let hiddenStickerID = theme.hiddenSticker?.id
+        let hiddenCount = result.openedStickers.reduce(into: 0) { count, openedSticker in
+            if openedSticker.stickerID == hiddenStickerID {
+                count += 1
+            }
+        }
+        let duplicateCount = result.openedStickers.filter(\.isDuplicate).count
+
+        logCustomEvent("blind_box_opened", parameters: [
+            "theme_id": sanitizedBlindBoxThemeID(theme.id.rawValue),
+            "catalog_version": theme.catalogVersion,
+            "draw_mode": request.mode.rawValue,
+            "probability_mode": probabilityMode.rawValue,
+            "opened_sticker_count": result.openedStickers.count,
+            "duplicate_sticker_count": duplicateCount,
+            "hidden_sticker_count": hiddenCount,
+            "ticket_cost": result.ticketCost,
+            "ticket_balance_after": result.resultingTicketBalance,
+            "theme_completed": didCompleteTheme ? 1 : 0
+        ])
+    }
+
+    static func logBlindBoxPointTicketExchanged(result: BlindBoxPointExchangeResult) {
+        logCustomEvent("blind_box_point_ticket_exchanged", parameters: [
+            "point_cost": result.deductedPoints,
+            "ticket_count": result.grantedTickets,
+            "ticket_balance_after": result.resultingTicketBalance
+        ])
+    }
+
+    static func logBlindBoxActionFailed(
+        action: BlindBoxAnalyticsAction,
+        reason: BlindBoxAnalyticsFailureReason
+    ) {
+        logCustomEvent("blind_box_action_failed", parameters: [
+            "action": action.rawValue,
+            "reason": reason.rawValue
         ])
     }
 
@@ -571,6 +677,11 @@ enum AnalyticsService {
         case .none:
             return "failed"
         }
+    }
+
+    private static func sanitizedBlindBoxThemeID(_ themeID: String) -> String {
+        let trimmed = themeID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "unknown" : String(trimmed.prefix(100))
     }
 
     private static func logCustomEvent(_ name: String, parameters: [String: Any]) {

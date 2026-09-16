@@ -577,6 +577,7 @@ final class SubscriptionManager: ObservableObject {
     }
 
     private func applyLegacyStoreKitEntitlement(_ entitlement: StoreKitEntitlement) {
+        guard !AppDebugFlags.forceNoPremiumAccess else { return }
         let isLifetime = Self.isLifetimeProductID(entitlement.productID)
         let plan = isLifetime ? nil : planKind(for: entitlement.productID)
 
@@ -590,6 +591,17 @@ final class SubscriptionManager: ObservableObject {
     }
 
     private func apply(customerInfo: CustomerInfo, marksRefreshComplete: Bool = true) {
+        if AppDebugFlags.forceNoPremiumAccess {
+            activeProductIDs = []
+            hasLifetimeAccess = false
+            hasActiveAutoRenewable = false
+            hasPremiumAccess = false
+            autoRenewablePlanKind = nil
+            currentPlanKind = nil
+            currentPlanExpirationDate = nil
+            if marksRefreshComplete { hasCompletedEntitlementRefresh = true }
+            return
+        }
         let previousHasPremiumAccess = hasPremiumAccess
         let previousProductID = activeProductIDs.first
         let entitlement = customerInfo.entitlements[Self.premiumEntitlementID]

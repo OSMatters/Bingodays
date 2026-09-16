@@ -25,8 +25,8 @@ struct PointsRedemptionHistorySheet: View {
         let recordedItems = records.map { record in
             HistoryItem(
                 id: record.id.uuidString,
-                title: record.itemKind == .sticker ? stickerHistoryTitle(record.title) : record.title,
-                detail: record.itemKind == .sticker ? L10n.stickers : L10n.myRewards,
+                title: historyTitle(for: record),
+                detail: historyDetail(for: record),
                 points: record.points,
                 redeemedAt: record.redeemedAt,
                 imageName: record.imageName,
@@ -94,6 +94,31 @@ struct PointsRedemptionHistorySheet: View {
             normalized = normalized.replacingOccurrences(of: suffix, with: "")
         }
         return normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func historyTitle(for record: PointRedemptionRecord) -> String {
+        switch record.itemKind {
+        case .sticker:
+            stickerHistoryTitle(record.title)
+        case .customReward, .blindBoxTicket:
+            record.title
+        }
+    }
+
+    private func historyDetail(for record: PointRedemptionRecord) -> String {
+        switch record.itemKind {
+        case .sticker:
+            L10n.stickers
+        case .customReward:
+            L10n.myRewards
+        case .blindBoxTicket:
+            L10n.tr(
+                "Blind Box",
+                zhHans: "盲盒",
+                zhHant: "盲盒",
+                ja: "ブラインドボックス"
+            )
+        }
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {

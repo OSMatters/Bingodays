@@ -1,0 +1,53 @@
+name: Publish Blind Box Catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: CloudKit environment to publish to
+        required: true
+        default: development
+        type: choice
+        options:
+          - development
+          - production
+      publish:
+        description: Upload the validated bundle (leave unchecked for validation only)
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDKIT_CONTAINER: iCloud.com.bingoday.app.coredata
+      CLOUDKIT_ENVIRONMENT: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate and package catalog
+        run: >-
+          node Tools/BlindBoxCatalogAdmin/pack-and-publish.mjs
+          --input blindbox-catalog/release.json
+          --artwork-dir blindbox-catalog/artwork
+          --out .build/blindbox-catalog-bundle.json
+
+      - name: Publish validated catalog
+        if: ${{ inputs.publish }}
+        env:
+          CLOUDKIT_KEY_ID: ${{ secrets.CLOUDKIT_KEY_ID }}
+          CLOUDKIT_PRIVATE_KEY_PEM: ${{ secrets.CLOUDKIT_PRIVATE_KEY_PEM }}
+        run: >-
+          node Tools/BlindBoxCatalogAdmin/pack-and-publish.mjs
+          --publish
+          --input blindbox-catalog/release.json
+          --artwork-dir blindbox-catalog/artwork
+          --out .build/blindbox-catalog-bundle.json

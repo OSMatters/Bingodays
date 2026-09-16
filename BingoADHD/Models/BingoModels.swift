@@ -1068,6 +1068,7 @@ struct PointRedemptionRecord: Identifiable, Codable, Equatable {
     enum ItemKind: String, Codable {
         case sticker
         case customReward
+        case blindBoxTicket
     }
 
     let id: UUID
@@ -1112,6 +1113,10 @@ struct PointRedemptionRecord: Identifiable, Codable, Equatable {
         "reward:\(rewardID.uuidString.lowercased())"
     }
 
+    static func blindBoxTicketReferenceID(_ exchangeID: UUID) -> String {
+        "blind-box-ticket:\(exchangeID.uuidString.lowercased())"
+    }
+
     var referencedStickerKind: StickerKind? {
         guard let itemReferenceID,
               itemReferenceID.hasPrefix("sticker:") else { return nil }
@@ -1122,6 +1127,12 @@ struct PointRedemptionRecord: Identifiable, Codable, Equatable {
         guard let itemReferenceID,
               itemReferenceID.hasPrefix("reward:") else { return nil }
         return UUID(uuidString: String(itemReferenceID.dropFirst("reward:".count)))
+    }
+
+    var referencedBlindBoxTicketExchangeID: UUID? {
+        guard let itemReferenceID,
+              itemReferenceID.hasPrefix("blind-box-ticket:") else { return nil }
+        return UUID(uuidString: String(itemReferenceID.dropFirst("blind-box-ticket:".count)))
     }
 
     func linked(to itemReferenceID: String) -> PointRedemptionRecord {
@@ -1348,6 +1359,8 @@ enum AppSettings {
     static let redeemedStickersKey = "redeemed_stickers_v1"
     static let redeemedStickerOrderKey = "redeemed_sticker_order_v1"
     static let stickerInventoryCountsKey = "sticker_inventory_counts_v1"
+    static let blindBoxLocalStateKey = "blind_box_local_state_v1"
+    static let blindBoxCatalogReleaseKey = "blind_box_catalog_release_v1"
     static let homeStickerPlacementsKey = "home_sticker_placements_v1"
     static let customRewardsKey = "custom_rewards_v1"
     static let pointRedemptionHistoryKey = "point_redemption_history_v1"

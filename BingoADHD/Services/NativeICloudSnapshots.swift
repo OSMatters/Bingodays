@@ -258,10 +258,65 @@ enum NativeICloudPrimaryStateMerger {
             diaryEntries: localHasNewerUserChange ? local.diaryEntries : incoming.diaryEntries,
             timeoutPayload: localHasNewerUserChange ? local.timeoutPayload : incoming.timeoutPayload,
             customRewards: localHasNewerUserChange ? local.customRewards : incoming.customRewards,
-            redemptionHistory: localHasNewerUserChange ? local.redemptionHistory : incoming.redemptionHistory,
+            // Redemption records are append-only purchase evidence (with an
+            // optional irreversible revocation marker), not a mutable view
+            // model. Taking only one device's whole array can erase a blind-box
+            // ticket charge that has already reserved a private CloudKit ticket
+            // slot. Merge by stable record ID instead.
+            redemptionHistory: mergedRedemptionHistory(
+                local: local.redemptionHistory,
+                incoming: incoming.redemptionHistory
+            ),
             stickerInventory: localHasNewerUserChange ? local.stickerInventory : incoming.stickerInventory,
             stickerPlacements: localHasNewerUserChange ? local.stickerPlacements : incoming.stickerPlacements
         ))
+    }
+
+    private static func mergedRedemptionHistory(
+        local: [PointRedemptionRecord],
+        incoming: [PointRedemptionRecord]
+    ) -> [PointRedemptionRecord] {
+        var recordsByID: [UUID: PointRedemptionRecord] = [:]
+        for record in local + incoming {
+            guard let existing = recordsByID[record.id] else {
+                recordsByID[record.id] = record
+                continue
+            }
+            recordsByID[record.id] = mergedRedemptionRecord(existing, record)
+        }
+
+        return recordsByID.values.sorted { lhs, rhs in
+            if lhs.redeemedAt != rhs.redeemedAt {
+                return lhs.redeemedAt > rhs.redeemedAt
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
+    private static func mergedRedemptionRecord(
+        _ lhs: PointRedemptionRecord,
+        _ rhs: PointRedemptionRecord
+    ) -> PointRedemptionRecord {
+        // A revocation is a safety action. Once any synced copy has recorded
+        // it, an older active snapshot must never resurrect that purchase.
+        if lhs.isActive != rhs.isActive {
+            return lhs.isActive ? rhs : lhs
+        }
+        if lhs.revokedAt != rhs.revokedAt {
+            switch (lhs.revokedAt, rhs.revokedAt) {
+            case let (leftDate?, rightDate?):
+                return leftDate >= rightDate ? lhs : rhs
+            case (.some, nil):
+                return lhs
+            case (nil, .some):
+                return rhs
+            case (nil, nil):
+                break
+            }
+        }
+        // Record fields are immutable after creation. For the unexpected case
+        // of two active payloads sharing an ID, retain the later evidence.
+        return lhs.redeemedAt >= rhs.redeemedAt ? lhs : rhs
     }
 
     static func removingRedundantStarterGuideBoards(

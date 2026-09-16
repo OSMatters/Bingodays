@@ -630,6 +630,22 @@ enum L10n {
     static var paywallLastMonthSpecialOffer: String { tr("Last month of special offer", zhHans: "限时优惠最后一个月", zhHant: "限時優惠最後一個月", ja: "特別オファー最終月") }
     static var paywallSpecialOfferCountdown: String { tr("Offer countdown", zhHans: "优惠结束倒计时", zhHant: "優惠結束倒計時", ja: "オファー終了まで") }
     static var paywallGetFullAccess: String { tr("Get full Access", zhHans: "解锁全部权益", zhHant: "解鎖全部權益", ja: "全機能を利用") }
+    static var paywallBenefitBlindBoxTitle: String {
+        tr(
+            "Full access to Blind Box",
+            zhHans: "完整解锁盲盒玩法",
+            zhHant: "完整解鎖盲盒玩法",
+            ja: "ブラインドボックスをフル解放"
+        )
+    }
+    static var paywallBenefitBlindBoxSubtitle: String {
+        tr(
+            "More tickets and Blind Box slots, more surprises to discover.",
+            zhHans: "更多盲盒券和盲盒位，收获更多开盒惊喜",
+            zhHant: "更多盲盒券和盲盒位，收穫更多開盒驚喜",
+            ja: "チケットもボックス枠も増えて、開封のワクワクがもっと広がる。"
+        )
+    }
     static var paywallBenefitUnlimitedBoardsTitle: String { tr("Unlimited Boards", zhHans: "无限棋盘", zhHant: "無限棋盤", ja: "無制限ボード") }
     static var paywallBenefitUnlimitedBoardsSubtitle: String { tr("Make as many boards as you want.", zhHans: "按需创建任意数量的棋盘。", zhHant: "按需建立任意數量的棋盤。", ja: "好きなだけボードを作成できます。") }
     static var paywallBenefitBiggerBoardsTitle: String { tr("Bigger Boards", zhHans: "更大棋盘", zhHant: "更大棋盤", ja: "大きなボード") }

@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BC1300000000000000000001 /* BlindBoxPullPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1300000000000000000002; };
+		BC1300000000000000000003 /* BlindBoxMotion in Resources */ = {isa = PBXBuildFile; fileRef = BC1300000000000000000004; };
+		BC1300000000000000000005 /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = BC1300000000000000000006; };
 		F2C100000000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F2C100000000000000000003 /* PrivacyInfo.xcprivacy */; };
 		F2C100000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F2C100000000000000000004 /* PrivacyInfo.xcprivacy */; };
 		C10D00000000000000000001 /* NativeICloudPersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000003 /* NativeICloudPersistenceController.swift */; };
@@ -41,6 +44,20 @@
 		B0A1D2E3F4A5061728394C11 /* WidgetTaskToggleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394C10 /* WidgetTaskToggleService.swift */; };
 		B0A1D2E3F4A5061728394C12 /* WidgetTaskToggleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394C10 /* WidgetTaskToggleService.swift */; };
 		B0A1D2E3F4A5061728394D01 /* BoardRuleGuardrailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394D00 /* BoardRuleGuardrailTests.swift */; };
+		B10C0000000000000000000B /* BlindBoxRuleEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10C0000000000000000000A /* BlindBoxRuleEngineTests.swift */; };
+		B10D0000000000000000000B /* BlindBoxStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10D0000000000000000000A /* BlindBoxStateMachine.swift */; };
+		B10E0000000000000000000B /* BlindBoxPreviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10E0000000000000000000A /* BlindBoxPreviewStore.swift */; };
+		B10F0000000000000000000B /* BlindBoxFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10F0000000000000000000A /* BlindBoxFlowView.swift */; };
+		B1100000000000000000000B /* BlindBoxLegacyMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1100000000000000000000A /* BlindBoxLegacyMigration.swift */; };
+		B1110000000000000000000B /* BlindBoxCatalogCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1110000000000000000000A /* BlindBoxCatalogCache.swift */; };
+		B1120000000000000000000B /* BlindBoxConnectivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1120000000000000000000A /* BlindBoxConnectivityMonitor.swift */; };
+		B1130000000000000000000B /* BlindBoxCloudKitRecordCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1130000000000000000000A /* BlindBoxCloudKitRecordCodec.swift */; };
+		B1140000000000000000000B /* BlindBoxCloudKitRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1140000000000000000000A /* BlindBoxCloudKitRepository.swift */; };
+		B1150000000000000000000B /* BlindBoxFeatureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1150000000000000000000A /* BlindBoxFeatureStore.swift */; };
+		B1160000000000000000000B /* BlindBoxCatalogBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1160000000000000000000A /* BlindBoxCatalogBundle.swift */; };
+		B1170000000000000000000B /* BlindBoxCatalogBundleCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1170000000000000000000A /* BlindBoxCatalogBundleCache.swift */; };
+		B1180000000000000000000B /* BlindBoxCatalogArtworkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1180000000000000000000A /* BlindBoxCatalogArtworkStore.swift */; };
+		B1190000000000000000000B /* BlindBoxCloudKitCatalogRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1190000000000000000000A /* BlindBoxCloudKitCatalogRepository.swift */; };
 		B0A1D2E3F4A5061728394E01 /* TaskStartReminderSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394E00 /* TaskStartReminderSyncStore.swift */; };
 		B0A1D2E3F4A5061728394F01 /* HomeBoardSnapshotSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394F00 /* HomeBoardSnapshotSyncStore.swift */; };
 		B0A1D2E3F4A5061728395001 /* HomeLifecycleWorkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728395000 /* HomeLifecycleWorkStore.swift */; };
@@ -77,6 +94,7 @@
 		AA30000000000000000001 /* BingoADHDApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000001 /* BingoADHDApp.swift */; };
 		AA30000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000002 /* ContentView.swift */; };
 		AA30000000000000000003 /* BingoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000003 /* BingoModels.swift */; };
+		B10B0000000000000000000B /* BlindBoxRuleEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10B0000000000000000000A /* BlindBoxRuleEngine.swift */; };
 		AA30000000000000000034 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000034 /* Localization.swift */; };
 			AA30000000000000000036 /* PointsStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000035 /* PointsStores.swift */; };
 			AA30000000000000000037 /* TaskStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000036 /* TaskStores.swift */; };
@@ -218,6 +236,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		BC1300000000000000000002 /* BlindBoxPullPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxPullPortal.swift; sourceTree = "<group>"; };
+		BC1300000000000000000004 /* BlindBoxMotion */ = {isa = PBXFileReference; lastKnownFileType = folder; name = BlindBoxMotion; path = BingoADHD/Resources/BlindBoxMotion; sourceTree = SOURCE_ROOT; };
 		F2C100000000000000000003 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		F2C100000000000000000004 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		C10D00000000000000000003 /* NativeICloudPersistenceController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeICloudPersistenceController.swift; sourceTree = "<group>"; };
@@ -244,6 +264,20 @@
 				AA20000000000000000001 /* BingoADHDApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHDApp.swift; sourceTree = "<group>"; };
 		AA20000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 			AA20000000000000000003 /* BingoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoModels.swift; sourceTree = "<group>"; };
+		B10B0000000000000000000A /* BlindBoxRuleEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxRuleEngine.swift; sourceTree = "<group>"; };
+		B10D0000000000000000000A /* BlindBoxStateMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxStateMachine.swift; sourceTree = "<group>"; };
+		B10E0000000000000000000A /* BlindBoxPreviewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxPreviewStore.swift; sourceTree = "<group>"; };
+		B10F0000000000000000000A /* BlindBoxFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxFlowView.swift; sourceTree = "<group>"; };
+		B1100000000000000000000A /* BlindBoxLegacyMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxLegacyMigration.swift; sourceTree = "<group>"; };
+		B1110000000000000000000A /* BlindBoxCatalogCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCatalogCache.swift; sourceTree = "<group>"; };
+		B1120000000000000000000A /* BlindBoxConnectivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxConnectivityMonitor.swift; sourceTree = "<group>"; };
+		B1130000000000000000000A /* BlindBoxCloudKitRecordCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCloudKitRecordCodec.swift; sourceTree = "<group>"; };
+		B1140000000000000000000A /* BlindBoxCloudKitRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCloudKitRepository.swift; sourceTree = "<group>"; };
+		B1150000000000000000000A /* BlindBoxFeatureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxFeatureStore.swift; sourceTree = "<group>"; };
+		B1160000000000000000000A /* BlindBoxCatalogBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCatalogBundle.swift; sourceTree = "<group>"; };
+		B1170000000000000000000A /* BlindBoxCatalogBundleCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCatalogBundleCache.swift; sourceTree = "<group>"; };
+		B1180000000000000000000A /* BlindBoxCatalogArtworkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCatalogArtworkStore.swift; sourceTree = "<group>"; };
+		B1190000000000000000000A /* BlindBoxCloudKitCatalogRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxCloudKitCatalogRepository.swift; sourceTree = "<group>"; };
 				AA20000000000000000034 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 				AA20000000000000000035 /* PointsStores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointsStores.swift; sourceTree = "<group>"; };
 				AA20000000000000000036 /* TaskStores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskStores.swift; sourceTree = "<group>"; };
@@ -333,6 +367,7 @@
 			B0A1D2E3F4A5061728394C00 /* WidgetTaskStores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetTaskStores.swift; sourceTree = "<group>"; };
 			B0A1D2E3F4A5061728394C10 /* WidgetTaskToggleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetTaskToggleService.swift; sourceTree = "<group>"; };
 			B0A1D2E3F4A5061728394D00 /* BoardRuleGuardrailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardRuleGuardrailTests.swift; sourceTree = "<group>"; };
+			B10C0000000000000000000A /* BlindBoxRuleEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxRuleEngineTests.swift; sourceTree = "<group>"; };
 			B0A1D2E3F4A5061728394E00 /* TaskStartReminderSyncStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskStartReminderSyncStore.swift; sourceTree = "<group>"; };
 			B0A1D2E3F4A5061728394F00 /* HomeBoardSnapshotSyncStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeBoardSnapshotSyncStore.swift; sourceTree = "<group>"; };
 			B0A1D2E3F4A5061728395000 /* HomeLifecycleWorkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeLifecycleWorkStore.swift; sourceTree = "<group>"; };
@@ -378,6 +413,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F1A000000000000000000001 /* Vendor/libpag.xcframework in Frameworks */,
+				BC1300000000000000000005 /* Lottie in Frameworks */,
 				72020CAB0109FCCA58480539 /* FirebaseAnalytics in Frameworks */,
 				DEE0056F533BED09AA349A7E /* FirebaseCore in Frameworks */,
 				A1B2C3D4E5F60718293A4B5C /* FirebaseRemoteConfig in Frameworks */,
@@ -415,9 +451,16 @@
 					C10D00000000000000000013 /* NativeICloudRuntime.swift */,
 					C10D00000000000000000016 /* NativeICloudSyncCoordinator.swift */,
 					8AC2258B11394074AC4D20D7 /* AnalyticsService.swift */,
-					D1A900000000000000000002 /* DiagnosticLogStore.swift */,
-					92C0A86195B344B18448B7F3 /* AppDebugFlags.swift */,
-					AA20000000000000000013 /* AppUpdateService.swift */,
+				D1A900000000000000000002 /* DiagnosticLogStore.swift */,
+				92C0A86195B344B18448B7F3 /* AppDebugFlags.swift */,
+				B1110000000000000000000A /* BlindBoxCatalogCache.swift */,
+				B1170000000000000000000A /* BlindBoxCatalogBundleCache.swift */,
+				B1180000000000000000000A /* BlindBoxCatalogArtworkStore.swift */,
+				B1190000000000000000000A /* BlindBoxCloudKitCatalogRepository.swift */,
+				B1120000000000000000000A /* BlindBoxConnectivityMonitor.swift */,
+				B1130000000000000000000A /* BlindBoxCloudKitRecordCodec.swift */,
+				B1140000000000000000000A /* BlindBoxCloudKitRepository.swift */,
+				AA20000000000000000013 /* AppUpdateService.swift */,
 					AA2000000000000000001E /* BoardResetCoordinator.swift */,
 					B0A1D2E3F4A5061728394F00 /* HomeBoardSnapshotSyncStore.swift */,
 					B0A1D2E3F4A5061728395000 /* HomeLifecycleWorkStore.swift */,
@@ -504,7 +547,11 @@
 			AA10000000000000000005 /* Models */ = {
 				isa = PBXGroup;
 				children = (
-					AA20000000000000000003 /* BingoModels.swift */,
+				AA20000000000000000003 /* BingoModels.swift */,
+				B10B0000000000000000000A /* BlindBoxRuleEngine.swift */,
+				B1160000000000000000000A /* BlindBoxCatalogBundle.swift */,
+				B10D0000000000000000000A /* BlindBoxStateMachine.swift */,
+				B1100000000000000000000A /* BlindBoxLegacyMigration.swift */,
 					B0A1D2E3F4A5061728394B50 /* BoardEngine.swift */,
 					B0A1D2E3F4A5061728394B60 /* BoardResetRuleEngine.swift */,
 					B0A1D2E3F4A5061728394B70 /* BingoDiaryStore.swift */,
@@ -536,6 +583,8 @@
 						DD90FB57756C4FB6849FC680 /* PointsAnimationStore.swift */,
 					AA20000000000000000018 /* PointsFeatureStore.swift */,
 					B51000000000000000000002 /* BoardSharePresentationStore.swift */,
+				B10E0000000000000000000A /* BlindBoxPreviewStore.swift */,
+				B1150000000000000000000A /* BlindBoxFeatureStore.swift */,
 					E4FD4267FD4245D696BC64DE /* TimeoutDelayPickerStore.swift */,
 				);
 			path = ViewModels;
@@ -545,6 +594,7 @@
 			isa = PBXGroup;
 				children = (
 					B46D7F0F4C2A4CD09F3D6CF6 /* AppFont.swift */,
+					B10F0000000000000000000A /* BlindBoxFlowView.swift */,
 					AA20000000000000000005 /* BingoBoardView.swift */,
 					C10D00000000000000000018 /* NativeICloudSettingsView.swift */,
 					AA20000000000000000006 /* BingoCellView.swift */,
@@ -553,6 +603,8 @@
 				AA20000000000000000010 /* NeumorphicStyles.swift */,
 				AA20000000000000000011 /* OnboardingFlowView.swift */,
 				AA20000000000000000012 /* PointsFlowSheet.swift */,
+				BC1300000000000000000002 /* BlindBoxPullPortal.swift */,
+				BC1300000000000000000004 /* BlindBoxMotion */,
 				AA2000000000000000003A /* PointsFlowOverlays.swift */,
 				AA2000000000000000003B /* PointsRedemptionHistorySheet.swift */,
 				AA2000000000000000003C /* RewardEditorSheet.swift */,
@@ -635,6 +687,7 @@
 			isa = PBXGroup;
 			children = (
 				B0A1D2E3F4A5061728394D00 /* BoardRuleGuardrailTests.swift */,
+				B10C0000000000000000000A /* BlindBoxRuleEngineTests.swift */,
 				C10D00000000000000000004 /* NativeICloudPersistenceTests.swift */,
 				B51000000000000000000004 /* BoardShareTests.swift */,
 			);
@@ -678,6 +731,7 @@
 			);
 			name = BingoADHD;
 			packageProductDependencies = (
+				BC1300000000000000000006 /* Lottie */,
 				C5F91D46E6B33A1CCCE05E7E /* FirebaseAnalytics */,
 				DB82D96A52DC3B33C6260262 /* FirebaseCore */,
 				A1B2C3D4E5F60718293A4B5D /* FirebaseRemoteConfig */,
@@ -754,6 +808,7 @@
 			);
 			mainGroup = AA10000000000000000002;
 			packageReferences = (
+				BC1300000000000000000007 /* lottie-ios */,
 				9F5E85A358CC98E478BC47F1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				C4D5E6F708192A3B4C5D6E81 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
 			);
@@ -783,6 +838,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F2C100000000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
+				BC1300000000000000000003 /* BlindBoxMotion in Resources */,
 				F1A000000000000000000003 /* cat_bmp.pag in Resources */,
 				F1A000000000000000000041 /* complete_once_bmp.pag in Resources */,
 				F1A000000000000000000042 /* complete_bingo_background_bmp.pag in Resources */,
@@ -861,6 +917,20 @@
 				C10D00000000000000000019 /* NativeICloudSettingsView.swift in Sources */,
 				AA30000000000000000002 /* ContentView.swift in Sources */,
 				AA30000000000000000003 /* BingoModels.swift in Sources */,
+				B10B0000000000000000000B /* BlindBoxRuleEngine.swift in Sources */,
+				B10D0000000000000000000B /* BlindBoxStateMachine.swift in Sources */,
+				B10E0000000000000000000B /* BlindBoxPreviewStore.swift in Sources */,
+				B10F0000000000000000000B /* BlindBoxFlowView.swift in Sources */,
+				B1100000000000000000000B /* BlindBoxLegacyMigration.swift in Sources */,
+				B1110000000000000000000B /* BlindBoxCatalogCache.swift in Sources */,
+				B1120000000000000000000B /* BlindBoxConnectivityMonitor.swift in Sources */,
+				B1130000000000000000000B /* BlindBoxCloudKitRecordCodec.swift in Sources */,
+				B1140000000000000000000B /* BlindBoxCloudKitRepository.swift in Sources */,
+				B1150000000000000000000B /* BlindBoxFeatureStore.swift in Sources */,
+				B1160000000000000000000B /* BlindBoxCatalogBundle.swift in Sources */,
+				B1170000000000000000000B /* BlindBoxCatalogBundleCache.swift in Sources */,
+				B1180000000000000000000B /* BlindBoxCatalogArtworkStore.swift in Sources */,
+				B1190000000000000000000B /* BlindBoxCloudKitCatalogRepository.swift in Sources */,
 				B0A1D2E3F4A5061728394B51 /* BoardEngine.swift in Sources */,
 				B0A1D2E3F4A5061728394B61 /* BoardResetRuleEngine.swift in Sources */,
 				B0A1D2E3F4A5061728394B71 /* BingoDiaryStore.swift in Sources */,
@@ -882,6 +952,7 @@
 				AA30000000000000000010 /* NeumorphicStyles.swift in Sources */,
 				AA30000000000000000011 /* OnboardingFlowView.swift in Sources */,
 				AA30000000000000000012 /* PointsFlowSheet.swift in Sources */,
+				BC1300000000000000000001 /* BlindBoxPullPortal.swift in Sources */,
 				AA3000000000000000003B /* PointsFlowOverlays.swift in Sources */,
 				AA3000000000000000003C /* PointsRedemptionHistorySheet.swift in Sources */,
 				AA3000000000000000003D /* RewardEditorSheet.swift in Sources */,
@@ -967,6 +1038,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B0A1D2E3F4A5061728394D01 /* BoardRuleGuardrailTests.swift in Sources */,
+				B10C0000000000000000000B /* BlindBoxRuleEngineTests.swift in Sources */,
 				C10D00000000000000000005 /* NativeICloudPersistenceTests.swift in Sources */,
 				B51000000000000000000014 /* BoardShareTests.swift in Sources */,
 			);
@@ -1321,6 +1393,11 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		BC1300000000000000000007 /* lottie-ios */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/airbnb/lottie-ios";
+			requirement = {kind = exactVersion; version = 4.5.2; };
+		};
 		9F5E85A358CC98E478BC47F1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk.git";
@@ -1340,6 +1417,7 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		BC1300000000000000000006 /* Lottie */ = {isa = XCSwiftPackageProductDependency; package = BC1300000000000000000007; productName = Lottie; };
 		A1B2C3D4E5F60718293A4B5D /* FirebaseRemoteConfig */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 9F5E85A358CC98E478BC47F1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
