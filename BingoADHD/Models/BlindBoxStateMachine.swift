@@ -66,16 +66,21 @@ struct BlindBoxTicketReceipt: Codable, Equatable, Sendable, Identifiable {
 
 struct BlindBoxAccountState: Codable, Equatable, Sendable {
     static let currentSchemaVersion = 1
-    /// Every newly created Blind Box wallet starts with three launch tickets.
-    static let initialTicketBalance = 3
+    /// One-time launch gift; the first daily allowance is granted separately.
+    static let initialTicketBalance = 2
 
     var schemaVersion: Int
     var ticketBalance: Int
     var ownedStickerCounts: [String: Int]
     var candidateBatches: [BlindBoxCandidateBatch]
     var lastTicketGrantDayIdentifier: String?
+    /// The account's initial time zone defines its persisted 04:00 grant-day
+    /// boundary. Device time-zone changes must not create a second grant day.
+    var grantDayTimeZoneIdentifier: String?
     // Optional for backwards-compatible decoding of existing CloudKit accounts.
     var settledDailyTicketAllowance: Int?
+    var rewardedPremiumPurchaseIDs: Set<String> = []
+    var unassignedPremiumTopUp: BlindBoxTicketReceipt?
     var pendingTicketReceipt: BlindBoxTicketReceipt?
     var lastPointExchangeDayIdentifier: String?
     var pointExchangesUsedOnLastGrantDay: Int
@@ -88,6 +93,7 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
         ownedStickerCounts: [String: Int] = [:],
         candidateBatches: [BlindBoxCandidateBatch] = [],
         lastTicketGrantDayIdentifier: String? = nil,
+        grantDayTimeZoneIdentifier: String? = nil,
         lastPointExchangeDayIdentifier: String? = nil,
         pointExchangesUsedOnLastGrantDay: Int = 0,
         pendingPointExchange: BlindBoxPendingPointExchange? = nil,
@@ -101,6 +107,7 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
         }
         self.candidateBatches = candidateBatches
         self.lastTicketGrantDayIdentifier = lastTicketGrantDayIdentifier
+        self.grantDayTimeZoneIdentifier = grantDayTimeZoneIdentifier
         self.lastPointExchangeDayIdentifier = lastPointExchangeDayIdentifier
         self.pointExchangesUsedOnLastGrantDay = max(pointExchangesUsedOnLastGrantDay, 0)
         self.pendingPointExchange = pendingPointExchange
@@ -120,7 +127,9 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, ticketBalance, ownedStickerCounts, candidateBatches
-        case lastTicketGrantDayIdentifier, settledDailyTicketAllowance, pendingTicketReceipt
+        case lastTicketGrantDayIdentifier, grantDayTimeZoneIdentifier
+        case settledDailyTicketAllowance, pendingTicketReceipt
+        case rewardedPremiumPurchaseIDs, unassignedPremiumTopUp
         case lastPointExchangeDayIdentifier, pointExchangesUsedOnLastGrantDay
         case pendingPointExchange, pendingReveal
     }
@@ -138,11 +147,14 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
         }
         candidateBatches = try values.decode([BlindBoxCandidateBatch].self, forKey: .candidateBatches)
         lastTicketGrantDayIdentifier = try values.decodeIfPresent(String.self, forKey: .lastTicketGrantDayIdentifier)
+        grantDayTimeZoneIdentifier = try values.decodeIfPresent(String.self, forKey: .grantDayTimeZoneIdentifier)
         settledDailyTicketAllowance = try values.decodeIfPresent(Int.self, forKey: .settledDailyTicketAllowance)
         if let allowance = settledDailyTicketAllowance, ![0, 1, 3].contains(allowance) {
             throw DecodingError.dataCorruptedError(forKey: .settledDailyTicketAllowance, in: values, debugDescription: "Invalid settled daily allowance.")
         }
         pendingTicketReceipt = try values.decodeIfPresent(BlindBoxTicketReceipt.self, forKey: .pendingTicketReceipt)
+        rewardedPremiumPurchaseIDs = try values.decodeIfPresent(Set<String>.self, forKey: .rewardedPremiumPurchaseIDs) ?? []
+        unassignedPremiumTopUp = try values.decodeIfPresent(BlindBoxTicketReceipt.self, forKey: .unassignedPremiumTopUp)
         lastPointExchangeDayIdentifier = try values.decodeIfPresent(String.self, forKey: .lastPointExchangeDayIdentifier)
         pointExchangesUsedOnLastGrantDay = try values.decode(Int.self, forKey: .pointExchangesUsedOnLastGrantDay)
         guard (0...3).contains(pointExchangesUsedOnLastGrantDay) else {
@@ -418,6 +430,35 @@ enum BlindBoxGrantDay {
             components.day ?? 0
         )
     }
+
+    static func calendar(
+        for state: BlindBoxAccountState,
+        fallback: Calendar
+    ) -> Calendar {
+        guard let identifier = state.grantDayTimeZoneIdentifier,
+              let timeZone = TimeZone(identifier: identifier) else {
+            return fallback
+        }
+        var calendar = fallback
+        calendar.timeZone = timeZone
+        return calendar
+    }
+
+    static func currentIdentifier(
+        for state: BlindBoxAccountState,
+        now: Date,
+        fallbackCalendar: Calendar
+    ) -> String {
+        identifier(for: now, calendar: calendar(for: state, fallback: fallbackCalendar))
+    }
+
+    static func persistTimeZoneIfNeeded(
+        in state: inout BlindBoxAccountState,
+        fallbackCalendar: Calendar
+    ) {
+        guard state.grantDayTimeZoneIdentifier == nil else { return }
+        state.grantDayTimeZoneIdentifier = fallbackCalendar.timeZone.identifier
+    }
 }
 
 struct BlindBoxDailyTicketRefreshResult: Equatable, Sendable {
@@ -456,6 +497,32 @@ enum BlindBoxWalletError: Error, Equatable {
 /// ledger, while the private Blind Box zone reserves and later grants a ticket
 /// through an idempotent, recoverable exchange saga.
 enum BlindBoxWalletStateMachine {
+    /// Called only for a verified purchase, not paywall dismissal or restoration.
+    /// An entitlement refresh may already have paid today's +2; adopt that credit
+    /// instead of paying it twice. Persist the transaction ID with the balance.
+    static func rewardPremiumPurchase(
+        state: inout BlindBoxAccountState, transactionID: String,
+        now: Date, calendar: Calendar
+    ) {
+        guard !transactionID.isEmpty,
+              state.rewardedPremiumPurchaseIDs.insert(transactionID).inserted else { return }
+        let grantCalendar = BlindBoxGrantDay.calendar(for: state, fallback: calendar)
+        let day = BlindBoxGrantDay.identifier(for: now, calendar: grantCalendar)
+        let credited = state.unassignedPremiumTopUp?.day == day
+            ? min(2, state.unassignedPremiumTopUp?.count ?? 0) : 0
+        let capacity = max(0, BlindBoxRuleConfiguration.maximumTicketBalance
+                           - state.ticketBalance - (state.pendingPointExchange == nil ? 0 : 1))
+        let added = min(2 - credited, capacity)
+        state.ticketBalance += added
+        BlindBoxGrantDay.persistTimeZoneIfNeeded(in: &state, fallbackCalendar: calendar)
+        state.unassignedPremiumTopUp = nil
+        state.lastTicketGrantDayIdentifier = day
+        state.settledDailyTicketAllowance = 3
+        if credited + added > 0 {
+            state.pendingTicketReceipt = BlindBoxTicketReceipt(day: day, count: credited + added)
+        }
+    }
+
     @discardableResult
     static func refreshDailyTickets(
         state: inout BlindBoxAccountState,
@@ -463,36 +530,15 @@ enum BlindBoxWalletStateMachine {
         now: Date,
         calendar: Calendar
     ) -> BlindBoxDailyTicketRefreshResult {
-        let currentGrantDay = BlindBoxGrantDay.identifier(for: now, calendar: calendar)
-        // New accounts receive their three launch tickets immediately. Record
-        // today's daily grant as settled so entering the feature does not also
-        // add the ordinary daily allowance on that same first visit.
-        let isNewLaunchWallet = state.lastTicketGrantDayIdentifier == nil
-            && state.ticketBalance == BlindBoxAccountState.initialTicketBalance
-            && state.ownedStickerCounts.isEmpty
-            && state.candidateBatches.isEmpty
-            && state.settledDailyTicketAllowance == nil
-            && state.pendingTicketReceipt == nil
-            && state.lastPointExchangeDayIdentifier == nil
-            && state.pointExchangesUsedOnLastGrantDay == 0
-            && state.pendingPointExchange == nil
-            && state.pendingReveal == nil
-        if isNewLaunchWallet {
-            let allowance = BlindBoxTicketPolicy.dailyAllowance(hasPremiumAccess: hasPremiumAccess)
-            state.lastTicketGrantDayIdentifier = currentGrantDay
-            state.settledDailyTicketAllowance = allowance
-            return BlindBoxDailyTicketRefreshResult(
-                processedGrantDays: 0,
-                grantedTicketCount: 0,
-                resultingTicketBalance: state.ticketBalance
-            )
-        }
+        let grantCalendar = BlindBoxGrantDay.calendar(for: state, fallback: calendar)
+        let currentGrantDay = BlindBoxGrantDay.identifier(for: now, calendar: grantCalendar)
+        if !hasPremiumAccess { state.unassignedPremiumTopUp = nil }
         let processedGrantDays: Int
         if let lastGrantDay = state.lastTicketGrantDayIdentifier,
            let elapsedDays = elapsedGrantDays(
                from: lastGrantDay,
                to: currentGrantDay,
-               calendar: calendar
+               calendar: grantCalendar
            ) {
             guard elapsedDays >= 0 else {
                 return BlindBoxDailyTicketRefreshResult(
@@ -503,7 +549,7 @@ enum BlindBoxWalletStateMachine {
             }
             processedGrantDays = max(elapsedDays, 0)
         } else {
-            // A newly created account starts with today's allowance only.
+            // Add today's allowance on top of the one-time launch gift.
             processedGrantDays = 1
         }
 
@@ -513,6 +559,7 @@ enum BlindBoxWalletStateMachine {
         let previousAllowance = state.settledDailyTicketAllowance ?? allowance
         let requestedTickets = processedGrantDays > 0 ? allowance : max(allowance - previousAllowance, 0)
         guard processedGrantDays > 0 || requestedTickets > 0 else {
+            BlindBoxGrantDay.persistTimeZoneIfNeeded(in: &state, fallbackCalendar: calendar)
             state.settledDailyTicketAllowance = max(previousAllowance, allowance)
             return BlindBoxDailyTicketRefreshResult(
                 processedGrantDays: 0,
@@ -534,6 +581,12 @@ enum BlindBoxWalletStateMachine {
         )
 
         state.ticketBalance += grantedTickets
+        BlindBoxGrantDay.persistTimeZoneIfNeeded(in: &state, fallbackCalendar: calendar)
+        if processedGrantDays == 0 && allowance > previousAllowance {
+            state.unassignedPremiumTopUp = BlindBoxTicketReceipt(day: currentGrantDay, count: grantedTickets)
+        } else if processedGrantDays > 0 || !hasPremiumAccess {
+            state.unassignedPremiumTopUp = nil
+        }
         // Update this even when capped: skipped tickets are intentionally not
         // banked to be granted retroactively after a later box opening.
         state.lastTicketGrantDayIdentifier = currentGrantDay
@@ -558,10 +611,14 @@ enum BlindBoxWalletStateMachine {
         calendar: Calendar,
         economyConfiguration: BlindBoxEconomyConfiguration = .defaultValue
     ) throws -> BlindBoxPointExchangeResult {
-        let currentGrantDay = BlindBoxGrantDay.identifier(for: now, calendar: calendar)
+        let grantCalendar = BlindBoxGrantDay.calendar(for: state, fallback: calendar)
+        let currentGrantDay = BlindBoxGrantDay.identifier(for: now, calendar: grantCalendar)
+        if let lastGrantDay = state.lastPointExchangeDayIdentifier,
+           currentGrantDay < lastGrantDay {
+            throw BlindBoxWalletError.pointExchange(.grantDayLimitReached)
+        }
         let exchangesUsedToday = state.lastPointExchangeDayIdentifier == currentGrantDay
-            ? state.pointExchangesUsedOnLastGrantDay
-            : 0
+            ? state.pointExchangesUsedOnLastGrantDay : 0
         let eligibility = BlindBoxPointExchangePolicy.eligibility(
             availablePoints: availablePoints,
             ticketBalance: state.ticketBalance,
@@ -573,6 +630,7 @@ enum BlindBoxWalletStateMachine {
         }
 
         state.ticketBalance += 1
+        BlindBoxGrantDay.persistTimeZoneIfNeeded(in: &state, fallbackCalendar: calendar)
         state.lastPointExchangeDayIdentifier = currentGrantDay
         state.pointExchangesUsedOnLastGrantDay = exchangesUsedToday + 1
         return BlindBoxPointExchangeResult(
@@ -608,10 +666,14 @@ enum BlindBoxWalletStateMachine {
             )
         }
 
-        let currentGrantDay = BlindBoxGrantDay.identifier(for: now, calendar: calendar)
+        let grantCalendar = BlindBoxGrantDay.calendar(for: state, fallback: calendar)
+        let currentGrantDay = BlindBoxGrantDay.identifier(for: now, calendar: grantCalendar)
+        if let lastGrantDay = state.lastPointExchangeDayIdentifier,
+           currentGrantDay < lastGrantDay {
+            throw BlindBoxWalletError.pointExchange(.grantDayLimitReached)
+        }
         let exchangesUsedToday = state.lastPointExchangeDayIdentifier == currentGrantDay
-            ? state.pointExchangesUsedOnLastGrantDay
-            : 0
+            ? state.pointExchangesUsedOnLastGrantDay : 0
         let eligibility = BlindBoxPointExchangePolicy.eligibility(
             availablePoints: availablePoints,
             ticketBalance: state.ticketBalance,
@@ -622,6 +684,7 @@ enum BlindBoxWalletStateMachine {
             throw BlindBoxWalletError.pointExchange(eligibility)
         }
 
+        BlindBoxGrantDay.persistTimeZoneIfNeeded(in: &state, fallbackCalendar: calendar)
         state.lastPointExchangeDayIdentifier = currentGrantDay
         state.pointExchangesUsedOnLastGrantDay = exchangesUsedToday + 1
         state.pendingPointExchange = BlindBoxPendingPointExchange(
@@ -866,8 +929,7 @@ enum BlindBoxCandidateCoordinator {
                   let previousTheme = themesByID[batch.plan.themeID] else {
                 continue
             }
-            let representedIDs = Set(state.candidateBatches.map { $0.plan.themeID })
-            let theme = availableThemes.first(where: { !representedIDs.contains($0.id) }) ?? previousTheme
+            let theme = previousTheme
             let plan = try generatePlan(
                 theme: theme,
                 ownedStickerCounts: state.ownedStickerCounts,
@@ -885,10 +947,26 @@ enum BlindBoxCandidateCoordinator {
             state.candidateBatches = Array(state.candidateBatches.prefix(targetCount))
         }
 
+        // Keep existing progress where possible, but cap each theme's share so
+        // six slots with three active themes always contain two of each.
+        let perThemeLimit = availableThemes.isEmpty ? 0 :
+            (targetCount + availableThemes.count - 1) / availableThemes.count
+        var retainedCounts: [BlindBoxThemeID: Int] = [:]
+        state.candidateBatches.removeAll { batch in
+            let count = retainedCounts[batch.plan.themeID, default: 0]
+            guard count < perThemeLimit else {
+                removedBatchIDs.append(batch.id)
+                return true
+            }
+            retainedCounts[batch.plan.themeID] = count + 1
+            return false
+        }
+
         while state.candidateBatches.count < targetCount, !availableThemes.isEmpty {
-            let representedIDs = Set(state.candidateBatches.map { $0.plan.themeID })
-            let missingThemes = availableThemes.filter { !representedIDs.contains($0.id) }
-            let pool = missingThemes.isEmpty ? availableThemes : missingThemes
+            let counts = Dictionary(grouping: state.candidateBatches, by: { $0.plan.themeID })
+                .mapValues(\.count)
+            let lowestCount = availableThemes.map { counts[$0.id, default: 0] }.min() ?? 0
+            let pool = availableThemes.filter { counts[$0.id, default: 0] == lowestCount }
             let themeIndex = try randomIndex(upperBound: pool.count, generator: &generator)
             let theme = pool[themeIndex]
             let plan = try generatePlan(
@@ -1116,6 +1194,9 @@ enum BlindBoxLocalStateStore {
             pendingReveal: state.pendingReveal
         )
         normalized.settledDailyTicketAllowance = state.settledDailyTicketAllowance
+        normalized.grantDayTimeZoneIdentifier = state.grantDayTimeZoneIdentifier
+        normalized.rewardedPremiumPurchaseIDs = state.rewardedPremiumPurchaseIDs
+        normalized.unassignedPremiumTopUp = state.unassignedPremiumTopUp
         normalized.pendingTicketReceipt = state.pendingTicketReceipt
         return normalized
     }

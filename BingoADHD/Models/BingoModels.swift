@@ -776,6 +776,9 @@ struct MyTaskItem: Identifiable, Codable, Equatable {
     var endAt: Date?
     var startMonth: Int?
     var startDay: Int?
+    /// The task-library definition only. Runtime completion and countdown state
+    /// remain owned by the board cell that is created from this task.
+    var recurrenceRule: TaskRecurrenceRule?
 
     init(
         id: UUID = UUID(),
@@ -783,7 +786,8 @@ struct MyTaskItem: Identifiable, Codable, Equatable {
         startAt: Date? = nil,
         endAt: Date? = nil,
         startMonth: Int? = nil,
-        startDay: Int? = nil
+        startDay: Int? = nil,
+        recurrenceRule: TaskRecurrenceRule? = nil
     ) {
         self.id = id
         self.text = text
@@ -791,6 +795,7 @@ struct MyTaskItem: Identifiable, Codable, Equatable {
         self.endAt = endAt
         self.startMonth = startMonth
         self.startDay = startDay
+        self.recurrenceRule = recurrenceRule
         normalizeVisibilityWindow()
     }
 
@@ -803,6 +808,7 @@ struct MyTaskItem: Identifiable, Codable, Equatable {
             endAt = nil
             startMonth = nil
             startDay = nil
+            recurrenceRule = nil
             return
         }
 
@@ -813,6 +819,7 @@ struct MyTaskItem: Identifiable, Codable, Equatable {
         endAt = try container.decodeIfPresent(Date.self, forKey: .endAt)
         startMonth = try container.decodeIfPresent(Int.self, forKey: .startMonth)
         startDay = try container.decodeIfPresent(Int.self, forKey: .startDay)
+        recurrenceRule = try container.decodeIfPresent(TaskRecurrenceRule.self, forKey: .recurrenceRule)
         normalizeVisibilityWindow()
     }
 
@@ -908,6 +915,7 @@ struct TaskHistoryRecord: Identifiable, Codable, Equatable {
     var endAt: Date?
     var startMonth: Int?
     var startDay: Int?
+    var recurrenceRule: TaskRecurrenceRule?
     var sourceTaskID: UUID?
     var lastEditedAt: Date
 
@@ -920,6 +928,7 @@ struct TaskHistoryRecord: Identifiable, Codable, Equatable {
         endAt: Date? = nil,
         startMonth: Int? = nil,
         startDay: Int? = nil,
+        recurrenceRule: TaskRecurrenceRule? = nil,
         sourceTaskID: UUID? = nil,
         lastEditedAt: Date = .now
     ) {
@@ -929,6 +938,7 @@ struct TaskHistoryRecord: Identifiable, Codable, Equatable {
         self.endAt = endAt
         self.startMonth = startMonth
         self.startDay = startDay
+        self.recurrenceRule = recurrenceRule
         self.sourceTaskID = sourceTaskID
         self.lastEditedAt = lastEditedAt
         normalizeVisibilityWindow()
@@ -1219,14 +1229,14 @@ enum StickerKind: String, CaseIterable, Codable, Identifiable {
 
     var lockedImageName: String {
         switch self {
-        case .cowCat: return "AkitaStickerLocked"
+        case .cowCat: return "sticker_pets_01_none"
         case .cowCatStar: return "CowCatStarStickerLocked"
         case .orangeCat: return "OrangeCatStickerLocked"
-        case .pomeranian: return "PomeranianStickerLocked"
+        case .pomeranian: return "sticker_pets_04_none"
         case .dachshund: return "DachshundStickerLocked"
         case .toyPoodle: return "ToyPoodleStickerLocked"
         case .yorkshire: return "YorkshireStickerLocked"
-        case .akita: return "AkitaStickerLocked"
+        case .akita: return "sticker_pets_01_none"
         case .goldenRetriever: return "GoldenRetrieverStickerLocked"
         case .ragdollCat: return "MaineCoonStickerLocked"
         case .ragdollCatStar: return "RagdollCatStarStickerLocked"
@@ -1361,6 +1371,7 @@ enum AppSettings {
     static let stickerInventoryCountsKey = "sticker_inventory_counts_v1"
     static let blindBoxLocalStateKey = "blind_box_local_state_v1"
     static let blindBoxCatalogReleaseKey = "blind_box_catalog_release_v1"
+    static let hasSeenBlindBoxNewBadgeKey = "has_seen_blind_box_new_badge_v1"
     static let homeStickerPlacementsKey = "home_sticker_placements_v1"
     static let customRewardsKey = "custom_rewards_v1"
     static let pointRedemptionHistoryKey = "point_redemption_history_v1"

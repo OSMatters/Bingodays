@@ -5,10 +5,19 @@ private struct BlindBoxEntranceReadyKey: EnvironmentKey {
     static var defaultValue: Bool { true }
 }
 
+private struct BlindBoxWindowSafeAreaInsetsKey: EnvironmentKey {
+    static var defaultValue: EdgeInsets { EdgeInsets() }
+}
+
 extension EnvironmentValues {
     var blindBoxEntranceReady: Bool {
         get { self[BlindBoxEntranceReadyKey.self] }
         set { self[BlindBoxEntranceReadyKey.self] = newValue }
+    }
+
+    var blindBoxWindowSafeAreaInsets: EdgeInsets {
+        get { self[BlindBoxWindowSafeAreaInsetsKey.self] }
+        set { self[BlindBoxWindowSafeAreaInsetsKey.self] = newValue }
     }
 }
 
@@ -22,7 +31,10 @@ struct RewardsScrollTopPreference: PreferenceKey {
 }
 
 enum BlindBoxPullInteraction {
-    static let releaseDistance: CGFloat = 28
+    /// Navigation is deliberately more intentional than ordinary list scrolling.
+    /// The rope remains directly tappable; a drag must start from its top area.
+    static let releaseDistance: CGFloat = 84
+    static let topActivationHeight: CGFloat = 154
 
     static func ropeCenterY(circleBottom: CGFloat, size: CGSize, diameter: CGFloat) -> CGFloat {
         // The first rope bead is at x=13 in the 68px-wide animation,
@@ -39,8 +51,13 @@ enum BlindBoxPullInteraction {
         return max(38, arcY + halfArtworkHeight - 2)
     }
 
-    static func canBegin(scrollTop: CGFloat, translation: CGSize) -> Bool {
-        scrollTop >= -2 && translation.height > 0 && translation.height > abs(translation.width)
+    static func canBegin(
+        scrollTop: CGFloat,
+        startLocation: CGPoint,
+        translation: CGSize
+    ) -> Bool {
+        scrollTop >= -2 && startLocation.y <= topActivationHeight &&
+            translation.height > 0 && translation.height > abs(translation.width)
     }
 
     static func shouldEnter(translation: CGSize) -> Bool {
@@ -57,18 +74,21 @@ enum BlindBoxPullInteraction {
 struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
     let enteredFromBottomTab: Bool
     var isEnabled = true
+    var isActive = true
     let isRewardsSubpagePresented: Bool
     let onPresentationChange: (Bool) -> Void
-    let onNavigationOpacityChange: (Double) -> Void
     @ViewBuilder let rewards: () -> Rewards
     @ViewBuilder let blindBox: (@escaping () -> Void) -> BlindBox
 
     private enum Phase { case idle, tutorial, hint, dragging, entering, open, returning }
-    @AppStorage("blindBox.pullGuideCompleted.v1") private var guideCompleted = false
+    // v2 intentionally starts clean at the feature launch so existing users
+    // receive the same first-entry instruction as newly registered users.
+    @AppStorage("blindBox.pullGuideCompleted.v2") private var guideCompleted = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @State private var tutorialStart = Date.now
     @State private var cutoutTopInset: CGFloat?
+    @State private var windowSafeAreaInsets = EdgeInsets()
     @State private var phase: Phase = .idle
     @State private var scrollTop: CGFloat = 0
     @State private var circleBottom: CGFloat = -30
@@ -84,7 +104,7 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
     }
 
     private var canScheduleHints: Bool {
-        isEnabled && scenePhase == .active && !mountsBlindBox &&
+        isActive && isEnabled && scenePhase == .active && !mountsBlindBox &&
             !isRewardsSubpagePresented && (phase == .idle || phase == .hint)
     }
 
@@ -93,7 +113,11 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
             let size = geometry.size
             let diameter = max(size.width * 3, size.height * 2.4)
             ZStack(alignment: .topLeading) {
+                // Keep a stable backdrop while the rewards content fades.
+                PointsRewardBackground()
+                    .ignoresSafeArea()
                 rewards()
+                    .environment(\.blindBoxWindowSafeAreaInsets, windowSafeAreaInsets)
                     .opacity(rewardsOpacity)
                     .allowsHitTesting(!mountsBlindBox && phase != .tutorial)
                     .accessibilityHidden(mountsBlindBox || phase == .tutorial)
@@ -169,13 +193,14 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
             .frame(width: size.width, height: size.height)
             .clipped()
             .contentShape(Rectangle())
+            // The rewards grid owns ordinary vertical drags. The parent only
+            // observes a deliberate pull that starts around the rope at top.
             .simultaneousGesture(pullGesture(size: size, diameter: diameter))
             .task(id: canScheduleHints) {
                 guard canScheduleHints else { return }
-                if enteredFromBottomTab && !guideCompleted {
+                if !guideCompleted {
                     tutorialStart = .now
                     phase = .tutorial
-                    onNavigationOpacityChange(0.4)
                     return
                 }
                 // The rope loops independently. Only the hand has a quiet interval.
@@ -193,7 +218,17 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
         }
         .ignoresSafeArea()
         .background {
-            BlindBoxCutoutProbe { cutoutTopInset = $0 }
+            BlindBoxCutoutProbe { insets in
+                let hasCutout = UIDevice.current.userInterfaceIdiom == .phone &&
+                    max(insets.top, max(insets.left, insets.right)) >= 44
+                cutoutTopInset = hasCutout ? insets.top : nil
+                windowSafeAreaInsets = EdgeInsets(
+                    top: insets.top,
+                    leading: insets.left,
+                    bottom: insets.bottom,
+                    trailing: insets.right
+                )
+            }
                 .allowsHitTesting(false)
         }
         .onChange(of: scenePhase) { _, scene in
@@ -206,19 +241,37 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
             if presented && !mountsBlindBox {
                 phase = .idle
                 circleBottom = -30
-                onNavigationOpacityChange(1)
             }
         }
-        .onDisappear {
-            onNavigationOpacityChange(1)
-            onPresentationChange(false)
+        .onChange(of: suppressesTabBar, initial: true) { _, value in
+            onPresentationChange(value)
         }
+        .onChange(of: "\(isActive):\(phase):\(mountsBlindBox)", initial: true) { _, state in
+            if AppDebugFlags.tabGlassTrace {
+                print("[TabGlass] portal active:phase:mounted=\(state)")
+            }
+        }
+        .onChange(of: isActive) { _, active in
+            guard !active else { return }
+            phase = .idle
+            mountsBlindBox = false
+            circleBottom = -30
+            rewardsOpacity = 1
+            cabinetOpacity = 0
+            cabinetOffset = 100
+            gestureEligible = nil
+        }
+    }
+
+    private var suppressesTabBar: Bool {
+        isActive && (mountsBlindBox || phase == .tutorial || phase == .dragging)
     }
 
     private func tutorial(size: CGSize) -> some View {
         TimelineView(.animation(paused: reduceMotion || scenePhase != .active)) { context in
             let elapsed = max(0, context.date.timeIntervalSince(tutorialStart))
             let progress = elapsed.truncatingRemainder(dividingBy: 2.104) / 2.104
+            let dividerY = min(max(142, size.height * 0.18), 166)
             // Match scroll_down.json: hand descends at frames 0–36,
             // returns at 36–72, then rests until the next loop (126.24 frames).
             let frame = progress * 126.24
@@ -235,19 +288,44 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(openLabel)
                     .position(x: 44, y: 38 + (reduceMotion ? 0 : pull * 11.52 * 86 / 111))
-                VStack(spacing: 14) {
-            BlindBoxLottie(name: "scroll_down", still: reduceMotion, progress: progress)
-                .frame(width: 90, height: 86)
-            Text(L10n.tr("Swipe down to explore Blind Boxes", zhHans: "下滑探索盲盒游戏～", zhHant: "下滑探索盲盒遊戲～", ja: "下にスワイプしてボックスを探そう"))
+
+                // The hand demonstrates the gesture above the boundary; the
+                // caption keeps the exact eligible pull area unambiguous.
+                BlindBoxLottie(name: "scroll_down", still: reduceMotion, progress: progress)
+                    .frame(width: 98, height: 92)
+                    .position(x: size.width / 2, y: dividerY - 61)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .position(x: size.width / 2, y: dividerY - 15)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
+                Rectangle()
+                    .stroke(
+                        Color.white.opacity(0.92),
+                        style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])
+                    )
+                    .frame(width: max(0, size.width - 12), height: 1.5)
+                    .position(x: size.width / 2, y: dividerY)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
+                Text(L10n.tr(
+                    "Swipe down in this area to explore Blind Boxes",
+                    zhHans: "此区域下滑探索盲盒游戏～",
+                    zhHant: "此區域下滑探索盲盒遊戲～",
+                    ja: "このエリアを下にスワイプしてブラインドボックスへ"
+                ))
                 .font(.appSystem(size: 16, weight: .bold))
                 .foregroundStyle(.white)
-            Image(systemName: "chevron.down")
-                .font(.system(size: 28, weight: .medium))
-                .foregroundStyle(.white)
-        }
-        .frame(width: size.width)
-        .position(x: size.width / 2, y: size.height * 0.46)
-        .allowsHitTesting(false)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: size.width - 32)
+                .position(x: size.width / 2, y: dividerY + 32)
+                .allowsHitTesting(false)
             }
             .frame(width: size.width, height: size.height)
         }
@@ -256,22 +334,24 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
     private func dismissGuide() {
         guideCompleted = true
         phase = .idle
-        onNavigationOpacityChange(1)
     }
 
     private func pullGesture(size: CGSize, diameter: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 10, coordinateSpace: .local)
             .onChanged { value in
-                guard isEnabled, !mountsBlindBox, !isRewardsSubpagePresented else { return }
+                guard isActive, isEnabled, !mountsBlindBox, !isRewardsSubpagePresented else { return }
                 if gestureEligible == nil {
-                    gestureEligible = BlindBoxPullInteraction.canBegin(scrollTop: scrollTop, translation: value.translation)
+                    gestureEligible = BlindBoxPullInteraction.canBegin(
+                        scrollTop: scrollTop,
+                        startLocation: value.startLocation,
+                        translation: value.translation
+                    )
                     gestureOrigin = circleBottom
                 }
                 guard gestureEligible == true else { return }
                 phase = .dragging
                 circleBottom = gestureOrigin + max(0, value.translation.height) * 0.95
                 rewardsOpacity = 1 - min(0.72, max(0, value.translation.height) / size.height)
-                onNavigationOpacityChange(rewardsOpacity)
                 if value.location.y >= size.height - 24 && BlindBoxPullInteraction.shouldEnter(translation: value.translation) {
                     enter(size: size, diameter: diameter)
                 }
@@ -285,7 +365,6 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
                     withAnimation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0)) {
                         circleBottom = -30
                         rewardsOpacity = 1
-                        onNavigationOpacityChange(1)
                         phase = .idle
                     }
                 }
@@ -293,7 +372,7 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
     }
 
     private func enter(size: CGSize, diameter: CGFloat) {
-        guard !mountsBlindBox else { return }
+        guard isActive, !mountsBlindBox else { return }
         guideCompleted = true
         phase = .entering
         mountsBlindBox = true
@@ -301,7 +380,6 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
         withAnimation(reduceMotion ? nil : .timingCurve(0.32, 0.05, 0.18, 1, duration: 0.48)) {
             circleBottom = BlindBoxPullInteraction.coveredBottom(size: size, diameter: diameter)
             rewardsOpacity = 0
-            onNavigationOpacityChange(0)
         }
         withAnimation(reduceMotion ? .linear(duration: 0.18) : .timingCurve(0.2, 0.65, 0.2, 1, duration: 0.42).delay(0.12), completionCriteria: .logicallyComplete) {
             cabinetOffset = 0
@@ -309,7 +387,6 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
         } completion: {
             guard phase == .entering else { return }
             phase = .open
-            onPresentationChange(true)
         }
     }
 
@@ -322,10 +399,9 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
             circleBottom = -30
             rewardsOpacity = 1
         } completion: {
+            guard phase == .returning else { return }
             mountsBlindBox = false
             phase = .idle
-            onPresentationChange(false)
-            onNavigationOpacityChange(1)
         }
     }
 }
@@ -333,7 +409,7 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
 /// Use the presenting window, not a hardcoded list of phone models. Extended
 /// phone safe-area insets cover both notches and islands; iPads keep the artwork.
 private struct BlindBoxCutoutProbe: UIViewRepresentable {
-    let onChange: (CGFloat?) -> Void
+    let onChange: (UIEdgeInsets) -> Void
 
     func makeUIView(context: Context) -> ProbeView {
         let view = ProbeView()
@@ -346,7 +422,7 @@ private struct BlindBoxCutoutProbe: UIViewRepresentable {
     }
 
     final class ProbeView: UIView {
-        var onChange: ((CGFloat?) -> Void)?
+        var onChange: ((UIEdgeInsets) -> Void)?
         private var lastInsets: UIEdgeInsets?
 
         override func didMoveToWindow() {
@@ -368,14 +444,11 @@ private struct BlindBoxCutoutProbe: UIViewRepresentable {
             guard let window, lastInsets != window.safeAreaInsets else { return }
             let insets = window.safeAreaInsets
             lastInsets = insets
-            let hasCutout = window.traitCollection.userInterfaceIdiom == .phone &&
-                max(insets.top, max(insets.left, insets.right)) >= 44
-            let top: CGFloat? = hasCutout ? insets.top : nil
             // Publish outside UIKit's layout pass to avoid mutating SwiftUI state
             // while the enclosing hierarchy is being laid out.
             Task { @MainActor [weak self] in
                 guard let self, self.window != nil, self.lastInsets == insets else { return }
-                self.onChange?(top)
+                self.onChange?(insets)
             }
         }
     }

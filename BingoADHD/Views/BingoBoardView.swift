@@ -39,6 +39,7 @@ struct BingoBoardView: View {
     let currentTime: Date
     let shouldShowCenterLongPressHint: Bool
     var onCellCompletionToggled: (() -> Void)? = nil
+    var onTaskPresentationChange: ((Bool) -> Void)? = nil
     var onCellReorderActiveChanged: ((Bool) -> Void)? = nil
     @State private var editingTarget: EditingTarget?
     @State private var actionTarget: EditingTarget?
@@ -243,6 +244,9 @@ struct BingoBoardView: View {
             // needs to burst above the board edge.
         }
         .aspectRatio(1, contentMode: .fit)
+        .onChange(of: editingTarget != nil || actionTarget != nil || countdownTarget != nil || pendingPadEditorTargetAfterActions != nil, initial: true) { _, presented in
+            onTaskPresentationChange?(presented)
+        }
         .onDisappear {
             if dragState != nil {
                 dragState = nil

@@ -225,6 +225,7 @@ final class BlindBoxCloudKitAccountBootstrapper {
 /// are not persisted because membership, the active catalog, and device time
 /// are supplied fresh for each CloudKit maintenance transaction.
 struct BlindBoxCloudMaintenanceRequest {
+    var premiumPurchaseTransactionID: String?
     let themes: [BlindBoxThemeDefinition]
     let hasPremiumAccess: Bool
     let candidateZoneWasPresented: Bool
@@ -294,6 +295,12 @@ final class BlindBoxCloudKitAccountStateRepository {
                 }
                 var account = try BlindBoxCloudKitRecordCodec.decodeAccountRecord(accountRecord)
                 let originalAccount = account
+                if request.hasPremiumAccess, let transactionID = request.premiumPurchaseTransactionID {
+                    BlindBoxWalletStateMachine.rewardPremiumPurchase(
+                        state: &account.accountState, transactionID: transactionID,
+                        now: request.now, calendar: request.calendar
+                    )
+                }
                 var generator = SystemBlindBoxRandomNumberGenerator()
                 let result = try BlindBoxAccountMaintenance.apply(
                     state: &account.accountState,

@@ -1074,7 +1074,7 @@
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 53;
+				CURRENT_PROJECT_VERSION = 54;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Bingodays;
@@ -1085,7 +1085,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 4.4.3;
+				MARKETING_VERSION = 5.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PROVISIONING_PROFILE_SPECIFIER = "Bingodays Widget App Store 2026";
 				PRODUCT_NAME = BingodaysWidgetExtension;
@@ -1222,7 +1222,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 53;
+				CURRENT_PROJECT_VERSION = 54;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BingoADHD/Info.plist;
 				ICLOUD_CONTAINER_ENVIRONMENT = Development;
@@ -1230,7 +1230,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.4.3;
+				MARKETING_VERSION = 5.0.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -1253,7 +1253,7 @@
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 53;
+				CURRENT_PROJECT_VERSION = 54;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BingoADHD/Info.plist;
 				ICLOUD_CONTAINER_ENVIRONMENT = Production;
@@ -1261,7 +1261,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.4.3;
+				MARKETING_VERSION = 5.0.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -1334,7 +1334,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 53;
+				CURRENT_PROJECT_VERSION = 54;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Bingodays;
@@ -1345,7 +1345,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 4.4.3;
+				MARKETING_VERSION = 5.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PRODUCT_NAME = BingodaysWidgetExtension;
 				SDKROOT = iphoneos;

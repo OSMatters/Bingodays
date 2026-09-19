@@ -22,6 +22,7 @@ struct HomeBoardMainContent: View {
     let onCreateBoard: () -> Void
     let onDismissBoardEditHint: () -> Void
     let onCellCompletionToggled: () -> Void
+    let onTaskPresentationChange: (Bool) -> Void
     let onCountdown: () -> Void
     let onEditActionsToggle: () -> Void
     let onDismissEditActions: () -> Void
@@ -57,7 +58,8 @@ struct HomeBoardMainContent: View {
                 shouldShowCenterLongPressHint: shouldShowCenterLongPressHint,
                 allowsBoardSwipe: allowsBoardSwipe,
                 onSelectBoard: onSelectBoard,
-                onCellCompletionToggled: onCellCompletionToggled
+                onCellCompletionToggled: onCellCompletionToggled,
+                onTaskPresentationChange: onTaskPresentationChange
             )
             .padding(.top, 8)
 

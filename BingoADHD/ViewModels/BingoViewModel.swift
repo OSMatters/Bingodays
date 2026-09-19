@@ -410,7 +410,12 @@ class BingoViewModel: ObservableObject {
             delta: isNowCompleted ? 1 : -1,
             completionHistoryDelta: isNowCompleted ? 1 : -1
         )
-        let persistedPointsAfterToggle = persistenceDependencies.pointsRepository.loadPersistenceSnapshot()
+        // A successful transaction has already read back the points ledger. Only
+        // read it again when persisting failed, where the observed disk state is
+        // useful for diagnostics.
+        let persistedPointsAfterToggle = commitResult.savedPoints
+            ? nil
+            : persistenceDependencies.pointsRepository.loadPersistenceSnapshot()
         let persistenceDetails = [
             "cell_id": toggledCellID,
             "saved_board": "\(commitResult.savedBoard)",
@@ -418,8 +423,10 @@ class BingoViewModel: ObservableObject {
             "failed_board": "\(commitResult.failedToSaveBoard)",
             "failed_transaction": "\(commitResult.failedToSaveTransaction)",
             "memory_total": "\(totalPoints)",
-            "persisted_total": persistedPointsAfterToggle.totalPoints.map { "\($0)" } ?? "nil",
-            "persisted_lifetime": persistedPointsAfterToggle.lifetimePoints.map { "\($0)" } ?? "nil"
+            "persisted_total": persistedPointsAfterToggle?.totalPoints.map { "\($0)" }
+                ?? (commitResult.savedPoints ? "\(totalPoints)" : "nil"),
+            "persisted_lifetime": persistedPointsAfterToggle?.lifetimePoints.map { "\($0)" }
+                ?? (commitResult.savedPoints ? "\(lifetimePoints)" : "nil")
         ]
         if commitResult.failedToSaveBoard || commitResult.failedToSaveTransaction || !commitResult.savedPoints {
             DiagnosticLogStore.recordWarning(
@@ -597,7 +604,8 @@ class BingoViewModel: ObservableObject {
                     task: MyTaskItem(
                         text: editResult.normalizedTaskText,
                         startAt: editResult.normalizedStartVisibleAt,
-                        endAt: editResult.normalizedEndVisibleAt
+                        endAt: editResult.normalizedEndVisibleAt,
+                        recurrenceRule: editResult.cell.recurrenceRule
                     )
                 )
             } else if let previousTask = BingoTaskBoardHelpers.taskItem(from: previousCell, maxLength: Self.maxTaskLength) {
@@ -912,7 +920,8 @@ class BingoViewModel: ObservableObject {
                 startAt: cell.startVisibleAt,
                 endAt: cell.endVisibleAt,
                 startMonth: cell.startVisibleMonth,
-                startDay: cell.startVisibleDay
+                startDay: cell.startVisibleDay,
+                recurrenceRule: cell.recurrenceRule
             )
         }
     }

@@ -4,6 +4,206 @@ import Testing
 @testable import Bingodays
 
 @MainActor
+struct BlindBoxLaunchTicketTests {
+    @Test
+    func firstPresentationStartsFullThenProgressesIntoOpenedAndRestockingStates() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let calendar = Calendar(identifier: .gregorian)
+        let themes = BlindBoxCatalog.builtInThemes
+        var state = BlindBoxAccountState.newAccount()
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: Array(repeating: 0, count: 256))
+
+        _ = try BlindBoxAccountMaintenance.apply(
+            state: &state,
+            themes: themes,
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: false,
+            now: now,
+            calendar: calendar,
+            generator: &generator
+        )
+        #expect(state.candidateBatches.count == BlindBoxTicketPolicy.candidateCount(hasPremiumAccess: false))
+        #expect(state.candidateBatches.allSatisfy {
+            $0.remainingPositionCount == BlindBoxRuleConfiguration.batchPositionCount &&
+                !$0.isSoldOut &&
+                $0.firstPresentedAt == nil
+        })
+
+        _ = try BlindBoxAccountMaintenance.apply(
+            state: &state,
+            themes: themes,
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: true,
+            now: now,
+            calendar: calendar,
+            generator: &generator
+        )
+        #expect(state.candidateBatches.allSatisfy {
+            $0.openedPositionIndices.isEmpty &&
+                $0.systemOpenedPositionIndices.isEmpty &&
+                $0.firstPresentedAt == now
+        })
+
+        let automaticInterval = BlindBoxRuleConfiguration.minimumAutomaticOpenInterval + 1
+        var maintenanceTime = now
+        for _ in 0..<BlindBoxRuleConfiguration.batchPositionCount {
+            maintenanceTime = maintenanceTime.addingTimeInterval(automaticInterval)
+            _ = try BlindBoxAccountMaintenance.apply(
+                state: &state,
+                themes: themes,
+                hasPremiumAccess: false,
+                candidateZoneWasPresented: true,
+                now: maintenanceTime,
+                calendar: calendar,
+                generator: &generator
+            )
+        }
+
+        let restockingBatch = try #require(state.candidateBatches.first { $0.isSoldOut })
+        #expect(restockingBatch.systemOpenedPositionIndices.count == BlindBoxRuleConfiguration.batchPositionCount)
+        let restockAt = try #require(restockingBatch.restockAt())
+        #expect(restockAt > maintenanceTime)
+
+        _ = try BlindBoxAccountMaintenance.apply(
+            state: &state,
+            themes: themes,
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: true,
+            now: restockAt,
+            calendar: calendar,
+            generator: &generator
+        )
+        #expect(state.candidateBatches.contains {
+            $0.plan.themeID == restockingBatch.plan.themeID &&
+                $0.id != restockingBatch.id &&
+                !$0.isSoldOut &&
+                $0.remainingPositionCount == BlindBoxRuleConfiguration.batchPositionCount
+        })
+    }
+
+    @Test(arguments: [false, true])
+    func initialGiftAndDailyAllowanceAreIndependent(premium: Bool) throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let calendar = Calendar(identifier: .gregorian)
+        let daily = premium ? 3 : 1
+        var state = BlindBoxAccountState.newAccount()
+        #expect(state.ticketBalance == 2)
+        // Existing app users may migrate sticker ownership before first entry.
+        state.ownedStickerCounts["legacy-sticker"] = 1
+        BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state, hasPremiumAccess: premium, now: now, calendar: calendar
+        )
+        #expect(state.ticketBalance == 2 + daily)
+        #expect(state.pendingTicketReceipt?.count == daily)
+        state.pendingTicketReceipt = nil
+        state = try JSONDecoder().decode(BlindBoxAccountState.self, from: JSONEncoder().encode(state))
+        BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state, hasPremiumAccess: premium, now: now, calendar: calendar
+        )
+        #expect(state.ticketBalance == 2 + daily)
+        #expect(state.pendingTicketReceipt == nil)
+        BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state, hasPremiumAccess: premium,
+            now: now.addingTimeInterval(86_400), calendar: calendar
+        )
+        #expect(state.ticketBalance == 2 + daily * 2)
+    }
+
+    @Test(arguments: [false, true])
+    func normalPreviewInstallUsesLaunchRulesAndPreservesBalance(premium: Bool) throws {
+        let defaults = try #require(UserDefaults(suiteName: "BlindBoxLaunch-\(UUID().uuidString)"))
+        let store = BlindBoxPreviewStore(persistence: defaults)
+        #expect(store.state.ticketBalance == 2)
+        store.refreshTickets(hasPremiumAccess: premium)
+        let expected = premium ? 5 : 3
+        #expect(store.state.ticketBalance == expected)
+        _ = store.consumeTicketReceipt()
+        let reloaded = BlindBoxPreviewStore(persistence: defaults)
+        reloaded.refreshTickets(hasPremiumAccess: premium)
+        #expect(reloaded.state.ticketBalance == expected)
+        #expect(reloaded.consumeTicketReceipt() == nil)
+    }
+}
+
+@MainActor
+struct BlindBoxPremiumPurchaseRewardTests {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private var calendar: Calendar { Calendar(identifier: .gregorian) }
+
+    @Test(arguments: [nil, 1, 3] as [Int?])
+    func verifiedPurchaseCreditsWalletRegardlessOfLegacyAllowance(allowance: Int?) throws {
+        var state = BlindBoxAccountState(ticketBalance: 6)
+        state.lastTicketGrantDayIdentifier = BlindBoxGrantDay.identifier(for: now, calendar: calendar)
+        state.settledDailyTicketAllowance = allowance
+        BlindBoxWalletStateMachine.rewardPremiumPurchase(
+            state: &state, transactionID: "purchase-1", now: now, calendar: calendar
+        )
+        #expect(state.ticketBalance == 8)
+        #expect(state.pendingTicketReceipt?.count == 2)
+        // Reopening the screen and replaying a transaction after relaunch must
+        // neither create another grant nor recreate an acknowledged receipt.
+        state.pendingTicketReceipt = nil
+        state = try JSONDecoder().decode(BlindBoxAccountState.self, from: JSONEncoder().encode(state))
+        BlindBoxWalletStateMachine.rewardPremiumPurchase(
+            state: &state, transactionID: "purchase-1", now: now, calendar: calendar
+        )
+        BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state, hasPremiumAccess: true, now: now, calendar: calendar
+        )
+        #expect(state.ticketBalance == 8)
+        #expect(state.pendingTicketReceipt == nil)
+    }
+
+    @Test
+    func entitlementRefreshBeforePurchaseCallbackDoesNotDoublePay() {
+        var state = BlindBoxAccountState(ticketBalance: 6)
+        state.lastTicketGrantDayIdentifier = BlindBoxGrantDay.identifier(for: now, calendar: calendar)
+        state.settledDailyTicketAllowance = 1
+        BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state, hasPremiumAccess: true, now: now, calendar: calendar
+        )
+        #expect(state.ticketBalance == 8)
+        // Even if another observer acknowledged the daily receipt, the purchase
+        // still has an accurate +2 receipt without a second balance increment.
+        state.pendingTicketReceipt = nil
+        BlindBoxWalletStateMachine.rewardPremiumPurchase(
+            state: &state, transactionID: "purchase-2", now: now, calendar: calendar
+        )
+        #expect(state.ticketBalance == 8)
+        #expect(state.pendingTicketReceipt?.count == 2)
+    }
+
+    @Test(arguments: [18, 19, 20])
+    func purchaseRespectsWalletCapacity(balance: Int) {
+        var state = BlindBoxAccountState(ticketBalance: balance)
+        BlindBoxWalletStateMachine.rewardPremiumPurchase(
+            state: &state, transactionID: "purchase-cap", now: now, calendar: calendar
+        )
+        #expect(state.ticketBalance == 20)
+        #expect((state.pendingTicketReceipt?.count ?? 0) == 20 - balance)
+    }
+
+    @Test
+    func previewPurchaseCreatesPersistedReceiptAndSixSlots() throws {
+        let defaults = try #require(UserDefaults(suiteName: "BlindBoxPurchaseTest-\(UUID().uuidString)"))
+        let store = BlindBoxPreviewStore(persistence: defaults)
+        store.refreshTickets(hasPremiumAccess: false)
+        _ = store.consumeTicketReceipt()
+        let batch = try #require(store.state.candidateBatches.first(where: { $0.remainingPositionCount > 0 }))
+        _ = try store.openSingle(batchID: batch.id, positionIndex: batch.unopenedPositionPlans[0].index)
+        let before = store.state.ticketBalance
+        store.refreshTickets(hasPremiumAccess: true, premiumPurchaseTransactionID: "preview-purchase")
+        #expect(store.state.ticketBalance == min(20, before + 2))
+        #expect(store.consumeTicketReceipt()?.count == min(2, 20 - before))
+        #expect(store.state.candidateBatches.count == 6)
+        let reloaded = BlindBoxPreviewStore(persistence: defaults)
+        reloaded.refreshTickets(hasPremiumAccess: true, premiumPurchaseTransactionID: "preview-purchase")
+        #expect(reloaded.state.ticketBalance == store.state.ticketBalance)
+        #expect(reloaded.consumeTicketReceipt() == nil)
+    }
+}
+
+@MainActor
 struct BlindBoxPullInteractionTests {
     @Test(arguments: [CGSize(width: 375, height: 667), CGSize(width: 393, height: 852), CGSize(width: 430, height: 932)])
     func ropeStaysAttachedToLocalArc(size: CGSize) {
@@ -30,16 +230,33 @@ struct BlindBoxPullInteractionTests {
     }
 
     @Test func onlyDownwardPullAtScrollTopCanBegin() {
-        #expect(BlindBoxPullInteraction.canBegin(scrollTop: 0, translation: CGSize(width: 2, height: 18)))
-        #expect(!BlindBoxPullInteraction.canBegin(scrollTop: -100, translation: CGSize(width: 0, height: 40)))
-        #expect(!BlindBoxPullInteraction.canBegin(scrollTop: 0, translation: CGSize(width: 40, height: 10)))
-        #expect(!BlindBoxPullInteraction.canBegin(scrollTop: 0, translation: CGSize(width: 0, height: -40)))
+        #expect(BlindBoxPullInteraction.canBegin(
+            scrollTop: 0, startLocation: CGPoint(x: 44, y: 120),
+            translation: CGSize(width: 2, height: 18)
+        ))
+        #expect(!BlindBoxPullInteraction.canBegin(
+            scrollTop: -100, startLocation: CGPoint(x: 44, y: 120),
+            translation: CGSize(width: 0, height: 40)
+        ))
+        #expect(!BlindBoxPullInteraction.canBegin(
+            scrollTop: 0, startLocation: CGPoint(x: 44, y: 180),
+            translation: CGSize(width: 0, height: 40)
+        ))
+        #expect(!BlindBoxPullInteraction.canBegin(
+            scrollTop: 0, startLocation: CGPoint(x: 44, y: 120),
+            translation: CGSize(width: 40, height: 10)
+        ))
+        #expect(!BlindBoxPullInteraction.canBegin(
+            scrollTop: 0, startLocation: CGPoint(x: 44, y: 120),
+            translation: CGSize(width: 0, height: -40)
+        ))
     }
 
     @Test func reversedAndTinyPullsCancel() {
         #expect(!BlindBoxPullInteraction.shouldEnter(translation: CGSize(width: 0, height: 10)))
         #expect(!BlindBoxPullInteraction.shouldEnter(translation: CGSize(width: 0, height: -5)))
-        #expect(BlindBoxPullInteraction.shouldEnter(translation: CGSize(width: 0, height: 28)))
+        #expect(!BlindBoxPullInteraction.shouldEnter(translation: CGSize(width: 0, height: 83)))
+        #expect(BlindBoxPullInteraction.shouldEnter(translation: CGSize(width: 0, height: 84)))
         #expect(BlindBoxPullInteraction.shouldEnter(translation: CGSize(width: 0, height: 400)))
     }
 
@@ -552,6 +769,32 @@ final class BlindBoxRuleEngineTests: XCTestCase {
             BlindBoxCatalogBundleCache.load(currentBuild: 1, rootDirectory: rootDirectory)?.release,
             firstBundle.release
         )
+        let firstEntry = try XCTUnwrap(
+            BlindBoxCatalogBundleCache.load(currentBuild: 1, rootDirectory: rootDirectory)
+        )
+        XCTAssertTrue(
+            BlindBoxCatalogBundleCache.entry(
+                firstEntry,
+                matches: firstBundle,
+                currentBuild: 1
+            )
+        )
+        var artworkChangedFiles = firstBundle.artworkFiles
+        let changedArtwork = try XCTUnwrap(artworkChangedFiles.first)
+        artworkChangedFiles[0] = BlindBoxCatalogArtworkFile(
+            assetName: changedArtwork.assetName,
+            data: Data("replacement-artwork".utf8)
+        )
+        XCTAssertFalse(
+            BlindBoxCatalogBundleCache.entry(
+                firstEntry,
+                matches: BlindBoxCatalogBundle(
+                    release: firstBundle.release,
+                    artworkFiles: artworkChangedFiles
+                ),
+                currentBuild: 1
+            )
+        )
 
         let secondBundle = makeCacheableCatalogBundle(releaseID: "bundle-two")
         XCTAssertEqual(
@@ -650,6 +893,20 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         XCTAssertEqual(
             Set(store.accountState.candidateBatches.map(\.plan.themeID)),
             Set(remoteBundle.release.activeThemeIDs + [BlindBoxCatalog.zodiac.id])
+        )
+
+        await store.refresh(
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: true,
+            nativeICloudInitialImportComplete: true,
+            now: Date(timeIntervalSince1970: 2_001),
+            calendar: calendar
+        )
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: rootDirectory.appendingPathComponent("previous", isDirectory: true).path
+            )
         )
     }
 
@@ -1542,7 +1799,7 @@ final class BlindBoxStateMachineTests: XCTestCase {
         )
 
         XCTAssertEqual(store.availability, .ready)
-        XCTAssertEqual(store.accountState.ticketBalance, BlindBoxAccountState.initialTicketBalance)
+        XCTAssertEqual(store.accountState.ticketBalance, BlindBoxAccountState.initialTicketBalance + 1)
         let batch = try XCTUnwrap(store.accountState.candidateBatches.first)
         let result = try await store.open(
             .single(batchID: batch.id, positionIndex: batch.unopenedPositionPlans[0].index),
@@ -1551,7 +1808,7 @@ final class BlindBoxStateMachineTests: XCTestCase {
         )
 
         XCTAssertEqual(result.ticketCost, 1)
-        XCTAssertEqual(store.accountState.ticketBalance, BlindBoxAccountState.initialTicketBalance - 1)
+        XCTAssertEqual(store.accountState.ticketBalance, BlindBoxAccountState.initialTicketBalance)
         XCTAssertEqual(store.accountState.ownedStickerCounts.count, 1)
     }
 
@@ -2114,6 +2371,50 @@ private final class InMemoryBlindBoxCloudRecordDatabase: BlindBoxCloudRecordData
 }
 
 final class BlindBoxCandidateCoordinatorTests: XCTestCase {
+    @MainActor
+    func testPreviewUpgradeReplacesHiddenFixturesWithFullBatches() {
+        let store = BlindBoxPreviewStore()
+        store.refreshTickets(hasPremiumAccess: false)
+        let previousIDs = Set(store.candidates(hasPremiumAccess: false).map(\.id))
+        store.refreshTickets(hasPremiumAccess: true)
+        let batches = store.candidates(hasPremiumAccess: true)
+        let added = batches.filter { !previousIDs.contains($0.id) }
+        XCTAssertEqual(added.count, 2)
+        XCTAssertTrue(added.allSatisfy { $0.remainingPositionCount == 9 && !$0.isSoldOut })
+        for theme in store.themes {
+            XCTAssertEqual(batches.filter { $0.plan.themeID == theme.id }.count, 2)
+        }
+    }
+
+    func testUpgradeBalancesThreeThemesAndAddsTwoFullBatches() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
+        var state = BlindBoxAccountState()
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0])
+        let themes = BlindBoxCatalog.builtInThemes
+        _ = try BlindBoxCandidateCoordinator.reconcile(
+            state: &state, themes: themes, hasPremiumAccess: false,
+            reason: .initialLoad, now: now, generator: &generator
+        )
+        let previousIDs = Set(state.candidateBatches.map(\.id))
+        _ = try BlindBoxCandidateCoordinator.reconcile(
+            state: &state, themes: themes, hasPremiumAccess: true,
+            reason: .membershipChanged, now: now, generator: &generator
+        )
+        XCTAssertEqual(state.candidateBatches.count, 6)
+        for theme in themes {
+            XCTAssertEqual(state.candidateBatches.filter { $0.plan.themeID == theme.id }.count, 2)
+        }
+        let added = state.candidateBatches.filter { !previousIDs.contains($0.id) }
+        XCTAssertEqual(added.count, 2)
+        XCTAssertTrue(added.allSatisfy { $0.remainingPositionCount == 9 && !$0.isSoldOut })
+        let upgraded = state.candidateBatches
+        _ = try BlindBoxCandidateCoordinator.reconcile(
+            state: &state, themes: themes, hasPremiumAccess: true,
+            reason: .initialLoad, now: now, generator: &generator
+        )
+        XCTAssertEqual(state.candidateBatches, upgraded)
+    }
+
     func testAccountMaintenanceGrantsTicketsFillsCandidatesAndStartsSchedulesOnlyAfterPresentation() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -2641,10 +2942,11 @@ final class BlindBoxWalletStateMachineTests: XCTestCase {
         XCTAssertEqual(result.resultingTicketBalance, 1)
     }
 
-    func testNewAccountStartsWithThreeLaunchTicketsWithoutFirstDayTopUp() {
+    func testNewAccountReceivesTwoLaunchTicketsAndFirstDailyAllowance() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         var state = BlindBoxAccountState.newAccount()
+        XCTAssertEqual(state.ticketBalance, 2)
 
         let result = BlindBoxWalletStateMachine.refreshDailyTickets(
             state: &state,
@@ -2653,10 +2955,10 @@ final class BlindBoxWalletStateMachineTests: XCTestCase {
             calendar: calendar
         )
 
-        XCTAssertEqual(state.ticketBalance, BlindBoxAccountState.initialTicketBalance)
-        XCTAssertEqual(result.processedGrantDays, 0)
-        XCTAssertEqual(result.grantedTicketCount, 0)
-        XCTAssertNil(state.pendingTicketReceipt)
+        XCTAssertEqual(state.ticketBalance, 3)
+        XCTAssertEqual(result.processedGrantDays, 1)
+        XCTAssertEqual(result.grantedTicketCount, 1)
+        XCTAssertEqual(state.pendingTicketReceipt?.count, 1)
     }
 
     func testPointExchangeChargesOneHundredAndResetsAtFourAM() throws {
@@ -2809,7 +3111,36 @@ final class BlindBoxFullRegressionTests: XCTestCase {
     func testB11ClockRollbackMustNotUnlockAnotherExchange() throws {
         var state = BlindBoxAccountState()
         _ = try BlindBoxWalletStateMachine.exchangePointsForOneTicket(state: &state, availablePoints: 1000, now: now, calendar: utc)
-        XCTAssertThrowsError(try BlindBoxWalletStateMachine.exchangePointsForOneTicket(state: &state, availablePoints: 900, now: now.addingTimeInterval(-86400), calendar: utc))
+        XCTAssertThrowsError(
+            try BlindBoxWalletStateMachine.exchangePointsForOneTicket(
+                state: &state, availablePoints: 900,
+                now: now.addingTimeInterval(-86400), calendar: utc
+            )
+        ) { error in
+            XCTAssertEqual(error as? BlindBoxWalletError, .pointExchange(.grantDayLimitReached))
+        }
+        XCTAssertEqual(state.ticketBalance, 1)
+    }
+
+    func testB11ClockRollbackCannotCreateAnotherReservedExchange() throws {
+        var state = BlindBoxAccountState()
+        let firstID = UUID()
+        _ = try BlindBoxWalletStateMachine.reservePointsForOneTicketExchange(
+            state: &state, idempotencyKey: firstID, availablePoints: 1_000,
+            now: now, calendar: utc
+        )
+        _ = try BlindBoxWalletStateMachine.completeReservedPointExchange(
+            state: &state, idempotencyKey: firstID
+        )
+
+        XCTAssertThrowsError(
+            try BlindBoxWalletStateMachine.reservePointsForOneTicketExchange(
+                state: &state, idempotencyKey: UUID(), availablePoints: 900,
+                now: now.addingTimeInterval(-86_400), calendar: utc
+            )
+        ) { error in
+            XCTAssertEqual(error as? BlindBoxWalletError, .pointExchange(.grantDayLimitReached))
+        }
         XCTAssertEqual(state.ticketBalance, 1)
     }
 
@@ -2822,6 +3153,30 @@ final class BlindBoxFullRegressionTests: XCTestCase {
         BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: now, calendar: west)
         BlindBoxWalletStateMachine.refreshDailyTickets(state: &state, hasPremiumAccess: false, now: now, calendar: east)
         XCTAssertEqual(state.ticketBalance, 1)
+    }
+
+    func testB12TimezoneAnchorSurvivesLocalStateRoundTrip() {
+        let suite = "BlindBoxTimeZoneAnchor-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var west = utc
+        west.timeZone = TimeZone(secondsFromGMT: -12 * 3600)!
+        var east = utc
+        east.timeZone = TimeZone(secondsFromGMT: 14 * 3600)!
+        var state = BlindBoxAccountState()
+
+        BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state, hasPremiumAccess: false, now: now, calendar: west
+        )
+        XCTAssertEqual(state.grantDayTimeZoneIdentifier, west.timeZone.identifier)
+        XCTAssertTrue(BlindBoxLocalStateStore.save(state, defaults: defaults))
+        state = BlindBoxLocalStateStore.load(defaults: defaults)
+
+        BlindBoxWalletStateMachine.refreshDailyTickets(
+            state: &state, hasPremiumAccess: false, now: now, calendar: east
+        )
+        XCTAssertEqual(state.ticketBalance, 1)
+        XCTAssertEqual(state.grantDayTimeZoneIdentifier, west.timeZone.identifier)
     }
 
     func testC12KnownFreeLegacyAccountReceivesUpgradeDifferenceAfterReload() throws {

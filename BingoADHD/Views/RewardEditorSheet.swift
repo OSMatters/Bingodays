@@ -13,6 +13,8 @@ struct RewardThemeSkin: Identifiable {
 
 private struct RewardEditorLayout {
     let headerTopPadding: CGFloat
+    let headerLeadingPadding: CGFloat
+    let headerTrailingPadding: CGFloat
     let cardWidth: CGFloat
     let cardHeight: CGFloat
     let cardScale: CGFloat
@@ -42,6 +44,7 @@ struct RewardEditorSheet: View {
     @State private var emojiHistory: [String]
     @StateObject private var inputSession = RewardEditorInputSession()
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.blindBoxWindowSafeAreaInsets) private var windowSafeAreaInsets
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -150,7 +153,10 @@ struct RewardEditorSheet: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let layout = editorLayout(for: proxy.size)
+            let layout = editorLayout(
+                for: proxy.size,
+                safeAreaInsets: resolvedSafeAreaInsets(from: proxy.safeAreaInsets)
+            )
 
             ZStack(alignment: .bottom) {
                 PointsRewardBackground()
@@ -172,7 +178,8 @@ struct RewardEditorSheet: View {
                 VStack(spacing: 0) {
                     editorHeader
                         .padding(.top, layout.headerTopPadding)
-                        .padding(.horizontal, scaled(24, pad: 34))
+                        .padding(.leading, layout.headerLeadingPadding)
+                        .padding(.trailing, layout.headerTrailingPadding)
 
                     Spacer(minLength: 0)
                 }
@@ -233,7 +240,7 @@ struct RewardEditorSheet: View {
         }
     }
 
-    private func editorLayout(for size: CGSize) -> RewardEditorLayout {
+    private func editorLayout(for size: CGSize, safeAreaInsets: EdgeInsets) -> RewardEditorLayout {
         let usesExpandedPadPortraitLayout = UIDevice.current.userInterfaceIdiom == .pad
             && size.height > size.width
         let baseCardWidth = scaled(280, pad: 360)
@@ -243,10 +250,17 @@ struct RewardEditorSheet: View {
             ? max(baseCardWidth, expandedCardWidth)
             : baseCardWidth
         let defaultCardHeight = baseCardHeight * (defaultCardWidth / baseCardWidth)
-        let headerTopPadding = scaled(3, pad: 17)
-        let cardAnchorTopPadding = scaled(48, pad: 62)
+        let headerTopPadding = max(0, safeAreaInsets.top) + scaled(8, pad: 12)
+        let headerLeadingPadding = max(
+            scaled(24, pad: 34),
+            max(0, safeAreaInsets.leading) + scaled(12, pad: 16)
+        )
+        let headerTrailingPadding = max(
+            scaled(24, pad: 34),
+            max(0, safeAreaInsets.trailing) + scaled(12, pad: 16)
+        )
         let headerHeight = scaled(56, pad: 66)
-        let minimumCardTop = cardAnchorTopPadding + headerHeight + scaled(8, pad: 12)
+        let minimumCardTop = headerTopPadding + headerHeight + scaled(8, pad: 12)
         let panelTop = size.height - cardSkinPanelHeight + cardSkinPanelBottomOffset
         let cardBottom = panelTop - scaled(10, pad: 14)
         let availableCardHeight = max(scaled(148, pad: 190), cardBottom - minimumCardTop)
@@ -256,12 +270,25 @@ struct RewardEditorSheet: View {
 
         return RewardEditorLayout(
             headerTopPadding: headerTopPadding,
+            headerLeadingPadding: headerLeadingPadding,
+            headerTrailingPadding: headerTrailingPadding,
             cardWidth: cardWidth,
             cardHeight: cardHeight,
             cardScale: cardWidth / baseCardWidth,
             cardCenterY: usesExpandedPadPortraitLayout
                 ? (minimumCardTop + cardBottom) / 2
                 : cardBottom - cardHeight / 2
+        )
+    }
+
+    /// The pull portal extends its artwork below system bars. Its window inset
+    /// remains reliable even when this editor's local GeometryReader is full-screen.
+    private func resolvedSafeAreaInsets(from localInsets: EdgeInsets) -> EdgeInsets {
+        EdgeInsets(
+            top: max(localInsets.top, windowSafeAreaInsets.top),
+            leading: max(localInsets.leading, windowSafeAreaInsets.leading),
+            bottom: max(localInsets.bottom, windowSafeAreaInsets.bottom),
+            trailing: max(localInsets.trailing, windowSafeAreaInsets.trailing)
         )
     }
 

@@ -61,6 +61,13 @@ final class NativeICloudSyncStore {
         controller.container.persistentStoreCoordinator
     }
 
+    /// Scope CloudKit event observation to this mirror. A runtime can replace a
+    /// mirror after an iCloud account change; events from the retired container
+    /// must not drive imports for the replacement.
+    var persistentCloudKitContainer: NSPersistentCloudKitContainer {
+        controller.container
+    }
+
     func load() async throws {
         try await controller.load()
     }

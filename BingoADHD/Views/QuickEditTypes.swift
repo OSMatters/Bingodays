@@ -78,8 +78,11 @@ struct QuickEditPreviewSlot: Identifiable, Equatable {
         guard !text.isEmpty else { return nil }
         return MyTaskItem(
             text: text,
+            startAt: cellState.startVisibleAt,
+            endAt: cellState.endVisibleAt,
             startMonth: cellState.startVisibleMonth,
-            startDay: cellState.startVisibleDay
+            startDay: cellState.startVisibleDay,
+            recurrenceRule: cellState.recurrenceRule
         )
     }
 }
@@ -230,11 +233,15 @@ func quickEditMakePreviewCell(
     taskCopy.normalizeVisibilityWindow()
 
     guard let existingCell else {
+        let recurrenceRule = taskCopy.recurrenceRule
+        let usesStoredSchedule = recurrenceRule != nil ||
+            taskCopy.startAt != nil || taskCopy.endAt != nil
         return BingoCell(
             text: taskCopy.trimmedText,
-            residentTaskText: nil,
+            residentTaskText: usesStoredSchedule ? taskCopy.trimmedText : nil,
             residentWeekdays: [],
             oneTimeVisibleDate: nil,
+            recurrenceRule: recurrenceRule,
             startVisibleAt: taskCopy.startAt,
             endVisibleAt: taskCopy.endAt,
             usesRecurringTimeWindow: false,
@@ -540,8 +547,11 @@ func quickEditAllTaskCandidates(library: MyTasksLibrary, unlockedHistoryRecords:
                 id: key,
                 task: MyTaskItem(
                     text: record.trimmedText,
+                    startAt: record.startAt,
+                    endAt: record.endAt,
                     startMonth: record.startMonth,
-                    startDay: record.startDay
+                    startDay: record.startDay,
+                    recurrenceRule: record.recurrenceRule
                 )
             )
         )
@@ -595,8 +605,11 @@ func quickEditFilteredTaskItems(
                 source: .history,
                 task: MyTaskItem(
                     text: record.trimmedText,
+                    startAt: record.startAt,
+                    endAt: record.endAt,
                     startMonth: record.startMonth,
-                    startDay: record.startDay
+                    startDay: record.startDay,
+                    recurrenceRule: record.recurrenceRule
                 ),
                 operationDate: record.lastEditedAt,
                 isLocked: isLocked
@@ -782,7 +795,9 @@ func quickEditAddPreviewTask(
     if let cell = slots[emptyIndex].cellState {
         DiagnosticLogStore.recordStateChange("task_rule.preview_selected", details: [
             "source": key.hasPrefix("history:") ? "task_history" : source,
-            "cell_id": cell.id.uuidString, "rule": cell.diagnosticTaskRuleKind
+            "cell_id": cell.id.uuidString,
+            "source_rule": task.recurrenceRule?.kind.rawValue ?? "legacy_unspecified",
+            "rule": cell.diagnosticTaskRuleKind
         ])
     }
     return (slots, true)
@@ -1134,8 +1149,11 @@ func quickEditCommitInlineTask(
 func quickEditSyncedTask(existingTask: MyTaskItem, newTask: MyTaskItem) -> MyTaskItem {
     var task = existingTask
     task.text = newTask.trimmedText
+    task.startAt = newTask.startAt
+    task.endAt = newTask.endAt
     task.startMonth = newTask.startMonth
     task.startDay = newTask.startDay
+    task.recurrenceRule = newTask.recurrenceRule
     task.normalizeStartDate()
     return task
 }

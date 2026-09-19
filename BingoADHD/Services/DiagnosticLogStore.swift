@@ -34,7 +34,14 @@ enum DiagnosticLogStore {
             .appendingPathComponent("diagnostic_\(processSource)_v2.json")
     }
     private static let lock = NSLock()
+    private static let persistenceQueue = DispatchQueue(
+        label: "com.bingoday.diagnostic-log.persistence",
+        qos: .utility
+    )
     private static var entriesCache: [Entry]?
+    private static var criticalEntriesCache: [Entry]?
+    private static var ruleEntriesCache: [Entry]?
+    private static var pendingPersistenceWorkItem: DispatchWorkItem?
 
     static func record(
         _ name: String,
@@ -66,7 +73,6 @@ enum DiagnosticLogStore {
         #endif
 
         lock.lock()
-        defer { lock.unlock() }
 
         var entries = cachedEntries()
         entries.append(entry)
@@ -74,26 +80,19 @@ enum DiagnosticLogStore {
             entries = Array(entries.suffix(maxEntries))
         }
         entriesCache = entries
-        saveEntries(entries)
-        var critical = loadCriticalEntries()
-        var rules = loadRuleEntries()
+        var critical = cachedCriticalEntries()
+        var rules = cachedRuleEntries()
         if isRuleTrace(entry) {
             rules.append(entry)
             rules = retainedRuleEntries(rules)
-            if let data = try? JSONEncoder().encode(rules) {
-                UserDefaults.standard.set(data, forKey: ruleStorageKey)
-            }
+            ruleEntriesCache = rules
         } else if isCritical(entry) {
             critical.append(entry)
             critical = Array(critical.suffix(maxCriticalEntries))
-            if let data = try? JSONEncoder().encode(critical) {
-                UserDefaults.standard.set(data, forKey: criticalStorageKey)
-            }
+            criticalEntriesCache = critical
         }
-        if let url = sharedLogURL,
-           let data = try? JSONEncoder().encode(rules + critical + entries.filter { !isCritical($0) }) {
-            try? data.write(to: url, options: .atomic)
-        }
+        schedulePersistenceLocked()
+        lock.unlock()
     }
 
     static func recordUserAction(_ name: String, details: [String: String] = [:]) {
@@ -109,11 +108,12 @@ enum DiagnosticLogStore {
     }
 
     static func exportText() -> String {
-        var entries = snapshot()
-        for entry in loadCriticalEntries() where !entries.contains(entry) {
+        let cached = cachedSnapshot()
+        var entries = cached.entries
+        for entry in cached.critical where !entries.contains(entry) {
             entries.append(entry)
         }
-        for entry in loadRuleEntries() where !entries.contains(entry) {
+        for entry in cached.rules where !entries.contains(entry) {
             entries.append(entry)
         }
         if let ownURL = sharedLogURL {
@@ -265,6 +265,72 @@ enum DiagnosticLogStore {
         let entries = loadEntries()
         entriesCache = entries
         return entries
+    }
+
+    private static func cachedCriticalEntries() -> [Entry] {
+        if let criticalEntriesCache {
+            return criticalEntriesCache
+        }
+        let entries = loadCriticalEntries()
+        criticalEntriesCache = entries
+        return entries
+    }
+
+    private static func cachedRuleEntries() -> [Entry] {
+        if let ruleEntriesCache {
+            return ruleEntriesCache
+        }
+        let entries = loadRuleEntries()
+        ruleEntriesCache = entries
+        return entries
+    }
+
+    private static func cachedSnapshot() -> (
+        entries: [Entry],
+        critical: [Entry],
+        rules: [Entry]
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (cachedEntries(), cachedCriticalEntries(), cachedRuleEntries())
+    }
+
+    private static func schedulePersistenceLocked() {
+        guard pendingPersistenceWorkItem == nil else { return }
+        let workItem = DispatchWorkItem {
+            persistCachedEntries()
+        }
+        pendingPersistenceWorkItem = workItem
+        persistenceQueue.asyncAfter(deadline: .now() + .milliseconds(250), execute: workItem)
+    }
+
+    private static func persistCachedEntries() {
+        let snapshot = takeCachedSnapshotForPersistence()
+
+        saveEntries(snapshot.entries)
+        if let data = try? JSONEncoder().encode(snapshot.rules) {
+            UserDefaults.standard.set(data, forKey: ruleStorageKey)
+        }
+        if let data = try? JSONEncoder().encode(snapshot.critical) {
+            UserDefaults.standard.set(data, forKey: criticalStorageKey)
+        }
+        if let url = sharedLogURL,
+           let data = try? JSONEncoder().encode(
+                snapshot.rules + snapshot.critical + snapshot.entries.filter { !isCritical($0) }
+           ) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    private static func takeCachedSnapshotForPersistence() -> (
+        entries: [Entry],
+        critical: [Entry],
+        rules: [Entry]
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        pendingPersistenceWorkItem = nil
+        return (cachedEntries(), cachedCriticalEntries(), cachedRuleEntries())
     }
 
     private static func saveEntries(_ entries: [Entry]) {

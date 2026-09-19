@@ -41,7 +41,6 @@ enum HomeMainTab: String, CaseIterable, Identifiable {
     }
 }
 
-
 struct BoardSwitcherControlsView: View {
     let boards: [BingoBoardStore.NamedBoard]
     let selectedBoardID: UUID?

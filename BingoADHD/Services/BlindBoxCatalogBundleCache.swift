@@ -15,6 +15,7 @@ enum BlindBoxCatalogBundleCache {
     struct Entry: Equatable {
         let release: BlindBoxCatalogRelease
         let directoryURL: URL
+        let artworkSHA256ByAssetName: [String: String]
     }
 
     private struct Manifest: Codable {
@@ -56,6 +57,29 @@ enum BlindBoxCatalogBundleCache {
         }
         let assetURL = entry.directoryURL.appendingPathComponent("\(assetName).png")
         return FileManager.default.fileExists(atPath: assetURL.path) ? assetURL : nil
+    }
+
+    /// A catalog release can keep its presentation metadata while replacing an
+    /// artwork file. Reuse an installed bundle only when both parts match.
+    static func entry(
+        _ entry: Entry,
+        matches bundle: BlindBoxCatalogBundle,
+        currentBuild: Int
+    ) -> Bool {
+        guard bundle.validationError() == nil,
+              bundle.release.minimumAppBuild <= currentBuild,
+              entry.release == bundle.release else {
+            return false
+        }
+
+        var incomingArtworkHashes: [String: String] = [:]
+        for artworkFile in bundle.artworkFiles {
+            guard incomingArtworkHashes[artworkFile.assetName] == nil else {
+                return false
+            }
+            incomingArtworkHashes[artworkFile.assetName] = artworkFile.sha256.lowercased()
+        }
+        return entry.artworkSHA256ByAssetName == incomingArtworkHashes
     }
 
     @discardableResult
@@ -176,7 +200,15 @@ enum BlindBoxCatalogBundleCache {
                 return nil
             }
         }
-        return Entry(release: manifest.release, directoryURL: directory)
+        return Entry(
+            release: manifest.release,
+            directoryURL: directory,
+            artworkSHA256ByAssetName: Dictionary(
+                uniqueKeysWithValues: manifest.artworkFiles.map {
+                    ($0.assetName, $0.sha256.lowercased())
+                }
+            )
+        )
     }
 
     private static func defaultRootDirectory() -> URL {

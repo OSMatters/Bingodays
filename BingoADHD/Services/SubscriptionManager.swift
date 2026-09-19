@@ -134,6 +134,7 @@ final class SubscriptionManager: ObservableObject {
     @Published private(set) var hasPremiumAccess = false
     @Published private(set) var isLoadingProducts = false
     @Published private(set) var isPurchasing = false
+    private(set) var lastCompletedPurchaseTransactionID: String?
     @Published private(set) var storefrontCountryCode = "--"
     @Published private(set) var storefrontCurrencyCode = "--"
     @Published private(set) var storefrontID = "--"
@@ -821,6 +822,9 @@ final class SubscriptionManager: ObservableObject {
                 userCancelled: result.userCancelled,
                 hasActivePremiumEntitlement: activated
             )
+            if outcome.completedPurchase {
+                lastCompletedPurchaseTransactionID = result.transaction?.transactionIdentifier
+            }
             if let analyticsSource, let analyticsPlan {
                 if outcome.completedPurchase {
                     AnalyticsService.logPremiumFeaturePurchaseSuccess(

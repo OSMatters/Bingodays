@@ -1,5 +1,4 @@
 import Foundation
-import Darwin
 #if canImport(WidgetKit)
 import WidgetKit
 #endif
@@ -148,50 +147,42 @@ enum BingoBoardStore {
     static func withBoardPersistenceLock<T>(_ operation: () -> T) -> T? {
         NativeICloudPrimaryMutationGate.acquire()
         defer { NativeICloudPrimaryMutationGate.release() }
-        guard acquireNamedSnapshotLock() else { return nil }
-        defer { releaseNamedSnapshotLock() }
-        return operation()
+        return withNamedSnapshotWriteCoordination(operation)
     }
 
-    // The process gate orders local callers; flock also excludes widget writers.
-    private static func acquireNamedSnapshotLock() -> Bool {
+    /// NSFileCoordinator provides App Group coordination without leaving a
+    /// POSIX advisory lock behind when iOS suspends either the app or widget.
+    /// Nested board writes stay in the same coordinator block.
+    private static func withNamedSnapshotWriteCoordination<T>(
+        _ operation: () -> T
+    ) -> T? {
         let state = Thread.current.threadDictionary
-        let depth = state["bingo.named.lock.depth"] as? Int ?? 0
+        let depthKey = "bingo.named.coordination.depth"
+        let depth = state[depthKey] as? Int ?? 0
         if depth > 0 {
-            state["bingo.named.lock.depth"] = depth + 1
-            return true
+            state[depthKey] = depth + 1
+            defer { state[depthKey] = depth }
+            return operation()
         }
-        let descriptor = open(sharedURL(for: "bingo_named_snapshot.lock").path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
-        guard descriptor >= 0 else {
-            DiagnosticLogStore.recordWarning("board.snapshot_lock_failed", details: ["errno": String(errno)])
-            return false
-        }
-        let deadline = ProcessInfo.processInfo.systemUptime + 0.5
-        repeat {
-            if flock(descriptor, LOCK_EX | LOCK_NB) == 0 {
-                state["bingo.named.lock.depth"] = 1
-                state["bingo.named.lock.fd"] = descriptor
-                return true
-            }
-            if errno != EWOULDBLOCK && errno != EINTR { break }
-            usleep(10_000)
-        } while ProcessInfo.processInfo.systemUptime < deadline
-        close(descriptor)
-        DiagnosticLogStore.recordWarning("board.snapshot_lock_timeout")
-        return false
-    }
 
-    private static func releaseNamedSnapshotLock() {
-        let state = Thread.current.threadDictionary
-        let depth = state["bingo.named.lock.depth"] as? Int ?? 0
-        if depth > 1 {
-            state["bingo.named.lock.depth"] = depth - 1
-        } else if let descriptor = state["bingo.named.lock.fd"] as? Int32 {
-            flock(descriptor, LOCK_UN)
-            close(descriptor)
-            state.removeObject(forKey: "bingo.named.lock.depth")
-            state.removeObject(forKey: "bingo.named.lock.fd")
+        var coordinationError: NSError?
+        var result: T?
+        NSFileCoordinator().coordinate(
+            writingItemAt: namedBoardsFileURL,
+            options: .forReplacing,
+            error: &coordinationError
+        ) { _ in
+            state[depthKey] = 1
+            defer { state.removeObject(forKey: depthKey) }
+            result = operation()
         }
+        if let coordinationError {
+            DiagnosticLogStore.recordWarning("board.snapshot_coordination_failed", details: [
+                "error_domain": coordinationError.domain,
+                "error_code": String(coordinationError.code)
+            ])
+        }
+        return result
     }
 
     private struct SnapshotCommitMetadata: Codable {
@@ -574,28 +565,38 @@ enum BingoBoardStore {
         let firstSeenAt: Date
     }
 
-    static func loadBoard() -> SavedBoard? {
+    static func loadBoard(repairingPersistence: Bool = true) -> SavedBoard? {
+        if !repairingPersistence {
+            return preferredBoardDataCandidates(
+                fileData: try? Data(contentsOf: sharedFileURL),
+                sharedData: sharedDefaults.data(forKey: saveKey),
+                standardData: UserDefaults.standard.data(forKey: saveKey)
+            )
+            .lazy
+            .compactMap { try? JSONDecoder().decode(SavedBoard.self, from: $0) }
+            .first
+        }
         NativeICloudPrimaryMutationGate.acquire()
         defer { NativeICloudPrimaryMutationGate.release() }
-        let canRepair = acquireNamedSnapshotLock()
-        defer { if canRepair { releaseNamedSnapshotLock() } }
-        let fileData = try? Data(contentsOf: sharedFileURL)
-        let sharedData = sharedDefaults.data(forKey: saveKey)
-        let standardData = UserDefaults.standard.data(forKey: saveKey)
+        return withNamedSnapshotWriteCoordination { () -> SavedBoard? in
+            let fileData = try? Data(contentsOf: sharedFileURL)
+            let sharedData = sharedDefaults.data(forKey: saveKey)
+            let standardData = UserDefaults.standard.data(forKey: saveKey)
 
-        for data in preferredBoardDataCandidates(
-            fileData: fileData,
-            sharedData: sharedData,
-            standardData: standardData
-        ) {
-            guard let saved = try? JSONDecoder().decode(SavedBoard.self, from: data) else {
-                continue
+            for data in preferredBoardDataCandidates(
+                fileData: fileData,
+                sharedData: sharedData,
+                standardData: standardData
+            ) {
+                guard let saved = try? JSONDecoder().decode(SavedBoard.self, from: data) else {
+                    continue
+                }
+                repairBoardPersistenceIfNeeded(data)
+                return saved
             }
-            if canRepair { repairBoardPersistenceIfNeeded(data) }
-            return saved
-        }
 
-        return nil
+            return nil
+        } ?? loadBoard(repairingPersistence: false)
     }
 
     static func normalizedBoardForPersistence(
@@ -630,8 +631,7 @@ enum BingoBoardStore {
     ) -> Bool {
         NativeICloudPrimaryMutationGate.acquire()
         defer { NativeICloudPrimaryMutationGate.release() }
-        guard acquireNamedSnapshotLock() else { return false }
-        defer { releaseNamedSnapshotLock() }
+        return withNamedSnapshotWriteCoordination {
         let normalizedBoard = normalizedBoardForPersistence(board, referenceDate: savedAt)
         let activeBoard = loadActiveNamedBoardID() == associatedBoardID ? loadBoard() : nil
         let namedBoard = associatedBoardID.flatMap { id in
@@ -703,6 +703,7 @@ enum BingoBoardStore {
         }
 
         return true
+        } ?? false
     }
 
     static func clearBoard(reloadWidgets: Bool = true) {
@@ -766,8 +767,7 @@ enum BingoBoardStore {
     static func clearNamedBoardsSnapshot(reloadWidgets: Bool = true) {
         NativeICloudPrimaryMutationGate.acquire()
         defer { NativeICloudPrimaryMutationGate.release() }
-        guard acquireNamedSnapshotLock() else { return }
-        defer { releaseNamedSnapshotLock() }
+        _ = withNamedSnapshotWriteCoordination { () -> Void in
         guard let fileStep = PersistenceWriteTransaction.fileDataStep(
             at: namedBoardsFileURL,
             newData: nil
@@ -800,15 +800,30 @@ enum BingoBoardStore {
         if reloadWidgets {
             reloadWidgetTimelines()
         }
+        }
     }
 
-    static func loadNamedBoardsSnapshot() -> NamedBoardsSnapshot {
+    static func loadNamedBoardsSnapshot(
+        repairingPersistence: Bool = true
+    ) -> NamedBoardsSnapshot {
+        if !repairingPersistence {
+            if let candidate = preferredNamedBoardsPersistenceCandidate() {
+                return sanitizeNamedBoardsSnapshot(candidate.snapshot)
+            }
+            if let legacyBoard = loadBoard(repairingPersistence: false) {
+                let migratedBoard = NamedBoard(
+                    name: L10n.boardDefaultName(1),
+                    board: legacyBoard,
+                    countdownEndsAt: loadBoardCountdownEndsAt(),
+                    updatedAt: loadBoardLastSavedAt() ?? .now
+                )
+                return NamedBoardsSnapshot(selectedBoardID: migratedBoard.id, boards: [migratedBoard])
+            }
+            return NamedBoardsSnapshot(selectedBoardID: nil, boards: [])
+        }
         NativeICloudPrimaryMutationGate.acquire()
         defer { NativeICloudPrimaryMutationGate.release() }
-        guard acquireNamedSnapshotLock() else {
-            return preferredNamedBoardsPersistenceCandidate()?.snapshot ?? .init(selectedBoardID: nil, boards: [])
-        }
-        defer { releaseNamedSnapshotLock() }
+        return withNamedSnapshotWriteCoordination { () -> NamedBoardsSnapshot in
         if let candidate = preferredNamedBoardsPersistenceCandidate() {
             let sanitized = sanitizeNamedBoardsSnapshot(candidate.snapshot)
             let didSanitize = sanitized != candidate.snapshot
@@ -842,6 +857,7 @@ enum BingoBoardStore {
         }
 
         return NamedBoardsSnapshot(selectedBoardID: nil, boards: [])
+        } ?? loadNamedBoardsSnapshot(repairingPersistence: false)
     }
 
     @discardableResult
@@ -854,8 +870,7 @@ enum BingoBoardStore {
     ) -> Bool {
         NativeICloudPrimaryMutationGate.acquire()
         defer { NativeICloudPrimaryMutationGate.release() }
-        guard acquireNamedSnapshotLock() else { return false }
-        defer { releaseNamedSnapshotLock() }
+        return withNamedSnapshotWriteCoordination {
         let sanitized = sanitizeNamedBoardsSnapshot(snapshot)
         #if DEBUG
         let previousSnapshot = loadPersistedNamedBoardsSnapshotForIntegrityCheck()
@@ -941,6 +956,7 @@ enum BingoBoardStore {
         }
 
         return true
+        } ?? false
     }
 
     /// Commits an imported template as one local state change.  This is kept
@@ -960,8 +976,7 @@ enum BingoBoardStore {
     ) -> Bool {
         NativeICloudPrimaryMutationGate.acquire()
         defer { NativeICloudPrimaryMutationGate.release() }
-        guard acquireNamedSnapshotLock() else { return false }
-        defer { releaseNamedSnapshotLock() }
+        return withNamedSnapshotWriteCoordination {
 
         let sanitizedSnapshot = sanitizeNamedBoardsSnapshot(snapshot)
         guard sanitizedSnapshot.selectedBoardID == activeBoardID,
@@ -1074,6 +1089,7 @@ enum BingoBoardStore {
             reloadWidgetTimelines()
         }
         return true
+        } ?? false
     }
 
     static func reloadWidgetTimelines() {

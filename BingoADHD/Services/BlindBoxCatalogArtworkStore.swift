@@ -11,7 +11,10 @@ final class BlindBoxCatalogArtworkStore {
     private let currentBuild: Int
     private var entry: BlindBoxCatalogBundleCache.Entry?
     private var hasLoadedEntry = false
-    private var images: [String: UIImage] = [:]
+    private let images = NSCache<NSString, UIImage>()
+
+    private static let imageCacheCostLimit = 32 * 1024 * 1024
+    private static let imageCacheCountLimit = 48
 
     private init(
         currentBuild: Int = Int(
@@ -19,10 +22,13 @@ final class BlindBoxCatalogArtworkStore {
         ) ?? 0
     ) {
         self.currentBuild = currentBuild
+        images.totalCostLimit = Self.imageCacheCostLimit
+        images.countLimit = Self.imageCacheCountLimit
     }
 
     func image(named assetName: String) -> UIImage? {
-        if let image = images[assetName] {
+        let cacheKey = assetName as NSString
+        if let image = images.object(forKey: cacheKey) {
             return image
         }
         if !hasLoadedEntry {
@@ -37,13 +43,16 @@ final class BlindBoxCatalogArtworkStore {
         guard let image = UIImage(contentsOfFile: fileURL.path) else {
             return nil
         }
-        images[assetName] = image
+        let pixelWidth = image.size.width * image.scale
+        let pixelHeight = image.size.height * image.scale
+        let cost = max(1, Int(pixelWidth * pixelHeight * 4))
+        images.setObject(image, forKey: cacheKey, cost: cost)
         return image
     }
 
     func reload() {
         entry = BlindBoxCatalogBundleCache.load(currentBuild: currentBuild)
         hasLoadedEntry = true
-        images.removeAll()
+        images.removeAllObjects()
     }
 }

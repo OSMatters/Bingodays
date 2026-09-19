@@ -15,6 +15,7 @@ struct BoardSwipePagerView: View {
     let allowsBoardSwipe: Bool
     let onSelectBoard: (UUID) -> Bool
     let onCellCompletionToggled: () -> Void
+    let onTaskPresentationChange: (Bool) -> Void
 
     @GestureState(
         resetTransaction: Transaction(
@@ -65,6 +66,7 @@ struct BoardSwipePagerView: View {
                 currentTime: currentTime,
                 shouldShowCenterLongPressHint: shouldShowCenterLongPressHint,
                 onCellCompletionToggled: onCellCompletionToggled,
+                onTaskPresentationChange: onTaskPresentationChange,
                 onCellReorderActiveChanged: { isActive in
                     isCellReordering = isActive
                 }

@@ -12,10 +12,11 @@ struct PointsFlowPresenter: View {
     var bottomContentPadding: CGFloat = 32
     var onSubpagePresentationChange: (Bool) -> Void = { _ in }
     var enteredFromBottomTab = false
-    var onNavigationOpacityChange: (Double) -> Void = { _ in }
+    var isActive = true
     let onAddStickerToHomeSuccess: () -> Void
 
     @State private var isShowingBlindBoxPremiumPaywall = false
+    @State private var blindBoxPurchaseTransactionID: String?
     @State private var rewardsSubpagePresented = false
     @State private var portalPresented = false
 
@@ -23,12 +24,11 @@ struct PointsFlowPresenter: View {
         BlindBoxPullPortal(
             enteredFromBottomTab: enteredFromBottomTab,
             isEnabled: AppDebugFlags.blindBoxLiveFlowEnabled || AppDebugFlags.blindBoxPreviewEnabled,
+            isActive: isActive,
             isRewardsSubpagePresented: rewardsSubpagePresented,
             onPresentationChange: { presented in
                 portalPresented = presented
-                onSubpagePresentationChange(presented || rewardsSubpagePresented)
-            },
-            onNavigationOpacityChange: onNavigationOpacityChange
+            }
         ) {
             rewardsContent
         } blindBox: { close in
@@ -52,13 +52,25 @@ struct PointsFlowPresenter: View {
             }
         }
         .fullScreenCover(isPresented: $isShowingBlindBoxPremiumPaywall, onDismiss: {
-            NotificationCenter.default.post(name: BlindBoxPremiumPaywallEntry.didDismiss, object: nil)
+            NotificationCenter.default.post(
+                name: BlindBoxPremiumPaywallEntry.didDismiss,
+                object: blindBoxPurchaseTransactionID
+            )
+            blindBoxPurchaseTransactionID = nil
         }) {
             PremiumPaywallView(
                 entrySource: BlindBoxPremiumPaywallEntry.source,
-                limitedOfferState: $limitedOfferState
+                limitedOfferState: $limitedOfferState,
+                onPurchaseCompleted: { blindBoxPurchaseTransactionID = $0 }
             )
         }
+        .onChange(of: suppressesTabBar, initial: true) { _, value in
+            onSubpagePresentationChange(value)
+        }
+    }
+
+    private var suppressesTabBar: Bool {
+        isActive && (portalPresented || rewardsSubpagePresented || isShowingBlindBoxPremiumPaywall)
     }
 
     private var rewardsContent: some View {
@@ -70,7 +82,6 @@ struct PointsFlowPresenter: View {
                     bottomContentPadding: bottomContentPadding,
                     onSubpagePresentationChange: { presented in
                         rewardsSubpagePresented = presented
-                        onSubpagePresentationChange(presented || portalPresented)
                     },
                     inventoryCounts: pointsFeatureStore.stickerInventoryCounts,
                     usedCounts: pointsFeatureStore.currentStickerUsageCounts,
@@ -146,6 +157,7 @@ struct PointsFlowSheet: View {
     @State private var selectedStickerForDetail: StickerKind?
     @State private var selectedRewardForDetail: CustomReward?
     @State private var isPremiumPaywallPresented = false
+    @State private var isDetailsPresentationPresented = false
     @State private var premiumPaywallSource = "custom_reward_limit_create"
     @State private var isResolvingRewardCreateAccess = false
     @State private var isSavingNewReward = false
@@ -249,15 +261,13 @@ struct PointsFlowSheet: View {
         .onChange(of: isSubpagePresented) { _, isPresented in
             onSubpagePresentationChange(isPresented)
         }
-        .onDisappear {
-            onSubpagePresentationChange(false)
-        }
     }
 
     private var isSubpagePresented: Bool {
         switch screen {
         case .details:
-            return selectedStickerForDetail != nil || selectedRewardForDetail != nil
+            return selectedStickerForDetail != nil || selectedRewardForDetail != nil ||
+                isPremiumPaywallPresented || isDetailsPresentationPresented
         case .rewardEditor:
             return true
         }
@@ -382,7 +392,7 @@ struct PointsFlowSheet: View {
             onSelectReward: { reward in
                 selectedRewardForDetail = reward
             },
-            onHistoryPresentationChange: onSubpagePresentationChange
+            onPresentationChange: { isDetailsPresentationPresented = $0 }
         )
 
         content
@@ -421,7 +431,7 @@ private struct PointsDetailSheet: View {
     let onRequestEditReward: (CustomReward) -> Void
     let onSelectSticker: (StickerKind) -> Void
     let onSelectReward: (CustomReward) -> Void
-    let onHistoryPresentationChange: (Bool) -> Void
+    let onPresentationChange: (Bool) -> Void
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTab: PointsTab
@@ -448,7 +458,7 @@ private struct PointsDetailSheet: View {
         onRequestEditReward: @escaping (CustomReward) -> Void,
         onSelectSticker: @escaping (StickerKind) -> Void,
         onSelectReward: @escaping (CustomReward) -> Void,
-        onHistoryPresentationChange: @escaping (Bool) -> Void
+        onPresentationChange: @escaping (Bool) -> Void
     ) {
         self.points = points
         self.showsCloseButton = showsCloseButton
@@ -465,7 +475,7 @@ private struct PointsDetailSheet: View {
         self.onRequestEditReward = onRequestEditReward
         self.onSelectSticker = onSelectSticker
         self.onSelectReward = onSelectReward
-        self.onHistoryPresentationChange = onHistoryPresentationChange
+        self.onPresentationChange = onPresentationChange
         _selectedTab = State(initialValue: initialTab)
     }
 
@@ -663,13 +673,8 @@ private struct PointsDetailSheet: View {
                     } : nil
                 )
             }
-            .onChange(of: isHistoryPresented) { _, isPresented in
-                guard usesPadBottomHalfSheet else { return }
-                onHistoryPresentationChange(isPresented)
-            }
-            .onDisappear {
-                guard usesPadBottomHalfSheet, isHistoryPresented else { return }
-                onHistoryPresentationChange(false)
+            .onChange(of: isHistoryPresented || isDeleteActionSheetPresented || isDeleteSecondConfirmPresented || actionRewardID != nil, initial: true) { _, isPresented in
+                onPresentationChange(isPresented)
             }
         }
     }

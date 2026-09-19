@@ -45,9 +45,14 @@ struct NativeICloudPrimaryStateSnapshot: Codable, Equatable {
     }
 
     static func captureLocal() -> NativeICloudPrimaryStateSnapshot {
-        var namedSnapshot = BingoBoardStore.loadNamedBoardsSnapshot()
+        // CloudKit callbacks may run while the app is about to be suspended.
+        // Capturing local state must therefore only read replicas, never repair
+        // them or wait on the App Group's cross-process file lock.
+        var namedSnapshot = BingoBoardStore.loadNamedBoardsSnapshot(
+            repairingPersistence: false
+        )
         if let activeBoardID = BingoBoardStore.loadActiveNamedBoardID(),
-           let activeBoard = BingoBoardStore.loadBoard(),
+           let activeBoard = BingoBoardStore.loadBoard(repairingPersistence: false),
            let index = namedSnapshot.boards.firstIndex(where: { $0.id == activeBoardID }) {
             namedSnapshot.boards[index].board = activeBoard
             namedSnapshot.boards[index].countdownEndsAt = BingoBoardStore.loadBoardCountdownEndsAt()
@@ -322,10 +327,11 @@ enum NativeICloudPrimaryStateMerger {
     static func removingRedundantStarterGuideBoards(
         from snapshot: NativeICloudPrimaryStateSnapshot
     ) -> NativeICloudPrimaryStateSnapshot {
+        let deduplicatedBoards = deduplicatedBoards(snapshot.boards)
         let normalizedBoards = BingoBoardStore.snapshotByRemovingRedundantStarterGuideBoards(
             BingoBoardStore.NamedBoardsSnapshot(
                 selectedBoardID: nil,
-                boards: snapshot.boards,
+                boards: deduplicatedBoards,
                 deletedBoardIDs: snapshot.effectiveDeletedBoardIDs,
                 protectedBoardID: snapshot.effectiveProtectedBoardID,
                 boardOrderModifiedAt: snapshot.boardOrderModifiedAt
@@ -373,11 +379,11 @@ enum NativeICloudPrimaryStateMerger {
         }
 
         let orderSource = shouldUseIncomingOrder ? incoming : local
-        let boardsByID = Dictionary(uniqueKeysWithValues: mergedBoards.map { ($0.id, $0) })
-        var orderedIDs = orderSource.boards.map(\.id)
+        let mergedBoardsByID = boardsByID(mergedBoards)
+        var orderedIDs = uniqueBoardIDs(orderSource.boards)
         let existingIDs = Set(orderedIDs)
-        orderedIDs.append(contentsOf: mergedBoards.map(\.id).filter { !existingIDs.contains($0) })
-        let boards = orderedIDs.compactMap { boardsByID[$0] }
+        orderedIDs.append(contentsOf: uniqueBoardIDs(mergedBoards).filter { !existingIDs.contains($0) })
+        let boards = orderedIDs.compactMap { mergedBoardsByID[$0] }
         let protectedBoardID = orderSource.effectiveProtectedBoardID.flatMap { protectedID in
             boards.contains(where: { $0.id == protectedID }) ? protectedID : boards.first?.id
         } ?? boards.first?.id
@@ -445,10 +451,10 @@ enum NativeICloudPrimaryStateMerger {
         calendar: Calendar,
         preferIncomingCommit: Bool
     ) -> (boards: [BingoBoardStore.NamedBoard], preservedLocalProgressAgainstReset: Bool) {
-        let localByID = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
-        let incomingByID = Dictionary(uniqueKeysWithValues: incoming.map { ($0.id, $0) })
-        var orderedIDs = incoming.map(\.id)
-        orderedIDs.append(contentsOf: local.map(\.id).filter { incomingByID[$0] == nil })
+        let localByID = boardsByID(local)
+        let incomingByID = boardsByID(incoming)
+        var orderedIDs = uniqueBoardIDs(incoming)
+        orderedIDs.append(contentsOf: uniqueBoardIDs(local).filter { incomingByID[$0] == nil })
 
         var preservedLocalProgressAgainstReset = false
         let boards = orderedIDs.compactMap { id -> BingoBoardStore.NamedBoard? in
@@ -471,6 +477,41 @@ enum NativeICloudPrimaryStateMerger {
             return incomingBoard.updatedAt >= localBoard.updatedAt ? incomingBoard : localBoard
         }
         return (boards, preservedLocalProgressAgainstReset)
+    }
+
+    /// Cloud history can contain malformed or legacy duplicates. Retain the
+    /// newest copy, then preserve the first copy when timestamps tie so imports
+    /// never reach Dictionary's duplicate-key assertion.
+    private static func boardsByID(
+        _ boards: [BingoBoardStore.NamedBoard]
+    ) -> [UUID: BingoBoardStore.NamedBoard] {
+        var result: [UUID: BingoBoardStore.NamedBoard] = [:]
+        for board in boards {
+            guard let existing = result[board.id] else {
+                result[board.id] = board
+                continue
+            }
+            if board.updatedAt > existing.updatedAt {
+                result[board.id] = board
+            }
+        }
+        return result
+    }
+
+    private static func uniqueBoardIDs(
+        _ boards: [BingoBoardStore.NamedBoard]
+    ) -> [UUID] {
+        var seen = Set<UUID>()
+        return boards.compactMap { board in
+            seen.insert(board.id).inserted ? board.id : nil
+        }
+    }
+
+    private static func deduplicatedBoards(
+        _ boards: [BingoBoardStore.NamedBoard]
+    ) -> [BingoBoardStore.NamedBoard] {
+        let byID = boardsByID(boards)
+        return uniqueBoardIDs(boards).compactMap { byID[$0] }
     }
 
     private static func shouldPreserveLocalProgress(

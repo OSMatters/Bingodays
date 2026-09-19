@@ -846,6 +846,11 @@ struct QuickEditView: View {
         let syncedTask = quickEditSyncedTask(existingTask: existingTask, newTask: newTask)
         setTask(syncedTask, for: location)
         recordTaskHistory(syncedTask, sourceTaskID: syncedTask.id)
+        DiagnosticLogStore.recordStateChange("task_rule.library_synced", details: [
+            "source": "quick_edit_editor",
+            "task_id": syncedTask.id.uuidString,
+            "rule": syncedTask.recurrenceRule?.kind.rawValue ?? "single"
+        ])
     }
 
     private func taskLocation(forTaskKey key: String) -> QuickEditTaskLocation? {

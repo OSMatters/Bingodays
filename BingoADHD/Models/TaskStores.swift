@@ -182,6 +182,7 @@ enum TaskHistoryStore {
             records[index].endAt = sanitizedTask.endAt
             records[index].startMonth = sanitizedTask.startMonth
             records[index].startDay = sanitizedTask.startDay
+            records[index].recurrenceRule = sanitizedTask.recurrenceRule
             records[index].sourceTaskID = sourceTaskID
             records[index].lastEditedAt = date
             records[index].normalizeVisibilityWindow()
@@ -194,6 +195,7 @@ enum TaskHistoryStore {
                     endAt: sanitizedTask.endAt,
                     startMonth: sanitizedTask.startMonth,
                     startDay: sanitizedTask.startDay,
+                    recurrenceRule: sanitizedTask.recurrenceRule,
                     sourceTaskID: sourceTaskID,
                     lastEditedAt: date
                 )
@@ -212,7 +214,8 @@ enum TaskHistoryStore {
                 startAt: cell.startVisibleAt,
                 endAt: cell.endVisibleAt,
                 startMonth: cell.startVisibleMonth,
-                startDay: cell.startVisibleDay
+                startDay: cell.startVisibleDay,
+                recurrenceRule: cell.recurrenceRule
             )
         }
     }
@@ -243,6 +246,7 @@ enum TaskHistoryStore {
                     endAt: sanitizedTask.endAt,
                     startMonth: sanitizedTask.startMonth,
                     startDay: sanitizedTask.startDay,
+                    recurrenceRule: sanitizedTask.recurrenceRule,
                     sourceTaskID: task.id,
                     lastEditedAt: date
                 )
@@ -267,6 +271,7 @@ enum TaskHistoryStore {
                         endAt: sanitizedTask.endAt,
                         startMonth: sanitizedTask.startMonth,
                         startDay: sanitizedTask.startDay,
+                        recurrenceRule: sanitizedTask.recurrenceRule,
                         sourceTaskID: task.id,
                         lastEditedAt: date
                     )

@@ -248,6 +248,7 @@ actor NativeICloudRuntime {
     private var preparingAccountScopeIdentifier: String?
     private var preparationWaiters: [CheckedContinuation<Void, Error>] = []
     private var lifecycleGeneration: UInt = 0
+    private var activeStoreGeneration: UInt = 0
 
     func prepare(
         accountScopeIdentifier: String? = nil,
@@ -283,9 +284,7 @@ actor NativeICloudRuntime {
             return
         }
         if let loadedAccountScopeIdentifier, loadedAccountScopeIdentifier != resolvedScope {
-            try? store?.unload()
-            store = nil
-            remoteChangeObserver = nil
+            discardActiveStore()
             lastHandledPrimaryStamp = nil
             lastHandledPrimarySchemaVersion = nil
         }
@@ -299,13 +298,18 @@ actor NativeICloudRuntime {
             )
             let newStore = NativeICloudSyncStore(controller: controller)
             candidateStore = newStore
-            beginObservingCloudKitEventsIfNeeded()
             try await newStore.load()
             guard generation == lifecycleGeneration else {
                 throw CancellationError()
             }
             store = newStore
             loadedAccountScopeIdentifier = resolvedScope
+            candidateStore = nil
+            activeStoreGeneration &+= 1
+            beginObservingCloudKitEvents(
+                for: newStore,
+                storeGeneration: activeStoreGeneration
+            )
             // This must start false for every newly prepared local mirror. The
             // App Group outlives an app reinstall, but the CloudKit cache does
             // not; restoring a previous boolean here made an empty reinstall
@@ -320,8 +324,7 @@ actor NativeICloudRuntime {
         } catch {
             try? candidateStore?.unload()
             if loadedAccountScopeIdentifier == resolvedScope {
-                store = nil
-                loadedAccountScopeIdentifier = nil
+                discardActiveStore()
             }
             finishActivePreparation(error: error)
             throw error
@@ -697,16 +700,19 @@ actor NativeICloudRuntime {
     }
 
     func beginObservingRemoteChanges() async throws {
-        guard remoteChangeObserver == nil else { return }
         try await prepare()
-        guard let coordinator = store?.persistentStoreCoordinator else { return }
+        guard remoteChangeObserver == nil,
+              let store else { return }
+        let storeGeneration = activeStoreGeneration
         remoteChangeObserver = NotificationCenter.default.addObserver(
             forName: .NSPersistentStoreRemoteChange,
-            object: coordinator,
+            object: store.persistentStoreCoordinator,
             queue: nil
         ) { _ in
-            Task {
-                await NativeICloudRuntime.shared.schedulePersistentStoreChangeImport()
+            Task { [weak self] in
+                await self?.schedulePersistentStoreChangeImport(
+                    forStoreGeneration: storeGeneration
+                )
             }
         }
     }
@@ -754,9 +760,7 @@ actor NativeICloudRuntime {
             NotificationCenter.default.removeObserver(cloudEventObserver)
         }
         cloudEventObserver = nil
-        try? store?.unload()
-        store = nil
-        loadedAccountScopeIdentifier = nil
+        discardActiveStore()
         lastHandledPrimaryStamp = nil
         lastHandledPrimarySchemaVersion = nil
         lastHandledPrimaryState = nil
@@ -886,17 +890,31 @@ actor NativeICloudRuntime {
         }
     }
 
-    private func schedulePersistentStoreChangeImport() {
+    private func schedulePersistentStoreChangeImport(forStoreGeneration storeGeneration: UInt) {
+        guard storeGeneration == activeStoreGeneration else { return }
         scheduledRemoteImportGeneration &+= 1
         let generation = scheduledRemoteImportGeneration
-        Task {
+        Task { [weak self] in
             try? await Task.sleep(nanoseconds: 200_000_000)
-            guard generation == scheduledRemoteImportGeneration else { return }
-            await handlePersistentStoreChange()
+            await self?.handlePersistentStoreChange(
+                scheduledGeneration: generation,
+                storeGeneration: storeGeneration
+            )
         }
     }
 
-    private func handlePersistentStoreChange() async {
+    private func handlePersistentStoreChange(
+        scheduledGeneration: UInt? = nil,
+        storeGeneration: UInt? = nil
+    ) async {
+        if let scheduledGeneration,
+           scheduledGeneration != scheduledRemoteImportGeneration {
+            return
+        }
+        if let storeGeneration,
+           storeGeneration != activeStoreGeneration {
+            return
+        }
         do {
             let imported = try await importPrimaryIfNeeded()
             NotificationCenter.default.post(
@@ -909,11 +927,16 @@ actor NativeICloudRuntime {
         }
     }
 
-    private func beginObservingCloudKitEventsIfNeeded() {
-        guard cloudEventObserver == nil else { return }
+    private func beginObservingCloudKitEvents(
+        for store: NativeICloudSyncStore,
+        storeGeneration: UInt
+    ) {
+        if let cloudEventObserver {
+            NotificationCenter.default.removeObserver(cloudEventObserver)
+        }
         cloudEventObserver = NotificationCenter.default.addObserver(
             forName: NSPersistentCloudKitContainer.eventChangedNotification,
-            object: nil,
+            object: store.persistentCloudKitContainer,
             queue: nil
         ) { notification in
             guard let event = notification.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey]
@@ -927,13 +950,34 @@ actor NativeICloudRuntime {
                 occurredAt: event.endDate ?? event.startDate,
                 errorDescription: event.error.map(NativeICloudErrorFormatter.describe)
             )
-            Task {
-                await NativeICloudRuntime.shared.handleCloudKitEvent(snapshot)
+            Task { [weak self] in
+                await self?.handleCloudKitEvent(
+                    snapshot,
+                    forStoreGeneration: storeGeneration
+                )
             }
         }
     }
 
     func handleCloudKitEvent(_ event: NativeICloudMirroringEvent) async {
+        await recordCloudKitEvent(event)
+    }
+
+    private func handleCloudKitEvent(
+        _ event: NativeICloudMirroringEvent,
+        forStoreGeneration storeGeneration: UInt
+    ) async {
+        guard storeGeneration == activeStoreGeneration else {
+            DiagnosticLogStore.recordStateChange(
+                "icloud_event_ignored_retired_store",
+                details: ["store_generation": String(storeGeneration)]
+            )
+            return
+        }
+        await recordCloudKitEvent(event)
+    }
+
+    private func recordCloudKitEvent(_ event: NativeICloudMirroringEvent) async {
         if event.isFinished, event.succeeded {
             lastSuccessfulCloudEventAt = event.occurredAt
             latestCloudEventFailure = nil
@@ -959,6 +1003,23 @@ actor NativeICloudRuntime {
             object: nil,
             userInfo: ["event": event]
         )
+    }
+
+    /// Do not call `remove(_:)` on a Core Data store while one of its background
+    /// contexts may still be saving. The store object remains strongly held by an
+    /// in-flight operation and Core Data can release it after that operation ends.
+    private func discardActiveStore() {
+        if let remoteChangeObserver {
+            NotificationCenter.default.removeObserver(remoteChangeObserver)
+        }
+        remoteChangeObserver = nil
+        if let cloudEventObserver {
+            NotificationCenter.default.removeObserver(cloudEventObserver)
+        }
+        cloudEventObserver = nil
+        store = nil
+        loadedAccountScopeIdentifier = nil
+        activeStoreGeneration &+= 1
     }
 
     private nonisolated static func eventKind(

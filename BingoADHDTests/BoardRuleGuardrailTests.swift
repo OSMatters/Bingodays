@@ -6789,6 +6789,121 @@ final class TaskRuleWriteProtectionTests: XCTestCase {
 }
 
 final class QuickEditReselectionRuleTests: XCTestCase {
+    func testTaskAndHistoryRuleMetadataRoundTripThroughCoding() throws {
+        let anchor = makeDate(year: 2026, month: 9, day: 18, hour: 9)
+        let rule = TaskRecurrenceRule(kind: .everyNDays, interval: 3, anchorDate: anchor)
+        let task = MyTaskItem(text: "Codable task", recurrenceRule: rule)
+        let history = TaskHistoryRecord(
+            key: "rule-codable",
+            text: task.text,
+            recurrenceRule: rule
+        )
+
+        let decodedTask = try JSONDecoder().decode(MyTaskItem.self, from: JSONEncoder().encode(task))
+        let decodedHistory = try JSONDecoder().decode(
+            TaskHistoryRecord.self,
+            from: JSONEncoder().encode(history)
+        )
+
+        XCTAssertEqual(decodedTask.recurrenceRule, rule)
+        XCTAssertEqual(decodedHistory.recurrenceRule, rule)
+    }
+
+    func testTaskLibraryRuleSurvivesNewSelectionApplyAndNextReset() throws {
+        let now = Date()
+        let rule = TaskRecurrenceRule(kind: .daily, anchorDate: now)
+        let task = MyTaskItem(text: "Library daily", recurrenceRule: rule)
+        let key = quickEditTaskKey(task)
+        var drafts: [String: QuickEditDeselectedTaskDraft] = [:]
+
+        let selection = quickEditAddPreviewTask(
+            key: key,
+            candidateTaskMap: [key: task],
+            currentSlots: [QuickEditPreviewSlot()],
+            deselectedTaskDrafts: &drafts
+        )
+        var selectedCell = try XCTUnwrap(selection.updatedSlots[0].cellState)
+        XCTAssertEqual(selectedCell.recurrenceRule, rule)
+        XCTAssertEqual(selectedCell.residentTaskText, task.text)
+
+        selectedCell.isCompleted = true
+        selectedCell.lastCompletedAt = now
+        let applied = BoardOrderedCellsRuleEngine.apply(BoardOrderedCellsRuleInput(
+            orderedCells: [selectedCell], targetGridSize: 2, minimumGridSize: 2,
+            maximumGridSize: BoardEngine.maxGridSize, maxTaskLength: BingoViewModel.maxTaskLength,
+            referenceDate: now, calendar: .current
+        ))
+        let board = SavedBoard(
+            gridSize: applied.gridSize,
+            cells: BoardEngine.projectVisibleCells(
+                from: applied.fullBoardCells,
+                size: applied.gridSize,
+                referenceDate: now
+            ),
+            completedLines: [],
+            fullBoardCells: applied.fullBoardCells
+        )
+
+        let reset = BoardResetRuleEngine.transformedBoardSnapshotForResetMode(
+            board,
+            mode: .resetStatusNextDay,
+            referenceDate: now.addingTimeInterval(86_400)
+        )
+        let resetCell = try XCTUnwrap(reset.fullBoardCells?[0][0])
+        XCTAssertEqual(resetCell.recurrenceRule, rule)
+        XCTAssertFalse(resetCell.isCompleted)
+        XCTAssertEqual(resetCell.storedTaskText, task.text)
+    }
+
+    func testEveryTaskLibraryRecurrenceRuleIsRestoredForANewPreviewCell() throws {
+        let anchor = makeDate(year: 2026, month: 9, day: 18, hour: 9)
+        let rules = [
+            TaskRecurrenceRule(kind: .daily),
+            TaskRecurrenceRule(kind: .weekly, weekdays: [2, 4]),
+            TaskRecurrenceRule(kind: .monthlyDay, monthDay: 15),
+            TaskRecurrenceRule(kind: .everyNDays, interval: 3, anchorDate: anchor)
+        ]
+
+        for rule in rules {
+            let task = MyTaskItem(text: "Library repeat", recurrenceRule: rule)
+            let preview = quickEditMakePreviewCell(from: task)
+            let recoveredTask = QuickEditPreviewSlot(cellState: preview).task
+
+            XCTAssertEqual(preview.recurrenceRule, rule)
+            XCTAssertEqual(recoveredTask?.recurrenceRule, rule)
+        }
+    }
+
+    func testEditingTaskInQuickEditSyncsItsRuleBackToTheTaskLibrary() throws {
+        let original = MyTaskItem(text: "Library rule change")
+        let weeklyRule = TaskRecurrenceRule(kind: .weekly, weekdays: [2, 5])
+        let editedCell = try XCTUnwrap(quickEditMakePreviewCellFromEdit(
+            existingCell: quickEditMakePreviewCell(from: original),
+            text: original.text,
+            isForcedTask: false,
+            residentWeekdays: [],
+            isOneTimeTask: false,
+            recurrenceRule: weeklyRule,
+            estimatedDurationMinutes: nil,
+            startVisibleAt: nil,
+            endVisibleAt: nil
+        ))
+        let editedTask = try XCTUnwrap(QuickEditPreviewSlot(cellState: editedCell).task)
+        let synced = quickEditSyncedTask(existingTask: original, newTask: editedTask)
+
+        XCTAssertEqual(synced.recurrenceRule, weeklyRule)
+        XCTAssertEqual(quickEditMakePreviewCell(from: synced).recurrenceRule, weeklyRule)
+    }
+
+    func testLegacyTaskLibraryEntryWithoutRuleKeepsExistingSingleTaskBehavior() {
+        let legacyTask = MyTaskItem(text: "Legacy library task")
+        let preview = quickEditMakePreviewCell(from: legacyTask)
+
+        XCTAssertNil(preview.recurrenceRule)
+        XCTAssertNil(preview.residentTaskText)
+        XCTAssertFalse(preview.hasRepeatingSchedule)
+    }
+
     @MainActor
     func testReselectedDailyTaskSurvivesViewModelSaveReloadCompletionAndNextReset() throws {
         let now = Date()
@@ -9643,23 +9758,32 @@ final class UserReportedDailyTaskLifecycleRegressionTests: XCTestCase {
     }
 
     @MainActor
-    func testSnapshotLockContentionFailsWithoutOverwritingBoard() throws {
+    func testSnapshotWriteDoesNotDependOnPOSIXLock() throws {
         try withRestoredBoardStorage { directory in
             let board = makeNamedBoard(cells: BoardEngine.createEmptyGrid(size: 5), gridSize: 5)
             let snapshot = BingoBoardStore.NamedBoardsSnapshot(selectedBoardID: board.id, boards: [board])
             XCTAssertTrue(BingoBoardStore.saveNamedBoardsSnapshot(snapshot, reloadWidgets: false))
             let file = directory.appendingPathComponent("bingo_boards_v1.json")
             let before = try Data(contentsOf: file)
-            let descriptor = open(directory.appendingPathComponent("bingo_named_snapshot.lock").path, O_RDWR)
+            let descriptor = open(
+                directory.appendingPathComponent("bingo_named_snapshot.lock").path,
+                O_CREAT | O_RDWR,
+                S_IRUSR | S_IWUSR
+            )
             XCTAssertGreaterThanOrEqual(descriptor, 0)
             guard descriptor >= 0 else { return }
             defer { flock(descriptor, LOCK_UN); close(descriptor) }
             XCTAssertEqual(flock(descriptor, LOCK_EX | LOCK_NB), 0)
             var edited = board
             edited.name = "Changed"
-            XCTAssertFalse(BingoBoardStore.saveNamedBoardsSnapshot(.init(selectedBoardID: board.id, boards: [edited]), reloadWidgets: false))
-            XCTAssertEqual(try Data(contentsOf: file), before)
-            XCTAssertTrue(DiagnosticLogStore.snapshot().contains { $0.name == "board.snapshot_lock_timeout" })
+            XCTAssertTrue(BingoBoardStore.saveNamedBoardsSnapshot(
+                .init(selectedBoardID: board.id, boards: [edited]),
+                reloadWidgets: false
+            ))
+            XCTAssertNotEqual(try Data(contentsOf: file), before)
+            XCTAssertFalse(DiagnosticLogStore.snapshot().contains {
+                $0.name == "board.snapshot_lock_timeout"
+            })
         }
     }
 
@@ -9706,6 +9830,44 @@ final class UserReportedDailyTaskLifecycleRegressionTests: XCTestCase {
             let repaired = try JSONDecoder().decode(BingoBoardStore.NamedBoardsSnapshot.self, from: Data(contentsOf: url))
             XCTAssertEqual(repaired, loaded)
             XCTAssertFalse(DiagnosticLogStore.exportText().contains("Private task title"))
+        }
+    }
+
+    @MainActor
+    func testCloudSnapshotCaptureReadsNamedBoardReplicasWithoutRepairingThem() throws {
+        try withRestoredBoardStorage { directory in
+            let now = Date()
+            var cells = BoardEngine.createEmptyGrid(size: 5)
+            cells[0][0] = BingoCell(text: "Daily task")
+            let original = makeNamedBoard(cells: cells, gridSize: 5, updatedAt: now)
+            XCTAssertTrue(BingoBoardStore.saveNamedBoardsSnapshot(
+                .init(selectedBoardID: original.id, boards: [original]),
+                reloadWidgets: false
+            ))
+
+            let namedBoardsURL = directory.appendingPathComponent("bingo_boards_v1.json")
+            let staleFileData = try Data(contentsOf: namedBoardsURL)
+            cells[0][0].recurrenceRule = TaskRecurrenceRule(kind: .daily)
+            var current = original
+            current.board = makeNamedBoard(
+                cells: cells,
+                gridSize: 5,
+                updatedAt: now.addingTimeInterval(1)
+            ).board
+            current.updatedAt = now.addingTimeInterval(1)
+            XCTAssertTrue(BingoBoardStore.saveNamedBoardsSnapshot(
+                .init(selectedBoardID: current.id, boards: [current]),
+                reloadWidgets: false
+            ))
+
+            // Make the on-disk replica stale while the defaults replicas retain
+            // the current commit. A CloudKit capture must select the current
+            // state but must not repair the stale file from a background callback.
+            try staleFileData.write(to: namedBoardsURL, options: .atomic)
+            let captured = NativeICloudPrimaryStateSnapshot.captureLocal()
+
+            XCTAssertEqual(captured.boards.first?.board.fullBoardCells?[0][0].recurrenceRule?.kind, .daily)
+            XCTAssertEqual(try Data(contentsOf: namedBoardsURL), staleFileData)
         }
     }
 

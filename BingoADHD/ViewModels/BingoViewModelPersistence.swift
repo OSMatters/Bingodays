@@ -506,7 +506,8 @@ enum BingoViewModelPersistence {
                 completionHistoryDelta: completionHistoryDelta,
                 dependencies: dependencies
             ),
-            dependencies: dependencies
+            dependencies: dependencies,
+            forceCloudReport: true
         )
     }
 
@@ -617,7 +618,8 @@ enum BingoViewModelPersistence {
 
     private static func commitNewTransaction(
         _ transaction: BingoPendingPersistenceTransaction,
-        dependencies: BingoViewModelPersistenceDependencies
+        dependencies: BingoViewModelPersistenceDependencies,
+        forceCloudReport: Bool = false
     ) -> BingoViewModelPersistenceCommitResult {
         if let pendingTransaction = dependencies.transactionRepository.loadPendingTransaction() {
             let recoveryResult = commit(
@@ -664,7 +666,11 @@ enum BingoViewModelPersistence {
             result.failedToSaveTransaction = true
             return result
         }
-        return commit(durableTransaction, dependencies: dependencies)
+        return commit(
+            durableTransaction,
+            dependencies: dependencies,
+            forceCloudReport: forceCloudReport
+        )
     }
 
     private static func commit(
@@ -677,7 +683,11 @@ enum BingoViewModelPersistence {
         let completionHistoryToPersist = transaction.taskCompletionHistory.isEmpty
             ? dependencies.completionHistoryRepository.loadCompletionHistory()
             : transaction.taskCompletionHistory
-        let hadPrimaryUserDataChanges = hasPrimaryUserDataChanges(
+        // Task completion and undo carry an explicit diary/history delta, so they
+        // are already known user mutations. Avoid re-reading every persisted
+        // primary-state surface before the write; the read-after-write checks
+        // below remain the durability guard.
+        let shouldReportPrimaryChange = forceCloudReport || hasPrimaryUserDataChanges(
             transaction,
             dependencies: dependencies
         )
@@ -789,7 +799,7 @@ enum BingoViewModelPersistence {
             return result
         }
         reloadWidgetsIfNeeded(&result, dependencies: dependencies)
-        if forceCloudReport || hadPrimaryUserDataChanges {
+        if shouldReportPrimaryChange {
             NativeICloudLocalChangeReporter.primaryStateDidChange()
         }
         return result

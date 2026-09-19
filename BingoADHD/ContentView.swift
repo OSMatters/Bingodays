@@ -48,8 +48,8 @@ struct ContentView: View {
     @State private var isICloudSyncPresented = false
     @State private var isPointsFlowPresented = false
     @State private var isPointsTabSubpagePresented = false
+    @State private var isBoardTaskPresentationPresented = false
     @State private var pointsEntryFromBottomTab = true
-    @State private var pointsNavigationOpacity: Double = 1
     @State private var isBoardCountdownPresented = false
     @State private var isBoardRulesPresented = false
     @State private var boardRulesTargetBoardID: UUID?
@@ -92,6 +92,7 @@ struct ContentView: View {
     @State private var limitedTimeOfferConfig = LimitedTimeOfferConfig.disabled
     @AppStorage(AppSettings.hapticsEnabledKey) private var isHapticsEnabled = true
     @AppStorage(AppSettings.soundEffectsEnabledKey) private var isSoundEffectsEnabled = true
+    @AppStorage(AppSettings.hasSeenBlindBoxNewBadgeKey) private var hasSeenBlindBoxNewBadge = false
     @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
     @AppStorage(AppSettings.lastPromptedUpdateVersionKey) private var lastPromptedUpdateVersion = ""
     @AppStorage(AppSettings.skippedUpdateVersionKey) private var skippedUpdateVersion = ""
@@ -108,6 +109,7 @@ struct ContentView: View {
     @AppStorage(AppSettings.limitedTimeDiscountCampaignIDKey) private var limitedTimeDiscountCampaignID = ""
 
     init(taskStartReminderScheduler: any TaskStartReminderScheduling = LiveTaskStartReminderScheduler()) {
+        Self.configureBlindBoxNewBadgeAppearance()
         _taskStartReminderSyncStore = StateObject(
             wrappedValue: TaskStartReminderSyncStore(scheduler: taskStartReminderScheduler)
         )
@@ -198,6 +200,22 @@ struct ContentView: View {
             viewModel.scheduledTaskReplacementEvent != nil ||
             timeoutDelayPickerContext != nil
     }
+
+    private var isMainTabBarSuppressed: Bool {
+        isThemePickerSheetPresented || isICloudSyncPresented ||
+        isPointsFlowPresented || isQuickEditPresented || isDiaryPresented ||
+        isPremiumPaywallPresented || isLimitedTimeDiscountPresented ||
+        isContactUsPresented || isBoardCountdownPresented || isBoardRulesPresented ||
+        isGridSizeSheetPresented || isBoardOrderPresented || isBoardSharePresented ||
+        isSidebarPresented || isClearBoardConfirmationPresented ||
+        boardActionPresentationStore.isCreateAlertPresented ||
+        boardActionPresentationStore.isRenameAlertPresented ||
+        boardActionPresentationStore.isDeleteAlertPresented ||
+        viewModel.boardCompletionAnimationID != nil ||
+        (selectedMainTab == .home && (isHomeMainTabBarSuppressed || isEditActionsExpanded || isBoardTaskPresentationPresented)) ||
+        (selectedMainTab == .points && isPointsTabSubpagePresented) ||
+        (selectedMainTab == .me && isMeSettingsPresented)
+    }
     private var selectedBoardName: String {
         boardManagementStore.selectedBoardName
     }
@@ -217,6 +235,14 @@ struct ContentView: View {
 
     private var usesPadBottomHalfSheets: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
+    }
+
+    private var isBlindBoxFeatureAvailable: Bool {
+        AppDebugFlags.blindBoxLiveFlowEnabled || AppDebugFlags.blindBoxPreviewEnabled
+    }
+
+    private var shouldShowBlindBoxNewBadge: Bool {
+        isBlindBoxFeatureAvailable && !hasSeenBlindBoxNewBadge
     }
 
     private func shortDiagnosticID(_ id: UUID?) -> String {
@@ -435,6 +461,9 @@ struct ContentView: View {
             }
         }
         .onChange(of: selectedMainTab) { _, newValue in
+            if newValue == .points {
+                hasSeenBlindBoxNewBadge = true
+            }
             if newValue == .me {
                 meGreetingIndex = MeGreeting.randomIndex(excluding: meGreetingIndex)
             }
@@ -492,20 +521,30 @@ struct ContentView: View {
                 selectedMainTab = tab
             }
         )) {
-            homeScreenContent
-                .toolbar(isHomeMainTabBarSuppressed ? .hidden : .visible, for: .tabBar)
+            tabRoot { homeScreenContent }
                 .tabItem { nativeTabLabel(.home) }
                 .tag(HomeMainTab.home)
 
-            pointsTabContent(bottomInset: 0)
-                .toolbar(isPointsTabSubpagePresented || pointsNavigationOpacity < 1 ? .hidden : .visible, for: .tabBar)
+            tabRoot { pointsTabContent(bottomInset: 0) }
                 .tabItem { nativeTabLabel(.points) }
+                .badge(shouldShowBlindBoxNewBadge ? "New" : nil)
                 .tag(HomeMainTab.points)
 
-            meTabContent(bottomInset: 0)
-                .toolbar(isMeSettingsPresented ? .hidden : .visible, for: .tabBar)
+            tabRoot { meTabContent(bottomInset: 0) }
                 .tabItem { nativeTabLabel(.me) }
                 .tag(HomeMainTab.me)
+        }
+        .background(conciseSurfaceColor.ignoresSafeArea())
+        .onChange(of: "\(selectedMainTab.rawValue):\(isMainTabBarSuppressed):\(isPointsTabSubpagePresented)", initial: true) { _, state in
+            if AppDebugFlags.tabGlassTrace {
+                print("[TabGlass] tab:hidden:pointsPresented=\(state)")
+            }
+        }
+        .onAppear {
+            for tab in HomeMainTab.allCases {
+                _ = MainTabIconCache.image(named: tab.iconName, scale: displayScale)
+                _ = MainTabIconCache.image(named: tab.selectedIconName, scale: displayScale)
+            }
         }
         .overlay {
             if let completionMotion = viewModel.taskCompletionMotion,
@@ -518,19 +557,18 @@ struct ContentView: View {
         }
     }
 
+    private func tabRoot<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        // Bar preferences must originate inside the TabView that owns the bar.
+        ZStack { content() }
+            .toolbar(isMainTabBarSuppressed ? .hidden : .visible, for: .tabBar)
+            .toolbarColorScheme(.light, for: .tabBar)
+    }
+
     private func nativeTabLabel(_ tab: HomeMainTab) -> some View {
         let assetName = selectedMainTab == tab ? tab.selectedIconName : tab.iconName
-        let renderer = ImageRenderer(content:
-            Image(assetName)
-                .renderingMode(.original)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 28, height: 28)
-        )
-        renderer.scale = displayScale
         return Group {
-            if let icon = renderer.uiImage {
-                Image(uiImage: icon.withRenderingMode(.alwaysOriginal))
+            if let icon = MainTabIconCache.image(named: assetName, scale: displayScale) {
+                Image(uiImage: icon)
                     .renderingMode(.original)
             } else {
                 Image(systemName: tab == .home ? "house" : tab == .points ? "star" : "person.crop.circle")
@@ -641,6 +679,7 @@ struct ContentView: View {
                             selectedStickerID = nil
                             reconcileRedemptionsIfPointsInsufficient()
                         },
+                        onTaskPresentationChange: { isBoardTaskPresentationPresented = $0 },
                         onCountdown: {
                             DiagnosticLogStore.recordUserAction(
                                 "board_header.countdown",
@@ -829,6 +868,18 @@ struct ContentView: View {
         }
     }
 
+    /// The system tab badge is intentionally retained so it follows the native
+    /// tab bar across devices. A compact font keeps the short "New" marker from
+    /// competing with the tab icon.
+    private static func configureBlindBoxNewBadgeAppearance() {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 8.5, weight: .bold)
+        ]
+        let appearance = UITabBarItem.appearance()
+        appearance.setBadgeTextAttributes(attributes, for: .normal)
+        appearance.setBadgeTextAttributes(attributes, for: .selected)
+    }
+
     private func pointsTabContent(bottomInset: CGFloat) -> some View {
         PointsFlowPresenter(
             isPadLayout: isPadLayout,
@@ -842,7 +893,7 @@ struct ContentView: View {
                 isPointsTabSubpagePresented = isPresented
             },
             enteredFromBottomTab: pointsEntryFromBottomTab,
-            onNavigationOpacityChange: { pointsNavigationOpacity = $0 },
+            isActive: selectedMainTab == .points,
             onAddStickerToHomeSuccess: {
                 selectedStickerID = nil
                 withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
@@ -3126,5 +3177,29 @@ struct ContentView: View {
         if let selectedStickerID, !pointsFeatureStore.containsPlacement(id: selectedStickerID) {
             self.selectedStickerID = nil
         }
+    }
+}
+
+@MainActor
+private enum MainTabIconCache {
+    private static var images: [String: UIImage] = [:]
+
+    static func image(named name: String, scale: CGFloat) -> UIImage? {
+        let key = "\(name)@\(scale)"
+        if let image = images[key] { return image }
+
+        let renderer = ImageRenderer(content:
+            Image(name)
+                .renderingMode(.original)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 28, height: 28)
+        )
+        renderer.scale = scale
+        guard let image = renderer.uiImage?.withRenderingMode(.alwaysOriginal) else {
+            return nil
+        }
+        images[key] = image
+        return image
     }
 }

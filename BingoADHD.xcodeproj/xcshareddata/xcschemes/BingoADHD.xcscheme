@@ -108,7 +108,7 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "-DebugBlindBoxPreview"
+            argument = "-DebugDisableBlindBoxPreview"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
@@ -121,7 +121,7 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-SimulateNextDayBoardRuleReset"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-ForceUpdatePrompt"

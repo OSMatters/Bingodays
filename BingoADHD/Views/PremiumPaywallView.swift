@@ -87,6 +87,7 @@ struct PremiumPaywallView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     let entrySource: String
+    private let onPurchaseCompleted: (String) -> Void
     @Binding private var limitedOfferState: LimitedOfferHomeState
 
     @State private var selectedPlan: PaywallPlan = .lifetime
@@ -100,9 +101,11 @@ struct PremiumPaywallView: View {
 
     init(
         entrySource: String,
-        limitedOfferState: Binding<LimitedOfferHomeState>
+        limitedOfferState: Binding<LimitedOfferHomeState>,
+        onPurchaseCompleted: @escaping (String) -> Void = { _ in }
     ) {
         self.entrySource = entrySource
+        self.onPurchaseCompleted = onPurchaseCompleted
         _limitedOfferState = limitedOfferState
     }
 
@@ -811,6 +814,9 @@ struct PremiumPaywallView: View {
 
     private func updateLimitedOfferEligibility(afterPurchaseOutcome outcome: SubscriptionPurchaseOutcome) {
         if outcome.completedPurchase {
+            if let transactionID = subscriptionManager.lastCompletedPurchaseTransactionID {
+                onPurchaseCompleted(transactionID)
+            }
             clearLimitedOfferStateAfterPurchase()
         }
     }

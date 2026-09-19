@@ -113,6 +113,7 @@ final class BlindBoxFeatureStore: ObservableObject {
         hasPremiumAccess: Bool,
         candidateZoneWasPresented: Bool,
         nativeICloudInitialImportComplete: Bool,
+        premiumPurchaseTransactionID: String? = nil,
         now: Date = .now,
         calendar: Calendar = .current,
         reason: BlindBoxCandidateRefreshReason = .initialLoad
@@ -138,8 +139,7 @@ final class BlindBoxFeatureStore: ObservableObject {
 
             try await recoverPendingPointExchangeIfNeeded()
 
-            lastMaintenanceResult = try await accountRepository.maintain(
-                BlindBoxCloudMaintenanceRequest(
+            var maintenanceRequest = BlindBoxCloudMaintenanceRequest(
                     themes: candidateThemes,
                     hasPremiumAccess: hasPremiumAccess,
                     candidateZoneWasPresented: candidateZoneWasPresented,
@@ -148,7 +148,8 @@ final class BlindBoxFeatureStore: ObservableObject {
                     calendar: calendar,
                     reason: reason
                 )
-            )
+            maintenanceRequest.premiumPurchaseTransactionID = premiumPurchaseTransactionID
+            lastMaintenanceResult = try await accountRepository.maintain(maintenanceRequest)
             accountState = try await accountRepository.loadAccount().accountState
             availability = .ready
         } catch {
@@ -328,6 +329,16 @@ final class BlindBoxFeatureStore: ObservableObject {
             return false
         }
 
+        if let cachedEntry = loadCachedCatalogEntry(),
+           BlindBoxCatalogBundleCache.entry(
+            cachedEntry,
+            matches: bundle,
+            currentBuild: catalogCurrentBuild
+           ) {
+            applyCatalog(cachedEntry, reloadArtwork: false)
+            return true
+        }
+
         let installResult: BlindBoxCatalogBundleCacheInstallResult
         if let catalogCacheRootDirectory {
             installResult = BlindBoxCatalogBundleCache.install(
@@ -343,17 +354,28 @@ final class BlindBoxFeatureStore: ObservableObject {
         }
 
         guard installResult == .installed else { return false }
-        let cachedEntry: BlindBoxCatalogBundleCache.Entry?
+        let cachedEntry = loadCachedCatalogEntry()
+        guard let cachedEntry else { return false }
+
+        applyCatalog(cachedEntry, reloadArtwork: true)
+        return true
+    }
+
+    private func loadCachedCatalogEntry() -> BlindBoxCatalogBundleCache.Entry? {
         if let catalogCacheRootDirectory {
-            cachedEntry = BlindBoxCatalogBundleCache.load(
+            BlindBoxCatalogBundleCache.load(
                 currentBuild: catalogCurrentBuild,
                 rootDirectory: catalogCacheRootDirectory
             )
         } else {
-            cachedEntry = BlindBoxCatalogBundleCache.load(currentBuild: catalogCurrentBuild)
+            BlindBoxCatalogBundleCache.load(currentBuild: catalogCurrentBuild)
         }
-        guard let cachedEntry else { return false }
+    }
 
+    private func applyCatalog(
+        _ cachedEntry: BlindBoxCatalogBundleCache.Entry,
+        reloadArtwork: Bool
+    ) {
         themes = cachedEntry.release.themes
         activeThemeIDs = Set(cachedEntry.release.activeThemeIDs)
         // Older remote releases predate the bundled Zodiac launch. A release
@@ -363,10 +385,9 @@ final class BlindBoxFeatureStore: ObservableObject {
             activeThemeIDs.insert(BlindBoxCatalog.zodiac.id)
         }
         economyConfiguration = cachedEntry.release.economyConfiguration
-        if catalogCacheRootDirectory == nil {
+        if reloadArtwork, catalogCacheRootDirectory == nil {
             BlindBoxCatalogArtworkStore.shared.reload()
         }
-        return true
     }
 
     private static func message(for error: any Error) -> String {

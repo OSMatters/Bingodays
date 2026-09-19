@@ -1,6 +1,14 @@
 import Foundation
 
 enum AppDebugFlags {
+    static var tabGlassTrace: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-DebugTabGlassTrace")
+#else
+        false
+#endif
+    }
+
 #if DEBUG
     private static var hasConsumedLimitedOfferStateReset = false
 #endif
@@ -65,15 +73,13 @@ enum AppDebugFlags {
 #endif
     }
 
-    /// Exercises the real private-CloudKit Blind Box account behind the same
-    /// Figma-backed presentation shell. It is deliberately debug-only until
-    /// release readiness, iCloud onboarding, and remote catalog publishing are
-    /// all enabled together.
+    /// Release builds use the real private-CloudKit Blind Box account.
+    /// Debug builds opt in explicitly to keep fixture testing isolated.
     static var blindBoxLiveFlowEnabled: Bool {
 #if DEBUG
         ProcessInfo.processInfo.arguments.contains("-DebugBlindBoxLive")
 #else
-        false
+        true
 #endif
     }
 

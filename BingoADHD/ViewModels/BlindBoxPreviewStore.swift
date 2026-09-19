@@ -16,7 +16,9 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
         let availablePoints: Int
     }
 
-    private static let persistenceKey = "blindBox.preview.savedState.v1"
+    /// v2 starts the public Blind Box preview from the same clean lifecycle as
+    /// a new account, rather than the old restock/opened-artwork demo fixture.
+    private static let persistenceKey = "blindBox.preview.savedState.v2"
     private var persistence: UserDefaults?
 
     @Published private(set) var state: BlindBoxAccountState {
@@ -79,6 +81,10 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
                let saved = try? JSONDecoder().decode(SavedPreview.self, from: data) {
                 self.state = saved.state
                 self.previewAvailablePoints = saved.availablePoints
+            } else if persistence != nil {
+                // Ordinary installs use the real first-launch wallet rules.
+                // Only isolated, non-persistent QA stores use the rich fixture.
+                self.state = .newAccount()
             }
             self.persistence = persistence
             savePreview()
@@ -93,9 +99,27 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
         persistence.set(data, forKey: Self.persistenceKey)
     }
 
-    func refreshTickets(hasPremiumAccess: Bool) {
-        BlindBoxWalletStateMachine.refreshDailyTickets(
-            state: &state, hasPremiumAccess: hasPremiumAccess, now: .now, calendar: .current
+    func refreshTickets(
+        hasPremiumAccess: Bool,
+        candidateZoneWasPresented: Bool = false,
+        premiumPurchaseTransactionID: String? = nil,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) {
+        if hasPremiumAccess, let transactionID = premiumPurchaseTransactionID {
+            BlindBoxWalletStateMachine.rewardPremiumPurchase(
+                state: &state, transactionID: transactionID, now: now, calendar: calendar
+            )
+        }
+        var generator = SystemBlindBoxRandomNumberGenerator()
+        _ = try? BlindBoxAccountMaintenance.apply(
+            state: &state,
+            themes: themes,
+            hasPremiumAccess: hasPremiumAccess,
+            candidateZoneWasPresented: candidateZoneWasPresented,
+            now: now,
+            calendar: calendar,
+            generator: &generator
         )
     }
 
@@ -187,7 +211,9 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
         now: Date = .now,
         calendar: Calendar = .current
     ) -> BlindBoxPointExchangeEligibility {
-        let currentGrantDay = BlindBoxGrantDay.identifier(for: now, calendar: calendar)
+        let currentGrantDay = BlindBoxGrantDay.currentIdentifier(
+            for: state, now: now, fallbackCalendar: calendar
+        )
         let exchangesUsed = state.lastPointExchangeDayIdentifier == currentGrantDay
             ? state.pointExchangesUsedOnLastGrantDay
             : 0

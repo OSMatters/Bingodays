@@ -1094,6 +1094,39 @@ final class NativeICloudPersistenceTests: XCTestCase {
         XCTAssertEqual(merged.effectiveDeletedBoardIDs, [deletedBoard.id])
     }
 
+    func testPrimaryMergeDeduplicatesRepeatedBoardIDsBeforeIndexing() {
+        let now = Date(timeIntervalSince1970: 1_774_176_000)
+        let repeatedID = UUID(uuidString: "00000000-0000-4000-8000-000000000711")!
+        let olderDuplicate = BingoBoardStore.NamedBoard(
+            id: repeatedID,
+            name: "Older copy",
+            board: SavedBoard(gridSize: 1, cells: [[BingoCell(text: "Older")]], completedLines: []),
+            updatedAt: now
+        )
+        let newerDuplicate = BingoBoardStore.NamedBoard(
+            id: repeatedID,
+            name: "Newer copy",
+            board: SavedBoard(gridSize: 1, cells: [[BingoCell(text: "Newer")]], completedLines: []),
+            updatedAt: now.addingTimeInterval(1)
+        )
+        let incomingBoard = BingoBoardStore.NamedBoard(
+            name: "Incoming",
+            board: SavedBoard(gridSize: 1, cells: [[BingoCell(text: "Incoming")]], completedLines: []),
+            updatedAt: now.addingTimeInterval(2)
+        )
+
+        let merged = NativeICloudPrimaryStateMerger.merged(
+            local: primarySnapshot(boards: [olderDuplicate, newerDuplicate]),
+            incoming: primarySnapshot(boards: [incomingBoard]),
+            localHasNewerUserChange: false,
+            referenceDate: now
+        )
+
+        XCTAssertEqual(Set(merged.boards.map(\.id)), [repeatedID, incomingBoard.id])
+        XCTAssertEqual(merged.boards.filter { $0.id == repeatedID }.count, 1)
+        XCTAssertEqual(merged.boards.first { $0.id == repeatedID }?.name, "Newer copy")
+    }
+
     func testNewerBoardOrderWinsWithoutDiscardingIncomingTaskProgress() {
         let now = Date(timeIntervalSince1970: 1_774_176_000)
         let boardA = BingoBoardStore.NamedBoard(
