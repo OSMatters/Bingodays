@@ -8,6 +8,14 @@ struct PersistenceWriteStep {
     let rollback: () -> Bool
 }
 
+/// Normal application reads may repair legacy mirrors. iCloud snapshots must
+/// only observe the current state, because a background read that writes
+/// UserDefaults can synchronously wake SwiftUI while persistence is locked.
+enum PersistenceReadMode {
+    case repairingMirrors
+    case readOnly
+}
+
 enum PersistenceWriteTransaction {
     static func commit(_ steps: [PersistenceWriteStep]) -> Bool {
         for index in steps.indices {
@@ -82,6 +90,9 @@ enum PersistenceWriteTransaction {
         defaults: UserDefaults,
         key: String
     ) -> Bool {
+        guard !propertyListValuesEqual(defaults.object(forKey: key), value) else {
+            return true
+        }
         if let value {
             defaults.set(value, forKey: key)
         } else {
@@ -512,7 +523,17 @@ enum BingoBoardStore {
         ["Drink a glass of water", "Stand for 1 minute", "Stretch your body"],
         ["喝一杯水", "站立1分钟", "拉伸身体"],
         ["喝一杯水", "站立1分鐘", "拉伸身體"]
-    ].map { Set($0.map(normalizedTaskText)) }
+    ].flatMap { tasks in
+        // Keep legacy full text and the exact text installed under the task
+        // editor's length limit. Never truncate the board's actual task keys:
+        // a user edit sharing a starter prefix must remain user-owned data.
+        [
+            Set(tasks.map(normalizedTaskText)),
+            Set(tasks.map {
+                normalizedTaskText(String($0.prefix(AppSettings.maxTaskLength)))
+            })
+        ]
+    }
 
     private static func normalizedBoardName(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -942,6 +963,9 @@ enum BingoBoardStore {
             DiagnosticLogStore.recordWarning("board.snapshot_commit_failed", details: ["operation_id": operationID])
             return false
         }
+        DispatchQueue.main.async {
+            BingoBoardLiveActivityController.scheduleRefresh()
+        }
         recordSnapshotTransition(from: previous?.snapshot, to: sanitized, operationID: operationID, source: source)
         DiagnosticLogStore.recordStateChange("board.snapshot_committed", details: [
             "operation_id": operationID,
@@ -1093,18 +1117,25 @@ enum BingoBoardStore {
     }
 
     static func reloadWidgetTimelines() {
+        DispatchQueue.main.async {
+            BingoBoardLiveActivityController.scheduleRefresh()
+        }
         #if canImport(WidgetKit)
         WidgetCenter.shared.reloadAllTimelines()
         #endif
     }
 
-    /// Cloud imports update both widget kinds from the App Group projection.
+    /// Cloud imports update all widget kinds from the App Group projection.
     /// Targeted reloads make the intended refresh observable and avoid relying
     /// on WidgetKit to infer which timeline changed.
     static func reloadICloudWidgetTimelines() {
+        DispatchQueue.main.async {
+            BingoBoardLiveActivityController.scheduleRefresh()
+        }
         #if canImport(WidgetKit)
         WidgetCenter.shared.reloadTimelines(ofKind: BingodaysWidgetKind.countdown)
         WidgetCenter.shared.reloadTimelines(ofKind: BingodaysWidgetKind.board)
+        WidgetCenter.shared.reloadTimelines(ofKind: BingodaysWidgetKind.lockScreen)
         #endif
         DiagnosticLogStore.recordStateChange("icloud.widget_timeline_reload_requested")
     }
@@ -1112,6 +1143,7 @@ enum BingoBoardStore {
     static func reloadBoardWidgetTimeline() {
         #if canImport(WidgetKit)
         WidgetCenter.shared.reloadTimelines(ofKind: BingodaysWidgetKind.board)
+        WidgetCenter.shared.reloadTimelines(ofKind: BingodaysWidgetKind.lockScreen)
         #endif
     }
 
@@ -1312,7 +1344,7 @@ enum BingoBoardStore {
     }
 
     private static func sanitizeCrossBoardCellIdentityReuse(in boards: inout [NamedBoard]) {
-        guard boards.count > 1 else { return }
+        guard !boards.isEmpty else { return }
 
         var ownerByCellID: [UUID: UUID] = [:]
         for index in boards.indices {

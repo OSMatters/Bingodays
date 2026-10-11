@@ -41,7 +41,9 @@ struct RewardEditorSheet: View {
     @State private var emojiInputBuffer = ""
     @State private var isEmojiKeyboardPresented = false
     @State private var keyboardHeight: CGFloat = 0
+    @State private var editorGlobalFrame: CGRect = .zero
     @State private var emojiHistory: [String]
+    @State private var validationMessage: String?
     @StateObject private var inputSession = RewardEditorInputSession()
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.blindBoxWindowSafeAreaInsets) private var windowSafeAreaInsets
@@ -51,7 +53,8 @@ struct RewardEditorSheet: View {
     }
 
     private var isPadDevice: Bool {
-        UIDevice.current.userInterfaceIdiom == .pad
+        // The unfolded Duo is a regular-width window even though it is still an iPhone.
+        isPadLayout
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
@@ -98,30 +101,31 @@ struct RewardEditorSheet: View {
         UserDefaults.standard.set(history, forKey: AppSettings.rewardEmojiHistoryKey)
     }
 
-    private var normalizedTitle: String {
-        String(titleText.prefix(AppSettings.maxRewardTitleLength))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var normalizedPoints: Int? {
-        guard let points = Int(pointsText), points > 0 else { return nil }
-        return min(points, 9_999)
-    }
-
-    private var canSave: Bool {
-        !normalizedTitle.isEmpty && normalizedPoints != nil
-    }
-
     private func saveReward() {
+        DiagnosticLogStore.recordUserAction("custom_reward.save_requested", details: [
+            "is_saving": "\(isSaving)", "keyboard_visible": "\(isKeyboardVisible)"
+        ])
         guard !isSaving else { return }
-        endInputSession()
-        guard let requiredPoints = normalizedPoints, !normalizedTitle.isEmpty else { return }
-        commitSave(requiredPoints: requiredPoints)
-    }
-
-    private func commitSave(requiredPoints: Int) {
+        let input = inputSession.prepareSave(fallbackTitle: titleText, fallbackPoints: pointsText)
+        titleText = input.title
+        pointsText = input.pointsText
+        isEmojiKeyboardPresented = false
+        keyboardHeight = 0
+        DiagnosticLogStore.recordUserAction("custom_reward.save_tapped", details: [
+            "editing_existing": "\(reward != nil)",
+            "title_valid": "\(!input.title.isEmpty)",
+            "points_valid": "\(input.requiredPoints != nil)"
+        ])
+        guard !input.title.isEmpty else {
+            validationMessage = L10n.tr("Enter a reward name.", zhHans: "请填写奖励名称。", zhHant: "請填寫獎勵名稱。", ja: "報酬名を入力してください。")
+            return
+        }
+        guard let requiredPoints = input.requiredPoints else {
+            validationMessage = L10n.tr("Enter 1–9999 redemption points.", zhHans: "请填写 1–9999 的兑换积分。", zhHant: "請填寫 1–9999 的兌換積分。", ja: "交換ポイントを1〜9999で入力してください。")
+            return
+        }
         rememberEmoji(selectedEmoji)
-        onSave(normalizedTitle, requiredPoints, selectedEmoji, selectedThemeImageName)
+        onSave(input.title, requiredPoints, selectedEmoji, selectedThemeImageName)
     }
 
     private func endInputSession() {
@@ -212,9 +216,26 @@ struct RewardEditorSheet: View {
                         .opacity(0.01)
                 }
             }
+            .onAppear {
+                editorGlobalFrame = proxy.frame(in: .global)
+            }
+            .onChange(of: proxy.size) { _, _ in
+                editorGlobalFrame = proxy.frame(in: .global)
+            }
+            .onChange(of: proxy.safeAreaInsets) { _, _ in
+                editorGlobalFrame = proxy.frame(in: .global)
+            }
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .dynamicTypeSize(.xSmall...DynamicTypeSize.xxxLarge)
+        .alert(L10n.tr("Check reward details", zhHans: "请检查奖励信息", zhHant: "請檢查獎勵資料", ja: "報酬の内容を確認してください"), isPresented: Binding(
+            get: { validationMessage != nil },
+            set: { if !$0 { validationMessage = nil } }
+        )) {
+            Button(L10n.ok, role: .cancel) { validationMessage = nil }
+        } message: {
+            Text(validationMessage ?? "")
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
             updateKeyboardHeight(from: notification)
         }
@@ -241,7 +262,7 @@ struct RewardEditorSheet: View {
     }
 
     private func editorLayout(for size: CGSize, safeAreaInsets: EdgeInsets) -> RewardEditorLayout {
-        let usesExpandedPadPortraitLayout = UIDevice.current.userInterfaceIdiom == .pad
+        let usesExpandedPadPortraitLayout = isPadLayout
             && size.height > size.width
         let baseCardWidth = scaled(280, pad: 360)
         let baseCardHeight = scaled(347, pad: 446)
@@ -250,7 +271,7 @@ struct RewardEditorSheet: View {
             ? max(baseCardWidth, expandedCardWidth)
             : baseCardWidth
         let defaultCardHeight = baseCardHeight * (defaultCardWidth / baseCardWidth)
-        let headerTopPadding = max(0, safeAreaInsets.top) + scaled(8, pad: 12)
+        let headerTopPadding = scaled(8, pad: 12)
         let headerLeadingPadding = max(
             scaled(24, pad: 34),
             max(0, safeAreaInsets.leading) + scaled(12, pad: 16)
@@ -260,7 +281,7 @@ struct RewardEditorSheet: View {
             max(0, safeAreaInsets.trailing) + scaled(12, pad: 16)
         )
         let headerHeight = scaled(56, pad: 66)
-        let minimumCardTop = headerTopPadding + headerHeight + scaled(8, pad: 12)
+        let minimumCardTop = max(0, safeAreaInsets.top) + headerTopPadding + headerHeight + scaled(8, pad: 12)
         let panelTop = size.height - cardSkinPanelHeight + cardSkinPanelBottomOffset
         let cardBottom = panelTop - scaled(10, pad: 14)
         let availableCardHeight = max(scaled(148, pad: 190), cardBottom - minimumCardTop)
@@ -301,10 +322,12 @@ struct RewardEditorSheet: View {
                     systemName: "chevron.left",
                     size: scaled(48, pad: 56),
                     iconSize: scaled(18, pad: 22),
-                    foregroundColor: NeumorphicColors.text
+                    foregroundColor: NeumorphicColors.text,
+                    glassInteractive: false
                 )
             }
             .buttonStyle(.plain)
+            .offset(y: -30)
 
             Spacer()
 
@@ -316,29 +339,33 @@ struct RewardEditorSheet: View {
 
             Spacer()
 
-            Button {
-                saveReward()
-            } label: {
-                Group {
-                    if isSaving {
-                        ProgressView()
-                            .tint(NeumorphicColors.text)
-                    } else {
-                        Text(L10n.save)
-                            .font(.appSystem(size: scaled(16, pad: 19), weight: .semibold, design: .rounded))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-                    }
-                }
-                .foregroundColor(NeumorphicColors.text)
-                .frame(width: scaled(60, pad: 72), height: scaled(40, pad: 46))
-                .appLiquidGlass(in: Capsule(style: .continuous), interactive: canSave && !isSaving)
-                .opacity(canSave ? 1 : 0.52)
-            }
-            .buttonStyle(.plain)
-            .disabled(!canSave || isSaving)
+            saveButton
+                .offset(y: -30)
         }
         .appGlassEffectContainer()
+    }
+
+    private var saveButton: some View {
+        Button(action: saveReward) {
+            Group {
+                if isSaving {
+                    ProgressView().tint(NeumorphicColors.text)
+                } else {
+                    Text(L10n.save)
+                        .font(.appSystem(size: scaled(15, pad: 18), weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
+            }
+            .foregroundColor(NeumorphicColors.text)
+            .frame(width: scaled(54, pad: 64), height: scaled(48, pad: 56))
+            .appLiquidGlass(in: Capsule(style: .continuous), interactive: false)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isSaving)
+        .accessibilityIdentifier("customReward.save")
     }
 
     private func rewardTicketPreview(cardWidth previewCardWidth: CGFloat, scale: CGFloat) -> some View {
@@ -389,6 +416,7 @@ struct RewardEditorSheet: View {
             textColor: UIColor(NeumorphicColors.text),
             placeholderColor: UIColor(red: 0.51, green: 0.51, blue: 0.51, alpha: 1),
             textAlignment: .center,
+            field: .title,
             inputSession: inputSession
         )
         .frame(maxWidth: .infinity)
@@ -410,6 +438,7 @@ struct RewardEditorSheet: View {
                 textColor: UIColor(NeumorphicColors.text),
                 placeholderColor: UIColor(red: 0.51, green: 0.51, blue: 0.51, alpha: 1),
                 textAlignment: .center,
+                field: .points,
                 inputSession: inputSession
             )
                 .frame(width: max(scaled(64, pad: 80) * scale, scaled(44, pad: 54)))
@@ -547,16 +576,15 @@ struct RewardEditorSheet: View {
 
     @ViewBuilder
     private func previewEmoji(scale: CGFloat) -> some View {
-        if isPadDevice {
-            Button {
-                presentEmojiKeyboard()
-            } label: {
-                previewEmojiLabel(scale: scale)
-            }
-            .buttonStyle(.plain)
-        } else {
+        Button {
+            presentEmojiKeyboard()
+        } label: {
             previewEmojiLabel(scale: scale)
         }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .accessibilityLabel(L10n.emoji)
+        .accessibilityHint(L10n.rewardEmojiKeyboardHint)
     }
 
     private func previewEmojiLabel(scale: CGFloat) -> some View {
@@ -636,8 +664,10 @@ struct RewardEditorSheet: View {
             return
         }
 
-        let screenHeight = UIScreen.main.bounds.height
-        let overlap = max(0, screenHeight - endFrame.minY)
+        // Keyboard frames are reported in screen coordinates. Resolve the overlap against the
+        // current window frame so Duo's inner display is not measured against the outer screen.
+        let containerMaxY = editorGlobalFrame == .zero ? endFrame.maxY : editorGlobalFrame.maxY
+        let overlap = max(0, containerMaxY - endFrame.minY)
         let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.22
 
         withAnimation(.easeOut(duration: duration)) {
@@ -657,6 +687,7 @@ private struct RewardInlineTextField: UIViewRepresentable {
     let textColor: UIColor
     let placeholderColor: UIColor
     let textAlignment: NSTextAlignment
+    let field: RewardEditorInputSession.Field
     let inputSession: RewardEditorInputSession
 
     func makeUIView(context: Context) -> UITextField {
@@ -675,7 +706,7 @@ private struct RewardInlineTextField: UIViewRepresentable {
         textField.adjustsFontSizeToFitWidth = true
         textField.minimumFontSize = max(font.pointSize * 0.72, 10)
         applyConfiguration(to: textField)
-        inputSession.register(textField)
+        inputSession.register(textField, field: field)
         return textField
     }
 
@@ -683,7 +714,7 @@ private struct RewardInlineTextField: UIViewRepresentable {
         context.coordinator.parent = self
         applyConfiguration(to: uiView)
 
-        if uiView.text != text, uiView.markedTextRange == nil {
+        if !uiView.isFirstResponder, uiView.text != text, uiView.markedTextRange == nil {
             uiView.text = text
         }
     }
@@ -790,7 +821,7 @@ private struct EmojiKeyboardHost: UIViewRepresentable {
     let inputSession: RewardEditorInputSession
 
     func makeUIView(context: Context) -> UITextField {
-        let textField = UITextField(frame: .zero)
+        let textField = RewardEmojiTextField(frame: .zero)
         textField.delegate = context.coordinator
         textField.addTarget(context.coordinator, action: #selector(Coordinator.editingChanged(_:)), for: .editingChanged)
         textField.autocorrectionType = .no
@@ -802,7 +833,7 @@ private struct EmojiKeyboardHost: UIViewRepresentable {
         textField.textColor = .clear
         textField.backgroundColor = .clear
         textField.returnKeyType = .done
-        inputSession.register(textField)
+        inputSession.register(textField, field: .emoji)
         return textField
     }
 
@@ -927,36 +958,4 @@ private struct EmojiKeyboardHost: UIViewRepresentable {
 enum CustomRewardThemeCardImage {
     static let aspectRatio: CGFloat = 561.0 / 680.0
     static let contentTopRatio: CGFloat = 0.66
-}
-
-private final class RewardEditorInputSession: ObservableObject {
-    private final class WeakTextField {
-        weak var value: UITextField?
-
-        init(_ value: UITextField) {
-            self.value = value
-        }
-    }
-
-    private var textFields: [ObjectIdentifier: WeakTextField] = [:]
-
-    func register(_ textField: UITextField) {
-        removeReleasedTextFields()
-        textFields[ObjectIdentifier(textField)] = WeakTextField(textField)
-    }
-
-    func unregister(_ textField: UITextField) {
-        textFields.removeValue(forKey: ObjectIdentifier(textField))
-    }
-
-    func endEditing() {
-        removeReleasedTextFields()
-        textFields.values.compactMap(\.value).forEach { textField in
-            textField.resignFirstResponder()
-        }
-    }
-
-    private func removeReleasedTextFields() {
-        textFields = textFields.filter { $0.value.value != nil }
-    }
 }

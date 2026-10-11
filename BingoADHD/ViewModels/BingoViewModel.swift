@@ -42,7 +42,7 @@ class BingoViewModel: ObservableObject {
 
     static let maxGridSize = BoardEngine.maxGridSize
     static let defaultInitialGridSize = 3
-    static let maxTaskLength = 20
+    static let maxTaskLength = AppSettings.maxTaskLength
     static let maxCountdownMinutes = 30 * 24 * 60
     private static let bingoCelebrationDuration: TimeInterval = 2.5
 
@@ -157,6 +157,7 @@ class BingoViewModel: ObservableObject {
     private let persistenceDependencies: BingoViewModelPersistenceDependencies
     private let bingoCelebrationDismissScheduler: BingoCelebrationDismissScheduler
     private let completionHistoryCountProvider: (String) -> Int
+    private let customCompletionHistoryCountProvider: ((String) -> Int)?
     /// Completion effects are transient presentation state. Keep later task effects pending
     /// instead of letting a fast second tap replace an in-flight Bingo celebration.
     private var pendingTaskCompletionMotions: [TaskCompletionMotion] = []
@@ -173,6 +174,20 @@ class BingoViewModel: ObservableObject {
         completionHistoryCountProvider(taskText)
     }
 
+    /// One persistence read for an editor refresh, followed by in-memory lookups
+    /// while text input rebuilds preview cells. A later refresh replaces it.
+    func makeCompletionHistoryCountLookup() -> (String) -> Int {
+        if let customCompletionHistoryCountProvider { return customCompletionHistoryCountProvider }
+        let records = TaskCompletionHistoryRuleEngine.normalizedRecords(
+            persistenceDependencies.completionHistoryRepository.loadCompletionHistory()
+        )
+        let counts = Dictionary(uniqueKeysWithValues: records.map { ($0.key, $0.completionCount) })
+        return { taskText in
+            guard let key = TaskCompletionHistoryRuleEngine.normalizedKey(for: taskText) else { return 0 }
+            return counts[key] ?? 0
+        }
+    }
+
     init(
         persistenceDependencies: BingoViewModelPersistenceDependencies = .live,
         completionHistoryCountProvider: ((String) -> Int)? = nil,
@@ -187,6 +202,7 @@ class BingoViewModel: ObservableObject {
         )
         self.persistenceDependencies = persistenceDependencies
         self.bingoCelebrationDismissScheduler = bingoCelebrationDismissScheduler
+        self.customCompletionHistoryCountProvider = completionHistoryCountProvider
         self.completionHistoryCountProvider = completionHistoryCountProvider ?? {
             TaskCompletionHistoryRuleEngine.completionCount(
                 for: $0,
@@ -1026,13 +1042,14 @@ class BingoViewModel: ObservableObject {
         }
         TaskHistoryStore.upsertBoardTasks(ruleResult.appliedTasks)
 
+        let completionHistory = persistenceDependencies.completionHistoryRepository.loadCompletionHistory()
         var restoredFullBoardCells = ruleResult.fullBoardCells
         for row in restoredFullBoardCells.indices {
             for col in restoredFullBoardCells[row].indices {
                 let taskText = restoredFullBoardCells[row][col].storedTaskText
                 guard TaskCompletionHistoryRuleEngine.normalizedKey(for: taskText) != nil else { continue }
-                restoredFullBoardCells[row][col].completionStreakCount = TaskCompletionHistoryStore.completionCount(
-                    for: taskText
+                restoredFullBoardCells[row][col].completionStreakCount = TaskCompletionHistoryRuleEngine.completionCount(
+                    for: taskText, in: completionHistory
                 )
             }
         }
@@ -1153,8 +1170,11 @@ class BingoViewModel: ObservableObject {
         countdownEndsAt: Date?,
         referenceDate: Date = .now,
         reloadPersistedPoints: Bool = false,
-        persist: Bool = true
+        persist: Bool = true,
+        preserveTimeoutPresentation: Bool = false
     ) {
+        let pendingTaskEvent = preserveTimeoutPresentation ? expiredTaskEvent : nil
+        let pendingBoardEvent = preserveTimeoutPresentation ? expiredBoardCountdownEvent : nil
         let historyReconciledBoard = TaskCompletionHistoryRuleEngine.boardByReconcilingCompletionHistory(
             savedBoard,
             records: persistenceDependencies.completionHistoryRepository.loadCompletionHistory()
@@ -1177,24 +1197,58 @@ class BingoViewModel: ObservableObject {
         dismissBoardCompletionAnimation()
         dismissTaskCompletionMotion()
         boardCountdownEndsAt = countdownEndsAt
-        expiredTaskEvent = nil
-        expiredBoardCountdownEvent = nil
 
         checkBingo(shouldCelebrateNewLines: false)
         repairDuplicateCellIDsIfNeeded(referenceDate: referenceDate)
+        // A same-board cloud refresh must not dismiss an unresolved timeout only
+        // for the next timer tick to reopen it. Retain its identity while validating
+        // against the refreshed task; remote completion or postponement invalidates it.
+        expiredTaskEvent = refreshedTimeoutEvent(pendingTaskEvent, now: referenceDate)
+        expiredBoardCountdownEvent = pendingBoardEvent.flatMap { event in
+            BoardEngine.expiredBoardCountdownDeadline(countdownEndsAt, now: referenceDate) == event.expiredAt
+                ? event : nil
+        }
         if reloadPersistedPoints {
             reloadPersistedPointsState(referenceDate: referenceDate)
         } else {
-            dailyRewardState = BingoRewardSettlement.dailyRewardSnapshot(
-                for: referenceDate,
-                cells: cells,
-                completedLines: completedLines,
-                isBoardFullyCompleted: isBoardFullyCompleted
+            dailyRewardState = BingoRewardSettlement.initialDailyRewardState(
+                referenceDate: referenceDate,
+                boardLastSavedAt: referenceDate,
+                currentCells: cells,
+                currentCompletedLines: completedLines,
+                isBoardFullyCompleted: isBoardFullyCompleted,
+                savedDailyRewardState: dailyRewardState
             )
         }
         if persist {
             save(persistDiary: false, savedAt: referenceDate)
         }
+    }
+
+    private func refreshedTimeoutEvent(_ event: ExpiredTaskEvent?, now: Date) -> ExpiredTaskEvent? {
+        guard let event else { return nil }
+        let candidate = boardEngineExpiredTaskCandidate(from: event)
+        for row in cells.indices {
+            for col in cells[row].indices {
+                let cell = cells[row][col]
+                guard cell.id == event.cellID,
+                      BoardEngine.isCurrentExpiredTask(cell, candidate: candidate, now: now) else { continue }
+                return ExpiredTaskEvent(
+                    id: event.id,
+                    cellID: event.cellID,
+                    row: row,
+                    col: col,
+                    taskText: event.taskText,
+                    expiredAt: event.expiredAt,
+                    expiredByCountdown: event.expiredByCountdown,
+                    expiredByVisibilityWindow: event.expiredByVisibilityWindow,
+                    allowsPostpone: event.allowsPostpone,
+                    taskDefinition: event.taskDefinition,
+                    boardID: event.boardID
+                )
+            }
+        }
+        return nil
     }
 
     func setBoardCountdown(totalMinutes: Int?) {
@@ -2187,6 +2241,18 @@ class BingoViewModel: ObservableObject {
         dailyRewardState = output.dailyRewardState
     }
 
+    /// Successful redemptions are permanent. Older installs could leave the
+    /// task-point total below committed spend after an undo; raise that legacy
+    /// baseline to the spend floor so the displayed balance is zero rather than
+    /// a hidden debt that future task points must repay.
+    func normalizeTotalPointsForCommittedSpend() {
+        let committedSpend = PointRedemptionLedger.currentCommittedSpend()
+        guard totalPoints < committedSpend else { return }
+        totalPoints = committedSpend
+        lifetimePoints = max(lifetimePoints, committedSpend)
+        _ = save(persistDiary: false)
+    }
+
     private func settleTaskToggleRewards(
         on date: Date,
         previousCells: [[BingoCell]],
@@ -2205,7 +2271,8 @@ class BingoViewModel: ObservableObject {
             totalPoints: totalPoints,
             lifetimePoints: lifetimePoints,
             dailyRewardState: dailyRewardState,
-            taskIsNowCompleted: taskIsNowCompleted
+            taskIsNowCompleted: taskIsNowCompleted,
+            minimumTotalPoints: PointRedemptionLedger.currentCommittedSpend()
         )
         totalPoints = output.totalPoints
         lifetimePoints = output.lifetimePoints
@@ -2226,7 +2293,8 @@ class BingoViewModel: ObservableObject {
             currentIsBoardFullyCompleted: isBoardFullyCompleted,
             totalPoints: totalPoints,
             lifetimePoints: lifetimePoints,
-            dailyRewardState: dailyRewardState
+            dailyRewardState: dailyRewardState,
+            minimumTotalPoints: PointRedemptionLedger.currentCommittedSpend()
         )
         totalPoints = output.totalPoints
         lifetimePoints = output.lifetimePoints

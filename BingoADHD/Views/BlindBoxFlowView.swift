@@ -10,14 +10,12 @@ enum BlindBoxPremiumPaywallEntry {
 /// Settle tickets while the app is active; presentation remains click-triggered.
 struct BlindBoxSilentTicketRefresh: ViewModifier {
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
-    @EnvironmentObject private var sync: NativeICloudSyncCoordinator
     @Environment(\.scenePhase) private var scenePhase
 
     func body(content: Content) -> some View {
-        content.task(id: "\(subscriptionManager.hasPremiumAccess)-\(sync.state)-\(scenePhase)") {
+        content.task(id: "\(subscriptionManager.hasPremiumAccess)-\(scenePhase)") {
             guard AppDebugFlags.blindBoxLiveFlowEnabled,
-                  scenePhase == .active,
-                  case .ready = sync.state else { return }
+                  scenePhase == .active else { return }
             let store = BlindBoxFeatureStore()
             while !Task.isCancelled {
                 await store.refresh(
@@ -73,11 +71,15 @@ struct BlindBoxFlowView: View {
     /// enabled.
     var onSelectCustomRewards: (() -> Void)?
     var onShowPremiumPaywall: () -> Void = {}
+    var isBlindBoxStickerOnHome: (BlindBoxStickerID) -> Bool = { _ in false }
+    var onAddBlindBoxStickerToHome: (BlindBoxStickerDefinition) -> Bool = { _ in false }
 
     init(
         previewAvailablePoints: Int = 320,
         onSelectCustomRewards: (() -> Void)? = nil,
-        onShowPremiumPaywall: @escaping () -> Void = {}
+        onShowPremiumPaywall: @escaping () -> Void = {},
+        isBlindBoxStickerOnHome: @escaping (BlindBoxStickerID) -> Bool = { _ in false },
+        onAddBlindBoxStickerToHome: @escaping (BlindBoxStickerDefinition) -> Bool = { _ in false }
     ) {
         _store = StateObject(
             wrappedValue: BlindBoxPreviewStore(
@@ -92,6 +94,8 @@ struct BlindBoxFlowView: View {
         )
         self.onSelectCustomRewards = onSelectCustomRewards
         self.onShowPremiumPaywall = onShowPremiumPaywall
+        self.isBlindBoxStickerOnHome = isBlindBoxStickerOnHome
+        self.onAddBlindBoxStickerToHome = onAddBlindBoxStickerToHome
     }
 
     var body: some View {
@@ -134,6 +138,8 @@ struct BlindBoxFlowView: View {
                         batch: batch,
                         theme: theme,
                         ticketBalance: store.state.ticketBalance,
+                        isStickerOnHome: isBlindBoxStickerOnHome,
+                        onAddStickerToHome: onAddBlindBoxStickerToHome,
                         onTickets: showTicketWallet,
                         onBack: {
                             route = .lobby
@@ -169,6 +175,8 @@ struct BlindBoxFlowView: View {
                 BlindBoxCollectionView(
                     themes: store.themes,
                     ownedStickerCounts: store.state.ownedStickerCounts,
+                    isStickerOnHome: isBlindBoxStickerOnHome,
+                    onAddStickerToHome: onAddBlindBoxStickerToHome,
                     onBack: {
                         route = .lobby
                     }
@@ -476,6 +484,8 @@ struct BlindBoxLiveFlowView: View {
     let totalPoints: Int
     var onSelectCustomRewards: (() -> Void)?
     var onShowPremiumPaywall: () -> Void = {}
+    var isBlindBoxStickerOnHome: (BlindBoxStickerID) -> Bool = { _ in false }
+    var onAddBlindBoxStickerToHome: (BlindBoxStickerDefinition) -> Bool = { _ in false }
 
     @StateObject private var store = BlindBoxFeatureStore()
     @StateObject private var connectivity = BlindBoxConnectivityMonitor()
@@ -503,7 +513,7 @@ struct BlindBoxLiveFlowView: View {
     var body: some View {
         ZStack {
             switch store.availability {
-            case .ready:
+            case .ready, .idle, .loading, .waitingForICloudInitialImport:
                 liveFlow
             case .requiresMigrationReview:
                 BlindBoxLiveStatusView(
@@ -515,15 +525,6 @@ struct BlindBoxLiveFlowView: View {
                 BlindBoxLiveStatusView(
                     title: BlindBoxL10n.blindBoxUnavailable,
                     message: message,
-                    onBack: { if let onSelectCustomRewards { onSelectCustomRewards() } else { dismiss() } }
-                )
-            case .idle, .loading, .waitingForICloudInitialImport:
-                BlindBoxLiveStatusView(
-                    title: nativeICloudInitialImportComplete ? BlindBoxL10n.preparingBlindBox : BlindBoxL10n.syncingCollection,
-                    message: nativeICloudInitialImportComplete
-                        ? BlindBoxL10n.preparingBlindBoxDetail
-                        : BlindBoxL10n.syncingCollectionDetail,
-                    showsProgress: true,
                     onBack: { if let onSelectCustomRewards { onSelectCustomRewards() } else { dismiss() } }
                 )
             }
@@ -630,15 +631,12 @@ struct BlindBoxLiveFlowView: View {
     }
 
     private var refreshIdentifier: String {
-        "\(subscriptionManager.hasPremiumAccess)-\(nativeICloudInitialImportComplete)"
+        "\(subscriptionManager.hasPremiumAccess)"
     }
 
     private var foregroundMaintenanceScheduleIdentifier: String {
-        guard case .ready = store.availability,
-              nativeICloudInitialImportComplete,
-              connectivity.status.canMakeNetworkRequests,
-              scenePhase == .active else {
-            return "inactive-\(store.availability)-\(connectivity.status)-\(scenePhase)"
+        guard case .ready = store.availability, scenePhase == .active else {
+            return "inactive-\(store.availability)-\(scenePhase)"
         }
         let nextDate = BlindBoxForegroundMaintenanceSchedule.nextMaintenanceDate(
             for: store.accountState
@@ -655,14 +653,11 @@ struct BlindBoxLiveFlowView: View {
 
     /// Keeps the simulated public openings, the 24-hour restock and the 04:00
     /// ticket grant moving while this screen is foregrounded. A single sleep is
-    /// cancelled automatically when the scene becomes inactive, connectivity
-    /// changes or the authoritative account state changes; the next task then
-    /// recalculates the earliest relevant date rather than polling CloudKit.
+    /// cancelled automatically when the scene becomes inactive or the local
+    /// account changes; the next task recalculates the earliest relevant date
+    /// rather than polling CloudKit.
     private func runForegroundMaintenanceWhenDue() async {
-        guard case .ready = store.availability,
-              nativeICloudInitialImportComplete,
-              connectivity.status.canMakeNetworkRequests,
-              scenePhase == .active else {
+        guard case .ready = store.availability, scenePhase == .active else {
             return
         }
 
@@ -676,10 +671,7 @@ struct BlindBoxLiveFlowView: View {
             return
         }
 
-        guard !Task.isCancelled,
-              nativeICloudInitialImportComplete,
-              connectivity.status.canMakeNetworkRequests,
-              scenePhase == .active else {
+        guard !Task.isCancelled, scenePhase == .active else {
             return
         }
         await store.refresh(
@@ -748,6 +740,8 @@ struct BlindBoxLiveFlowView: View {
                     batch: batch,
                     theme: theme,
                     ticketBalance: store.accountState.ticketBalance,
+                    isStickerOnHome: isBlindBoxStickerOnHome,
+                    onAddStickerToHome: onAddBlindBoxStickerToHome,
                     onTickets: showTicketWallet,
                     onBack: {
                         route = .lobby
@@ -783,6 +777,8 @@ struct BlindBoxLiveFlowView: View {
             BlindBoxCollectionView(
                 themes: store.themes,
                 ownedStickerCounts: store.accountState.ownedStickerCounts,
+                isStickerOnHome: isBlindBoxStickerOnHome,
+                onAddStickerToHome: onAddBlindBoxStickerToHome,
                 onBack: {
                     route = .lobby
                 }
@@ -858,25 +854,12 @@ struct BlindBoxLiveFlowView: View {
     }
 
     private func open(_ request: BlindBoxDrawRequest) {
-        guard connectivity.status.canMakeNetworkRequests else {
-            AnalyticsService.logBlindBoxActionFailed(
-                action: .open,
-                reason: connectivityFailureReason
-            )
-            presentToast(connectivity.status.unavailableMessage)
-            return
-        }
         guard !isProcessingTickets else { return }
         isProcessingTickets = true
         let openedBatch = store.accountState.candidateBatches.first { $0.id == request.batchID }
         let openedTheme = openedBatch.flatMap { store.theme(for: $0.plan.themeID) }
         Task {
             defer { isProcessingTickets = false }
-            await store.refresh(
-                hasPremiumAccess: subscriptionManager.hasPremiumAccess,
-                candidateZoneWasPresented: false,
-                nativeICloudInitialImportComplete: nativeICloudInitialImportComplete
-            )
             do {
                 guard store.availability == .ready else { return }
                 let cost = request.mode == .wholeBox
@@ -931,10 +914,6 @@ struct BlindBoxLiveFlowView: View {
 
     private func acknowledgeReveal(_ result: BlindBoxOpenResult) {
         guard !isAcknowledgingReveal else { return }
-        guard connectivity.status.canMakeNetworkRequests else {
-            presentToast(connectivity.status.unavailableMessage)
-            return
-        }
         guard let pendingReveal = store.accountState.pendingReveal else {
             route = routeAfterReveal(result)
             return
@@ -969,14 +948,6 @@ struct BlindBoxLiveFlowView: View {
 
     private func confirmTicketExchange(_ configuration: BlindBoxEconomyConfiguration) {
         guard !isProcessingTickets else { return }
-        guard connectivity.status.canMakeNetworkRequests else {
-            AnalyticsService.logBlindBoxActionFailed(
-                action: .pointExchange,
-                reason: connectivityFailureReason
-            )
-            presentToast(connectivity.status.unavailableMessage)
-            return
-        }
         isProcessingTickets = true
         Task {
             defer { isProcessingTickets = false }
@@ -1029,8 +1000,10 @@ struct BlindBoxLiveFlowView: View {
                 presentToast("Ticket exchange is temporarily unavailable.")
             case .pointExchangeConfigurationChanged:
                 presentToast("Ticket exchange changed. Please review the updated price.")
-            case .accountUnavailable, .pendingRevealChanged, .pointLedgerWriteFailed:
-                presentToast("Unable to sync Blind Box right now. Please try again.")
+            case .accountUnavailable, .pendingRevealChanged:
+                break
+            case .pointLedgerWriteFailed:
+                presentToast(BlindBoxL10n.ticketExchangeUnavailable)
             }
             return
         }
@@ -1191,8 +1164,6 @@ private struct BlindBoxLobbyView: View {
     let onShowMyBox: () -> Void
     let onShowPremiumPaywall: () -> Void
     let onDismiss: () -> Void
-
-    private let referenceWidth: CGFloat = 393
 
     var body: some View {
         BlindBoxCanvas(backgroundAssetName: "BlindBoxLobbyBackground", backgroundVerticalOffset: 20) {
@@ -1437,18 +1408,24 @@ private struct BlindBoxDetailView: View {
     let batch: BlindBoxCandidateBatch
     let theme: BlindBoxThemeDefinition
     let ticketBalance: Int
+    let isStickerOnHome: (BlindBoxStickerID) -> Bool
+    let onAddStickerToHome: (BlindBoxStickerDefinition) -> Bool
     let onTickets: () -> Void
     let onBack: () -> Void
     let onOpenPosition: (Int) -> Void
     let onOpenRandom: () -> Void
     let onOpenWholeBox: () -> Void
     @State private var isShowingOdds = false
+    @State private var selectedSticker: BlindBoxStickerDetail?
 
     var body: some View {
         BlindBoxCanvas(contentHorizontalOffset: 0) {
             ZStack {
                 BlindBoxImage("BlindBoxDrawBackground")
-                    .frame(width: 393, height: 852)
+                    .frame(
+                        width: BlindBoxCanvasLayout.referenceSize.width,
+                        height: BlindBoxCanvasLayout.referenceSize.height
+                    )
 
                 detailContent
 
@@ -1458,6 +1435,13 @@ private struct BlindBoxDetailView: View {
             BlindBoxBatchOddsSheet(
                 normalStickerCount: theme.normalStickers.count,
                 probabilityMode: batch.plan.probabilityMode
+            )
+        }
+        .sheet(item: $selectedSticker) { selection in
+            BlindBoxStickerDetailSheet(
+                selection: selection,
+                isAddedToHome: isStickerOnHome(selection.sticker.id),
+                onAddToHome: onAddStickerToHome
             )
         }
     }
@@ -1551,11 +1535,23 @@ private struct BlindBoxDetailView: View {
         ForEach(batch.plan.positions) { position in
             let row = position.index / 3
             let column = position.index % 3
+            let isOpened = batch.openedPositionIndices.contains(position.index)
+            let sticker = theme.stickers.first(where: { $0.id == position.stickerID })
             BlindBoxPositionCell(
-                position: position,
-                isOpened: batch.openedPositionIndices.contains(position.index),
-                theme: theme,
-                onTap: { onOpenPosition(position.index) }
+                isOpened: isOpened,
+                sticker: sticker,
+                onTap: {
+                    if isOpened, let sticker {
+                        let isSystemOpened = batch.isOpenedBySystem(at: position.index)
+                        selectedSticker = BlindBoxStickerDetail(
+                            sticker: sticker,
+                            isOwned: !isSystemOpened,
+                            isSystemOpened: isSystemOpened
+                        )
+                    } else {
+                        onOpenPosition(position.index)
+                    }
+                }
             )
             .position(x: xPositions[column], y: yPositions[row])
         }
@@ -1605,20 +1601,16 @@ private struct BlindBoxRestockCountdownLabel: View {
 }
 
 private struct BlindBoxPositionCell: View {
-    let position: BlindBoxPositionPlan
     let isOpened: Bool
-    let theme: BlindBoxThemeDefinition
+    let sticker: BlindBoxStickerDefinition?
     let onTap: () -> Void
 
     var body: some View {
-        Button {
-            guard !isOpened else { return }
-            onTap()
-        } label: {
+        Button(action: onTap) {
             ZStack {
                 BlindBoxImage(isOpened ? "BlindBoxOpenedSlot" : "BlindBoxDefaultSlot")
                     .frame(width: 98, height: 98)
-                if isOpened, let sticker = theme.stickers.first(where: { $0.id == position.stickerID }) {
+                if isOpened, let sticker {
                     BlindBoxImage(sticker.assetName)
                         .frame(width: 80, height: 80)
                         .scaledToFit()
@@ -1628,7 +1620,11 @@ private struct BlindBoxPositionCell: View {
             .frame(width: 98, height: 98)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(isOpened ? BlindBoxL10n.openedBox : BlindBoxL10n.unopenedBox)
+        .accessibilityLabel(
+            isOpened
+                ? "\(BlindBoxL10n.openedBox), \(BlindBoxL10n.stickerDetailsTitle)"
+                : BlindBoxL10n.unopenedBox
+        )
     }
 }
 
@@ -1716,7 +1712,10 @@ private struct BlindBoxRevealView: View {
         BlindBoxCanvas(contentHorizontalOffset: 0) {
             ZStack {
                 BlindBoxImage("BlindBoxDrawBackground")
-                    .frame(width: 393, height: 852)
+                    .frame(
+                        width: BlindBoxCanvasLayout.referenceSize.width,
+                        height: BlindBoxCanvasLayout.referenceSize.height
+                    )
                 Color.black.opacity(0.58)
 
                 Group {
@@ -1902,7 +1901,10 @@ private struct BlindBoxRevealView: View {
             .position(x: 196.75, y: 623)
             .opacity(showsResult ? 1 : 0)
         }
-        .frame(width: 393, height: 852)
+        .frame(
+            width: BlindBoxCanvasLayout.referenceSize.width,
+            height: BlindBoxCanvasLayout.referenceSize.height
+        )
     }
 
     private func singleRevealHeadline(isDuplicate: Bool) -> String {
@@ -1961,50 +1963,50 @@ private struct BlindBoxRevealView: View {
             .position(x: 196.75, y: 623)
             .opacity(showsResult ? 1 : 0)
         }
-        .frame(width: 393, height: 852)
+        .frame(
+            width: BlindBoxCanvasLayout.referenceSize.width,
+            height: BlindBoxCanvasLayout.referenceSize.height
+        )
     }
 }
 
 private struct BlindBoxCollectionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let themes: [BlindBoxThemeDefinition]
+    private var orderedThemes: [BlindBoxThemeDefinition] { BlindBoxCatalog.collectionThemes(themes) }
     let ownedStickerCounts: [String: Int]
+    let isStickerOnHome: (BlindBoxStickerID) -> Bool
+    let onAddStickerToHome: (BlindBoxStickerDefinition) -> Bool
     let onBack: () -> Void
-    @State private var selectedThemeID = BlindBoxThemeID(rawValue: "pets")
-    @State private var selectedPageIndex = 0
+    @State private var selectedThemeID = BlindBoxThemeID(rawValue: "halloween")
     @State private var selectedSticker: BlindBoxStickerDetail?
 
     private var selectedTheme: BlindBoxThemeDefinition? {
-        themes.first(where: { $0.id == selectedThemeID }) ?? themes.first
-    }
-
-    private var themePages: [[BlindBoxThemeDefinition]] {
-        guard !themes.isEmpty else { return [] }
-        return stride(from: 0, to: themes.count, by: 3).map { startIndex in
-            Array(themes[startIndex..<min(startIndex + 3, themes.count)])
-        }
-    }
-
-    private var visibleThemes: [BlindBoxThemeDefinition] {
-        guard themePages.indices.contains(selectedPageIndex) else { return [] }
-        return themePages[selectedPageIndex]
+        orderedThemes.first(where: { $0.id == selectedThemeID }) ?? orderedThemes.first
     }
 
     var body: some View {
         BlindBoxCanvas(contentHorizontalOffset: 0) {
             ZStack {
                 BlindBoxImage("BlindBoxDrawBackground")
-                    .frame(width: 393, height: 852)
+                    .frame(
+                        width: BlindBoxCanvasLayout.referenceSize.width,
+                        height: BlindBoxCanvasLayout.referenceSize.height
+                    )
 
                 collectionContent
             }
         }
         .onAppear(perform: synchronizeThemeSelection)
-        .onChange(of: themes.map(\.id)) { _, _ in
+        .onChange(of: orderedThemes.map(\.id)) { _, _ in
             synchronizeThemeSelection()
         }
         .sheet(item: $selectedSticker) { selection in
-            BlindBoxStickerDetailSheet(selection: selection)
+            BlindBoxStickerDetailSheet(
+                selection: selection,
+                isAddedToHome: isStickerOnHome(selection.sticker.id),
+                onAddToHome: onAddStickerToHome
+            )
         }
     }
 
@@ -2037,55 +2039,63 @@ private struct BlindBoxCollectionView: View {
     }
 
     private var collectionThemePicker: some View {
-        ZStack {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(orderedThemes, id: \.id) { theme in
+                        Button {
+                            withAnimation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0)) {
+                                selectedThemeID = theme.id
+                            }
+                        } label: {
+                            BlindBoxMyBoxThemePackage(theme: theme)
+                                .frame(width: 59.21, height: 75)
+                                .frame(width: 75, height: 91)
+                                .background {
+                                    if selectedThemeID == theme.id {
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(.white.opacity(0.86))
+                                            .overlay {
+                                                RoundedRectangle(cornerRadius: 12)
+                                                    .stroke(Color(hex: "A6E0FF"), lineWidth: 2)
+                                            }
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(BlindBoxL10n.tr("Select", "选择", "選擇", "選択")) \(BlindBoxL10n.themeName(theme))")
+                        .id(theme.id)
+                    }
+                    BlindBoxComingSoonTile()
+                        .frame(width: 59.21, height: 75)
+                        .frame(width: 75, height: 91)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+            }
+            .onChange(of: selectedThemeID) { _, id in
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+        }
+        .frame(width: 353, height: 109)
+        .background {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(.white.opacity(0.72))
                 .overlay {
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .stroke(Color.white.opacity(0.86), lineWidth: 1)
                 }
-                .frame(width: 353, height: 109)
-                .position(x: 196.5, y: 177.5)
-
-            let pickerPositions: [CGFloat] = [69.5, 152.6, 236.6, 320.6]
-            ForEach(Array(visibleThemes.enumerated()), id: \.element.id) { index, theme in
-                Button {
-                    withAnimation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0)) {
-                        selectedThemeID = theme.id
-                    }
-                } label: {
-                    BlindBoxMyBoxThemePackage(theme: theme)
-                        .frame(width: 59.21, height: 75)
-                        .background {
-                            if selectedThemeID == theme.id {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(.white.opacity(0.86))
-                                    .overlay {
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(Color(hex: "A6E0FF"), lineWidth: 2)
-                                    }
-                                    .frame(width: 75, height: 91)
-                            }
-                        }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(BlindBoxL10n.tr("Select", "选择", "選擇", "選択")) \(BlindBoxL10n.themeName(theme))")
-                .position(x: pickerPositions[index], y: 179.5)
-            }
-
-            if selectedPageIndex == max(themePages.count - 1, 0) {
-                BlindBoxComingSoonTile()
-                    .frame(width: 59.21, height: 75)
-                    .position(x: pickerPositions[visibleThemes.count], y: 179.5)
-            }
         }
-        .frame(width: 393, height: 852)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .position(x: 196.5, y: 177.5)
     }
 
     private var collectionPager: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: 0) {
-                ForEach(themes, id: \.id) { theme in
+                ForEach(orderedThemes, id: \.id) { theme in
                     BlindBoxImage("BlindBoxCollectionBook")
                     .frame(width: 345, height: 520)
                     .overlay {
@@ -2118,9 +2128,8 @@ private struct BlindBoxCollectionView: View {
         .scrollPosition(id: Binding<BlindBoxThemeID?>(
             get: { selectedTheme?.id },
             set: { id in
-                guard let id, let index = themes.firstIndex(where: { $0.id == id }) else { return }
+                guard let id, orderedThemes.contains(where: { $0.id == id }) else { return }
                 selectedThemeID = id
-                selectedPageIndex = index / 3
             }
         ))
         .frame(width: 345, height: 520)
@@ -2168,6 +2177,22 @@ private struct BlindBoxCollectionView: View {
                 displaySize: specialDisplaySize,
                 isSpecialSlot: true
             )
+        }
+
+        if theme.id.rawValue == "halloween" {
+            let centers: [(Double, Double)] = [
+                (280, 347), (285, 431), (119, 468), (202, 481),
+                (286, 546), (118, 552), (202, 566), (285, 634),
+                (119, 641), (202, 652), (150, 726), (264, 724)
+            ]
+            let placements = normalStickers.enumerated().map { index, sticker in
+                let center = centers[index % centers.count]
+                return BlindBoxCollectionPlacement(
+                    stickerID: sticker.id, centerX: center.0, centerY: center.1,
+                    displaySize: 70
+                )
+            }
+            return (specialPlacement.map { [$0] } ?? []) + placements
         }
 
         if theme.id.rawValue == "pets" {
@@ -2294,16 +2319,10 @@ private struct BlindBoxCollectionView: View {
     }
 
     private func synchronizeThemeSelection() {
-        guard let firstTheme = themes.first else {
-            selectedPageIndex = 0
-            return
-        }
-        guard let selectedThemeIndex = themes.firstIndex(where: { $0.id == selectedThemeID }) else {
+        guard let firstTheme = orderedThemes.first else { return }
+        if !orderedThemes.contains(where: { $0.id == selectedThemeID }) {
             selectedThemeID = firstTheme.id
-            selectedPageIndex = 0
-            return
         }
-        selectedPageIndex = selectedThemeIndex / 3
     }
 
 }
@@ -2311,24 +2330,56 @@ private struct BlindBoxCollectionView: View {
 private struct BlindBoxStickerDetail: Identifiable {
     let sticker: BlindBoxStickerDefinition
     let isOwned: Bool
+    var isSystemOpened: Bool = false
 
     var id: BlindBoxStickerID { sticker.id }
 }
 
 private struct BlindBoxStickerDetailSheet: View {
     let selection: BlindBoxStickerDetail
+    let isAddedToHome: Bool
+    let onAddToHome: (BlindBoxStickerDefinition) -> Bool
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 18) {
                 BlindBoxImage(
-                    selection.isOwned
+                    (selection.isOwned || selection.isSystemOpened)
                         ? selection.sticker.assetName
                         : "\(selection.sticker.assetName)_none"
                 )
                     .frame(width: 220, height: 220)
                     .scaledToFit()
                     .accessibilityHidden(true)
+
+                if selection.isSystemOpened {
+                    Text(BlindBoxL10n.systemOpenedStickerNotice)
+                        .font(.appSystem(size: 15, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if selection.isOwned {
+                    Button {
+                        guard !isAddedToHome else { return }
+                        _ = onAddToHome(selection.sticker)
+                    } label: {
+                        Text(isAddedToHome ? BlindBoxL10n.addedToHome : L10n.addToHome)
+                            .font(.appSystem(size: 16, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .frame(width: 190, height: 46)
+                            .background(
+                                isAddedToHome ? Color(hex: "B7A896") : Color(hex: "DCAF7A"),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isAddedToHome)
+                    .accessibilityHint(
+                        isAddedToHome
+                            ? BlindBoxL10n.addedToHome
+                            : L10n.addToHome
+                    )
+                }
 
                 Spacer(minLength: 0)
             }
@@ -2385,7 +2436,10 @@ private struct BlindBoxEmptyState: View {
         BlindBoxCanvas {
             ZStack {
                 BlindBoxImage("BlindBoxLobbyBackground")
-                    .frame(width: 393, height: 852)
+                    .frame(
+                        width: BlindBoxCanvasLayout.referenceSize.width,
+                        height: BlindBoxCanvasLayout.referenceSize.height
+                    )
                 VStack(spacing: 18) {
                     Text(BlindBoxL10n.boxUnavailable)
                         .font(.appSystem(size: 20, weight: .bold, design: .rounded))
@@ -2411,7 +2465,10 @@ private struct BlindBoxLiveStatusView: View {
         BlindBoxCanvas {
             ZStack {
                 BlindBoxImage("BlindBoxLobbyBackground")
-                    .frame(width: 393, height: 852)
+                    .frame(
+                        width: BlindBoxCanvasLayout.referenceSize.width,
+                        height: BlindBoxCanvasLayout.referenceSize.height
+                    )
 
                 VStack(spacing: 16) {
                     if showsProgress {
@@ -2508,6 +2565,7 @@ private struct BlindBoxRulesSheet: View {
                     BlindBoxNativeInformationRow(title: BlindBoxL10n.mixedBoxTitle, detail: BlindBoxL10n.mixedBoxDetail)
                     BlindBoxNativeInformationRow(title: BlindBoxL10n.hiddenOddsTitle, detail: BlindBoxL10n.hiddenOddsDetail)
                     BlindBoxNativeInformationRow(title: BlindBoxL10n.revealedSurprisesTitle, detail: BlindBoxL10n.revealedSurprisesDetail)
+                    BlindBoxNativeInformationRow(title: BlindBoxL10n.localStorageTitle, detail: BlindBoxL10n.localStorageDetail)
                 }
             }
             .listStyle(.insetGrouped)
@@ -2578,6 +2636,15 @@ private enum BlindBoxL10n {
     static var gotIt: String { tr("Got it", "知道了", "知道了", "わかった") }
 
     static var dailyTicketsTitle: String { tr("Fresh Tickets Every Day", "每天都有新盲盒券", "每天都有新盲盒券", "毎日チケットが届く") }
+    static var localStorageTitle: String { tr("Your Blind Box data", "盲盒数据保存说明", "盲盒資料保存說明", "ブラインドボックスのデータ") }
+    static var localStorageDetail: String {
+        tr(
+            "Your progress is saved on this device first and syncs when iCloud is available. Deleting the app before a backup finishes can remove unsynced progress.",
+            "盲盒进度会优先保存在本机，iCloud 可用时自动同步。若同步完成前删除 App，尚未同步的进度可能无法恢复。",
+            "盲盒進度會優先儲存在本機，iCloud 可用時自動同步。若同步完成前刪除 App，尚未同步的進度可能無法復原。",
+            "進行状況はまずこのデバイスに保存され、iCloud が使えるときに同期されます。同期完了前に App を削除すると、未同期の進行状況は復元できない場合があります。"
+        )
+    }
     static var dailyTicketsDetail: String {
         tr(
             "Tickets refresh at 4:00 AM. Come back tomorrow for another chance to open a box!",
@@ -2634,6 +2701,15 @@ private enum BlindBoxL10n {
 
     static var myBox: String { tr("My Box", "我的盲盒", "我的盲盒", "マイボックス") }
     static var stickerDetailsTitle: String { tr("Sticker Details", "贴纸详情", "貼紙詳情", "ステッカー詳細") }
+    static var addedToHome: String { tr("Added to Home", "已添加到主页", "已添加到主頁", "ホームに追加済み") }
+    static var systemOpenedStickerNotice: String {
+        tr(
+            "A little surprise revealed automatically! Only stickers you get by opening boxes yourself can be added to Home.",
+            "这张是盲盒自动揭晓的小惊喜～只有自己亲手开盒的才可以添加到主页哦",
+            "這張是盲盒自動揭曉的小驚喜～只有自己親手開盒的才可以新增至主頁哦",
+            "これはボックスが自動で見せてくれた小さなサプライズ♪ ホームに追加できるのは、自分でボックスを開けて手に入れたステッカーだけだよ。"
+        )
+    }
     static var comingSoon: String { tr("Coming\nSoon", "即将\n推出", "即將\n推出", "近日\n公開") }
     static var customRewards: String { tr("Custom Rewards", "自定义奖励", "自訂獎勵", "カスタム報酬") }
     static var blindBoxStickers: String { tr("Blind box stickers", "盲盒贴纸", "盲盒貼紙", "ブラインドボックスステッカー") }
@@ -2726,6 +2802,7 @@ private enum BlindBoxL10n {
     static var pets: String { tr("Pets", "宠物", "寵物", "ペット") }
     static var cozyDaily: String { tr("Cozy Daily", "治愈日常", "療癒日常", "ほっこり日常") }
     static func themeName(_ theme: BlindBoxThemeDefinition) -> String {
+        if theme.id.rawValue == "halloween" { return tr("Halloween", "万圣节", "萬聖節", "ハロウィン") }
         if theme.id.rawValue == "zodiac" { return tr("Zodiac", "星座", "星座", "星座") }
         return theme.id.rawValue == "pets" ? pets : cozyDaily
     }
@@ -3596,7 +3673,7 @@ private struct BlindBoxComingSoonTile: View {
                 .foregroundStyle(Color(hex: "5A412C"))
                 .multilineTextAlignment(.center)
                 .lineSpacing(-1)
-                .offset(y: 9)
+                .offset(x: -8, y: 9)
         }
     }
 }
@@ -3836,7 +3913,7 @@ private struct BlindBoxCanvasBackdrop: View {
     }
 }
 
-private struct BlindBoxImage: View {
+struct BlindBoxImage: View {
     let name: String
 
     init(_ name: String) {

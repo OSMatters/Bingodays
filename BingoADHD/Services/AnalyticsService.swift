@@ -10,6 +10,7 @@ enum PremiumAnalyticsFeature: String {
     case tasksGroups = "tasks_groups"
     case grid5x5 = "grid_5x5"
     case customRewards = "custom_rewards"
+    case backgroundSkins = "background_skins"
     case history
     case customResetTime = "custom_reset_time"
     case limitedOffer = "limited_offer"
@@ -140,6 +141,9 @@ enum AnalyticsEventContract {
         if normalizedSource.contains("limited_offer") {
             return .limitedOffer
         }
+        if normalizedSource.contains("background") || normalizedSource.contains("skin") {
+            return .backgroundSkins
+        }
         if normalizedSource.contains("reset") {
             return .customResetTime
         }
@@ -184,7 +188,16 @@ enum AnalyticsService {
     }
 
     static func bootstrap() {
-        syncThemeUserProperty(AppTheme(rawValue: UserDefaults.standard.string(forKey: AppSettings.themeKey) ?? AppTheme.concise.rawValue) ?? .concise)
+        let defaults = UserDefaults.standard
+        syncThemeUserProperty(
+            AppTheme(rawValue: defaults.string(forKey: AppSettings.themeKey) ?? AppTheme.concise.rawValue) ?? .concise
+        )
+        syncHomeBackgroundUserProperty(
+            HomeBackgroundOption(
+                rawValue: defaults.string(forKey: AppSettings.homeBackgroundKey)
+                    ?? HomeBackgroundOption.none.rawValue
+            ) ?? .none
+        )
     }
 
     static func logStickerRedeemed(_ kind: StickerKind) {
@@ -286,6 +299,13 @@ enum AnalyticsService {
             "theme_color_id": theme.rawValue
         ])
         syncThemeUserProperty(theme)
+    }
+
+    static func logHomeBackgroundSelected(_ background: HomeBackgroundOption) {
+        Analytics.logEvent("home_background_selected", parameters: [
+            "background_id": background.rawValue
+        ])
+        syncHomeBackgroundUserProperty(background)
     }
 
     static func logCustomRewardVisualUsed(
@@ -585,6 +605,20 @@ enum AnalyticsService {
         ])
     }
 
+    static func logSubscriptionRequestResult(
+        operation: String,
+        result: String,
+        elapsedMilliseconds: Int,
+        storefrontCountry: String
+    ) {
+        Analytics.logEvent("subscription_request_result", parameters: [
+            "operation": operation,
+            "result": result,
+            "elapsed_ms": elapsedMilliseconds,
+            "storefront_country": storefrontCountry
+        ])
+    }
+
     static func logPremiumPurchaseAttempt(
         source: String,
         plan: String,
@@ -647,6 +681,10 @@ enum AnalyticsService {
 
     private static func syncThemeUserProperty(_ theme: AppTheme) {
         Analytics.setUserProperty(theme.rawValue, forName: "selected_theme_color")
+    }
+
+    private static func syncHomeBackgroundUserProperty(_ background: HomeBackgroundOption) {
+        Analytics.setUserProperty(background.rawValue, forName: "selected_home_background")
     }
 
     private static func sanitizedCampaignID(_ campaignID: String) -> String {

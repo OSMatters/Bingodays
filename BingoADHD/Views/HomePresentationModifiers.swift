@@ -18,7 +18,6 @@ struct HomePrimaryCoversModifier: ViewModifier {
     @ObservedObject var pointsFeatureStore: PointsFeatureStore
 
     let isPadLayout: Bool
-    let availablePoints: Int
     let totalPoints: Int
     let premiumPaywallSource: String
     let limitedTimeOfferConfig: LimitedTimeOfferConfig
@@ -42,7 +41,6 @@ struct HomePrimaryCoversModifier: ViewModifier {
             .fullScreenCover(isPresented: $isPointsFlowPresented) {
                 PointsFlowPresenter(
                     isPadLayout: isPadLayout,
-                    points: availablePoints,
                     totalPoints: totalPoints,
                     pointsFeatureStore: pointsFeatureStore,
                     limitedOfferState: $limitedOfferState,
@@ -189,7 +187,9 @@ struct HomeSheetsModifier: ViewModifier {
     @ViewBuilder let gridSizeSheet: () -> AnyView
 
     private var usesPadBottomHalfSheets: Bool {
-        UIDevice.current.userInterfaceIdiom == .pad
+        // iPhone Duo reports a regular size class when opened, so use the active layout
+        // environment instead of excluding all iPhone hardware.
+        isPadLayout
     }
 
     func body(content: Content) -> some View {
@@ -398,19 +398,19 @@ private struct BoardOrderSheet: View {
                             if board.id == lockedBoardID {
                                 Image(systemName: "lock.fill")
                                     .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold))
-                                    .foregroundColor(NeumorphicColors.accent)
+                                    .foregroundColor(NeumorphicColors.modalAccent)
                                     .accessibilityLabel(L10n.tr("Locked board", zhHans: "已锁定棋盘", zhHant: "已鎖定棋盤"))
                             } else if board.id == selectedBoardID {
                                 Image(systemName: "checkmark")
                                     .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold))
-                                    .foregroundColor(NeumorphicColors.accent)
+                                    .foregroundColor(NeumorphicColors.modalAccent)
                                     .accessibilityLabel(L10n.tr("Current board", zhHans: "当前棋盘", zhHant: "目前棋盤"))
                             }
 
                             if board.id != lockedBoardID {
                                 Image(systemName: "line.3.horizontal")
                                     .font(.appSystem(size: scaled(18, pad: 20), weight: .medium))
-                                    .foregroundColor(NeumorphicColors.accent)
+                                    .foregroundColor(NeumorphicColors.modalAccent)
                                     .accessibilityLabel(L10n.tr("Drag to reorder", zhHans: "长按拖动排序", zhHant: "長按拖動排序"))
                                     .frame(width: 44, height: 44)
                                     .contentShape(Rectangle())
@@ -451,7 +451,7 @@ private struct BoardOrderSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(L10n.save, action: save)
                         .font(.appSystem(size: scaled(16, pad: 18), weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.accent)
+                        .foregroundColor(NeumorphicColors.modalAccent)
                         .disabled(!didChangeOrder)
                 }
             }

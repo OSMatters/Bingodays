@@ -92,7 +92,7 @@ struct TimeoutDialogCard: View {
                     .frame(height: scaled(56, pad: 62))
                     .background(
                         Capsule(style: .continuous)
-                            .fill(NeumorphicColors.accent)
+                            .fill(NeumorphicColors.modalAccent)
                     )
             }
             .buttonStyle(.plain)
@@ -188,7 +188,7 @@ struct ScheduledTaskReplacementDialogCard: View {
                     .frame(height: scaled(56, pad: 62))
                     .background(
                         Capsule(style: .continuous)
-                            .fill(NeumorphicColors.accent)
+                            .fill(NeumorphicColors.modalAccent)
                     )
             }
             .buttonStyle(.plain)
@@ -257,7 +257,7 @@ struct TimeoutDelayPickerOverlay: View {
                             .frame(height: 34)
                             .background(
                                 Capsule(style: .continuous)
-                                    .fill(NeumorphicColors.accent)
+                                    .fill(NeumorphicColors.modalAccent)
                             )
                     }
                     .buttonStyle(.plain)

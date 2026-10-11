@@ -1,7 +1,5 @@
 
 import Foundation
-import UIKit
-import CoreHaptics
 
 struct TaskRecurrenceRule: Codable, Equatable {
     enum Kind: String, Codable, Equatable, CaseIterable {
@@ -69,7 +67,7 @@ struct TaskRecurrenceRule: Codable, Equatable {
     func normalized(defaultWeekday: Int, defaultMonthDay: Int, defaultAnchorDate: Date) -> TaskRecurrenceRule {
         switch kind {
         case .none:
-            return TaskRecurrenceRule(kind: .none, anchorDate: anchorDate ?? defaultAnchorDate)
+            return TaskRecurrenceRule(kind: .none, anchorDate: anchorDate)
         case .daily:
             return TaskRecurrenceRule(kind: .daily, anchorDate: anchorDate)
         case .weekly:
@@ -737,24 +735,51 @@ struct DailyRewardState: Codable, Equatable {
     var rewardedCellIDs: Set<UUID>
     var peakCompletedLineCount: Int
     var fullBoardRewardGranted: Bool
+    /// When a completion is undone after some of its points were already spent,
+    /// only the amount that could actually be deducted is restored if the user
+    /// completes that same source again. The keys are stable source identifiers
+    /// so a board switch cannot restore a different board's reward.
+    var taskReversalCredits: [String: Int]
+    var lineReversalCredits: [String: Int]
+    var fullBoardReversalCredits: [String: Int]
 
     private enum CodingKeys: String, CodingKey {
         case dateKey
         case rewardedCellIDs
         case peakCompletedLineCount
         case fullBoardRewardGranted
+        case taskReversalCredits
+        case lineReversalCredits
+        case fullBoardReversalCredits
     }
 
     init(
         dateKey: String,
         rewardedCellIDs: Set<UUID> = [],
         peakCompletedLineCount: Int = 0,
-        fullBoardRewardGranted: Bool = false
+        fullBoardRewardGranted: Bool = false,
+        taskReversalCredits: [String: Int] = [:],
+        lineReversalCredits: [String: Int] = [:],
+        fullBoardReversalCredits: [String: Int] = [:]
     ) {
         self.dateKey = dateKey
         self.rewardedCellIDs = rewardedCellIDs
         self.peakCompletedLineCount = peakCompletedLineCount
         self.fullBoardRewardGranted = fullBoardRewardGranted
+        self.taskReversalCredits = taskReversalCredits
+        self.lineReversalCredits = lineReversalCredits
+        self.fullBoardReversalCredits = fullBoardReversalCredits
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        dateKey = try container.decode(String.self, forKey: .dateKey)
+        rewardedCellIDs = Set(try container.decodeIfPresent([UUID].self, forKey: .rewardedCellIDs) ?? [])
+        peakCompletedLineCount = try container.decodeIfPresent(Int.self, forKey: .peakCompletedLineCount) ?? 0
+        fullBoardRewardGranted = try container.decodeIfPresent(Bool.self, forKey: .fullBoardRewardGranted) ?? false
+        taskReversalCredits = try container.decodeIfPresent([String: Int].self, forKey: .taskReversalCredits) ?? [:]
+        lineReversalCredits = try container.decodeIfPresent([String: Int].self, forKey: .lineReversalCredits) ?? [:]
+        fullBoardReversalCredits = try container.decodeIfPresent([String: Int].self, forKey: .fullBoardReversalCredits) ?? [:]
     }
 
     func encode(to encoder: Encoder) throws {
@@ -766,6 +791,9 @@ struct DailyRewardState: Codable, Equatable {
         )
         try container.encode(peakCompletedLineCount, forKey: .peakCompletedLineCount)
         try container.encode(fullBoardRewardGranted, forKey: .fullBoardRewardGranted)
+        try container.encode(taskReversalCredits, forKey: .taskReversalCredits)
+        try container.encode(lineReversalCredits, forKey: .lineReversalCredits)
+        try container.encode(fullBoardReversalCredits, forKey: .fullBoardReversalCredits)
     }
 }
 
@@ -1299,16 +1327,98 @@ enum StickerKind: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+private enum HomeStickerContent: Equatable {
+    case legacy(StickerKind)
+    // This model is shared with the Widget target, which deliberately does
+    // not link Blind Box domain types. Persist the stable catalog identifier
+    // as a String at this boundary.
+    case blindBox(id: String, assetName: String)
+
+    var stableIdentifier: String {
+        switch self {
+        case .legacy(let kind):
+            return "legacy:\(kind.rawValue)"
+        case .blindBox(let id, _):
+            return "blind-box:\(id)"
+        }
+    }
+
+    var assetName: String {
+        switch self {
+        case .legacy(let kind):
+            return kind.unlockedImageName
+        case .blindBox(_, let assetName):
+            return assetName
+        }
+    }
+
+    var displayWidth: CGFloat {
+        switch self {
+        case .legacy(let kind):
+            return kind.homeDisplayWidth
+        case .blindBox:
+            return 96
+        }
+    }
+}
+
 struct HomeStickerPlacement: Identifiable, Codable, Equatable {
     let id: UUID
-    var kind: StickerKind
+    private var content: HomeStickerContent
     var xRatio: Double
     var yRatio: Double
     var scale: Double
 
+    var legacyKind: StickerKind? {
+        guard case .legacy(let kind) = content else { return nil }
+        return kind
+    }
+
+    var blindBoxStickerID: String? {
+        guard case .blindBox(let id, _) = content else { return nil }
+        return id
+    }
+
+    var stableContentIdentifier: String { content.stableIdentifier }
+    var artworkName: String { content.assetName }
+    var homeDisplayWidth: CGFloat { content.displayWidth }
+
     init(id: UUID = UUID(), kind: StickerKind, xRatio: Double, yRatio: Double, scale: Double = 1.0) {
+        self.init(
+            id: id,
+            content: .legacy(kind),
+            xRatio: xRatio,
+            yRatio: yRatio,
+            scale: scale
+        )
+    }
+
+    init(
+        id: UUID = UUID(),
+        blindBoxStickerID: String,
+        assetName: String,
+        xRatio: Double,
+        yRatio: Double,
+        scale: Double = 1.0
+    ) {
+        self.init(
+            id: id,
+            content: .blindBox(id: blindBoxStickerID, assetName: assetName),
+            xRatio: xRatio,
+            yRatio: yRatio,
+            scale: scale
+        )
+    }
+
+    private init(
+        id: UUID,
+        content: HomeStickerContent,
+        xRatio: Double,
+        yRatio: Double,
+        scale: Double
+    ) {
         self.id = id
-        self.kind = kind
+        self.content = content
         self.xRatio = xRatio
         self.yRatio = yRatio
         self.scale = scale
@@ -1317,6 +1427,8 @@ struct HomeStickerPlacement: Identifiable, Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case id
         case kind
+        case blindBoxStickerID
+        case blindBoxAssetName
         case xRatio
         case yRatio
         case scale
@@ -1324,26 +1436,66 @@ struct HomeStickerPlacement: Identifiable, Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
-        kind = try container.decode(StickerKind.self, forKey: .kind)
-        xRatio = try container.decode(Double.self, forKey: .xRatio)
-        yRatio = try container.decode(Double.self, forKey: .yRatio)
-        scale = try container.decodeIfPresent(Double.self, forKey: .scale) ?? 1.0
+        let id = try container.decode(UUID.self, forKey: .id)
+        let xRatio = try container.decode(Double.self, forKey: .xRatio)
+        let yRatio = try container.decode(Double.self, forKey: .yRatio)
+        let scale = try container.decodeIfPresent(Double.self, forKey: .scale) ?? 1.0
+
+        if let blindBoxStickerID = try container.decodeIfPresent(String.self, forKey: .blindBoxStickerID) {
+            self.init(
+                id: id,
+                content: .blindBox(
+                    id: blindBoxStickerID,
+                    assetName: try container.decodeIfPresent(String.self, forKey: .blindBoxAssetName)
+                        ?? "sticker_\(blindBoxStickerID)"
+                ),
+                xRatio: xRatio,
+                yRatio: yRatio,
+                scale: scale
+            )
+            return
+        }
+
+        self.init(
+            id: id,
+            content: .legacy(try container.decode(StickerKind.self, forKey: .kind)),
+            xRatio: xRatio,
+            yRatio: yRatio,
+            scale: scale
+        )
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
-        try container.encode(kind, forKey: .kind)
         try container.encode(xRatio, forKey: .xRatio)
         try container.encode(yRatio, forKey: .yRatio)
         try container.encode(scale, forKey: .scale)
+        switch content {
+        case .legacy(let kind):
+            try container.encode(kind, forKey: .kind)
+        case .blindBox(let id, let assetName):
+            try container.encode(id, forKey: .blindBoxStickerID)
+            try container.encode(assetName, forKey: .blindBoxAssetName)
+        }
+    }
+
+    func replacing(
+        xRatio: Double? = nil,
+        yRatio: Double? = nil,
+        scale: Double? = nil
+    ) -> HomeStickerPlacement {
+        HomeStickerPlacement(
+            id: id,
+            content: content,
+            xRatio: xRatio ?? self.xRatio,
+            yRatio: yRatio ?? self.yRatio,
+            scale: scale ?? self.scale
+        )
     }
 
     func normalized() -> HomeStickerPlacement {
-        HomeStickerPlacement(
-            id: id,
-            kind: kind,
+        replacing(
             xRatio: Self.clamp(xRatio, min: 0.02, max: 0.98, fallback: 0.5),
             yRatio: Self.clamp(yRatio, min: 0.02, max: 1.08, fallback: 0.5),
             scale: Self.clamp(scale, min: 0.5, max: 1.6, fallback: 1.0)
@@ -1360,6 +1512,10 @@ enum AppSettings {
     static let hapticsEnabledKey = "haptics_enabled"
     static let soundEffectsEnabledKey = "sound_effects_enabled"
     static let themeKey = "theme_color"
+    static let homeBackgroundKey = "home_background_v1"
+    static let meSkinKey = "me_skin_v1"
+    static let homeSkinNewBadgeVersionKey = "home_skin_new_badge_version_v1"
+    static let homeSkinNewBadgeTapCountKey = "home_skin_new_badge_tap_count_v1"
     static let hasSeenOnboardingKey = "has_seen_onboarding_v2"
     static let commonTasksKey = "common_tasks"
     static let boardCountdownKey = "board_countdown_v1"
@@ -1422,134 +1578,67 @@ enum AppSettings {
     }
 }
 
-enum AppHaptics {
-    private static let completionGenerator = UIImpactFeedbackGenerator(style: .medium)
-    private static let controlGenerator = UIImpactFeedbackGenerator(style: .light)
-    private static let emphasisGenerator = UIImpactFeedbackGenerator(style: .heavy)
+/// Portrait background artwork that can be applied to the Home tab. The raw
+/// values intentionally match the asset names so the setting stays stable
+/// across future UI reorganisations.
+enum HomeBackgroundOption: String, CaseIterable, Codable, Identifiable {
+    case none
+    case halloween01 = "bg_11"
+    case halloween02 = "bg_12"
+    case pattern01 = "bg_01"
+    case pattern02 = "bg_02"
+    case pattern03 = "bg_03"
+    case pattern04 = "bg_04"
+    case pattern05 = "bg_05"
+    case pattern06 = "bg_06"
+    case pattern07 = "bg_07"
+    case pattern08 = "bg_08"
+    case pattern09 = "bg_09"
+    case pattern10 = "bg_10"
 
-    private static func perform(_ work: @escaping () -> Void) {
-        guard AppSettings.isHapticsEnabled else { return }
-        if Thread.isMainThread {
-            work()
-        } else {
-            DispatchQueue.main.async(execute: work)
+    var id: String { rawValue }
+
+    var imageName: String? {
+        self == .none ? nil : "BackgroundSkin_\(rawValue)"
+    }
+
+    /// Backgrounds whose artwork is dark enough that the native tab bar's
+    /// unselected icons need a light treatment to remain readable.
+    var isDarkTone: Bool {
+        switch self {
+        case .pattern05, .pattern06, .halloween01, .halloween02:
+            return true
+        default:
+            return false
         }
     }
 
-    static func prepareForInteraction() {
-        perform {
-            completionGenerator.prepare()
-            controlGenerator.prepare()
-            emphasisGenerator.prepare()
+    var isHalloweenLimited: Bool {
+        switch self {
+        case .halloween01, .halloween02:
+            return true
+        default:
+            return false
         }
     }
 
-    static func completion() {
-        perform {
-            completionGenerator.impactOccurred(intensity: 1.0)
-            completionGenerator.prepare()
+    var isPremiumOnly: Bool {
+        switch self {
+        case .pattern08, .pattern09, .pattern10:
+            return true
+        default:
+            return false
         }
     }
 
-    static func control() {
-        perform {
-            controlGenerator.impactOccurred(intensity: 0.85)
-            controlGenerator.prepare()
+    var badgeTitle: String? {
+        switch self {
+        case .halloween01, .halloween02:
+            return "🎃"
+        case .pattern08, .pattern09, .pattern10:
+            return "PRO"
+        default:
+            return nil
         }
-    }
-
-    static func emphasis() {
-        perform {
-            emphasisGenerator.impactOccurred(intensity: 1.0)
-            emphasisGenerator.prepare()
-        }
-    }
-}
-
-/// A single, sustained haptic whose intensity ramps up with a celebration animation. Core
-/// Haptics avoids the staccato feel of repeatedly firing impact generators.
-final class AppHapticContinuousPlayer {
-    private var engine: CHHapticEngine?
-    private var player: CHHapticAdvancedPatternPlayer?
-
-    func start(
-        initialIntensity: CGFloat = 0.10,
-        peakIntensity: CGFloat = 0.55,
-        rampDuration: TimeInterval = 1.8,
-        sharpness: CGFloat = 0.08
-    ) {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.start(
-                    initialIntensity: initialIntensity,
-                    peakIntensity: peakIntensity,
-                    rampDuration: rampDuration,
-                    sharpness: sharpness
-                )
-            }
-            return
-        }
-
-        stop()
-        guard AppSettings.isHapticsEnabled,
-              CHHapticEngine.capabilitiesForHardware().supportsHaptics else {
-            return
-        }
-
-        do {
-            let effectivePeak = min(max(peakIntensity, 0), 1)
-            let effectiveInitial = min(max(initialIntensity, 0), effectivePeak)
-            let effectiveSharpness = min(max(sharpness, 0), 1)
-            let event = CHHapticEvent(
-                eventType: .hapticContinuous,
-                parameters: [
-                    CHHapticEventParameter(parameterID: .hapticIntensity, value: Float(effectivePeak)),
-                    CHHapticEventParameter(parameterID: .hapticSharpness, value: Float(effectiveSharpness))
-                ],
-                relativeTime: 0,
-                duration: 10
-            )
-            // Intensity control is relative to the event's peak intensity. Start near silence,
-            // then smoothly reach its authored maximum and hold until the animation stops it.
-            let openingControl = Float((effectiveInitial / max(effectivePeak, 0.001)) - 1)
-            let intensityCurve = CHHapticParameterCurve(
-                parameterID: .hapticIntensityControl,
-                controlPoints: [
-                    .init(relativeTime: 0, value: openingControl),
-                    .init(relativeTime: max(rampDuration, 0.01), value: 0)
-                ],
-                relativeTime: 0
-            )
-            let pattern = try CHHapticPattern(events: [event], parameterCurves: [intensityCurve])
-            let engine = try CHHapticEngine()
-            let player = try engine.makeAdvancedPlayer(with: pattern)
-
-            self.engine = engine
-            self.player = player
-            try engine.start()
-            try player.start(atTime: 0)
-        } catch {
-            player = nil
-            engine = nil
-        }
-    }
-
-    func stop() {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.stop()
-            }
-            return
-        }
-
-        try? player?.stop(atTime: 0)
-        engine?.stop()
-        player = nil
-        engine = nil
-    }
-
-    deinit {
-        try? player?.stop(atTime: 0)
-        engine?.stop()
     }
 }

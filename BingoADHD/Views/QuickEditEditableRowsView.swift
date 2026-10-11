@@ -18,7 +18,7 @@ struct QuickEditEditableTaskRow: View {
             Button(action: onToggle) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.appSystem(size: scaled(18, pad: 20), weight: .bold))
-                    .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.38))
+                    .foregroundColor(isSelected ? NeumorphicColors.modalAccent : NeumorphicColors.text.opacity(0.38))
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
@@ -90,7 +90,7 @@ struct QuickEditInlineNewTaskRow: View {
 
             Button(L10n.save, action: onSubmit)
                 .font(.appSystem(size: scaled(12, pad: 14), weight: .bold, design: .rounded))
-                .foregroundColor(NeumorphicColors.accent)
+                .foregroundColor(NeumorphicColors.modalAccent)
                 .buttonStyle(.plain)
                 .disabled(draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .opacity(draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
@@ -109,7 +109,7 @@ struct QuickEditInlineNewTaskRow: View {
         )
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(NeumorphicColors.accent.opacity(0.45), lineWidth: 1)
+                .stroke(NeumorphicColors.modalAccent.opacity(0.45), lineWidth: 1)
                 .allowsHitTesting(false)
         }
     }

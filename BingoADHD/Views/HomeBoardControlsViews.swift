@@ -87,6 +87,10 @@ struct BoardSwitcherControlsView: View {
                                         .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text)
                                         .padding(.horizontal, 14)
                                         .frame(height: isPadLayout ? 38 : 36)
+                                        .background(
+                                            Capsule(style: .continuous)
+                                                .fill(Color.white.opacity(0.6))
+                                        )
                                         .overlay(
                                             Capsule(style: .continuous)
                                                 .stroke(
@@ -204,7 +208,7 @@ private struct BoardEditHintBubbleView: View {
                 Button(action: onDismiss) {
                     Text(L10n.boardEditHintAcknowledge)
                         .font(.appSystem(size: isPadLayout ? 11 : 10, weight: .bold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.accent)
+                        .foregroundColor(NeumorphicColors.modalAccent)
                         .padding(.horizontal, 3)
                         .frame(height: isPadLayout ? 23 : 21)
                 }
@@ -327,6 +331,7 @@ struct BoardBottomControlsView: View {
     let onClearBoard: () -> Void
     let onGridSize: () -> Void
     let onQuickEdit: () -> Void
+    var liveActivityBoardID: UUID? = nil
 
     var body: some View {
         Group {
@@ -381,7 +386,8 @@ struct BoardBottomControlsView: View {
                     onBoardOrder: onBoardOrder,
                     onShuffle: onShuffle,
                     onClearBoard: onClearBoard,
-                    onGridSize: onGridSize
+                    onGridSize: onGridSize,
+                    liveActivityBoardID: liveActivityBoardID
                 )
                 .offset(x: moreActionsPanelOffsetX, y: moreActionsPanelOffsetY)
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .leading)))
@@ -398,7 +404,8 @@ struct BoardBottomControlsView: View {
         let triggerSize: CGFloat = isPadLayout ? 44 : 38
         let rowHeight: CGFloat = isPadLayout ? 54 : 52
         let verticalPadding: CGFloat = isPadLayout ? 6 : 5
-        let panelHeight = rowHeight * 5 + verticalPadding * 2
+        let rowCount: CGFloat = liveActivityBoardID == nil ? 5 : 6
+        let panelHeight = rowHeight * rowCount + verticalPadding * 2
 
         return triggerSize - panelHeight
     }
@@ -422,7 +429,9 @@ struct BoardMoreActionsTriggerView: View {
                 .scaledToFit()
                 .frame(width: isPadLayout ? 25 : 21, height: isPadLayout ? 25 : 21)
                 .frame(width: buttonSize, height: buttonSize)
-                .appLiquidGlass(in: Circle(), interactive: true)
+                .background(Circle().fill(Color.white.opacity(0.74)))
+                .appLiquidGlass(in: Circle(), interactive: true, tint: .white.opacity(0.72))
+                .environment(\.colorScheme, .light)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -444,7 +453,9 @@ struct BoardQuickEditTriggerView: View {
                 .font(.appSystem(size: isPadLayout ? 20 : 18, weight: .bold))
                 .foregroundColor(NeumorphicColors.accent)
                 .frame(width: buttonSize, height: buttonSize)
-                .appLiquidGlass(in: Circle(), interactive: true)
+                .background(Circle().fill(Color.white.opacity(0.74)))
+                .appLiquidGlass(in: Circle(), interactive: true, tint: .white.opacity(0.72))
+                .environment(\.colorScheme, .light)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -461,6 +472,7 @@ struct BoardMoreActionsSidePanel: View {
     let onShuffle: () -> Void
     let onClearBoard: () -> Void
     let onGridSize: () -> Void
+    var liveActivityBoardID: UUID? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -469,6 +481,9 @@ struct BoardMoreActionsSidePanel: View {
             actionButton(L10n.tr("Shuffle", zhHans: "随机排序"), action: onShuffle)
             actionButton(L10n.clearBoard, action: onClearBoard)
             actionButton(L10n.tr("Grid Size", zhHans: "格子大小"), action: onGridSize)
+            if let boardID = liveActivityBoardID {
+                BoardLiveActivityMenuAction(boardID: boardID, isPadLayout: isPadLayout, onDismiss: onDismiss)
+            }
         }
         .padding(.vertical, scaled(5, pad: 6))
         .frame(width: scaled(160, pad: 184), alignment: .center)
@@ -543,10 +558,20 @@ struct BoardCountdownTriggerView: View {
     }
 
     private func themedFunctionSurface(cornerRadius: CGFloat, shadowRadius: CGFloat, offset: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(Color.white.opacity(0.5))
-            .shadow(color: Color.white, radius: shadowRadius + 3, x: -offset - 1, y: -offset - 1)
-            .shadow(color: surfaceShadowColor.opacity(0.2), radius: shadowRadius + 3, x: offset + 1, y: offset + 1)
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let filledShape = shape.fill(Color.white.opacity(0.5))
+        let highlightedShape = filledShape.shadow(
+            color: Color.white,
+            radius: shadowRadius + 3,
+            x: -offset - 1,
+            y: -offset - 1
+        )
+        return highlightedShape.shadow(
+            color: surfaceShadowColor.opacity(0.2),
+            radius: shadowRadius + 3,
+            x: offset + 1,
+            y: offset + 1
+        )
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {

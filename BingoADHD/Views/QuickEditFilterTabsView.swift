@@ -86,7 +86,7 @@ struct QuickEditFilterTabsView: View {
                 .overlay {
                     Capsule(style: .continuous)
                         .stroke(
-                            isSelected ? AppTheme.current.color : fieldStroke,
+                            isSelected ? NeumorphicColors.modalAccent : fieldStroke,
                             lineWidth: 1
                         )
                 }
@@ -137,7 +137,7 @@ struct QuickEditFilterTabsView: View {
     }
 
     private func tabSurface(isSelected: Bool) -> some View {
-        let theme = AppTheme.current
+        let theme = AppTheme.concise
         return Capsule(style: .continuous)
             .fill(isSelected ? theme.color : theme.color.opacity(theme == .concise ? 0.08 : 0.1))
             .shadow(color: isSelected ? theme.bingoSurfaceShadowColor.opacity(0.18) : .clear, radius: 6, x: 0, y: 3)

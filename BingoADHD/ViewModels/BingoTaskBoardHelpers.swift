@@ -10,7 +10,7 @@ enum BingoTaskBoardHelpers {
             endAt: cell.endVisibleAt,
             startMonth: cell.startVisibleMonth,
             startDay: cell.startVisibleDay,
-            recurrenceRule: cell.recurrenceRule
+            recurrenceRule: cell.effectiveRecurrenceRule
         )
     }
 }

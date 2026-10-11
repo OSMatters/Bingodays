@@ -478,6 +478,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        if AppDebugFlags.appIconProbeEnabled { return true }
 #if DEBUG
         FirebaseConfiguration.shared.setLoggerLevel(.debug)
 #endif
@@ -511,14 +512,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
+        guard !AppDebugFlags.appIconProbeEnabled else { return }
         // Restore the non-intrusive UI-sound policy after returning from another app or
         // after a recording session, before any Bingo sound effect can be played.
         AppAudioSessionConfigurator.configureForSoundEffects()
         DiagnosticLogStore.recordStateChange("app.did_become_active")
+        BingoBoardLiveActivityController.scheduleRefresh()
         scheduleLegacyNotificationCleanup()
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
+        guard !AppDebugFlags.appIconProbeEnabled else { return }
         NativeICloudWidgetRefreshScheduler.scheduleFallback()
     }
 
@@ -527,6 +531,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
+        guard !AppDebugFlags.appIconProbeEnabled else {
+            completionHandler(.noData)
+            return
+        }
         guard CKNotification(fromRemoteNotificationDictionary: userInfo) != nil else {
             completionHandler(.noData)
             return
@@ -573,27 +581,34 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 struct BingoADHDApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var subscriptionManager = SubscriptionManager()
-    @StateObject private var iCloudSyncCoordinator = NativeICloudSyncCoordinator.shared
+    @StateObject private var services = AppServices()
     @State private var hasStartedDeferredBootstrap = false
 
     var body: some Scene {
         WindowGroup {
-            AppRootView()
-                .environmentObject(subscriptionManager)
-                .environmentObject(iCloudSyncCoordinator)
-                .task {
-                    iCloudSyncCoordinator.startIfEnabled()
-                    guard !hasStartedDeferredBootstrap else { return }
-                    hasStartedDeferredBootstrap = true
-                    await subscriptionManager.bootstrap()
-                }
-                .onChange(of: scenePhase) { _, newPhase in
-                    guard newPhase == .active else { return }
-                    Task {
-                        await iCloudSyncCoordinator.refreshWhenAppBecomesActive()
-                    }
-                }
+#if DEBUG
+            if AppDebugFlags.appIconProbeEnabled {
+                IconProbeView()
+            } else {
+                bingodaysRoot
+            }
+#else
+            bingodaysRoot
+#endif
+        }
+    }
+
+    // The probe does not construct the production service graph or root view.
+    @ViewBuilder
+    private var bingodaysRoot: some View {
+        if let production = services.production {
+            BingodaysProductionRoot(
+                subscriptionManager: production.subscriptionManager,
+                appIconManager: production.appIconManager,
+                iCloudSyncCoordinator: production.iCloudSyncCoordinator,
+                scenePhase: scenePhase,
+                hasStartedDeferredBootstrap: $hasStartedDeferredBootstrap
+            )
         }
     }
 }

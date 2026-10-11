@@ -126,6 +126,69 @@ struct BlindBoxLaunchTicketTests {
 }
 
 @MainActor
+struct BlindBoxStickerShelfTests {
+    @Test
+    func shelfUsesFirstAcquisitionTimeThenCatalogFallback() {
+        let stickerA = BlindBoxStickerDefinition(
+            id: BlindBoxStickerID(rawValue: "shelf_a"),
+            assetName: "sticker_shelf_a",
+            isHidden: false
+        )
+        let stickerB = BlindBoxStickerDefinition(
+            id: BlindBoxStickerID(rawValue: "shelf_b"),
+            assetName: "sticker_shelf_b",
+            isHidden: false
+        )
+        let stickerC = BlindBoxStickerDefinition(
+            id: BlindBoxStickerID(rawValue: "shelf_c"),
+            assetName: "sticker_shelf_c",
+            isHidden: false
+        )
+        let theme = BlindBoxThemeDefinition(
+            id: BlindBoxThemeID(rawValue: "shelf_theme"),
+            catalogVersion: 1,
+            stickers: [stickerA, stickerB, stickerC]
+        )
+        let firstAcquiredAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let state = BlindBoxAccountState(
+            ownedStickerCounts: [
+                stickerA.id.rawValue: 1,
+                stickerB.id.rawValue: 2,
+                stickerC.id.rawValue: 1
+            ],
+            stickerAcquisitions: [
+                BlindBoxStickerAcquisition(
+                    positionID: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+                    stickerID: stickerB.id,
+                    acquiredAt: firstAcquiredAt.addingTimeInterval(20),
+                    positionIndex: 1
+                ),
+                BlindBoxStickerAcquisition(
+                    positionID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                    stickerID: stickerA.id,
+                    acquiredAt: firstAcquiredAt,
+                    positionIndex: 0
+                ),
+                BlindBoxStickerAcquisition(
+                    positionID: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
+                    stickerID: stickerB.id,
+                    acquiredAt: firstAcquiredAt.addingTimeInterval(40),
+                    positionIndex: 2
+                )
+            ]
+        )
+
+        let items = BlindBoxStickerShelfBuilder.items(themes: [theme], state: state)
+
+        #expect(items.map(\.sticker.id) == [stickerA.id, stickerB.id, stickerC.id])
+        #expect(items.map(\.ownedCount) == [1, 2, 1])
+        #expect(items[0].acquiredAt == firstAcquiredAt)
+        #expect(items[1].acquiredAt == firstAcquiredAt.addingTimeInterval(20))
+        #expect(items[2].acquiredAt == nil)
+    }
+}
+
+@MainActor
 struct BlindBoxPremiumPurchaseRewardTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
     private var calendar: Calendar { Calendar(identifier: .gregorian) }
@@ -274,7 +337,9 @@ struct BlindBoxPullInteractionTests {
 
 final class BlindBoxRuleEngineTests: XCTestCase {
     func testBuiltInThemesMatchConfiguredContentCounts() {
-        XCTAssertEqual(BlindBoxCatalog.builtInThemes.count, 3)
+        XCTAssertEqual(Set(BlindBoxCatalog.builtInThemes.map { $0.id.rawValue }),
+                       ["pets", "cozy_daily", "zodiac", "halloween"])
+        XCTAssertTrue(BlindBoxCatalog.builtInThemes.allSatisfy { $0.validationError() == nil })
         let zodiac = BlindBoxCatalog.zodiac
         XCTAssertEqual(zodiac.normalStickers.count, 12)
         XCTAssertEqual(zodiac.hiddenSticker?.id.rawValue, "zodiac_13")
@@ -861,23 +926,21 @@ final class BlindBoxRuleEngineTests: XCTestCase {
     }
 
     @MainActor
-    func testFeatureStoreIncludesBundledZodiacWithActiveRemoteThemes() async throws {
+    func testFeatureStoreIncludesBundledZodiacWithActiveConfiguredThemes() async throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "BlindBoxFeatureStoreCatalogTests-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+        let defaultsSuite = "BlindBoxFeatureStoreCatalogLocal-\(UUID().uuidString)"
+        let localDefaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        defer { localDefaults.removePersistentDomain(forName: defaultsSuite) }
 
         let remoteBundle = makeCacheableCatalogBundle(releaseID: "feature-store-catalog")
         let store = BlindBoxFeatureStore(
-            themes: BlindBoxCatalog.builtInThemes,
+            themes: remoteBundle.release.themes,
+            activeThemeIDs: remoteBundle.release.activeThemeIDs,
+            economyConfiguration: remoteBundle.release.economyConfiguration,
             database: InMemoryBlindBoxCloudRecordDatabase(),
             legacyInventoryProvider: { [:] },
-            catalogRepository: StaticBlindBoxCatalogBundleRepository(bundle: remoteBundle),
-            catalogCurrentBuild: 1,
-            catalogCacheRootDirectory: rootDirectory
+            localDefaults: localDefaults
         )
 
         await store.refresh(
@@ -889,24 +952,10 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(store.availability, .ready)
-        XCTAssertEqual(store.themes, remoteBundle.release.themes + [BlindBoxCatalog.zodiac])
+        XCTAssertEqual(store.themes, remoteBundle.release.themes + [BlindBoxCatalog.zodiac, BlindBoxCatalog.halloween])
         XCTAssertEqual(
             Set(store.accountState.candidateBatches.map(\.plan.themeID)),
-            Set(remoteBundle.release.activeThemeIDs + [BlindBoxCatalog.zodiac.id])
-        )
-
-        await store.refresh(
-            hasPremiumAccess: false,
-            candidateZoneWasPresented: true,
-            nativeICloudInitialImportComplete: true,
-            now: Date(timeIntervalSince1970: 2_001),
-            calendar: calendar
-        )
-
-        XCTAssertFalse(
-            FileManager.default.fileExists(
-                atPath: rootDirectory.appendingPathComponent("previous", isDirectory: true).path
-            )
+            Set(remoteBundle.release.activeThemeIDs + [BlindBoxCatalog.zodiac.id, BlindBoxCatalog.halloween.id])
         )
     }
 
@@ -914,11 +963,9 @@ final class BlindBoxRuleEngineTests: XCTestCase {
     func testFeatureStoreAppliesARemoteOpeningPauseBeforeItCreatesADraw() async throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "BlindBoxFeatureStoreEconomyTests-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+        let defaultsSuite = "BlindBoxFeatureStoreEconomyLocal-\(UUID().uuidString)"
+        let localDefaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        defer { localDefaults.removePersistentDomain(forName: defaultsSuite) }
 
         let pausedEconomy = BlindBoxEconomyConfiguration(
             version: 2,
@@ -927,17 +974,12 @@ final class BlindBoxRuleEngineTests: XCTestCase {
             pointExchangePrice: 250,
             maximumPointExchangesPerGrantDay: 1
         )
-        let remoteBundle = makeCacheableCatalogBundle(
-            releaseID: "feature-store-economy",
-            economyConfiguration: pausedEconomy
-        )
         let store = BlindBoxFeatureStore(
             themes: BlindBoxCatalog.builtInThemes,
+            economyConfiguration: pausedEconomy,
             database: InMemoryBlindBoxCloudRecordDatabase(),
             legacyInventoryProvider: { [:] },
-            catalogRepository: StaticBlindBoxCatalogBundleRepository(bundle: remoteBundle),
-            catalogCurrentBuild: 1,
-            catalogCacheRootDirectory: rootDirectory
+            localDefaults: localDefaults
         )
 
         await store.refresh(
@@ -963,14 +1005,18 @@ final class BlindBoxRuleEngineTests: XCTestCase {
     }
 
     @MainActor
-    func testFeatureStoreFailsClosedWhenItCannotVerifyRemoteCatalogForADraw() async throws {
+    func testFeatureStoreUsesBundledCatalogWhenRemoteCatalogCannotBeReached() async throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let defaultsSuite = "BlindBoxFeatureStoreOfflineCatalog-\(UUID().uuidString)"
+        let localDefaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        defer { localDefaults.removePersistentDomain(forName: defaultsSuite) }
         let store = BlindBoxFeatureStore(
             themes: BlindBoxCatalog.builtInThemes,
             database: InMemoryBlindBoxCloudRecordDatabase(),
             legacyInventoryProvider: { [:] },
-            catalogRepository: StaticBlindBoxCatalogBundleRepository(bundle: nil)
+            catalogRepository: StaticBlindBoxCatalogBundleRepository(bundle: nil),
+            localDefaults: localDefaults
         )
 
         await store.refresh(
@@ -982,16 +1028,12 @@ final class BlindBoxRuleEngineTests: XCTestCase {
         )
 
         let batch = try XCTUnwrap(store.accountState.candidateBatches.first)
-        do {
-            _ = try await store.open(
-                .single(batchID: batch.id, positionIndex: batch.unopenedPositionPlans[0].index),
-                now: Date(timeIntervalSince1970: 2_000),
-                calendar: calendar
-            )
-            XCTFail("A draw must not use a catalog it could not freshly verify.")
-        } catch {
-            XCTAssertEqual(error as? BlindBoxFeatureStoreError, .remoteCatalogUnavailable)
-        }
+        let result = try await store.open(
+            .single(batchID: batch.id, positionIndex: batch.unopenedPositionPlans[0].index),
+            now: Date(timeIntervalSince1970: 2_000),
+            calendar: calendar
+        )
+        XCTAssertEqual(result.ticketCost, 1)
     }
 
     @MainActor
@@ -1005,24 +1047,16 @@ final class BlindBoxRuleEngineTests: XCTestCase {
             pointExchangePrice: 250,
             maximumPointExchangesPerGrantDay: 1
         )
-        let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "BlindBoxFeatureStoreEconomyVersionTests-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+        let defaultsSuite = "BlindBoxFeatureStoreEconomyVersionLocal-\(UUID().uuidString)"
+        let localDefaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        defer { localDefaults.removePersistentDomain(forName: defaultsSuite) }
 
         let store = BlindBoxFeatureStore(
             themes: BlindBoxCatalog.builtInThemes,
+            economyConfiguration: economy,
             database: InMemoryBlindBoxCloudRecordDatabase(),
             legacyInventoryProvider: { [:] },
-            catalogRepository: StaticBlindBoxCatalogBundleRepository(
-                bundle: makeCacheableCatalogBundle(
-                    releaseID: "feature-store-economy-version",
-                    economyConfiguration: economy
-                )
-            ),
-            catalogCurrentBuild: 1,
-            catalogCacheRootDirectory: rootDirectory
+            localDefaults: localDefaults
         )
 
         await store.refresh(
@@ -1759,12 +1793,16 @@ final class BlindBoxStateMachineTests: XCTestCase {
     }
 
     @MainActor
-    func testFeatureStoreWaitsForInitialICloudImportWithoutCreatingAnAccount() async throws {
+    func testFeatureStoreStartsLocallyBeforeInitialICloudImport() async throws {
         let database = InMemoryBlindBoxCloudRecordDatabase()
+        let defaultsSuite = "BlindBoxFeatureStoreNoICloud-\(UUID().uuidString)"
+        let localDefaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        defer { localDefaults.removePersistentDomain(forName: defaultsSuite) }
         let store = BlindBoxFeatureStore(
             themes: BlindBoxCatalog.builtInThemes,
             database: database,
-            legacyInventoryProvider: { [StickerKind.cowCat.rawValue: 1] }
+            legacyInventoryProvider: { [StickerKind.cowCat.rawValue: 1] },
+            localDefaults: localDefaults
         )
 
         await store.refresh(
@@ -1773,9 +1811,10 @@ final class BlindBoxStateMachineTests: XCTestCase {
             nativeICloudInitialImportComplete: false
         )
 
-        XCTAssertEqual(store.availability, .waitingForICloudInitialImport)
-        XCTAssertEqual(database.saveAttemptCount, 0)
-        XCTAssertNil(database.record(for: BlindBoxCloudKitRecordCodec.accountRecordID))
+        XCTAssertEqual(store.availability, .ready)
+        XCTAssertFalse(store.accountState.candidateBatches.isEmpty)
+        XCTAssertEqual(store.accountState.ownedStickerCounts["pets_11"], 1)
+        XCTAssertNil(store.accountState.ownedStickerCounts["pets_12"])
     }
 
     @MainActor
@@ -1784,10 +1823,14 @@ final class BlindBoxStateMachineTests: XCTestCase {
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let now = Date(timeIntervalSince1970: 2_000)
         let database = InMemoryBlindBoxCloudRecordDatabase()
+        let defaultsSuite = "BlindBoxFeatureStoreLocalCommand-\(UUID().uuidString)"
+        let localDefaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        defer { localDefaults.removePersistentDomain(forName: defaultsSuite) }
         let store = BlindBoxFeatureStore(
             themes: BlindBoxCatalog.builtInThemes,
             database: database,
-            legacyInventoryProvider: { [:] }
+            legacyInventoryProvider: { [:] },
+            localDefaults: localDefaults
         )
 
         await store.refresh(
@@ -2241,6 +2284,238 @@ final class BlindBoxStateMachineTests: XCTestCase {
 }
 
 @MainActor
+final class BlindBoxLocalFirstPersistenceTests: XCTestCase {
+    func testSameDayRelaunchWithoutCloudDoesNotGrantAgain() throws {
+        let (defaults, suite) = try defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = Date(timeIntervalSince1970: 1_789_000_000)
+        let first = BlindBoxLocalAccountRepository(defaults: defaults)
+        _ = try first.maintain(
+            themes: BlindBoxCatalog.builtInThemes, hasPremiumAccess: false,
+            candidateZoneWasPresented: false, isAutomaticOpeningEnabled: false,
+            premiumPurchaseTransactionID: nil, now: now, calendar: calendar, reason: .initialLoad
+        )
+        let balance = first.accountState.ticketBalance
+        XCTAssertEqual(balance, 3)
+        XCTAssertNotNil(try first.consumeTicketReceipt())
+        let relaunched = BlindBoxLocalAccountRepository(defaults: defaults)
+        let result = try relaunched.maintain(
+            themes: BlindBoxCatalog.builtInThemes, hasPremiumAccess: false,
+            candidateZoneWasPresented: false, isAutomaticOpeningEnabled: false,
+            premiumPurchaseTransactionID: nil, now: now.addingTimeInterval(60),
+            calendar: calendar, reason: .initialLoad
+        )
+        XCTAssertEqual(result.dailyTicketRefresh.grantedTicketCount, 0)
+        XCTAssertEqual(relaunched.accountState.ticketBalance, balance)
+        XCTAssertNil(try relaunched.consumeTicketReceipt())
+    }
+
+    func testAcknowledgedReceiptDoesNotReturnFromCloudMirror() async throws {
+        let (defaults, suite) = try defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var state = BlindBoxAccountState(ticketBalance: 3)
+        let receipt = BlindBoxTicketReceipt(day: "2026-09-20", count: 1)
+        state.pendingTicketReceipt = receipt
+        XCTAssertTrue(BlindBoxLocalStateStore.save(state, defaults: defaults))
+        BlindBoxLocalStateStore.markCloudSynchronizationCompleted(for: state, defaults: defaults)
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        try await database.createZone(BlindBoxCloudKitRecordCodec.zoneID)
+        try database.seed(BlindBoxCloudKitRecordCodec.makeAccountRecord(
+            BlindBoxCloudAccountEnvelope(accountState: state)
+        ))
+        let local = BlindBoxLocalAccountRepository(defaults: defaults)
+        XCTAssertEqual(try local.consumeTicketReceipt()?.id, receipt.id)
+        XCTAssertNil(local.accountState.pendingTicketReceipt)
+        let remote = BlindBoxCloudKitAccountStateRepository(database: database)
+        let mirrored = try await remote.mergeAndSaveLocalAccount(local.accountState)
+        _ = try local.applyCloudSynchronizedState(mirrored.accountState)
+        let relaunched = BlindBoxLocalAccountRepository(defaults: defaults)
+        XCTAssertEqual(relaunched.accountState.ticketBalance, 3)
+        XCTAssertNil(try relaunched.consumeTicketReceipt(), "A displayed receipt must stay acknowledged after cloud sync and reload")
+    }
+
+    func testSpentTicketDoesNotReturnFromCloudMirror() async throws {
+        let (defaults, suite) = try defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let plan = makePlan()
+        let state = BlindBoxAccountState(ticketBalance: 3, candidateBatches: [BlindBoxCandidateBatch(plan: plan)])
+        XCTAssertTrue(BlindBoxLocalStateStore.save(state, defaults: defaults))
+        BlindBoxLocalStateStore.markCloudSynchronizationCompleted(for: state, defaults: defaults)
+        let database = InMemoryBlindBoxCloudRecordDatabase()
+        try await database.createZone(BlindBoxCloudKitRecordCodec.zoneID)
+        try database.seed(BlindBoxCloudKitRecordCodec.makeAccountRecord(
+            BlindBoxCloudAccountEnvelope(accountState: state)
+        ))
+        let local = BlindBoxLocalAccountRepository(defaults: defaults)
+        _ = try local.open(.single(batchID: plan.id, positionIndex: 0), now: Date(timeIntervalSince1970: 5_010))
+        XCTAssertEqual(local.accountState.ticketBalance, 2)
+        let remote = BlindBoxCloudKitAccountStateRepository(database: database)
+        let mirrored = try await remote.mergeAndSaveLocalAccount(local.accountState)
+        _ = try local.applyCloudSynchronizedState(mirrored.accountState)
+        let relaunched = BlindBoxLocalAccountRepository(defaults: defaults)
+        XCTAssertEqual(relaunched.accountState.ticketBalance, 2, "Cloud mirror must preserve the committed ticket deduction")
+        XCTAssertEqual(relaunched.accountState.ownedStickerCounts["pets_01"], 1)
+    }
+
+    func testCloudBaselineImportIsMarkedBeforeTheFirstUploadSucceeds() throws {
+        let (defaults, suite) = try defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let repository = BlindBoxLocalAccountRepository(defaults: defaults)
+        XCTAssertTrue(repository.needsCloudBaselineImport)
+
+        _ = try repository.importCloudBaseline(
+            BlindBoxAccountState(ticketBalance: 4)
+        )
+
+        XCTAssertFalse(
+            repository.needsCloudBaselineImport,
+            "A failed first upload must retry the local snapshot, not re-import a stale cloud baseline."
+        )
+        XCTAssertTrue(repository.needsCloudSynchronization)
+    }
+
+    private func makePlan() -> BlindBoxBatchPlan {
+        BlindBoxBatchPlan(
+            themeID: BlindBoxThemeID(rawValue: "pets"),
+            catalogVersion: 1,
+            probabilityMode: .standard,
+            createdAt: Date(timeIntervalSince1970: 5_000),
+            positions: (0..<BlindBoxRuleConfiguration.batchPositionCount).map { index in
+                BlindBoxPositionPlan(
+                    index: index,
+                    stickerID: BlindBoxStickerID(rawValue: "pets_\(String(format: "%02d", index + 1))")
+                )
+            }
+        )
+    }
+
+    private func defaults() throws -> (UserDefaults, String) {
+        let suite = "BlindBoxLocalFirst-\(UUID().uuidString)"
+        return (try XCTUnwrap(UserDefaults(suiteName: suite)), suite)
+    }
+
+    func testCommittedDrawSurvivesTerminationAndRetriesWithoutAnotherTicket() throws {
+        let (defaults, suite) = try defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let plan = makePlan()
+        XCTAssertTrue(BlindBoxLocalStateStore.save(
+            BlindBoxAccountState(ticketBalance: 2, candidateBatches: [BlindBoxCandidateBatch(plan: plan)]),
+            defaults: defaults
+        ))
+        let request = BlindBoxDrawRequest.single(
+            idempotencyKey: UUID(), batchID: plan.id, positionIndex: 0
+        )
+
+        let firstRepository = BlindBoxLocalAccountRepository(defaults: defaults)
+        let firstResult = try firstRepository.open(request, now: Date(timeIntervalSince1970: 5_001))
+        XCTAssertEqual(firstRepository.accountState.ticketBalance, 1)
+
+        // A new repository models relaunch after the local envelope has been
+        // committed but before the reveal was acknowledged.
+        let relaunchedRepository = BlindBoxLocalAccountRepository(defaults: defaults)
+        let retriedResult = try relaunchedRepository.open(request, now: Date(timeIntervalSince1970: 5_010))
+        XCTAssertEqual(retriedResult, firstResult)
+        XCTAssertEqual(relaunchedRepository.accountState.ticketBalance, 1)
+        XCTAssertEqual(relaunchedRepository.accountState.pendingReveal?.result, firstResult)
+    }
+
+    func testReservedExchangeCompletesAfterTerminationWithTheOriginalID() throws {
+        let (defaults, suite) = try defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let repository = BlindBoxLocalAccountRepository(defaults: defaults)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let request = BlindBoxPointExchangeRequest(
+            idempotencyKey: UUID(),
+            requestedAt: Date(timeIntervalSince1970: 6_000)
+        )
+        let reservation = try repository.reservePointExchange(
+            request: request,
+            availablePoints: 1_000,
+            calendar: calendar,
+            economyConfiguration: .defaultValue
+        )
+        XCTAssertEqual(reservation.deductedPoints, BlindBoxEconomyConfiguration.defaultValue.pointExchangePrice)
+
+        let relaunchedRepository = BlindBoxLocalAccountRepository(defaults: defaults)
+        let result = try relaunchedRepository.completePointExchange(idempotencyKey: request.idempotencyKey)
+        XCTAssertEqual(result.grantedTickets, 1)
+        XCTAssertNil(relaunchedRepository.accountState.pendingPointExchange)
+        XCTAssertEqual(relaunchedRepository.accountState.ticketBalance, BlindBoxAccountState.initialTicketBalance + 1)
+    }
+
+    func testCloudUploadKeepsCommittedWalletWhileRetainingMonotonicProgress() {
+        let plan = makePlan()
+        var firstDevice = BlindBoxAccountState(
+            ticketBalance: 1,
+            ownedStickerCounts: ["pets_01": 1],
+            candidateBatches: [BlindBoxCandidateBatch(plan: plan, openedPositionIndices: [0])]
+        )
+        firstDevice.pendingTicketReceipt = BlindBoxTicketReceipt(day: "2026-09-01", count: 1)
+        let secondDevice = BlindBoxAccountState(
+            ticketBalance: 2,
+            ownedStickerCounts: ["pets_02": 1],
+            candidateBatches: [BlindBoxCandidateBatch(plan: plan, openedPositionIndices: [0, 1])]
+        )
+
+        let merged = BlindBoxAccountStateMergePolicy.mergeForLocalUpload(local: firstDevice, cloud: secondDevice)
+        XCTAssertEqual(merged.ticketBalance, 1)
+        XCTAssertEqual(merged.ownedStickerCounts["pets_01"], 1)
+        XCTAssertEqual(merged.ownedStickerCounts["pets_02"], 1)
+        XCTAssertEqual(merged.candidateBatches.first?.openedPositionIndices, [0, 1])
+        XCTAssertNotNil(merged.pendingTicketReceipt)
+    }
+
+    func testSwitchingCloudAccountsDoesNotExposeThePriorLocalAccount() throws {
+        let (defaults, suite) = try defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertTrue(BlindBoxLocalStateStore.save(BlindBoxAccountState(ticketBalance: 9), defaults: defaults))
+        let repository = BlindBoxLocalAccountRepository(defaults: defaults)
+        XCTAssertEqual(try repository.activateCloudAccount(identifier: "account-A").ticketBalance, 9)
+        XCTAssertEqual(
+            try repository.activateCloudAccount(identifier: "account-B").ticketBalance,
+            0
+        )
+    }
+
+    func testQuotaFailureDoesNotBlockLocalEntryOrOpening() async throws {
+        let (defaults, suite) = try defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let database = InMemoryBlindBoxCloudRecordDatabase(
+            nextSaveError: CKError(.quotaExceeded)
+        )
+        let store = BlindBoxFeatureStore(
+            themes: BlindBoxCatalog.builtInThemes,
+            database: database,
+            legacyInventoryProvider: { [:] },
+            localDefaults: defaults
+        )
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = Date(timeIntervalSince1970: 7_000)
+
+        await store.refresh(
+            hasPremiumAccess: false,
+            candidateZoneWasPresented: true,
+            nativeICloudInitialImportComplete: false,
+            now: now,
+            calendar: calendar
+        )
+        XCTAssertEqual(store.availability, .ready)
+        let batch = try XCTUnwrap(store.accountState.candidateBatches.first)
+        let result = try await store.open(
+            .single(batchID: batch.id, positionIndex: batch.unopenedPositionPlans[0].index),
+            now: now,
+            calendar: calendar
+        )
+        XCTAssertEqual(result.ticketCost, 1)
+        XCTAssertEqual(store.accountState.ticketBalance, BlindBoxAccountState.initialTicketBalance)
+    }
+}
+
+@MainActor
 private final class InMemoryBlindBoxCatalogPublicRecordDatabase: BlindBoxCatalogPublicRecordDatabase {
     private let record: CKRecord?
 
@@ -2274,6 +2549,7 @@ private final class InMemoryBlindBoxCloudRecordDatabase: BlindBoxCloudRecordData
     private var conflictingSaveAttempts: Int
     private var failingBeforeCommittedSaveAttempts: Int
     private var failingAfterCommittedSaveAttempts: Int
+    private var nextSaveError: (any Error)?
 
     private(set) var saveAttemptCount = 0
 
@@ -2284,11 +2560,13 @@ private final class InMemoryBlindBoxCloudRecordDatabase: BlindBoxCloudRecordData
     init(
         conflictingSaveAttempts: Int = 0,
         failingBeforeCommittedSaveAttempts: Int = 0,
-        failingAfterCommittedSaveAttempts: Int = 0
+        failingAfterCommittedSaveAttempts: Int = 0,
+        nextSaveError: (any Error)? = nil
     ) {
         self.conflictingSaveAttempts = conflictingSaveAttempts
         self.failingBeforeCommittedSaveAttempts = failingBeforeCommittedSaveAttempts
         self.failingAfterCommittedSaveAttempts = failingAfterCommittedSaveAttempts
+        self.nextSaveError = nextSaveError
     }
 
     func seed(_ record: CKRecord) throws {
@@ -2320,6 +2598,10 @@ private final class InMemoryBlindBoxCloudRecordDatabase: BlindBoxCloudRecordData
 
     func saveRecordsAtomically(_ records: [CKRecord]) async throws {
         saveAttemptCount += 1
+        if let nextSaveError {
+            self.nextSaveError = nil
+            throw nextSaveError
+        }
         if conflictingSaveAttempts > 0 {
             conflictingSaveAttempts -= 1
             throw NSError(
@@ -2382,11 +2664,11 @@ final class BlindBoxCandidateCoordinatorTests: XCTestCase {
         XCTAssertEqual(added.count, 2)
         XCTAssertTrue(added.allSatisfy { $0.remainingPositionCount == 9 && !$0.isSoldOut })
         for theme in store.themes {
-            XCTAssertEqual(batches.filter { $0.plan.themeID == theme.id }.count, 2)
+            XCTAssertGreaterThanOrEqual(batches.filter { $0.plan.themeID == theme.id }.count, 1)
         }
     }
 
-    func testUpgradeBalancesThreeThemesAndAddsTwoFullBatches() throws {
+    func testUpgradeKeepsEveryThemeAndAddsTwoFullBatches() throws {
         let now = Date(timeIntervalSince1970: 2_000)
         var state = BlindBoxAccountState()
         var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0])
@@ -2402,8 +2684,11 @@ final class BlindBoxCandidateCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(state.candidateBatches.count, 6)
         for theme in themes {
-            XCTAssertEqual(state.candidateBatches.filter { $0.plan.themeID == theme.id }.count, 2)
+            XCTAssertGreaterThanOrEqual(state.candidateBatches.filter { $0.plan.themeID == theme.id }.count, 1)
         }
+        let counts = themes.map { theme in state.candidateBatches.filter { $0.plan.themeID == theme.id }.count }
+        XCTAssertLessThanOrEqual((counts.max() ?? 0) - (counts.min() ?? 0), 1)
+        XCTAssertTrue(previousIDs.isSubset(of: Set(state.candidateBatches.map(\.id))))
         let added = state.candidateBatches.filter { !previousIDs.contains($0.id) }
         XCTAssertEqual(added.count, 2)
         XCTAssertTrue(added.allSatisfy { $0.remainingPositionCount == 9 && !$0.isSoldOut })
@@ -2535,9 +2820,8 @@ final class BlindBoxCandidateCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(freeResult.candidateCount, 4)
         XCTAssertEqual(state.candidateBatches.count, 4)
-        XCTAssertTrue(state.candidateBatches.allSatisfy {
-            ["pets", "cozy_daily", "zodiac"].contains($0.plan.themeID.rawValue)
-        })
+        XCTAssertEqual(Set(state.candidateBatches.map(\.plan.themeID)),
+                       Set(BlindBoxCatalog.builtInThemes.map(\.id)))
 
         let premiumResult = try BlindBoxCandidateCoordinator.reconcile(
             state: &state,
@@ -2550,6 +2834,35 @@ final class BlindBoxCandidateCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(premiumResult.candidateCount, 6)
         XCTAssertEqual(state.candidateBatches.count, 6)
+        XCTAssertEqual(Set(state.candidateBatches.map(\.plan.themeID)),
+                       Set(BlindBoxCatalog.builtInThemes.map(\.id)))
+    }
+
+    func testBothMembershipsKeepEveryIncompleteThemeAndExcludeCompletedThemesAfterReload() throws {
+        let themes = BlindBoxCatalog.builtInThemes
+        let now = Date(timeIntervalSince1970: 2_000)
+        for premium in [false, true] {
+            var state = BlindBoxAccountState()
+            var generator = ScriptedBlindBoxRandomNumberGenerator(values: [0.99])
+            for completedCount in 0...themes.count {
+                if completedCount > 0 {
+                    for sticker in themes[completedCount - 1].stickers {
+                        state.ownedStickerCounts[sticker.id.rawValue] = 1
+                    }
+                }
+                let expectedThemes = Set(themes.dropFirst(completedCount).map(\.id))
+                for reason in [BlindBoxCandidateRefreshReason.themeCompleted, .initialLoad] {
+                    state = try JSONDecoder().decode(BlindBoxAccountState.self, from: JSONEncoder().encode(state))
+                    _ = try BlindBoxCandidateCoordinator.reconcile(
+                        state: &state, themes: themes, hasPremiumAccess: premium,
+                        reason: reason, now: now.addingTimeInterval(172800), generator: &generator
+                    )
+                    XCTAssertEqual(Set(state.candidateBatches.map(\.plan.themeID)), expectedThemes)
+                    XCTAssertEqual(state.candidateBatches.count,
+                                   expectedThemes.isEmpty ? 0 : BlindBoxTicketPolicy.candidateCount(hasPremiumAccess: premium))
+                }
+            }
+        }
     }
 
     func testCollectionJourneyPreservesOldOddsBoostsNewBatchesAndStopsAfterCompletion() throws {
@@ -3673,5 +3986,45 @@ private struct ScriptedBlindBoxRandomNumberGenerator: BlindBoxRandomNumberGenera
         guard !values.isEmpty else { return 0 }
         defer { nextIndex += 1 }
         return values[min(nextIndex, values.count - 1)]
+    }
+}
+
+struct HalloweenBlindBoxTests {
+    @Test func catalogAndCollectionOrder() {
+        let theme = BlindBoxCatalog.halloween
+        #expect(theme.validationError() == nil)
+        #expect(theme.stickers.count == 13)
+        #expect(theme.stickers.filter(\.isHidden).count == 1)
+        #expect(BlindBoxCatalog.collectionThemes(BlindBoxCatalog.builtInThemes).first?.id == theme.id)
+    }
+
+    @Test(arguments: [false, true])
+    func newThemeAppearsWhenExistingSlotsAreFull(premium: Bool) throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var state = BlindBoxAccountState.newAccount()
+        var generator = ScriptedBlindBoxRandomNumberGenerator(values: Array(repeating: 0, count: 4096))
+        let olderThemes = BlindBoxCatalog.builtInThemes.filter { $0.id != BlindBoxCatalog.halloween.id }
+        _ = try BlindBoxCandidateCoordinator.reconcile(
+            state: &state, themes: olderThemes, hasPremiumAccess: premium,
+            reason: .initialLoad, now: now, generator: &generator
+        )
+        let previousBatches = state.candidateBatches
+        _ = try BlindBoxCandidateCoordinator.reconcile(
+            state: &state, themes: BlindBoxCatalog.builtInThemes, hasPremiumAccess: premium,
+            reason: .catalogChanged, now: now, generator: &generator
+        )
+        #expect(state.candidateBatches.count == BlindBoxTicketPolicy.candidateCount(hasPremiumAccess: premium))
+        #expect(Set(state.candidateBatches.map { $0.plan.themeID }) == Set(BlindBoxCatalog.builtInThemes.map(\.id)))
+        for batch in state.candidateBatches {
+            if let original = previousBatches.first(where: { $0.id == batch.id }) {
+                #expect(batch == original)
+            }
+        }
+        state.ownedStickerCounts = Dictionary(uniqueKeysWithValues: BlindBoxCatalog.builtInThemes.flatMap(\.stickers).map { ($0.id.rawValue, 1) })
+        _ = try BlindBoxCandidateCoordinator.reconcile(
+            state: &state, themes: BlindBoxCatalog.builtInThemes, hasPremiumAccess: premium,
+            reason: .themeCompleted, now: now, generator: &generator
+        )
+        #expect(state.candidateBatches.isEmpty)
     }
 }

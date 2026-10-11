@@ -2,7 +2,7 @@ import SwiftUI
 import Foundation
 
 struct SidebarGlassToggleStyle: ToggleStyle {
-    var accentColor: Color = NeumorphicColors.accent
+    var accentColor: Color = NeumorphicColors.modalAccent
     var inactiveColor: Color = Color.white.opacity(0.18)
 
     @ViewBuilder
@@ -126,7 +126,7 @@ struct BoardCountdownSheet: View {
                         }
                         .buttonStyle(.plain)
                         .font(.appSystem(size: scaled(17, pad: 19), weight: .semibold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.accent)
+                        .foregroundColor(NeumorphicColors.modalAccent)
                     }
                     .padding(.horizontal, 8)
                     .padding(.top, 6)
@@ -188,7 +188,7 @@ struct BoardCountdownSheet: View {
                                             .fill(NeumorphicColors.background.opacity(0.94))
                                             .overlay(
                                                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                    .stroke(NeumorphicColors.accent.opacity(0.58), lineWidth: 1)
+                                                    .stroke(NeumorphicColors.modalAccent.opacity(0.58), lineWidth: 1)
                                             )
                                     )
                             }
@@ -273,7 +273,7 @@ struct BoardCountdownSheet: View {
                 .fill(NeumorphicColors.background.opacity(0.94))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(NeumorphicColors.accent.opacity(0.58), lineWidth: 1)
+                        .stroke(NeumorphicColors.modalAccent.opacity(0.58), lineWidth: 1)
                 )
         )
     }
@@ -467,7 +467,7 @@ struct BoardRulesSheet: View {
             }
             .buttonStyle(.plain)
             .font(.appSystem(size: scaled(16, pad: 18), weight: .medium, design: .rounded))
-            .foregroundColor(NeumorphicColors.accent)
+            .foregroundColor(NeumorphicColors.modalAccent)
             .frame(width: scaled(72, pad: 86), alignment: .trailing)
         }
         .padding(.horizontal, scaled(22, pad: 30))
@@ -608,7 +608,7 @@ struct BoardRulesSheet: View {
 
                 Toggle("", isOn: $isCountdownEnabled.animation(.easeInOut(duration: 0.18)))
                     .labelsHidden()
-                    .toggleStyle(BoardRulesCountdownToggleStyle(onTint: NeumorphicColors.accent))
+                    .toggleStyle(BoardRulesCountdownToggleStyle(onTint: NeumorphicColors.modalAccent))
                     .scaleEffect(scaled(0.92, pad: 1.0), anchor: .trailing)
             }
 
@@ -700,7 +700,7 @@ private struct BoardRulesCountdownToggleStyle: ToggleStyle {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)
                         .font(rowTitleFont)
-                        .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text)
+                        .foregroundColor(isSelected ? NeumorphicColors.modalAccent : NeumorphicColors.text)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     if isSelected {
@@ -751,7 +751,7 @@ private struct BoardRulesCountdownToggleStyle: ToggleStyle {
     private func selectionCircle(isSelected: Bool) -> some View {
         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
             .font(.appSystem(size: scaled(22, pad: 24), weight: .medium, design: .rounded))
-            .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.24))
+            .foregroundColor(isSelected ? NeumorphicColors.modalAccent : NeumorphicColors.text.opacity(0.24))
             .frame(width: scaled(26, pad: 30), height: scaled(26, pad: 30))
     }
 
@@ -759,7 +759,7 @@ private struct BoardRulesCountdownToggleStyle: ToggleStyle {
         HStack(spacing: scaled(7, pad: 8)) {
             Image(systemName: systemImage)
                 .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.accent)
+                .foregroundColor(NeumorphicColors.modalAccent)
                 .frame(width: scaled(19, pad: 22), alignment: .center)
 
             Text(title)

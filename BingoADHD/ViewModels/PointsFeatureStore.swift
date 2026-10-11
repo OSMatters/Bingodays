@@ -1,4 +1,14 @@
 import Foundation
+import Combine
+
+enum CustomRewardCreationResult: Equatable {
+    case created
+    case premiumRequired
+    case persistenceFailed
+    case invalidInput
+    case rewardUnavailable
+    case dataChanged
+}
 
 @MainActor
 final class PointsFeatureStore: ObservableObject {
@@ -6,11 +16,19 @@ final class PointsFeatureStore: ObservableObject {
     @Published private(set) var homeStickerPlacements: [HomeStickerPlacement] = []
     @Published private(set) var customRewards: [CustomReward] = []
     @Published private(set) var redemptionHistory: [PointRedemptionRecord] = []
+    @Published private(set) var committedSpendPoints = 0
 
     private var hasLoadedStores = false
+    private var redemptionHistoryObservation: AnyCancellable?
 
     init() {
         loadPersistedStores()
+        redemptionHistoryObservation = NotificationCenter.default
+            .publisher(for: PointRedemptionHistoryStore.didChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.loadPersistedStores()
+            }
     }
 
     var activeRewards: [CustomReward] {
@@ -19,12 +37,13 @@ final class PointsFeatureStore: ObservableObject {
 
     var currentStickerUsageCounts: [StickerKind: Int] {
         homeStickerPlacements.reduce(into: [:]) { partial, placement in
-            partial[placement.kind, default: 0] += 1
+            guard let kind = placement.legacyKind else { return }
+            partial[kind, default: 0] += 1
         }
     }
 
     func availablePoints(totalPoints: Int) -> Int {
-        max(totalPoints - spentStickerPoints - spentRewardPoints - spentBlindBoxTicketPoints, 0)
+        max(totalPoints - committedSpendPoints, 0)
     }
 
     func loadAfterFirstFrameIfNeeded() {
@@ -52,36 +71,9 @@ final class PointsFeatureStore: ObservableObject {
         redemptionHistory = records.filter(\.isActive)
         stickerInventoryCounts[kind] = 1
         StickerStore.saveInventoryCounts(stickerInventoryCounts)
+        committedSpendPoints = PointRedemptionLedger.committedSpend(in: records)
         AppHaptics.completion()
         AnalyticsService.logStickerRedeemed(kind)
-    }
-
-    @discardableResult
-    func reconcileRedemptionsIfPointsInsufficient(totalPoints: Int) -> PointRedemptionReconciliationResult {
-        let ledgerRecords = PointRedemptionLedger.loadOrMigrate(
-            stickerInventoryCounts: stickerInventoryCounts,
-            customRewards: customRewards
-        )
-        let result = PointRedemptionReconciler.reconcileRedemptionsIfNeeded(
-            totalPoints: totalPoints,
-            stickerInventoryCounts: stickerInventoryCounts,
-            homeStickerPlacements: homeStickerPlacements,
-            customRewards: customRewards,
-            redemptionRecords: ledgerRecords
-        )
-        guard result.didChange else { return result }
-
-        stickerInventoryCounts = result.stickerInventoryCounts
-        homeStickerPlacements = result.homeStickerPlacements
-        customRewards = result.customRewards
-        PointRedemptionReconciler.persist(result)
-        redemptionHistory = (result.redemptionRecords ?? PointRedemptionHistoryStore.load()).filter(\.isActive)
-        return result
-    }
-
-    @discardableResult
-    func reconcileStickerOwnershipIfPointsInsufficient(totalPoints: Int) -> Bool {
-        reconcileRedemptionsIfPointsInsufficient(totalPoints: totalPoints).didChange
     }
 
     func containsPlacement(id: UUID) -> Bool {
@@ -96,6 +88,46 @@ final class PointsFeatureStore: ObservableObject {
             kind: kind,
             xRatio: kind.defaultPlacement.xRatio,
             yRatio: kind.defaultPlacement.yRatio
+        )
+        homeStickerPlacements.append(placement)
+        StickerStore.savePlacements(homeStickerPlacements)
+        return true
+    }
+
+    func isBlindBoxStickerOnHome(_ stickerID: BlindBoxStickerID) -> Bool {
+        blindBoxStickerHomeCount(stickerID) > 0
+    }
+
+    func blindBoxStickerHomeCount(_ stickerID: BlindBoxStickerID) -> Int {
+        homeStickerPlacements.reduce(into: 0) { count, placement in
+            if placement.blindBoxStickerID == stickerID.rawValue {
+                count += 1
+            }
+        }
+    }
+
+    @discardableResult
+    func addBlindBoxStickerToHome(
+        _ sticker: BlindBoxStickerDefinition,
+        maximumCount: Int = 1,
+        preferredYRatio: Double? = nil
+    ) -> Bool {
+        let existingCount = blindBoxStickerHomeCount(sticker.id)
+        guard existingCount < max(maximumCount, 1) else { return false }
+
+        let defaultPlacement = defaultBlindBoxStickerPlacement(for: sticker.id)
+        let duplicateOffsets: [(x: Double, y: Double)] = [
+            (0, 0),
+            (0.12, 0.08),
+            (-0.12, 0.16),
+            (0.12, 0.24)
+        ]
+        let offset = duplicateOffsets[min(existingCount, duplicateOffsets.count - 1)]
+        let placement = HomeStickerPlacement(
+            blindBoxStickerID: sticker.id.rawValue,
+            assetName: sticker.assetName,
+            xRatio: min(max(defaultPlacement.xRatio + offset.x, 0.08), 0.92),
+            yRatio: min(max((preferredYRatio ?? defaultPlacement.yRatio) + offset.y, 0.08), 1.02)
         )
         homeStickerPlacements.append(placement)
         StickerStore.savePlacements(homeStickerPlacements)
@@ -125,11 +157,29 @@ final class PointsFeatureStore: ObservableObject {
         themeImageName: String? = nil,
         hasPremiumAccess: Bool
     ) -> Bool {
+        createRewardResult(
+            title: title,
+            requiredPoints: requiredPoints,
+            emoji: emoji,
+            themeImageName: themeImageName,
+            hasPremiumAccess: hasPremiumAccess
+        ) == .created
+    }
+
+    @discardableResult
+    func createRewardResult(
+        title: String,
+        requiredPoints: Int,
+        emoji: String,
+        themeImageName: String? = nil,
+        hasPremiumAccess: Bool
+    ) -> CustomRewardCreationResult {
+        guard refreshRewardsIfChanged() == false else { return .dataChanged }
         let trimmedTitle = String(title.prefix(AppSettings.maxRewardTitleLength))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPoints = min(max(requiredPoints, 1), 9_999)
-        guard !trimmedTitle.isEmpty else { return false }
-        guard canCreateReward(hasPremiumAccess: hasPremiumAccess) else { return false }
+        guard !trimmedTitle.isEmpty, (1...9_999).contains(requiredPoints) else { return .invalidInput }
+        guard canCreateReward(hasPremiumAccess: hasPremiumAccess) else { return .premiumRequired }
 
         var updatedRewards = customRewards
         updatedRewards.append(
@@ -140,21 +190,24 @@ final class PointsFeatureStore: ObservableObject {
                 themeImageName: themeImageName
             )
         )
-        guard RewardStore.saveRewards(updatedRewards) else { return false }
+        guard RewardStore.saveRewards(updatedRewards) else { return .persistenceFailed }
         customRewards = updatedRewards
         AnalyticsService.logCustomRewardVisualUsed(
             action: .create,
             emoji: emoji,
             themeImageName: themeImageName
         )
-        return true
+        return .created
     }
 
-    func updateReward(_ reward: CustomReward) {
-        guard let index = customRewards.firstIndex(where: { $0.id == reward.id }) else { return }
+    @discardableResult
+    func updateReward(_ reward: CustomReward) -> CustomRewardCreationResult {
+        guard refreshRewardsIfChanged() == false else { return .dataChanged }
+        guard let index = customRewards.firstIndex(where: { $0.id == reward.id }),
+              !customRewards[index].isArchived else { return .rewardUnavailable }
         let trimmedTitle = String(reward.title.prefix(AppSettings.maxRewardTitleLength))
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTitle.isEmpty else { return }
+        guard !trimmedTitle.isEmpty, (1...9_999).contains(reward.requiredPoints) else { return .invalidInput }
 
         let previousVisual = AnalyticsEventContract.customRewardVisual(
             emoji: customRewards[index].emoji,
@@ -166,7 +219,7 @@ final class PointsFeatureStore: ObservableObject {
         updatedRewards[index].emoji = reward.emoji
         updatedRewards[index].themeImageName = reward.themeImageName
         updatedRewards[index].cardStyleVersion = CustomReward.currentCardStyleVersion
-        guard RewardStore.saveRewards(updatedRewards) else { return }
+        guard RewardStore.saveRewards(updatedRewards) else { return .persistenceFailed }
         customRewards = updatedRewards
 
         let updatedVisual = AnalyticsEventContract.customRewardVisual(
@@ -180,6 +233,44 @@ final class PointsFeatureStore: ObservableObject {
                 themeImageName: reward.themeImageName
             )
         }
+        return .created
+    }
+
+    /// Reject a stale editor write rather than replacing rewards imported since
+    /// this store last loaded. The user's draft stays in the editor for retry.
+    private func refreshRewardsIfChanged() -> Bool {
+        let persistedRewards = RewardStore.loadRewards(reading: .readOnly)
+        guard persistedRewards != customRewards else { return false }
+        DiagnosticLogStore.recordWarning("custom_reward.stale_write_rejected", details: [
+            "local_count": "\(customRewards.count)", "persisted_count": "\(persistedRewards.count)"
+        ])
+        customRewards = persistedRewards
+        return true
+    }
+
+    @discardableResult
+    func reorderRewards(_ orderedActiveRewards: [CustomReward]) -> Bool {
+        let currentActiveRewards = activeRewards
+        guard orderedActiveRewards.count == currentActiveRewards.count,
+              Set(orderedActiveRewards.map(\.id)).count == orderedActiveRewards.count,
+              Set(orderedActiveRewards.map(\.id)) == Set(currentActiveRewards.map(\.id)) else {
+            return false
+        }
+
+        guard orderedActiveRewards.map(\.id) != currentActiveRewards.map(\.id) else {
+            return true
+        }
+
+        var activeIndex = 0
+        let updatedRewards = customRewards.map { reward in
+            guard !reward.isArchived else { return reward }
+            defer { activeIndex += 1 }
+            return orderedActiveRewards[activeIndex]
+        }
+
+        guard RewardStore.saveRewards(updatedRewards) else { return false }
+        customRewards = updatedRewards
+        return true
     }
 
     func archiveReward(_ reward: CustomReward) {
@@ -207,33 +298,8 @@ final class PointsFeatureStore: ObservableObject {
         customRewards[index].redemptionCount += 1
         customRewards[index].totalSpentPoints += requiredPoints
         RewardStore.saveRewards(customRewards)
+        committedSpendPoints = PointRedemptionLedger.committedSpend(in: records)
         AppHaptics.completion()
-    }
-
-    private var spentStickerPoints: Int {
-        stickerInventoryCounts.reduce(0) { partial, entry in
-            partial + (entry.key.requiredPoints * entry.value)
-        }
-    }
-
-    private var spentRewardPoints: Int {
-        customRewards.reduce(0) { partial, reward in
-            partial + reward.totalSpentPoints
-        }
-    }
-
-    /// Blind Box tickets live in the same point-spend ledger as stickers and
-    /// custom rewards, while their ownership is authoritatively stored in the
-    /// private Blind Box CloudKit zone. Counting only active ticket records
-    /// keeps the familiar points balance correct without turning the lifetime
-    /// `totalPoints` counter into a mutable wallet.
-    private var spentBlindBoxTicketPoints: Int {
-        redemptionHistory.reduce(0) { partial, record in
-            guard record.isActive, record.itemKind == .blindBoxTicket else {
-                return partial
-            }
-            return partial + max(record.points, 0)
-        }
     }
 
     private func loadPersistedStores() {
@@ -246,6 +312,7 @@ final class PointsFeatureStore: ObservableObject {
             customRewards: customRewards
         ) else {
             redemptionHistory = PointRedemptionHistoryStore.load().filter(\.isActive)
+            committedSpendPoints = PointRedemptionLedger.committedSpend(in: redemptionHistory)
             return
         }
         let projection = PointRedemptionLedger.projection(
@@ -266,6 +333,24 @@ final class PointsFeatureStore: ObservableObject {
             RewardStore.saveRewards(customRewards)
         }
         redemptionHistory = ledgerRecords.filter(\.isActive)
+        committedSpendPoints = PointRedemptionLedger.committedSpend(in: ledgerRecords)
+    }
+
+    private func defaultBlindBoxStickerPlacement(
+        for stickerID: BlindBoxStickerID
+    ) -> (xRatio: Double, yRatio: Double) {
+        // Use a stable ID-derived spot so adding several Blind Box stickers
+        // starts them apart instead of stacking them in the centre. Users can
+        // still drag and resize every placement on the Home screen.
+        let placements: [(Double, Double)] = [
+            (0.18, 0.24), (0.50, 0.18), (0.80, 0.25),
+            (0.24, 0.48), (0.56, 0.44), (0.80, 0.54),
+            (0.18, 0.72), (0.48, 0.78), (0.78, 0.76)
+        ]
+        let index = stickerID.rawValue.unicodeScalars.reduce(0) {
+            ($0 &* 31 &+ Int($1.value)) % placements.count
+        }
+        return placements[index]
     }
 
     private func availableStickerCount(for kind: StickerKind) -> Int {

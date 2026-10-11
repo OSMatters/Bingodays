@@ -484,7 +484,7 @@ private struct BoardShareFilledButtonStyle: ButtonStyle {
             .frame(minHeight: 50)
             .background(
                 RoundedRectangle(cornerRadius: 15, style: .continuous)
-                    .fill(NeumorphicColors.accent.opacity(configuration.isPressed ? 0.75 : 1))
+                    .fill(NeumorphicColors.modalAccent.opacity(configuration.isPressed ? 0.75 : 1))
             )
     }
 }

@@ -1,7 +1,9 @@
 import Foundation
 
 enum StickerStore {
-    static func loadInventoryCounts() -> [StickerKind: Int] {
+    static func loadInventoryCounts(
+        reading mode: PersistenceReadMode = .repairingMirrors
+    ) -> [StickerKind: Int] {
         let defaults = UserDefaults.standard
 
         if let data = defaults.data(forKey: AppSettings.stickerInventoryCountsKey),
@@ -10,7 +12,9 @@ enum StickerStore {
                 guard let kind = StickerKind(rawValue: entry.key), entry.value > 0 else { return }
                 partial[kind] = 1
             }
-            saveInventoryCounts(normalized, reportChange: false)
+            if mode == .repairingMirrors {
+                saveInventoryCounts(normalized, reportChange: false)
+            }
             return normalized
         }
 
@@ -27,7 +31,7 @@ enum StickerStore {
         let migratedCounts = migratedKinds.reduce(into: [StickerKind: Int]()) { partial, kind in
             partial[kind] = 1
         }
-        if !migratedCounts.isEmpty {
+        if mode == .repairingMirrors, !migratedCounts.isEmpty {
             saveInventoryCounts(migratedCounts, reportChange: false)
         }
         return migratedCounts
@@ -56,13 +60,17 @@ enum StickerStore {
         return didSave
     }
 
-    static func loadPlacements() -> [HomeStickerPlacement] {
+    static func loadPlacements(
+        reading mode: PersistenceReadMode = .repairingMirrors
+    ) -> [HomeStickerPlacement] {
         guard let data = UserDefaults.standard.data(forKey: AppSettings.homeStickerPlacementsKey),
               let placements = try? JSONDecoder().decode([HomeStickerPlacement].self, from: data) else {
             return []
         }
         let normalized = normalizedPlacements(placements)
-        savePlacements(normalized, reportChange: false)
+        if mode == .repairingMirrors {
+            savePlacements(normalized, reportChange: false)
+        }
         return normalized
     }
 
@@ -108,14 +116,14 @@ enum StickerStore {
     }
 
     private static func normalizedPlacements(_ placements: [HomeStickerPlacement]) -> [HomeStickerPlacement] {
-        var seenKinds = Set<StickerKind>()
+        var seenContentIdentifiers = Set<String>()
         var result: [HomeStickerPlacement] = []
         result.reserveCapacity(placements.count)
 
         for placement in placements {
             let normalized = placement.normalized()
-            guard !seenKinds.contains(normalized.kind) else { continue }
-            seenKinds.insert(normalized.kind)
+            guard !seenContentIdentifiers.contains(normalized.stableContentIdentifier) else { continue }
+            seenContentIdentifiers.insert(normalized.stableContentIdentifier)
             result.append(normalized)
         }
 
@@ -138,8 +146,10 @@ enum PointsStore {
 
     private static let stateFileName = "bingo_points_state_v1.json"
 
-    static func loadTotalPoints() -> Int? {
-        if let state = loadState() {
+    static func loadTotalPoints(
+        reading mode: PersistenceReadMode = .repairingMirrors
+    ) -> Int? {
+        if let state = loadState(reading: mode) {
             return state.totalPoints
         }
         if sharedDefaults.object(forKey: AppSettings.totalPointsKey) != nil {
@@ -147,12 +157,16 @@ enum PointsStore {
         }
         guard UserDefaults.standard.object(forKey: AppSettings.totalPointsKey) != nil else { return nil }
         let points = UserDefaults.standard.integer(forKey: AppSettings.totalPointsKey)
-        sharedDefaults.set(points, forKey: AppSettings.totalPointsKey)
+        if mode == .repairingMirrors {
+            sharedDefaults.set(points, forKey: AppSettings.totalPointsKey)
+        }
         return points
     }
 
-    static func loadPersistenceSnapshot() -> PointsPersistenceSnapshot {
-        if let state = loadState() {
+    static func loadPersistenceSnapshot(
+        reading mode: PersistenceReadMode = .repairingMirrors
+    ) -> PointsPersistenceSnapshot {
+        if let state = loadState(reading: mode) {
             return PointsPersistenceSnapshot(
                 totalPoints: state.totalPoints,
                 lifetimePoints: state.lifetimePoints,
@@ -161,9 +175,9 @@ enum PointsStore {
         }
 
         return PointsPersistenceSnapshot(
-            totalPoints: loadTotalPoints(),
-            lifetimePoints: loadLifetimePoints(),
-            dailyRewardState: loadDailyRewardState()
+            totalPoints: loadTotalPoints(reading: mode),
+            lifetimePoints: loadLifetimePoints(reading: mode),
+            dailyRewardState: loadDailyRewardState(reading: mode)
         )
     }
 
@@ -176,8 +190,10 @@ enum PointsStore {
         ))
     }
 
-    static func loadLifetimePoints() -> Int? {
-        if let state = loadState() {
+    static func loadLifetimePoints(
+        reading mode: PersistenceReadMode = .repairingMirrors
+    ) -> Int? {
+        if let state = loadState(reading: mode) {
             return state.lifetimePoints
         }
         if sharedDefaults.object(forKey: AppSettings.lifetimePointsKey) != nil {
@@ -185,7 +201,9 @@ enum PointsStore {
         }
         guard UserDefaults.standard.object(forKey: AppSettings.lifetimePointsKey) != nil else { return nil }
         let points = UserDefaults.standard.integer(forKey: AppSettings.lifetimePointsKey)
-        sharedDefaults.set(points, forKey: AppSettings.lifetimePointsKey)
+        if mode == .repairingMirrors {
+            sharedDefaults.set(points, forKey: AppSettings.lifetimePointsKey)
+        }
         return points
     }
 
@@ -198,8 +216,10 @@ enum PointsStore {
         ))
     }
 
-    static func loadDailyRewardState() -> DailyRewardState? {
-        if let state = loadState() {
+    static func loadDailyRewardState(
+        reading mode: PersistenceReadMode = .repairingMirrors
+    ) -> DailyRewardState? {
+        if let state = loadState(reading: mode) {
             return state.dailyRewardState
         }
         if let data = sharedDefaults.data(forKey: AppSettings.dailyRewardStateKey),
@@ -210,7 +230,9 @@ enum PointsStore {
               let state = try? JSONDecoder().decode(DailyRewardState.self, from: data) else {
                 return nil
         }
-        sharedDefaults.set(data, forKey: AppSettings.dailyRewardStateKey)
+        if mode == .repairingMirrors {
+            sharedDefaults.set(data, forKey: AppSettings.dailyRewardStateKey)
+        }
         return state
     }
 
@@ -340,12 +362,14 @@ enum PointsStore {
         return didSave
     }
 
-    private static func loadState() -> PersistedState? {
+    private static func loadState(reading mode: PersistenceReadMode) -> PersistedState? {
         guard let data = try? Data(contentsOf: stateFileURL),
               let state = try? JSONDecoder().decode(PersistedState.self, from: data) else {
             return nil
         }
-        repairDefaultsIfNeeded(for: state)
+        if mode == .repairingMirrors {
+            repairDefaultsIfNeeded(for: state)
+        }
         return state
     }
 
@@ -406,10 +430,13 @@ enum PointsStore {
 }
 
 enum RewardStore {
-    static func loadRewards() -> [CustomReward] {
+    static func loadRewards(
+        reading mode: PersistenceReadMode = .repairingMirrors
+    ) -> [CustomReward] {
         if let data = sharedDefaults.data(forKey: AppSettings.customRewardsKey),
            let rewards = try? JSONDecoder().decode([CustomReward].self, from: data) {
-            if UserDefaults.standard.data(forKey: AppSettings.customRewardsKey) != data {
+            if mode == .repairingMirrors,
+               UserDefaults.standard.data(forKey: AppSettings.customRewardsKey) != data {
                 _ = PersistenceWriteTransaction.commit([
                     PersistenceWriteTransaction.userDefaultsStep(
                         defaults: .standard,
@@ -425,18 +452,20 @@ enum RewardStore {
             return []
         }
 
-        _ = PersistenceWriteTransaction.commit([
-            PersistenceWriteTransaction.userDefaultsStep(
-                defaults: sharedDefaults,
-                key: AppSettings.customRewardsKey,
-                newValue: data
-            )
-        ])
+        if mode == .repairingMirrors {
+            _ = PersistenceWriteTransaction.commit([
+                PersistenceWriteTransaction.userDefaultsStep(
+                    defaults: sharedDefaults,
+                    key: AppSettings.customRewardsKey,
+                    newValue: data
+                )
+            ])
+        }
         return rewards
     }
 
     @discardableResult
-    static func saveRewards(_ rewards: [CustomReward]) -> Bool {
+    static func saveRewards(_ rewards: [CustomReward], source: String = "local") -> Bool {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(rewards) else { return false }
@@ -459,6 +488,10 @@ enum RewardStore {
         if didSave {
             NativeICloudLocalChangeReporter.primaryStateDidChange()
         }
+        DiagnosticLogStore.recordStateChange("custom_reward.persistence_result", details: [
+            "source": source, "count": "\(rewards.count)",
+            "active_count": "\(rewards.filter { !$0.isArchived }.count)", "saved": "\(didSave)"
+        ])
         return didSave
     }
 
@@ -510,12 +543,38 @@ struct PointRedemptionLedgerProjection {
 }
 
 enum PointRedemptionLedger {
+    /// The point floor needed to preserve successful redemptions. Task undos may
+    /// consume only the unspent portion above this amount; purchases are never
+    /// revoked to make a derived balance fit an older task total.
+    static func currentCommittedSpend() -> Int {
+        let records = loadOrMigrate(
+            stickerInventoryCounts: StickerStore.loadInventoryCounts(),
+            customRewards: RewardStore.loadRewards()
+        ) ?? PointRedemptionHistoryStore.load()
+        return committedSpend(in: records)
+    }
+
+    static func committedSpend(in records: [PointRedemptionRecord]) -> Int {
+        records.reduce(0) { partial, record in
+            // Legacy display-only history can remain unlinked after aggregate
+            // migration (for example, when a reward was renamed). Its cost is
+            // already covered by the linked migration records.
+            guard record.isActive,
+                  record.itemReferenceID != nil || record.itemKind == .blindBoxTicket else { return partial }
+            return partial + max(record.points, 0)
+        }
+    }
+
     static func loadOrMigrate(
         stickerInventoryCounts: [StickerKind: Int],
         customRewards: [CustomReward]
     ) -> [PointRedemptionRecord]? {
         let records = PointRedemptionHistoryStore.load()
-        guard !UserDefaults.standard.bool(forKey: AppSettings.pointRedemptionLedgerInitializedKey) else {
+        // Only the app can migrate its legacy sticker inventory. An extension
+        // has a different private defaults domain and must not initialize an
+        // empty shared ledger before the updated app has launched.
+        guard Bundle.main.bundleURL.pathExtension != "appex" else { return records }
+        guard !PointRedemptionHistoryStore.isLedgerInitialized else {
             return records
         }
 
@@ -525,7 +584,7 @@ enum PointRedemptionLedger {
             customRewards: customRewards
         )
         guard PointRedemptionHistoryStore.save(migrated) else { return nil }
-        UserDefaults.standard.set(true, forKey: AppSettings.pointRedemptionLedgerInitializedKey)
+        PointRedemptionHistoryStore.markLedgerInitialized()
         return migrated
     }
 
@@ -539,7 +598,13 @@ enum PointRedemptionLedger {
         let inventory = ownedStickerKinds.reduce(into: [StickerKind: Int]()) { partial, kind in
             partial[kind] = 1
         }
-        let placements = homeStickerPlacements.filter { ownedStickerKinds.contains($0.kind) }
+        let placements = homeStickerPlacements.filter { placement in
+            // Blind Box ownership is held in its independent immutable draw
+            // journal, not in the points redemption ledger. Keep those
+            // placements while this legacy projection validates its own items.
+            guard let kind = placement.legacyKind else { return true }
+            return ownedStickerKinds.contains(kind)
+        }
         let rewardRecords = Dictionary(grouping: activeRecords.compactMap { record -> (UUID, Int)? in
             guard let rewardID = record.referencedCustomRewardID else { return nil }
             return (rewardID, max(record.points, 0))
@@ -687,65 +752,13 @@ enum PointRedemptionReconciler {
                 now: now
             )
         }
-
-        var updatedInventory = stickerInventoryCounts
-        var updatedPlacements = homeStickerPlacements
-        var updatedRewards = customRewards
-        var didRevokeStickers = false
-        var didRevokeCustomRewards = false
-
-        let pointBudget = max(totalPoints, 0)
-        var currentSpent = spentStickerPoints(in: updatedInventory) + spentRewardPoints(in: updatedRewards)
-        guard currentSpent > pointBudget else {
-            return PointRedemptionReconciliationResult(
-                stickerInventoryCounts: updatedInventory,
-                homeStickerPlacements: updatedPlacements,
-                customRewards: updatedRewards,
-                didRevokeStickers: false,
-                didRevokeCustomRewards: false
-            )
-        }
-
-        while currentSpent > pointBudget {
-            let stickerCandidate = nextStickerCandidate(in: updatedInventory)
-            let rewardCandidate = nextRewardCandidate(in: updatedRewards)
-
-            if shouldRevokeReward(rewardCandidate: rewardCandidate, stickerCandidate: stickerCandidate),
-               let rewardCandidate {
-                let refundPoints = rewardCandidate.points
-                updatedRewards[rewardCandidate.index].redemptionCount = max(
-                    updatedRewards[rewardCandidate.index].redemptionCount - 1,
-                    0
-                )
-                updatedRewards[rewardCandidate.index].totalSpentPoints = max(
-                    updatedRewards[rewardCandidate.index].totalSpentPoints - refundPoints,
-                    0
-                )
-                if updatedRewards[rewardCandidate.index].totalSpentPoints == 0 {
-                    updatedRewards[rewardCandidate.index].redemptionCount = 0
-                }
-                currentSpent -= refundPoints
-                didRevokeCustomRewards = true
-                continue
-            }
-
-            if let stickerCandidate {
-                updatedInventory[stickerCandidate.kind] = 0
-                updatedPlacements.removeAll { $0.kind == stickerCandidate.kind }
-                currentSpent -= stickerCandidate.points
-                didRevokeStickers = true
-                continue
-            }
-
-            break
-        }
-
+        _ = totalPoints
         return PointRedemptionReconciliationResult(
-            stickerInventoryCounts: updatedInventory,
-            homeStickerPlacements: updatedPlacements,
-            customRewards: updatedRewards,
-            didRevokeStickers: didRevokeStickers,
-            didRevokeCustomRewards: didRevokeCustomRewards
+            stickerInventoryCounts: stickerInventoryCounts,
+            homeStickerPlacements: homeStickerPlacements,
+            customRewards: customRewards,
+            didRevokeStickers: false,
+            didRevokeCustomRewards: false
         )
     }
 
@@ -771,23 +784,13 @@ enum PointRedemptionReconciler {
         redemptionRecords: [PointRedemptionRecord],
         now: Date
     ) -> PointRedemptionReconciliationResult {
-        var updatedRecords = redemptionRecords
-        let pointBudget = max(totalPoints, 0)
-        var currentSpent = activeLinkedSpend(in: updatedRecords)
-
-        while currentSpent > pointBudget,
-              let candidateIndex = nextLedgerRevocationIndex(in: updatedRecords) {
-            let points = max(updatedRecords[candidateIndex].points, 0)
-            updatedRecords[candidateIndex].revokedAt = now
-            currentSpent -= points
-        }
-
+        _ = totalPoints
+        _ = now
         let projection = PointRedemptionLedger.projection(
-            from: updatedRecords,
+            from: redemptionRecords,
             homeStickerPlacements: homeStickerPlacements,
             customRewards: customRewards
         )
-        let didUpdateLedger = updatedRecords != redemptionRecords
         let didRevokeStickers = projection.homeStickerPlacements != homeStickerPlacements ||
             projection.stickerInventoryCounts != stickerInventoryCounts
         let didRevokeCustomRewards = projection.customRewards != customRewards
@@ -798,127 +801,50 @@ enum PointRedemptionReconciler {
             customRewards: projection.customRewards,
             didRevokeStickers: didRevokeStickers,
             didRevokeCustomRewards: didRevokeCustomRewards,
-            redemptionRecords: updatedRecords,
-            didUpdateLedger: didUpdateLedger
+            redemptionRecords: redemptionRecords,
+            didUpdateLedger: false
         )
     }
 
-    private static func activeLinkedSpend(in records: [PointRedemptionRecord]) -> Int {
-        records.reduce(0) { partial, record in
-            guard record.isActive, record.itemReferenceID != nil else { return partial }
-            return partial + max(record.points, 0)
-        }
-    }
-
-    private static func nextLedgerRevocationIndex(in records: [PointRedemptionRecord]) -> Int? {
-        records.indices
-            // A Blind Box ticket may already have been used to open a box. Its
-            // ledger entry is therefore an irreversible purchase record, not a
-            // revocable reward entitlement. If a legacy cross-device point
-            // conflict leaves the overall ledger temporarily over budget, the
-            // reconciling code may revoke an unfulfilled sticker/reward but
-            // must never make a completed draw lose its paid ticket history.
-            .filter {
-                records[$0].isActive &&
-                    records[$0].itemReferenceID != nil &&
-                    records[$0].itemKind != .blindBoxTicket
-            }
-            .sorted { lhs, rhs in
-                let left = records[lhs]
-                let right = records[rhs]
-                if left.points != right.points {
-                    return left.points > right.points
-                }
-                if left.itemKind != right.itemKind {
-                    return left.itemKind == .sticker
-                }
-                return left.redeemedAt > right.redeemedAt
-            }
-            .first
-    }
-
-    private struct StickerCandidate {
-        let kind: StickerKind
-        let points: Int
-    }
-
-    private struct RewardCandidate {
-        let index: Int
-        let points: Int
-    }
-
-    private static func nextStickerCandidate(in inventory: [StickerKind: Int]) -> StickerCandidate? {
-        inventory
-            .filter { $0.value > 0 }
-            .map { StickerCandidate(kind: $0.key, points: $0.key.requiredPoints) }
-            .sorted { lhs, rhs in
-                if lhs.points == rhs.points {
-                    return lhs.kind.rawValue < rhs.kind.rawValue
-                }
-                return lhs.points > rhs.points
-            }
-            .first
-    }
-
-    private static func nextRewardCandidate(in rewards: [CustomReward]) -> RewardCandidate? {
-        rewards.indices
-            .compactMap { index -> RewardCandidate? in
-                let refundPoints = nextRewardRefundPoints(for: rewards[index])
-                guard refundPoints > 0 else { return nil }
-                return RewardCandidate(index: index, points: refundPoints)
-            }
-            .sorted { lhs, rhs in
-                if lhs.points == rhs.points {
-                    let lhsReward = rewards[lhs.index]
-                    let rhsReward = rewards[rhs.index]
-                    if lhsReward.title == rhsReward.title {
-                        return lhsReward.id.uuidString < rhsReward.id.uuidString
-                    }
-                    return lhsReward.title < rhsReward.title
-                }
-                return lhs.points > rhs.points
-            }
-            .first
-    }
-
-    private static func shouldRevokeReward(
-        rewardCandidate: RewardCandidate?,
-        stickerCandidate: StickerCandidate?
-    ) -> Bool {
-        guard let rewardCandidate else { return false }
-        guard let stickerCandidate else { return true }
-        guard rewardCandidate.points != stickerCandidate.points else { return false }
-        return rewardCandidate.points > stickerCandidate.points
-    }
-
-    private static func nextRewardRefundPoints(for reward: CustomReward) -> Int {
-        guard reward.redemptionCount > 0, reward.totalSpentPoints > 0 else { return 0 }
-        let averageSpent = Int(ceil(Double(reward.totalSpentPoints) / Double(reward.redemptionCount)))
-        return min(max(averageSpent, 1), reward.totalSpentPoints)
-    }
-
-    private static func spentStickerPoints(in inventory: [StickerKind: Int]) -> Int {
-        inventory.reduce(0) { partial, entry in
-            partial + (entry.key.requiredPoints * entry.value)
-        }
-    }
-
-    private static func spentRewardPoints(in rewards: [CustomReward]) -> Int {
-        rewards.reduce(0) { partial, reward in
-            partial + reward.totalSpentPoints
-        }
-    }
 }
 
 enum PointRedemptionHistoryStore {
+    static let didChange = Notification.Name("PointRedemptionHistoryDidChange")
     private static let maxRecordCount = 500
 
-    static func load() -> [PointRedemptionRecord] {
+    private static var sharedDefaults: UserDefaults {
+        UserDefaults(suiteName: BingoBoardStore.appGroupID) ?? .standard
+    }
+
+    static var isLedgerInitialized: Bool {
+        sharedDefaults.bool(forKey: AppSettings.pointRedemptionLedgerInitializedKey) ||
+            UserDefaults.standard.bool(forKey: AppSettings.pointRedemptionLedgerInitializedKey)
+    }
+
+    static func markLedgerInitialized() {
+        sharedDefaults.set(true, forKey: AppSettings.pointRedemptionLedgerInitializedKey)
+        UserDefaults.standard.set(true, forKey: AppSettings.pointRedemptionLedgerInitializedKey)
+    }
+
+    static func load(
+        reading mode: PersistenceReadMode = .repairingMirrors
+    ) -> [PointRedemptionRecord] {
+        // Task undos in WidgetKit must see the same committed spend as the app.
+        if let data = sharedDefaults.data(forKey: AppSettings.pointRedemptionHistoryKey),
+           let records = try? JSONDecoder().decode([PointRedemptionRecord].self, from: data) {
+            return records.sorted { $0.redeemedAt > $1.redeemedAt }
+        }
         guard let data = UserDefaults.standard.data(forKey: AppSettings.pointRedemptionHistoryKey),
               let records = try? JSONDecoder().decode([PointRedemptionRecord].self, from: data) else {
             return []
         }
 
+        if mode == .repairingMirrors {
+            sharedDefaults.set(data, forKey: AppSettings.pointRedemptionHistoryKey)
+            if isLedgerInitialized {
+                markLedgerInitialized()
+            }
+        }
         return records.sorted { $0.redeemedAt > $1.redeemedAt }
     }
 
@@ -935,23 +861,42 @@ enum PointRedemptionHistoryStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(normalized) else { return false }
-        guard UserDefaults.standard.data(forKey: AppSettings.pointRedemptionHistoryKey) != data else {
+        guard UserDefaults.standard.data(forKey: AppSettings.pointRedemptionHistoryKey) != data ||
+                sharedDefaults.data(forKey: AppSettings.pointRedemptionHistoryKey) != data else {
             return true
         }
-        UserDefaults.standard.set(data, forKey: AppSettings.pointRedemptionHistoryKey)
-        let didSave = UserDefaults.standard.data(forKey: AppSettings.pointRedemptionHistoryKey) == data
+        let didSave = PersistenceWriteTransaction.commit([
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: sharedDefaults,
+                key: AppSettings.pointRedemptionHistoryKey,
+                newValue: data
+            ),
+            PersistenceWriteTransaction.userDefaultsStep(
+                defaults: .standard,
+                key: AppSettings.pointRedemptionHistoryKey,
+                newValue: data
+            )
+        ])
         if didSave, didUserStateChange {
+            NotificationCenter.default.post(name: didChange, object: nil)
             NativeICloudLocalChangeReporter.primaryStateDidChange()
         }
         return didSave
     }
 
     static func clear() {
-        let didChange = UserDefaults.standard.object(forKey: AppSettings.pointRedemptionHistoryKey) != nil ||
-            UserDefaults.standard.object(forKey: AppSettings.pointRedemptionLedgerInitializedKey) != nil
-        UserDefaults.standard.removeObject(forKey: AppSettings.pointRedemptionHistoryKey)
-        UserDefaults.standard.removeObject(forKey: AppSettings.pointRedemptionLedgerInitializedKey)
-        if didChange {
+        let keys = [AppSettings.pointRedemptionHistoryKey, AppSettings.pointRedemptionLedgerInitializedKey]
+        let defaults = [sharedDefaults, UserDefaults.standard]
+        let hadRecords = defaults.contains { store in
+            keys.contains { store.object(forKey: $0) != nil }
+        }
+        let didClear = PersistenceWriteTransaction.commit(defaults.flatMap { store in
+            keys.map { key in
+                PersistenceWriteTransaction.userDefaultsStep(defaults: store, key: key, newValue: nil)
+            }
+        })
+        if didClear, hadRecords {
+            NotificationCenter.default.post(name: didChange, object: nil)
             NativeICloudLocalChangeReporter.primaryStateDidChange()
         }
     }

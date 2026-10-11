@@ -2,7 +2,7 @@ import SwiftUI
 import WidgetKit
 import AppIntents
 
-private struct WidgetBoardPanel: Identifiable {
+struct WidgetBoardPanel: Identifiable {
     let id: UUID
     let name: String
     let board: SavedBoard
@@ -10,7 +10,7 @@ private struct WidgetBoardPanel: Identifiable {
     let nextResetAt: Date?
 }
 
-private struct BingodaysWidgetEntry: TimelineEntry {
+struct BingodaysWidgetEntry: TimelineEntry {
     let date: Date
     let panels: [WidgetBoardPanel]
     let selectedPanelID: UUID?
@@ -38,7 +38,7 @@ private struct BingodaysWidgetEntry: TimelineEntry {
     }
 }
 
-private struct BingodaysWidgetProvider: TimelineProvider {
+struct BingodaysWidgetProvider: TimelineProvider {
     func placeholder(in context: Context) -> BingodaysWidgetEntry {
         BingodaysWidgetEntry(
             date: .now,
@@ -198,6 +198,8 @@ struct BingodaysWidgets: WidgetBundle {
     var body: some Widget {
         BingodaysCountdownWidget()
         BingodaysLargeWidget()
+        BingodaysLockScreenWidget()
+        BingoBoardLiveActivity()
     }
 }
 
@@ -552,17 +554,17 @@ private struct BingodaysLargeWidgetView: View {
     ) -> some View {
         let isToggleable = isToggleable(cell: cell, isLocked: isLocked)
         let isScheduledInactive = !isToggleable && !cell.isEmpty
-        let cellView = WidgetBingoCellView(
-            cell: cell,
-            currentTime: entry.date,
-            isScheduledInactive: isScheduledInactive,
-            scheduleStatusText: scheduleStatusText(for: cell, isScheduledInactive: isScheduledInactive),
+            let cellView = WidgetBingoCellView(
+                cell: cell,
+                currentTime: entry.date,
+                isScheduledInactive: isScheduledInactive,
+                scheduleStatusText: scheduleStatusText(for: cell, isScheduledInactive: isScheduledInactive),
             isInBingoLine: isInBingoLine,
             isLocked: isLocked,
-            cellSize: cellSize,
-            isFirstCell: isFirstCell,
-            usesLargeCompletionArtwork: family == .systemLarge
-        )
+                cellSize: cellSize,
+                isFirstCell: isFirstCell,
+                usesCompletionArtwork: true
+            )
 
         guard isActive, let activePanelID, isToggleable else {
             return AnyView(cellView)
@@ -795,7 +797,7 @@ private struct WidgetBingoCellView: View {
     let isLocked: Bool
     let cellSize: CGFloat
     let isFirstCell: Bool
-    let usesLargeCompletionArtwork: Bool
+    let usesCompletionArtwork: Bool
 
     private static let scheduleDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -807,10 +809,19 @@ private struct WidgetBingoCellView: View {
 
     private var activeTheme: AppTheme { AppTheme.current }
     private var bingoLineColor: Color { activeTheme.color }
-    private var boardSurfaceColor: Color { Color(hex: "F4F4F4") }
+    private let boardSurfaceColor = Color.white
     private var primaryTextColor: Color { Color(hex: "291E0A") }
-    private var selectedColor: Color { reducedSaturationColor(from: activeTheme.color, by: 0.30) }
-    private var cellCornerRadius: CGFloat { min(max(cellSize * 0.25, 12), 22) }
+    private var selectedColor: Color { activeTheme.bingoSurfaceColor }
+    private var cellBorderColor: Color {
+        if isInBingoLine {
+            return bingoLineColor
+        }
+        if cell.isCompleted {
+            return selectedColor
+        }
+        return activeTheme.bingoCellOutlineColor
+    }
+    private let cellCornerRadius: CGFloat = 12
     private var footerSlotHeight: CGFloat { min(max(cellSize * 0.2, 14), 24) }
     private var footerBottomInset: CGFloat { min(max(cellSize * 0.08, 4), 8) }
     private var isTaskHiddenFaceVisible: Bool { cell.isCompleted && cell.isTaskHidden && !cell.isEmpty && !isLocked }
@@ -824,7 +835,7 @@ private struct WidgetBingoCellView: View {
                     largeCompletionIcon
                 } else {
                     ZStack(alignment: .bottom) {
-                        if cell.isCompleted && !isLocked && usesLargeCompletionArtwork {
+                        if cell.isCompleted && !isLocked && usesCompletionArtwork {
                             completionArtwork
                         }
 
@@ -851,7 +862,7 @@ private struct WidgetBingoCellView: View {
                                 .padding(.bottom, footerBottomInset)
                         }
 
-                        if cell.isCompleted && !isLocked && !usesLargeCompletionArtwork {
+                        if cell.isCompleted && !isLocked && !usesCompletionArtwork {
                             completionIcon
                                 .frame(height: footerSlotHeight)
                                 .padding(.bottom, footerBottomInset)
@@ -868,7 +879,7 @@ private struct WidgetBingoCellView: View {
     }
 
     private var textBottomPadding: CGFloat {
-        if hasFooterContent || (cell.isCompleted && !isLocked && !usesLargeCompletionArtwork) {
+        if hasFooterContent || (cell.isCompleted && !isLocked && !usesCompletionArtwork) {
             return footerSlotHeight + footerBottomInset + 2
         }
         return max(cellSize * 0.1, 7)
@@ -986,8 +997,8 @@ private struct WidgetBingoCellView: View {
             .overlay {
                 baseShape
                     .stroke(
-                        isInBingoLine ? Color.white.opacity(0.24) : Color.white.opacity(0.58),
-                        lineWidth: isInBingoLine ? 1.1 : 0.9
+                        cellBorderColor.opacity(0.78),
+                        lineWidth: isInBingoLine ? 1.15 : 1.0
                     )
 
                 if isLocked && !isInBingoLine {
@@ -1001,16 +1012,9 @@ private struct WidgetBingoCellView: View {
                 }
 
                 if cell.isCompleted && !isInBingoLine {
-                    baseShape
-                        .stroke(selectedColor.opacity(0.36), lineWidth: 1.2)
+                    baseShape.stroke(selectedColor.opacity(0.24), lineWidth: 1.2)
                 }
             }
-            .shadow(
-                color: isInBingoLine ? bingoLineColor.opacity(0.28) : Color.black.opacity(0.08),
-                radius: isInBingoLine ? 5 : 3,
-                x: 0,
-                y: isInBingoLine ? 2 : 1
-            )
     }
 
     private var cellFillColor: Color {
@@ -1079,24 +1083,6 @@ private struct WidgetBingoCellView: View {
         .frame(width: size, height: size)
     }
 
-    private func reducedSaturationColor(from color: Color, by amount: CGFloat) -> Color {
-        let ui = UIColor(color)
-        var hue: CGFloat = 0
-        var saturation: CGFloat = 0
-        var brightness: CGFloat = 0
-        var alpha: CGFloat = 0
-
-        guard ui.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha) else {
-            return color
-        }
-
-        return Color(
-            hue: Double(hue),
-            saturation: Double(max(0, saturation - amount)),
-            brightness: Double(brightness),
-            opacity: Double(alpha)
-        )
-    }
 }
 
 private extension SavedBoard {

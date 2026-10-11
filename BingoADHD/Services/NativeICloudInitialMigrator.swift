@@ -49,7 +49,7 @@ final class NativeICloudInitialMigrator {
     func applyRemoteStateOnly() async throws {
         if let remote = try await resolvedPrimaryRemoteState() {
             let snapshot = remote.snapshot
-            try NativeICloudPrimaryLocalProjection.apply(snapshot)
+            try await NativeICloudPrimaryLocalProjection.applyOnMainActor(snapshot)
             await runtime.markPrimaryHandled(
                 remote.latestStamp,
                 schemaVersion: remote.latestSchemaVersion,
@@ -145,7 +145,7 @@ final class NativeICloudInitialMigrator {
                     "points.icloud_migration_apply_remote",
                     details: migrationDetails
                 )
-                try NativeICloudPrimaryLocalProjection.apply(remoteSnapshot)
+                try await NativeICloudPrimaryLocalProjection.applyOnMainActor(remoteSnapshot)
             } else {
                 DiagnosticLogStore.recordStateChange(
                     "points.icloud_migration_same_state",

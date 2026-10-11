@@ -3,6 +3,7 @@ import Foundation
 enum BingodaysWidgetKind {
     static let countdown = "BingodaysCountdownWidget"
     static let board = "BingodaysLargeWidget"
+    static let lockScreen = "BingodaysLockScreenWidget"
 }
 
 enum WidgetPanelSelectionStore {

@@ -15,18 +15,14 @@ enum BingoDiaryStore {
         var entries = existingEntries
         let entryID = dateKey(for: date)
         let existingEntry = entries[entryID]
-        let completionIncrements = completedTaskIncrements(
-            previousBoard: existingEntry?.board,
-            currentBoard: board
-        )
-        let completionDecrements = completedTaskDecrements(
+        let transitions = completedTaskTransitions(
             previousBoard: existingEntry?.board,
             currentBoard: board
         )
         let mergedCounts = applyTaskCountDelta(
             base: existingTaskCounts(from: existingEntry),
-            increments: completionIncrements,
-            decrements: completionDecrements
+            increments: transitions.increments,
+            decrements: transitions.decrements
         )
         let entry = BingoDiaryEntry(
             id: entryID,
@@ -339,8 +335,10 @@ enum BingoDiaryStore {
             }
     }
 
-    static func loadAllEntriesDictionary() -> [String: BingoDiaryEntry] {
-        loadEntriesDictionary()
+    static func loadAllEntriesDictionary(
+        reading mode: PersistenceReadMode = .repairingMirrors
+    ) -> [String: BingoDiaryEntry] {
+        loadEntriesDictionary(reading: mode)
     }
 
     @discardableResult
@@ -348,10 +346,13 @@ enum BingoDiaryStore {
         persist(entries)
     }
 
-    private static func loadEntriesDictionary() -> [String: BingoDiaryEntry] {
+    private static func loadEntriesDictionary(
+        reading mode: PersistenceReadMode = .repairingMirrors
+    ) -> [String: BingoDiaryEntry] {
         if let data = sharedDefaults.data(forKey: key),
            let entries = try? JSONDecoder().decode([String: BingoDiaryEntry].self, from: data) {
-            if UserDefaults.standard.data(forKey: key) != data {
+            if mode == .repairingMirrors,
+               UserDefaults.standard.data(forKey: key) != data {
                 _ = PersistenceWriteTransaction.commit([
                     PersistenceWriteTransaction.userDefaultsStep(
                         defaults: .standard,
@@ -367,13 +368,15 @@ enum BingoDiaryStore {
               let entries = try? JSONDecoder().decode([String: BingoDiaryEntry].self, from: data) else {
             return [:]
         }
-        _ = PersistenceWriteTransaction.commit([
-            PersistenceWriteTransaction.userDefaultsStep(
-                defaults: sharedDefaults,
-                key: key,
-                newValue: data
-            )
-        ])
+        if mode == .repairingMirrors {
+            _ = PersistenceWriteTransaction.commit([
+                PersistenceWriteTransaction.userDefaultsStep(
+                    defaults: sharedDefaults,
+                    key: key,
+                    newValue: data
+                )
+            ])
+        }
         return entries
     }
 
@@ -418,12 +421,34 @@ enum BingoDiaryStore {
     // Count only completion transitions from previous snapshot -> current snapshot.
     // This avoids undercounting repeated completions (old max-merge logic) and
     // avoids double counting on frequent saves when no state changed.
-    private static func completedTaskIncrements(previousBoard: SavedBoard?, currentBoard: SavedBoard) -> [String: Int] {
+    private static func completedTaskTransitions(
+        previousBoard: SavedBoard?, currentBoard: SavedBoard
+    ) -> (increments: [String: Int], decrements: [String: Int]) {
         let previousCells = flattenedVisibleCells(from: previousBoard)
         let currentCells = flattenedVisibleCells(from: currentBoard)
-        let previousByID = Dictionary(uniqueKeysWithValues: previousCells.map { ($0.id, $0) })
+        var duplicateIDs = Set<UUID>()
+        func indexedCells(_ cells: [BingoCell]) -> [UUID: BingoCell] {
+            var result: [UUID: BingoCell] = [:]
+            for cell in cells {
+                if result.updateValue(cell, forKey: cell.id) != nil {
+                    duplicateIDs.insert(cell.id)
+                }
+            }
+            return result
+        }
+        let previousByID = indexedCells(previousCells)
+        let currentByID = indexedCells(currentCells)
+        if !duplicateIDs.isEmpty {
+            DiagnosticLogStore.recordWarning("diary.ambiguous_cell_identity", details: [
+                "duplicate_id_count": String(duplicateIDs.count)
+            ])
+        }
 
-        return currentCells.reduce(into: [String: Int]()) { partial, cell in
+        // An ambiguous identity cannot establish a completion transition. Keep
+        // existing counts and still process unaffected cells; never guess which
+        // duplicate is authoritative or count the same identity twice.
+        let increments = currentCells.reduce(into: [String: Int]()) { partial, cell in
+            guard !duplicateIDs.contains(cell.id) else { return }
             guard !cell.isEmpty, cell.isCompleted else { return }
             let task = cell.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !task.isEmpty else { return }
@@ -434,16 +459,8 @@ enum BingoDiaryStore {
 
             partial[task, default: 0] += 1
         }
-    }
-
-    // Count un-completion transitions from previous snapshot -> current snapshot.
-    // This keeps same-day diary counts accurate when users cancel completed tasks.
-    private static func completedTaskDecrements(previousBoard: SavedBoard?, currentBoard: SavedBoard) -> [String: Int] {
-        let previousCells = flattenedVisibleCells(from: previousBoard)
-        let currentCells = flattenedVisibleCells(from: currentBoard)
-        let currentByID = Dictionary(uniqueKeysWithValues: currentCells.map { ($0.id, $0) })
-
-        return previousCells.reduce(into: [String: Int]()) { partial, previousCell in
+        let decrements = previousCells.reduce(into: [String: Int]()) { partial, previousCell in
+            guard !duplicateIDs.contains(previousCell.id) else { return }
             guard !previousCell.isEmpty, previousCell.isCompleted else { return }
             let task = previousCell.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !task.isEmpty else { return }
@@ -455,6 +472,7 @@ enum BingoDiaryStore {
 
             partial[task, default: 0] += 1
         }
+        return (increments, decrements)
     }
 
     private static func flattenedVisibleCells(from board: SavedBoard?) -> [BingoCell] {

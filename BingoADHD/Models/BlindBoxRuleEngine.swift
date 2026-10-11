@@ -36,6 +36,71 @@ struct BlindBoxStickerDefinition: Codable, Equatable, Hashable, Identifiable, Se
     }
 }
 
+struct BlindBoxStickerShelfItem: Identifiable, Equatable, Sendable {
+    let sticker: BlindBoxStickerDefinition
+    let ownedCount: Int
+    let acquiredAt: Date?
+
+    var id: BlindBoxStickerID { sticker.id }
+}
+
+enum BlindBoxStickerShelfBuilder {
+    /// Builds the compact Home picker from the same account state used by
+    /// My Box. Each sticker type appears once; duplicates retain their first
+    /// acquisition position and expose the total count for a small badge.
+    static func items(
+        themes: [BlindBoxThemeDefinition],
+        state: BlindBoxAccountState
+    ) -> [BlindBoxStickerShelfItem] {
+        let definitions = Dictionary(
+            themes.flatMap(\.stickers).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let ownedIDs = Set(
+            state.ownedStickerCounts.compactMap { entry in
+                entry.value > 0 ? BlindBoxStickerID(rawValue: entry.key) : nil
+            }
+        )
+
+        var orderedIDs: [BlindBoxStickerID] = []
+        var seenIDs = Set<BlindBoxStickerID>()
+        let orderedAcquisitions = state.stickerAcquisitions.sorted {
+            if $0.acquiredAt != $1.acquiredAt {
+                return $0.acquiredAt < $1.acquiredAt
+            }
+            if $0.positionIndex != $1.positionIndex {
+                return $0.positionIndex < $1.positionIndex
+            }
+            return $0.positionID.uuidString < $1.positionID.uuidString
+        }
+
+        for acquisition in orderedAcquisitions where ownedIDs.contains(acquisition.stickerID) {
+            guard seenIDs.insert(acquisition.stickerID).inserted else { continue }
+            orderedIDs.append(acquisition.stickerID)
+        }
+
+        // Existing accounts created before acquisition history was introduced
+        // still get a deterministic shelf instead of disappearing stickers.
+        let fallbackIDs = themes.flatMap(\.stickers).map(\.id).filter {
+            ownedIDs.contains($0) && !seenIDs.contains($0)
+        }
+        orderedIDs.append(contentsOf: fallbackIDs)
+
+        let firstAcquisitionByID = Dictionary(
+            orderedAcquisitions.map { ($0.stickerID, $0.acquiredAt) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return orderedIDs.compactMap { stickerID in
+            guard let sticker = definitions[stickerID] else { return nil }
+            return BlindBoxStickerShelfItem(
+                sticker: sticker,
+                ownedCount: state.ownedStickerCounts[stickerID.rawValue] ?? 0,
+                acquiredAt: firstAcquisitionByID[stickerID]
+            )
+        }
+    }
+}
+
 /// A catalog-owned coordinate for one sticker in My Box. Keeping the display
 /// order in content configuration lets newly published themes choose a layout
 /// without requiring an app release or a new hard-coded switch statement.
@@ -761,6 +826,29 @@ enum BlindBoxPointExchangePolicy {
 }
 
 enum BlindBoxCatalog {
+    static let halloween = BlindBoxThemeDefinition(
+        id: BlindBoxThemeID(rawValue: "halloween"),
+        catalogVersion: 1,
+        stickers: (1...13).map { index in
+            let name = "halloween_\(String(format: "%02d", index))"
+            return BlindBoxStickerDefinition(
+                id: BlindBoxStickerID(rawValue: name),
+                assetName: "sticker_\(name)",
+                isHidden: index == 13
+            )
+        },
+        artwork: BlindBoxThemeArtwork(
+            lobbyCardAssetName: "BlindBoxHalloweenLobby",
+            detailHeaderAssetName: "BlindBoxHalloweenHeader",
+            detailBoardAssetName: "BlindBoxHalloweenBoard",
+            collectionPickerAssetName: "BlindBoxHalloweenPackage"
+        )
+    )
+
+    static func collectionThemes(_ themes: [BlindBoxThemeDefinition]) -> [BlindBoxThemeDefinition] {
+        themes.filter { $0.id == halloween.id } + themes.filter { $0.id != halloween.id }
+    }
+
     static let zodiac = BlindBoxThemeDefinition(
         id: BlindBoxThemeID(rawValue: "zodiac"),
         catalogVersion: 1,
@@ -826,6 +914,7 @@ enum BlindBoxCatalog {
                 )
             }
         ),
-        zodiac
+        zodiac,
+        halloween
     ]
 }

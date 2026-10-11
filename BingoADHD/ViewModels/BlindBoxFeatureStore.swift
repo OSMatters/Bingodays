@@ -19,19 +19,19 @@ final class BlindBoxFeatureStore: ObservableObject {
     @Published private(set) var availability: Availability = .idle
     @Published private(set) var accountState = BlindBoxAccountState.newAccount()
     @Published private(set) var lastMaintenanceResult: BlindBoxAccountMaintenanceResult?
-
     @Published private(set) var themes: [BlindBoxThemeDefinition]
     @Published private(set) var economyConfiguration: BlindBoxEconomyConfiguration
 
     private let bootstrapper: BlindBoxCloudKitAccountBootstrapper
     private let accountRepository: BlindBoxCloudKitAccountStateRepository
-    private let drawRepository: BlindBoxCloudKitDrawRepository
-    private let pointExchangeRepository: BlindBoxCloudKitPointExchangeRepository
+    private let localRepository: BlindBoxLocalAccountRepository
     private let legacyInventoryProvider: () -> [String: Int]
     private let catalogRepository: (any BlindBoxCatalogBundleFetching)?
     private let catalogCurrentBuild: Int
     private let catalogCacheRootDirectory: URL?
+    private let cloudAccountIdentifierProvider: (@MainActor () async -> String?)?
     private var activeThemeIDs: Set<BlindBoxThemeID>
+    private var isCloudSynchronizationInFlight = false
 
     convenience init(
         themes: [BlindBoxThemeDefinition] = BlindBoxCatalog.builtInThemes,
@@ -44,20 +44,21 @@ final class BlindBoxFeatureStore: ObservableObject {
         ) ?? 0
         let cachedRelease = BlindBoxCatalogBundleCache.load(currentBuild: currentBuild)?.release
         let catalogThemes = cachedRelease?.themes ?? themes
-        let addsZodiac = !catalogThemes.contains(where: { $0.id == BlindBoxCatalog.zodiac.id })
-        let database = BlindBoxCloudKitDatabase(
-            database: CKContainer(
-                identifier: NativeICloudConfiguration.containerIdentifier
-            ).privateCloudDatabase
-        )
+        let container = CKContainer(identifier: NativeICloudConfiguration.containerIdentifier)
+        let database = BlindBoxCloudKitDatabase(database: container.privateCloudDatabase)
         self.init(
-            themes: catalogThemes + (addsZodiac ? [BlindBoxCatalog.zodiac] : []),
-            activeThemeIDs: cachedRelease.map { $0.activeThemeIDs + (addsZodiac ? [BlindBoxCatalog.zodiac.id] : []) },
+            themes: catalogThemes,
+            activeThemeIDs: cachedRelease?.activeThemeIDs,
             economyConfiguration: cachedRelease?.economyConfiguration ?? .defaultValue,
             database: database,
             legacyInventoryProvider: legacyInventoryProvider,
             catalogRepository: BlindBoxCloudKitCatalogRepository(),
-            catalogCurrentBuild: currentBuild
+            catalogCurrentBuild: currentBuild,
+            localDefaults: .standard,
+            cloudAccountIdentifierProvider: {
+                guard (try? await container.accountStatus()) == .available else { return nil }
+                return try? await container.userRecordID().recordName
+            }
         )
     }
 
@@ -69,23 +70,30 @@ final class BlindBoxFeatureStore: ObservableObject {
         legacyInventoryProvider: @escaping () -> [String: Int],
         catalogRepository: (any BlindBoxCatalogBundleFetching)? = nil,
         catalogCurrentBuild: Int = 0,
-        catalogCacheRootDirectory: URL? = nil
+        catalogCacheRootDirectory: URL? = nil,
+        localDefaults: UserDefaults = .standard,
+        cloudAccountIdentifierProvider: (@MainActor () async -> String?)? = nil
     ) {
         self.themes = themes
         self.activeThemeIDs = Set(activeThemeIDs ?? themes.map(\.id))
         self.economyConfiguration = economyConfiguration
         self.bootstrapper = BlindBoxCloudKitAccountBootstrapper(database: database)
         self.accountRepository = BlindBoxCloudKitAccountStateRepository(database: database)
-        self.drawRepository = BlindBoxCloudKitDrawRepository(database: database)
-        self.pointExchangeRepository = BlindBoxCloudKitPointExchangeRepository(database: database)
+        self.localRepository = BlindBoxLocalAccountRepository(defaults: localDefaults)
         self.legacyInventoryProvider = legacyInventoryProvider
         self.catalogRepository = catalogRepository
         self.catalogCurrentBuild = catalogCurrentBuild
         self.catalogCacheRootDirectory = catalogCacheRootDirectory
+        self.cloudAccountIdentifierProvider = cloudAccountIdentifierProvider
+        includeBundledLaunchThemesIfMissing()
     }
 
     func theme(for id: BlindBoxThemeID) -> BlindBoxThemeDefinition? {
         themes.first(where: { $0.id == id })
+    }
+
+    var stickerShelfItems: [BlindBoxStickerShelfItem] {
+        BlindBoxStickerShelfBuilder.items(themes: themes, state: accountState)
     }
 
     func candidates(hasPremiumAccess: Bool) -> [BlindBoxCandidateBatch] {
@@ -106,9 +114,10 @@ final class BlindBoxFeatureStore: ObservableObject {
         }
     }
 
-    /// Call only after the app's Native iCloud coordinator has finished its
-    /// initial primary import. The store does no CloudKit work while waiting,
-    /// which protects old sticker ownership from a stale local cache.
+    /// Refreshes immediately from the device-local account. `nativeICloud…`
+    /// remains an input for source compatibility with the host screen, but it
+    /// must never gate a Blind Box action: Core Data import is unrelated to
+    /// the local Blind Box transaction journal.
     func refresh(
         hasPremiumAccess: Bool,
         candidateZoneWasPresented: Bool,
@@ -118,52 +127,53 @@ final class BlindBoxFeatureStore: ObservableObject {
         calendar: Calendar = .current,
         reason: BlindBoxCandidateRefreshReason = .initialLoad
     ) async {
-        guard nativeICloudInitialImportComplete else {
-            availability = .waitingForICloudInitialImport
-            return
-        }
-
+        _ = nativeICloudInitialImportComplete
         if availability != .ready { availability = .loading }
         do {
-            await refreshRemoteCatalogIfAvailable()
+            // A release fetch is useful, but it never belongs on the critical
+            // path to a locally usable account. Keep the bundled/cache catalog
+            // for this refresh and update a later presentation if the fetch
+            // eventually succeeds.
+            refreshRemoteCatalogInBackground()
 
-            let bootstrapResult = try await bootstrapper.bootstrap(
+            switch localRepository.migrateLegacyInventoryIfNeeded(
                 legacyInventoryCounts: legacyInventoryProvider()
-            )
-            if case let .requiresManualReview(unmappedLegacyStickerIDs) = bootstrapResult {
-                availability = .requiresMigrationReview(
-                    unmappedLegacyStickerIDs: unmappedLegacyStickerIDs
-                )
-                return
+            ) {
+            case .requiresManualReview:
+                // An obsolete/unknown legacy sticker must not lock users out
+                // of the new game. Known local Blind Box data stays intact and
+                // this isolated migration can be reviewed separately.
+                break
+            case .persistenceFailed:
+                throw BlindBoxLocalStateStoreError.persistenceFailed
+            case .applied, .alreadyApplied:
+                break
             }
 
-            try await recoverPendingPointExchangeIfNeeded()
-
-            var maintenanceRequest = BlindBoxCloudMaintenanceRequest(
-                    themes: candidateThemes,
-                    hasPremiumAccess: hasPremiumAccess,
-                    candidateZoneWasPresented: candidateZoneWasPresented,
-                    isAutomaticOpeningEnabled: economyConfiguration.isBlindBoxOpeningEnabled,
-                    now: now,
-                    calendar: calendar,
-                    reason: reason
-                )
-            maintenanceRequest.premiumPurchaseTransactionID = premiumPurchaseTransactionID
-            lastMaintenanceResult = try await accountRepository.maintain(maintenanceRequest)
-            accountState = try await accountRepository.loadAccount().accountState
+            try recoverPendingPointExchangeIfNeeded()
+            lastMaintenanceResult = try localRepository.maintain(
+                themes: candidateThemes,
+                hasPremiumAccess: hasPremiumAccess,
+                candidateZoneWasPresented: candidateZoneWasPresented,
+                isAutomaticOpeningEnabled: economyConfiguration.isBlindBoxOpeningEnabled,
+                premiumPurchaseTransactionID: premiumPurchaseTransactionID,
+                now: now,
+                calendar: calendar,
+                reason: reason
+            )
+            accountState = localRepository.accountState
             availability = .ready
+            scheduleCloudSynchronization()
         } catch {
             availability = .failed(message: Self.message(for: error))
         }
     }
 
     func consumeTicketReceipt() async throws -> BlindBoxTicketReceipt? {
-        guard let receipt = accountState.pendingTicketReceipt else { return nil }
-        let consumed = try await accountRepository.acknowledgeTicketReceipt(receipt.id)
-        if accountState.pendingTicketReceipt?.id == receipt.id {
-            accountState.pendingTicketReceipt = nil
-        }
-        return consumed ? receipt : nil
+        let receipt = try localRepository.consumeTicketReceipt()
+        accountState = localRepository.accountState
+        scheduleCloudSynchronization()
+        return receipt
     }
 
     func open(
@@ -175,14 +185,11 @@ final class BlindBoxFeatureStore: ObservableObject {
         guard availability == .ready else {
             throw BlindBoxFeatureStoreError.accountUnavailable
         }
-        guard await refreshRemoteCatalogIfAvailable() else {
-            throw BlindBoxFeatureStoreError.remoteCatalogUnavailable
-        }
         guard economyConfiguration.isBlindBoxOpeningEnabled else {
             throw BlindBoxFeatureStoreError.openingPaused
         }
 
-        let result = try await drawRepository.open(request)
+        let result = try localRepository.open(request, now: now)
         // A completed theme changes its candidate eligibility immediately. Run
         // that reconciliation behind the authoritative draw, rather than
         // relying on a later lobby refresh that a user might never reach.
@@ -190,23 +197,21 @@ final class BlindBoxFeatureStore: ObservableObject {
         // result must still be shown if a follow-up maintenance request has a
         // transient CloudKit failure.
         do {
-            lastMaintenanceResult = try await accountRepository.maintain(
-                BlindBoxCloudMaintenanceRequest(
-                    themes: candidateThemes,
-                    hasPremiumAccess: hasPremiumAccess,
-                    candidateZoneWasPresented: false,
-                    isAutomaticOpeningEnabled: economyConfiguration.isBlindBoxOpeningEnabled,
-                    now: now,
-                    calendar: calendar,
-                    reason: .themeCompleted
-                )
+            lastMaintenanceResult = try localRepository.maintain(
+                themes: candidateThemes,
+                hasPremiumAccess: hasPremiumAccess,
+                candidateZoneWasPresented: false,
+                isAutomaticOpeningEnabled: economyConfiguration.isBlindBoxOpeningEnabled,
+                premiumPurchaseTransactionID: nil,
+                now: now,
+                calendar: calendar,
+                reason: .themeCompleted
             )
         } catch {
             // The next online refresh retries this safe, idempotent pass.
         }
-        if let refreshedAccount = try? await accountRepository.loadAccount() {
-            accountState = refreshedAccount.accountState
-        }
+        accountState = localRepository.accountState
+        scheduleCloudSynchronization()
         return result
     }
 
@@ -218,10 +223,9 @@ final class BlindBoxFeatureStore: ObservableObject {
         guard availability == .ready else {
             throw BlindBoxFeatureStoreError.accountUnavailable
         }
-        let didAcknowledge = try await accountRepository.acknowledgePendingReveal(
-            idempotencyKey: pendingReveal.drawIdempotencyKey
-        )
-        accountState = try await accountRepository.loadAccount().accountState
+        let didAcknowledge = try localRepository.acknowledgePendingReveal(pendingReveal)
+        accountState = localRepository.accountState
+        scheduleCloudSynchronization()
         guard didAcknowledge else {
             throw BlindBoxFeatureStoreError.pendingRevealChanged
         }
@@ -242,9 +246,6 @@ final class BlindBoxFeatureStore: ObservableObject {
             throw BlindBoxFeatureStoreError.accountUnavailable
         }
 
-        guard await refreshRemoteCatalogIfAvailable() else {
-            throw BlindBoxFeatureStoreError.remoteCatalogUnavailable
-        }
         if let expectedEconomyConfigurationVersion,
            economyConfiguration.version != expectedEconomyConfigurationVersion {
             throw BlindBoxFeatureStoreError.pointExchangeConfigurationChanged
@@ -257,33 +258,35 @@ final class BlindBoxFeatureStore: ObservableObject {
             requestedAt: now,
             economyConfigurationVersion: economyConfiguration.version
         )
-        let exchange = try await pointExchangeRepository.begin(
-            request,
+        let reservation = try localRepository.reservePointExchange(
+            request: request,
             availablePoints: availablePoints,
             calendar: calendar,
             economyConfiguration: economyConfiguration
         )
         try persistPointExchangeLedger(
             for: request,
-            deductedPoints: exchange.reservation.deductedPoints
+            deductedPoints: reservation.deductedPoints
         )
-        let result = try await pointExchangeRepository.complete(request, completedAt: now)
-        accountState = try await accountRepository.loadAccount().accountState
+        let result = try localRepository.completePointExchange(idempotencyKey: request.idempotencyKey)
+        accountState = localRepository.accountState
+        scheduleCloudSynchronization()
         return result
     }
 
-    private func recoverPendingPointExchangeIfNeeded() async throws {
-        guard let pendingExchange = try await pointExchangeRepository.pendingExchange() else {
+    private func recoverPendingPointExchangeIfNeeded() throws {
+        guard let pendingExchange = localRepository.accountState.pendingPointExchange else {
             return
         }
         try persistPointExchangeLedger(
-            for: pendingExchange.request,
-            deductedPoints: pendingExchange.reservation.deductedPoints
+            for: BlindBoxPointExchangeRequest(
+                idempotencyKey: pendingExchange.idempotencyKey,
+                requestedAt: pendingExchange.reservedAt,
+                economyConfigurationVersion: economyConfiguration.version
+            ),
+            deductedPoints: pendingExchange.deductedPoints
         )
-        _ = try await pointExchangeRepository.complete(
-            pendingExchange.request,
-            completedAt: .now
-        )
+        _ = try localRepository.completePointExchange(idempotencyKey: pendingExchange.idempotencyKey)
     }
 
     private func persistPointExchangeLedger(
@@ -315,11 +318,9 @@ final class BlindBoxFeatureStore: ObservableObject {
         themes.filter { activeThemeIDs.contains($0.id) }
     }
 
-    /// Refreshes the remote release when one is configured. Ordinary screen
-    /// refreshes can continue from a good cache when this fails, while the
-    /// two value-changing actions require a `true` result before proceeding.
-    /// That fail-closed transaction boundary prevents an old cached price or
-    /// switch from being used after a publisher changes the catalog.
+    /// Refreshes the remote release when one is configured. A bundled or
+    /// verified cached catalog is always sufficient for local transactions;
+    /// network refresh merely improves the next presentation.
     @discardableResult
     private func refreshRemoteCatalogIfAvailable() async -> Bool {
         guard let catalogRepository else {
@@ -361,6 +362,13 @@ final class BlindBoxFeatureStore: ObservableObject {
         return true
     }
 
+    private func refreshRemoteCatalogInBackground() {
+        guard catalogRepository != nil else { return }
+        Task { [weak self] in
+            _ = await self?.refreshRemoteCatalogIfAvailable()
+        }
+    }
+
     private func loadCachedCatalogEntry() -> BlindBoxCatalogBundleCache.Entry? {
         if let catalogCacheRootDirectory {
             BlindBoxCatalogBundleCache.load(
@@ -378,19 +386,26 @@ final class BlindBoxFeatureStore: ObservableObject {
     ) {
         themes = cachedEntry.release.themes
         activeThemeIDs = Set(cachedEntry.release.activeThemeIDs)
-        // Older remote releases predate the bundled Zodiac launch. A release
-        // that explicitly includes Zodiac retains control of its active state.
-        if !themes.contains(where: { $0.id == BlindBoxCatalog.zodiac.id }) {
-            themes.append(BlindBoxCatalog.zodiac)
-            activeThemeIDs.insert(BlindBoxCatalog.zodiac.id)
-        }
+        includeBundledLaunchThemesIfMissing()
         economyConfiguration = cachedEntry.release.economyConfiguration
         if reloadArtwork, catalogCacheRootDirectory == nil {
             BlindBoxCatalogArtworkStore.shared.reload()
         }
     }
 
+    private func includeBundledLaunchThemesIfMissing() {
+        // A remote release that includes a launch theme controls its active state.
+        for theme in [BlindBoxCatalog.zodiac, BlindBoxCatalog.halloween]
+        where !themes.contains(where: { $0.id == theme.id }) {
+            themes.append(theme)
+            activeThemeIDs.insert(theme.id)
+        }
+    }
+
     private static func message(for error: any Error) -> String {
+        if error is BlindBoxLocalStateStoreError {
+            return "Blind Box data could not be saved on this device. Please free some storage and try again."
+        }
         switch error as? BlindBoxCloudKitRepositoryError {
         case .accountNotInitialized:
             return "Your Blind Box account is not ready yet."
@@ -400,6 +415,70 @@ final class BlindBoxFeatureStore: ObservableObject {
             return "Your Blind Box account could not be verified. Please try again."
         case nil:
             return "Unable to sync Blind Box right now. Please try again."
+        }
+    }
+
+    /// Mirrors the latest local snapshot without changing the user's current
+    /// interaction. A quota/network/iCloud failure is explicitly recoverable:
+    /// the local envelope stays marked pending and a later refresh retries it.
+    private func scheduleCloudSynchronization() {
+        guard localRepository.needsCloudSynchronization,
+              !isCloudSynchronizationInFlight else { return }
+        Task { [weak self] in
+            await self?.synchronizeCloudIfPossible()
+        }
+    }
+
+    private func synchronizeCloudIfPossible() async {
+        guard !isCloudSynchronizationInFlight,
+              localRepository.needsCloudSynchronization else { return }
+        isCloudSynchronizationInFlight = true
+        defer { isCloudSynchronizationInFlight = false }
+
+        do {
+            if let cloudAccountIdentifier = await cloudAccountIdentifierProvider?() {
+                accountState = try localRepository.activateCloudAccount(
+                    identifier: cloudAccountIdentifier
+                )
+            }
+            // The local migration has already happened. Supplying an empty
+            // legacy inventory prevents CloudKit bootstrap from becoming a
+            // prerequisite for, or a second source of, device-local progress.
+            let bootstrap = try await bootstrapper.bootstrap(legacyInventoryCounts: [:])
+            if case .requiresManualReview = bootstrap {
+                return
+            }
+            let cloudEnvelope: BlindBoxCloudAccountEnvelope
+            let didCreateCloudAccount: Bool
+            switch bootstrap {
+            case let .created(account):
+                cloudEnvelope = account
+                didCreateCloudAccount = true
+            case let .migratedExisting(account), let .alreadyReady(account):
+                cloudEnvelope = account
+                didCreateCloudAccount = false
+            case .requiresManualReview:
+                return
+            }
+
+            // Cloud data is a baseline only when binding this device to an
+            // existing account. Once a local transaction has completed, the
+            // local wallet is authoritative for the next upload; otherwise a
+            // stale cloud record could restore spent tickets or an already
+            // displayed ticket-receipt popup.
+            let stateToMirror: BlindBoxAccountState
+            if localRepository.needsCloudBaselineImport,
+               (!didCreateCloudAccount || localRepository.accountState.isEmptyCloudAccountShell) {
+                stateToMirror = try localRepository.importCloudBaseline(cloudEnvelope.accountState)
+            } else {
+                stateToMirror = localRepository.accountState
+            }
+            let mirrored = try await accountRepository.mergeAndSaveLocalAccount(stateToMirror)
+            accountState = try localRepository.applyCloudSynchronizedState(mirrored.accountState)
+            localRepository.markCloudSynchronizationCompleted(for: accountState)
+        } catch {
+            // CloudKit is a best-effort mirror. Keep the local state pending so
+            // a later refresh can retry without interrupting the user.
         }
     }
 }
@@ -412,4 +491,53 @@ enum BlindBoxFeatureStoreError: Error, Equatable {
     case pointExchangeDisabled
     case pointExchangeConfigurationChanged
     case pointLedgerWriteFailed
+}
+
+/// Lightweight shared read model for the Home customization sheet. The full
+/// Blind Box flow owns its transaction store; this object only observes the
+/// persisted account and avoids creating a second CloudKit transaction owner.
+@MainActor
+final class HomeBlindBoxStickerShelfStore: ObservableObject {
+    @Published private(set) var items: [BlindBoxStickerShelfItem] = []
+
+    private var stateObservation: AnyCancellable?
+
+    init() {
+        reload()
+        stateObservation = NotificationCenter.default
+            .publisher(for: .blindBoxAccountStateDidChange)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.reload()
+            }
+    }
+
+    func reload() {
+        let state: BlindBoxAccountState
+        let themes: [BlindBoxThemeDefinition]
+
+        if AppDebugFlags.blindBoxLiveFlowEnabled {
+            state = BlindBoxLocalStateStore.load()
+            themes = Self.cachedThemes()
+        } else {
+            let previewStore = BlindBoxPreviewStore(persistence: .standard)
+            state = previewStore.state
+            themes = previewStore.themes
+        }
+
+        items = BlindBoxStickerShelfBuilder.items(themes: themes, state: state)
+    }
+
+    private static func cachedThemes() -> [BlindBoxThemeDefinition] {
+        let currentBuild = Int(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+        ) ?? 0
+        var themes = BlindBoxCatalogBundleCache.load(currentBuild: currentBuild)?.release.themes
+            ?? BlindBoxCatalog.builtInThemes
+        for theme in [BlindBoxCatalog.zodiac, BlindBoxCatalog.halloween]
+        where !themes.contains(where: { $0.id == theme.id }) {
+            themes.append(theme)
+        }
+        return themes
+    }
 }

@@ -563,6 +563,14 @@ enum L10n {
             ja: "タスクのリセット時刻を自由に設定し、自分のペースで更新。"
         )
     }
+    static var paywallFeaturePremiumBackgroundSkins: String {
+        tr(
+            "Unlock exclusive background skins and make your Home feel like yours.",
+            zhHans: "解锁会员专属背景图，让首页拥有你的专属风格。",
+            zhHant: "解鎖會員專屬背景圖，讓首頁擁有你的專屬風格。",
+            ja: "限定背景スキンでホームを自分らしく彩りましょう。"
+        )
+    }
     static var paywallUnlimitedThemesAndCustomization: String { tr("Unlimited themes and customization", zhHans: "无限主题与自定义", zhHant: "無限主題與自訂", ja: "テーマとカスタマイズを無制限に利用") }
     static var paywallSubscribeNow: String { tr("Subscribe Now", zhHans: "立即订阅", zhHant: "立即訂閱", ja: "今すぐ登録") }
     static var paywallPopular: String { tr("Popular", zhHans: "热门", zhHant: "熱門", ja: "人気") }
@@ -573,6 +581,7 @@ enum L10n {
     static var paywallSwitchToMonthly: String { tr("Switch to Monthly", zhHans: "切换到月订阅", zhHant: "切換到月訂閱", ja: "月額プランに変更") }
     static var paywallSwitchToYearly: String { tr("Switch to Yearly", zhHans: "切换到年订阅", zhHant: "切換到年訂閱", ja: "年額プランに変更") }
     static var paywallBuyLifetime: String { tr("Buy Lifetime", zhHans: "购买终身会员", zhHant: "購買終身會員", ja: "買い切りを購入") }
+    static var paywallPlanUnavailable: String { tr("Unavailable", zhHans: "暂不可用", zhHant: "暫不可用", ja: "利用できません") }
     static var paywallManageSubscription: String { tr("Manage Subscription", zhHans: "管理订阅", zhHant: "管理訂閱", ja: "サブスクリプションを管理") }
     static var paywallLifetimeAutoRenewNote: String {
         tr(
@@ -660,6 +669,15 @@ enum L10n {
     static var paywallBenefitTaskHistorySubtitle: String { tr("Review and edit past tasks in one tap.", zhHans: "一键查看并编辑历史任务。", zhHant: "一鍵查看並編輯歷史任務。", ja: "過去のタスクをすぐ確認、編集。") }
     static var paywallBenefitFlexibleResetTitle: String { tr("Flexible Reset", zhHans: "灵活重置", zhHant: "彈性重置", ja: "柔軟なリセット") }
     static var paywallBenefitFlexibleResetSubtitle: String { tr("Choose when your tasks refresh each day.", zhHans: "选择每天任务刷新的时间。", zhHant: "選擇每天任務重新整理的時間。", ja: "毎日の更新時刻を選択できます。") }
+    static var paywallBenefitBackgroundSkinsTitle: String { tr("Premium Background Skins", zhHans: "会员专属背景图", zhHant: "會員專屬背景圖", ja: "プレミアム背景スキン") }
+    static var paywallBenefitBackgroundSkinsSubtitle: String {
+        tr(
+            "Unlock beautiful exclusive backgrounds and make your Home feel like yours.",
+            zhHans: "解锁更多精美背景，让首页拥有你的专属风格。",
+            zhHant: "解鎖更多精美背景，讓首頁擁有你的專屬風格。",
+            ja: "限定背景でホームを自分らしく彩りましょう。"
+        )
+    }
     static var paywallBenefitMoreFeaturesTitle: String { tr("More Features Coming", zhHans: "更多功能即将上线", zhHant: "更多功能即將上線", ja: "さらに機能追加予定") }
     static var paywallBenefitMoreFeaturesSubtitle: String { tr("We'll keep adding new features to make your Bingo experience even better.", zhHans: "我们会继续加入新功能，让 Bingo 体验更好。", zhHant: "我們會持續加入新功能，讓 Bingo 體驗更好。", ja: "Bingo体験をさらに良くする機能を追加していきます。") }
     static var haptics: String { tr("Haptics", zhHans: "震动反馈", ja: "触覚フィードバック") }
@@ -672,11 +690,45 @@ enum L10n {
         )
     }
     static var dayStreak: String { tr("day streak", zhHans: "连胜天数", ja: "日連続") }
+    static var consecutiveOpenDays: String { tr("Consecutive Opens", zhHans: "连续开启", zhHant: "連續開啟", ja: "連続起動") }
     static var streakGoals: String { tr("Streak Goals", zhHans: "连胜目标", ja: "連続目標") }
     static var themeColor: String { tr("Theme Color", zhHans: "主题颜色", ja: "テーマカラー") }
+    static var backgroundPattern: String { tr("Background image", zhHans: "背景图", zhHant: "背景圖", ja: "背景画像") }
+    static var noBackground: String { tr("No background", zhHans: "无背景", zhHant: "無背景", ja: "背景なし") }
+    static var premiumBackgroundExpiredTitle: String {
+        tr("Your Pro membership has expired", zhHans: "你的 Pro 会员已到期", zhHant: "你的 Pro 會員已到期", ja: "Proメンバーシップの期限が切れました")
+    }
+    static var premiumBackgroundExpiredMessage: String {
+        tr(
+            "The Pro background is no longer available, so we switched you back to the default background.",
+            zhHans: "会员专属背景图已无法继续使用，我们已为你切换回默认背景。",
+            zhHant: "會員專屬背景圖已無法繼續使用，我們已為你切換回預設背景。",
+            ja: "Pro背景は利用できなくなったため、デフォルト背景に戻しました。"
+        )
+    }
+    static var premiumBackgroundExpiredContinue: String {
+        tr("Continue using", zhHans: "继续使用", zhHant: "繼續使用", ja: "使い続ける")
+    }
+    static var premiumBackgroundExpiredNoThanks: String {
+        tr("no thanks", zhHans: "不用了", zhHant: "不用了", ja: "結構です")
+    }
+    static var mySticker: String { tr("My sticker", zhHans: "我的贴纸", zhHant: "我的貼紙", ja: "マイステッカー") }
+    static var noBlindBoxStickers: String { tr("Open a Blind Box to collect stickers.", zhHans: "打开盲盒后，获得的贴纸会出现在这里。", zhHant: "打開盲盒後，獲得的貼紙會出現在這裡。", ja: "ブラインドボックスを開けると、ここにステッカーが表示されます。") }
     static var myPoints: String { tr("My Points", zhHans: "我的积分", ja: "マイポイント") }
     static var stickers: String { tr("Stickers", zhHans: "贴纸", ja: "ステッカー") }
     static var myRewards: String { tr("Custom Rewards", zhHans: "自定义奖励", ja: "カスタム報酬") }
+    static var reorderRewards: String { tr("Reorder Rewards", zhHans: "调整奖励顺序", zhHant: "調整獎勵順序", ja: "報酬の順番を変更") }
+    static var rewardOrderHint: String {
+        tr(
+            "Drag rewards to change their display order.",
+            zhHans: "拖动奖励，调整它们的展示顺序。",
+            zhHant: "拖動獎勵，調整它們的顯示順序。",
+            ja: "報酬をドラッグして表示順を変更します。"
+        )
+    }
+    static var dragToReorder: String { tr("Drag to reorder", zhHans: "拖动排序", zhHant: "拖動排序", ja: "ドラッグして並べ替え") }
+    static var moveUp: String { tr("Move Up", zhHans: "上移", zhHant: "上移", ja: "上へ移動") }
+    static var moveDown: String { tr("Move Down", zhHans: "下移", zhHant: "下移", ja: "下へ移動") }
     static var addReward: String { tr("Add Reward", zhHans: "添加奖励", ja: "報酬を追加") }
     static var addRewards: String { tr("Add Rewards", zhHans: "添加奖励", zhHant: "新增獎勵", ja: "報酬を追加") }
     static var editReward: String { tr("Edit Reward", zhHans: "编辑奖励", ja: "報酬を編集") }
@@ -714,6 +766,7 @@ enum L10n {
     }
     static var done: String { tr("Done", zhHans: "完成", ja: "完了") }
     static var addToHome: String { tr("Add to Home", zhHans: "添加到首页", ja: "ホームに追加") }
+    static var addedToHome: String { tr("Added to Home", zhHans: "已添加到首页", zhHant: "已添加到首頁", ja: "ホームに追加済み") }
     static var redeem: String { tr("Redeem", zhHans: "兑换", ja: "交換する") }
     static var onHome: String { tr("On Home", zhHans: "已在首页", ja: "ホームに追加済み") }
     static var stickerRevokedDueToPoints: String {

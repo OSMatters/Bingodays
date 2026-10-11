@@ -111,20 +111,29 @@ struct PremiumPaywallView: View {
 
     private let designWidth: CGFloat = 393
     private let designHeight: CGFloat = 852
-    @State private var measuredBlindBoxHeroHeight: CGFloat = 0
+    @State private var measuredHeroHeight: CGFloat = 0
+    @State private var heroPinnedTopInset: CGFloat = 0
     private var isBlindBoxHero: Bool { classicHeroBenefit.id == "blindBox" && !isAllFeaturesEntrySource }
-    private var blindBoxHeroExtraHeight: CGFloat {
-        isBlindBoxHero ? max(0, 188 + measuredBlindBoxHeroHeight + 24 - 343) : 0
+    private var isPremiumAppIconHero: Bool { entrySource == "premium_app_icon" }
+    private var heroExtraHeight: CGFloat {
+        if isBlindBoxHero {
+            return max(0, 188 + measuredHeroHeight + 24 - 343)
+        }
+        if isPremiumAppIconHero {
+            // Reserve the pinned header inset as well as the complete description.
+            return max(0, 188 + measuredHeroHeight + 24 + heroPinnedTopInset - 343)
+        }
+        return 0
     }
     /// Keeps the Blind Box offer close to its hero artwork without changing the
     /// normal paywall layout.
     private let blindBoxPlanCardsLift: CGFloat = 66
-    private var classicPaywallContentHeight: CGFloat { 1372 + blindBoxHeroExtraHeight }
-    private var classicPlanCardsTop: CGFloat { 343 + blindBoxHeroExtraHeight }
+    private var classicPaywallContentHeight: CGFloat { 1372 + heroExtraHeight }
+    private var classicPlanCardsTop: CGFloat { 343 + heroExtraHeight }
     private let classicPlanCardsHeight: CGFloat = 144
     private let classicPinnedCountdownExtraHeight: CGFloat = 12
     private let classicPinnedBackgroundBleed: CGFloat = 2
-    private var classicBenefitsTop: CGFloat { 519 + blindBoxHeroExtraHeight }
+    private var classicBenefitsTop: CGFloat { 519 + heroExtraHeight }
     private let classicBenefitsHeight: CGFloat = 521
     private let classicLegalFooterTopSpacing: CGFloat = 24
 
@@ -227,7 +236,8 @@ struct PremiumPaywallView: View {
             PaywallFeature(id: "groups", text: L10n.paywallFeatureUnlimitedGroups),
             PaywallFeature(id: "customRewards", text: L10n.paywallFeatureCustomRewards),
             PaywallFeature(id: "history", text: L10n.paywallFeatureAllHistoryTasks),
-            PaywallFeature(id: "customReset", text: L10n.paywallFeatureCustomResetTime)
+            PaywallFeature(id: "customReset", text: L10n.paywallFeatureCustomResetTime),
+            PaywallFeature(id: "backgroundSkins", text: L10n.paywallFeaturePremiumBackgroundSkins)
         ]
     }
 
@@ -310,6 +320,8 @@ struct PremiumPaywallView: View {
             return "history"
         } else if source.contains("reset") {
             return "customReset"
+        } else if source.contains("background") || source.contains("skin") {
+            return "backgroundSkins"
         } else if source.contains("reward") {
             return "customRewards"
         } else if source.contains("standalone_task") || source.contains("group_task") || source.contains("task_limit") || source.contains("quick_edit") {
@@ -345,12 +357,30 @@ struct PremiumPaywallView: View {
     private var classicHeroBenefit: PaywallBenefit {
         let featureID = entryFeatureID(for: entrySource)
 
+        if entrySource == "premium_app_icon" {
+            return PaywallBenefit(
+                id: "premiumAppIcon",
+                iconAssetName: "AppIconPreviewPremium",
+                title: L10n.tr("Unlock your exclusive app icon", zhHans: "解锁会员专属应用图标", zhHant: "解鎖會員專屬應用程式圖標", ja: "会員限定アイコンを解放"),
+                subtitle: L10n.tr("Make your Home Screen more fun", zhHans: "让桌面更有趣", zhHant: "讓桌面更有趣", ja: "ホーム画面をもっと楽しく")
+            )
+        }
+
         if featureID == "blindBox" {
             return PaywallBenefit(
                 id: "blindBox",
                 iconAssetName: "PaywallBenefitMoreFeature",
                 title: L10n.paywallBenefitBlindBoxTitle,
                 subtitle: L10n.paywallBenefitBlindBoxSubtitle
+            )
+        }
+
+        if featureID == "backgroundSkins" {
+            return PaywallBenefit(
+                id: "backgroundSkins",
+                iconAssetName: "PaywallBenefitMoreFeature",
+                title: L10n.paywallBenefitBackgroundSkinsTitle,
+                subtitle: L10n.paywallBenefitBackgroundSkinsSubtitle
             )
         }
 
@@ -485,6 +515,9 @@ struct PremiumPaywallView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .frame(width: geo.size.width, height: geo.size.height)
+        .onChange(of: pinnedTopInset, initial: true) { _, inset in
+            heroPinnedTopInset = inset
+        }
         .ignoresSafeArea()
         .overlay(alignment: .bottom) {
             floatingSubscribeButton(scale: scale, bottomInset: geo.safeAreaInsets.bottom)
@@ -903,7 +936,7 @@ struct PremiumPaywallView: View {
                     .font(paywallFont(size: 16, weight: .semibold))
                     .foregroundColor(Color(hex: "C8BBB3"))
                     .lineSpacing(2)
-                    .lineLimit(isBlindBoxHero ? nil : 2)
+                    .lineLimit(isBlindBoxHero || isPremiumAppIconHero ? nil : 2)
                     .multilineTextAlignment(.leading)
                     .frame(width: 190, alignment: .topLeading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -914,11 +947,11 @@ struct PremiumPaywallView: View {
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.height
             } action: { height in
-                if isBlindBoxHero { measuredBlindBoxHeroHeight = height }
+                if isBlindBoxHero || isPremiumAppIconHero { measuredHeroHeight = height }
             }
             .offset(x: 23, y: 188)
         }
-        .frame(width: designWidth, height: 320 + blindBoxHeroExtraHeight, alignment: .topLeading)
+        .frame(width: designWidth, height: 320 + heroExtraHeight, alignment: .topLeading)
     }
 
     private var backButton: some View {
@@ -952,8 +985,13 @@ struct PremiumPaywallView: View {
     private func planCard(_ plan: PaywallPlan) -> some View {
         let price = priceDisplay(for: plan)
         let isSelected = selectedPlan == plan
+        let isReadyToPurchase = subscriptionManager.isReadyToPurchase(productID: plan.productID)
         let titleColor = isSelected ? Color.black : Color.white
-        let subtitle = classicPlanSubtitle(for: plan, price: price)
+        let subtitle = isReadyToPurchase ? classicPlanSubtitle(for: plan, price: price) : nil
+        let priceText = planCardPriceText(
+            fallback: price.displayPrice,
+            isReadyToPurchase: isReadyToPurchase
+        )
 
         return Button {
             selectPlan(plan, animationDuration: 0.2)
@@ -979,7 +1017,7 @@ struct PremiumPaywallView: View {
                     .frame(width: 130, height: 20, alignment: .leading)
                     .offset(x: 16, y: 16)
 
-                Text(spacedCardPrice(price.displayPrice))
+                Text(spacedCardPrice(priceText))
                     .font(paywallFont(size: 28, weight: .bold))
                     .foregroundStyle(priceStyle(isSelected: isSelected))
                     .lineLimit(1)
@@ -1002,14 +1040,29 @@ struct PremiumPaywallView: View {
         .buttonStyle(.plain)
         .disabled(
             subscriptionManager.isPurchasing
-                || !subscriptionManager.isReadyToPurchase(productID: selectedPlan.productID)
+                || !isReadyToPurchase
         )
         .opacity(
             subscriptionManager.isPurchasing
-                || !subscriptionManager.isReadyToPurchase(productID: selectedPlan.productID)
-                ? 0.92
+                || !isReadyToPurchase
+                ? 0.62
                 : 1
         )
+    }
+
+    private func planCardPriceText(
+        fallback: String,
+        isReadyToPurchase: Bool
+    ) -> String {
+        if isReadyToPurchase {
+            return fallback
+        }
+
+        if subscriptionManager.priceCatalogState.isLoading {
+            return fallback
+        }
+
+        return L10n.paywallPlanUnavailable
     }
 
     private func planCardBackground(isSelected: Bool) -> some View {
@@ -1128,15 +1181,22 @@ struct PremiumPaywallView: View {
     private var subscribeButton: some View {
         Button {
             Task {
+                let planAtTap = selectedPlan
                 await subscriptionManager.refreshEntitlements()
                 if subscriptionManager.hasPremiumAccess {
                     dismiss()
                     return
                 }
+
+                guard subscriptionManager.isReadyToPurchase(productID: planAtTap.productID) else {
+                    feedbackMessage = L10n.paywallPlanUnavailable
+                    return
+                }
+
                 let outcome = await subscriptionManager.purchase(
-                    productID: selectedPlan.productID,
+                    productID: planAtTap.productID,
                     analyticsSource: entrySource,
-                    analyticsPlan: selectedPlan.rawValue
+                    analyticsPlan: planAtTap.rawValue
                 )
                 updateLimitedOfferEligibility(afterPurchaseOutcome: outcome)
                 if outcome.completedPurchase {
@@ -1162,8 +1222,16 @@ struct PremiumPaywallView: View {
                 }
         }
         .buttonStyle(.plain)
-        .disabled(subscriptionManager.isPurchasing)
-        .opacity(subscriptionManager.isPurchasing ? 0.92 : 1)
+        .disabled(
+            subscriptionManager.isPurchasing
+                || !subscriptionManager.isReadyToPurchase(productID: selectedPlan.productID)
+        )
+        .opacity(
+            subscriptionManager.isPurchasing
+                || !subscriptionManager.isReadyToPurchase(productID: selectedPlan.productID)
+                ? 0.62
+                : 1
+        )
     }
 
     private func floatingSubscribeButton(scale: CGFloat, bottomInset: CGFloat) -> some View {
@@ -1276,7 +1344,14 @@ struct PremiumPaywallView: View {
     }
 
     private var primaryClassicPaywallActionTitle: String {
-        "\(selectedPlan.title) \(priceDisplay(for: selectedPlan).displayPrice)"
+        if !subscriptionManager.isReadyToPurchase(productID: selectedPlan.productID) {
+            if subscriptionManager.priceCatalogState.isLoading {
+                return L10n.subscriptionPriceLoading
+            }
+            return L10n.paywallPlanUnavailable
+        }
+
+        return "\(selectedPlan.title) \(priceDisplay(for: selectedPlan).displayPrice)"
     }
 
     private func classicPlanSubtitle(for plan: PaywallPlan, price: PlanPriceDisplay) -> String? {

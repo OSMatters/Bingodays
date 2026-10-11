@@ -173,36 +173,63 @@ struct BingoDiaryScreen: View {
                 .foregroundColor(Color(hex: "2B1A0D"))
 
             HStack {
-                Button {
-                    dismiss()
-                } label: {
-                    LiquidGlassIconBadge(
-                        systemName: "chevron.left",
-                        size: scaled(40, pad: 44),
-                        iconSize: scaled(18, pad: 20),
-                        foregroundColor: Color(hex: "2B1A0D")
-                    )
-                }
-                .buttonStyle(.plain)
+                nativeGlassIconButton(
+                    systemName: "chevron.left",
+                    size: scaled(40, pad: 44),
+                    iconSize: scaled(18, pad: 20),
+                    action: { dismiss() }
+                )
 
                 Spacer()
 
-                Button {
-                    isStatsListPresented = true
-                } label: {
-                    LiquidGlassIconBadge(
-                        imageName: "HistoryIcon",
-                        size: scaled(40, pad: 44),
-                        iconSize: scaled(24, pad: 27)
-                    )
-                }
-                .buttonStyle(.plain)
+                nativeGlassIconButton(
+                    systemName: "clock.arrow.circlepath",
+                    size: scaled(40, pad: 44),
+                    iconSize: scaled(20, pad: 23),
+                    action: { isStatsListPresented = true }
+                )
             }
         }
         .padding(.horizontal, scaled(12, pad: 20))
         .padding(.top, scaled(6, pad: 10))
         .padding(.bottom, scaled(4, pad: 8))
-        .appGlassEffectContainer()
+    }
+
+    @ViewBuilder
+    private func nativeGlassIconButton(
+        systemName: String,
+        size: CGFloat,
+        iconSize: CGFloat,
+        action: @escaping () -> Void
+    ) -> some View {
+        if #available(iOS 26.0, *) {
+            Button(action: action) {
+                Image(systemName: systemName)
+                    .font(.system(size: iconSize, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .frame(width: size, height: size)
+                    .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: Circle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            Button(action: action) {
+                Image(systemName: systemName)
+                    .font(.system(size: iconSize, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .frame(width: size, height: size)
+                    .contentShape(Circle())
+                    .background {
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                            .overlay {
+                                Circle()
+                                    .stroke(Color.white.opacity(0.82), lineWidth: 1)
+                            }
+                    }
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private var statsSummarySection: some View {

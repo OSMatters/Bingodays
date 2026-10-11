@@ -194,9 +194,6 @@ enum WidgetTaskToggleService {
             }
             return false
         }
-        if settlePoints, let totalPoints = PointsStore.loadTotalPoints() {
-            PointRedemptionReconciler.reconcilePersistedRedemptionsIfNeeded(totalPoints: totalPoints)
-        }
         diagnosticStage = "complete"
         return true
     }
@@ -257,7 +254,6 @@ enum WidgetTaskToggleService {
             lifetimePoints: output.lifetimePoints,
             dailyRewardState: output.dailyRewardState
         ) else { return false }
-        PointRedemptionReconciler.reconcilePersistedRedemptionsIfNeeded(totalPoints: output.totalPoints)
         return true
     }
 
@@ -317,11 +313,6 @@ enum WidgetTaskToggleService {
             didApplyBoardReset: false
         )
         guard PointsStore.replacePersistenceSnapshot(projected) else { return false }
-        if let totalPoints = projected.totalPoints {
-            PointRedemptionReconciler.reconcilePersistedRedemptionsIfNeeded(
-                totalPoints: totalPoints
-            )
-        }
         return true
     }
 
@@ -368,7 +359,8 @@ enum WidgetTaskToggleService {
             totalPoints: initialTotalPoints,
             lifetimePoints: initialLifetimePoints,
             dailyRewardState: currentPoints.dailyRewardState ?? BingoRewardSettlement.emptyDailyRewardState(for: now),
-            taskIsNowCompleted: taskIsNowCompleted
+            taskIsNowCompleted: taskIsNowCompleted,
+            minimumTotalPoints: PointRedemptionLedger.currentCommittedSpend()
         )
         return PointsPersistenceSnapshot(
             totalPoints: output.totalPoints,

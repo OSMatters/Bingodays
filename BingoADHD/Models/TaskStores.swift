@@ -10,7 +10,7 @@ enum CommonTasksStore {
 
         if let data = defaults.data(forKey: AppSettings.commonTasksKey),
            let saved = try? JSONDecoder().decode(MyTasksLibrary.self, from: data) {
-            return sanitize(saved)
+            return migrateGroupTasksToDaily(sanitize(saved))
         }
 
         if let saved = defaults.array(forKey: AppSettings.commonTasksKey) as? [String] {
@@ -18,6 +18,42 @@ enum CommonTasksStore {
             return MyTasksLibrary(tasks: sanitizeTasks(legacyTasks), groups: [])
         }
         return MyTasksLibrary()
+    }
+
+    /// Group tasks are daily by definition. Older app versions persisted them
+    /// as one-time tasks, so normalize the library as it is read and repair the
+    /// matching task-history definitions in the same migration.
+    private static func migrateGroupTasksToDaily(_ library: MyTasksLibrary) -> MyTasksLibrary {
+        let normalized = normalizedGroupTasksToDaily(library)
+        if normalized.library != library {
+            _ = saveLibrary(normalized.library)
+        }
+        _ = TaskHistoryStore.migrateGroupTasksToDaily(groupTaskIDs: normalized.groupTaskIDs)
+        return normalized.library
+    }
+
+    private static func normalizedGroupTasksToDaily(
+        _ library: MyTasksLibrary
+    ) -> (library: MyTasksLibrary, groupTaskIDs: Set<UUID>) {
+        var migrated = library
+        var groupTaskIDs = Set<UUID>()
+
+        for groupIndex in migrated.groups.indices {
+            for taskIndex in migrated.groups[groupIndex].tasks.indices {
+                let task = migrated.groups[groupIndex].tasks[taskIndex]
+                groupTaskIDs.insert(task.id)
+
+                let dailyRule = TaskRecurrenceRule(
+                    kind: .daily,
+                    anchorDate: task.recurrenceRule?.anchorDate
+                )
+                guard task.recurrenceRule != dailyRule else { continue }
+
+                migrated.groups[groupIndex].tasks[taskIndex].recurrenceRule = dailyRule
+            }
+        }
+
+        return (migrated, groupTaskIDs)
     }
 
     static func loadGroups() -> [MyTaskGroup] {
@@ -32,12 +68,13 @@ enum CommonTasksStore {
 
     @discardableResult
     static func saveLibrary(_ library: MyTasksLibrary) -> Bool {
-        let sanitized = sanitize(library)
-        guard let data = try? JSONEncoder().encode(sanitized) else { return false }
+        let normalized = normalizedGroupTasksToDaily(sanitize(library))
+        guard let data = try? JSONEncoder().encode(normalized.library) else { return false }
         UserDefaults.standard.set(data, forKey: AppSettings.commonTasksKey)
         let didSave = UserDefaults.standard.data(forKey: AppSettings.commonTasksKey) == data
         if didSave {
             NativeICloudLocalChangeReporter.secondaryStateDidChange()
+            _ = TaskHistoryStore.migrateGroupTasksToDaily(groupTaskIDs: normalized.groupTaskIDs)
         }
         return didSave
     }
@@ -102,6 +139,37 @@ enum TaskHistoryStore {
         var records = load()
         records.removeAll { $0.key == key }
         save(records)
+    }
+
+    /// Repairs schedule metadata for history records that still point to a
+    /// task currently owned by a group. Records without a source task ID are
+    /// intentionally left alone because they may represent standalone or
+    /// board-created tasks with the same text.
+    @discardableResult
+    static func migrateGroupTasksToDaily(
+        groupTaskIDs: Set<UUID>,
+        at date: Date = .now
+    ) -> Bool {
+        guard !groupTaskIDs.isEmpty else { return true }
+
+        var records = load()
+        var didChange = false
+        for index in records.indices {
+            guard let sourceTaskID = records[index].sourceTaskID,
+                  groupTaskIDs.contains(sourceTaskID) else { continue }
+
+            let dailyRule = TaskRecurrenceRule(
+                kind: .daily,
+                anchorDate: records[index].recurrenceRule?.anchorDate
+            )
+            guard records[index].recurrenceRule != dailyRule else { continue }
+
+            records[index].recurrenceRule = dailyRule
+            records[index].lastEditedAt = max(records[index].lastEditedAt, date)
+            didChange = true
+        }
+
+        return !didChange || save(records)
     }
 
     static func makeKey(for task: MyTaskItem, sourceTaskID: UUID? = nil) -> String {
@@ -177,6 +245,8 @@ enum TaskHistoryStore {
         let key = makeKey(for: sanitizedTask, sourceTaskID: sourceTaskID)
 
         if let index = records.firstIndex(where: { $0.key == key }) {
+            // Historical backfills must not replace a task definition saved later.
+            guard records[index].lastEditedAt <= date else { return false }
             records[index].text = sanitizedTask.trimmedText
             records[index].startAt = sanitizedTask.startAt
             records[index].endAt = sanitizedTask.endAt
@@ -215,15 +285,20 @@ enum TaskHistoryStore {
                 endAt: cell.endVisibleAt,
                 startMonth: cell.startVisibleMonth,
                 startDay: cell.startVisibleDay,
-                recurrenceRule: cell.recurrenceRule
+                recurrenceRule: cell.effectiveRecurrenceRule
             )
         }
     }
 
-    static func upsert(tasks: [MyTaskItem], at date: Date = .now) {
+    @discardableResult
+    static func upsert(tasks: [MyTaskItem], at date: Date = .now) -> Bool {
+        guard !tasks.isEmpty else { return true }
+        var records = load()
+        var didChange = false
         for task in tasks {
-            upsert(task: task, sourceTaskID: task.id, at: date)
+            didChange = upsert(task: task, sourceTaskID: task.id, at: date, into: &records) || didChange
         }
+        return !didChange || save(records)
     }
 
     static func ensureLibrarySeeded(_ library: MyTasksLibrary, at date: Date = .now) {

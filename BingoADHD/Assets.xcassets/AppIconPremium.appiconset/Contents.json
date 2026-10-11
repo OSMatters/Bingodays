@@ -1,0 +1,44 @@
+{
+  "images": [
+    {
+      "filename": "AppIconPremium-120.png",
+      "idiom": "iphone",
+      "size": "60x60",
+      "scale": "2x"
+    },
+    {
+      "filename": "AppIconPremium-180.png",
+      "idiom": "iphone",
+      "size": "60x60",
+      "scale": "3x"
+    },
+    {
+      "filename": "AppIconPremium-76.png",
+      "idiom": "ipad",
+      "size": "76x76",
+      "scale": "1x"
+    },
+    {
+      "filename": "AppIconPremium-152.png",
+      "idiom": "ipad",
+      "size": "76x76",
+      "scale": "2x"
+    },
+    {
+      "filename": "AppIconPremium-167.png",
+      "idiom": "ipad",
+      "size": "83.5x83.5",
+      "scale": "2x"
+    },
+    {
+      "filename": "Premium.png",
+      "idiom": "ios-marketing",
+      "size": "1024x1024",
+      "scale": "1x"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

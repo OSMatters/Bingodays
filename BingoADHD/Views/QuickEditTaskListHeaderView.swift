@@ -20,8 +20,8 @@ struct QuickEditTaskListHeaderView: View {
             if let activeGroupID {
                 Button(action: onApplyGroup) {
                     actionLabel(systemName: "square.grid.2x2", title: L10n.quickEditApplyGroup)
-                        .foregroundColor(NeumorphicColors.accent)
-                        .background(actionBackground(stroke: NeumorphicColors.accent.opacity(0.28)))
+                        .foregroundColor(NeumorphicColors.modalAccent)
+                        .background(actionBackground(stroke: NeumorphicColors.modalAccent.opacity(0.28)))
                 }
                 .buttonStyle(.plain)
                 .disabled(!canApplyGroup)

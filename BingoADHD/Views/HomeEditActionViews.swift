@@ -18,7 +18,7 @@ struct GridSizeAdjustmentSheet: View {
                     Button(action: onDecrease) {
                         Image(systemName: "minus")
                             .font(.appSystem(size: iconSize, weight: .bold))
-                            .foregroundColor(NeumorphicColors.accent)
+                            .foregroundColor(NeumorphicColors.modalAccent)
                             .frame(width: controlSize, height: controlSize)
                             .background(functionSurface(cornerRadius: controlSize / 2, shadowRadius: isPadLayout ? 10 : 8, offset: isPadLayout ? 5 : 4))
                     }
@@ -35,7 +35,7 @@ struct GridSizeAdjustmentSheet: View {
                     Button(action: onIncrease) {
                         Image(systemName: "plus")
                             .font(.appSystem(size: iconSize, weight: .bold))
-                            .foregroundColor(NeumorphicColors.accent)
+                            .foregroundColor(NeumorphicColors.modalAccent)
                             .frame(width: controlSize, height: controlSize)
                             .background(functionSurface(cornerRadius: controlSize / 2, shadowRadius: isPadLayout ? 10 : 8, offset: isPadLayout ? 5 : 4))
                     }
@@ -56,7 +56,7 @@ struct GridSizeAdjustmentSheet: View {
     }
 
     private func functionSurface(cornerRadius: CGFloat, shadowRadius: CGFloat, offset: CGFloat) -> some View {
-        let theme = AppTheme.current
+        let theme = AppTheme.concise
         return RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(theme.color.opacity(theme == .concise ? 0.12 : 0.14))
             .shadow(color: Color.white.opacity(theme == .concise ? 0.72 : 0.62), radius: shadowRadius, x: -offset, y: -offset)

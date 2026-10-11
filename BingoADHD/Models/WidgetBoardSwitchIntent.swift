@@ -126,102 +126,19 @@ struct ToggleWidgetTaskIntent: AppIntent {
             return .result()
         }
 
-        let committed = BingoBoardStore.withBoardPersistenceLock {
-            performLocalToggle(boardID: id)
-        } ?? false
+        let committed = ExternalBoardTaskMutationService.apply(
+            boardID: id, target: .position(row: row, col: col), selectBoard: true
+        )
         guard committed else { return .result() }
         BingoBoardStore.reloadBoardWidgetTimeline()
         if NativeICloudPreferences.isEnabled {
             NativeICloudLocalChangeReporter.primaryStateDidChange()
         }
+        await MainActor.run {
+            NotificationCenter.default.post(name: .externalBoardTaskDidChange, object: nil)
+        }
+        await BingoBoardLiveActivityController.refresh()
         return .result()
-    }
-
-    private func performLocalToggle(boardID id: UUID) -> Bool {
-        let repository = WidgetIntentBoardRepository()
-
-        var snapshot = WidgetTaskEventMerge.applying(
-            WidgetTaskSyncStore.load(),
-            to: repository.loadNamedBoardsSnapshot()
-        )
-        let originalSnapshot = snapshot
-        guard let index = snapshot.boards.firstIndex(where: { $0.id == id }) else {
-            return false
-        }
-
-        snapshot.boards[index] = BingoBoardStore.taskRuleRecoveryBoard(snapshot.boards[index])
-
-        let now = Date()
-        let previousBoard = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(
-            snapshot.boards[index],
-            now: now
-        )
-        guard let updatedBoard = WidgetTaskToggleService.toggled(
-            board: snapshot.boards[index],
-            row: row,
-            col: col,
-            now: now,
-            commitSideEffects: false
-        ) else {
-            return false
-        }
-
-        let didApplyBoardReset = updatedBoard.lastTaskResetAppliedAt != snapshot.boards[index].lastTaskResetAppliedAt
-        let cellMutation = WidgetTaskToggleService.cellMutation(
-            previousBoard: previousBoard.board,
-            updatedBoard: updatedBoard.board,
-            row: row,
-            col: col
-        )
-        guard let localSyncEvent = WidgetTaskSyncStore.saveEvent(
-            board: updatedBoard,
-            didApplyBoardReset: didApplyBoardReset,
-            cellMutation: cellMutation
-        ) else {
-            return false
-        }
-        // The local event is the recovery marker. Settle points before publishing the
-        // named-board snapshot so App launch cannot observe a new board with old points.
-        let committedSideEffects = NativeICloudLocalChangeReporter.withReportingSuppressed {
-            WidgetTaskToggleService.commitToggleSideEffects(
-                previousBoard: previousBoard,
-                updatedBoard: updatedBoard,
-                row: row,
-                col: col,
-                now: now,
-                didApplyBoardReset: didApplyBoardReset
-            )
-        }
-        guard committedSideEffects else {
-            return false
-        }
-        guard let committedSyncEvent = WidgetTaskSyncStore.markSideEffectsCommitted(
-            for: localSyncEvent
-        ) else {
-            return false
-        }
-
-        let latestSnapshot = repository.loadNamedBoardsSnapshot()
-        snapshot = WidgetTaskEventMerge.applying(WidgetTaskSyncStore.load(), to: latestSnapshot)
-        snapshot = TaskCompletionHistoryRuleEngine.namedBoardsSnapshotByReconcilingCompletionHistory(
-            snapshot,
-            records: TaskCompletionHistoryStore.load()
-        )
-        let shouldSaveNamedBoards = snapshot != latestSnapshot || snapshot != originalSnapshot
-        let savedNamedBoards = shouldSaveNamedBoards
-            ? repository.saveNamedBoardsSnapshot(snapshot, reloadWidgets: false)
-            : false
-        guard !shouldSaveNamedBoards || savedNamedBoards else {
-            return false
-        }
-        guard WidgetBoardSelectionService.selectBoard(id, repository: repository) != nil else {
-            return false
-        }
-
-        // Every local repository is now durable, so the recovery marker can be removed.
-        WidgetTaskSyncStore.clear(ifMatching: committedSyncEvent.id)
-
-        return true
     }
 }
 
@@ -232,7 +149,7 @@ struct ToggleWidgetTaskIntent: AppIntent {
 @available(iOSApplicationExtension, unavailable)
 extension ToggleWidgetTaskIntent: ForegroundContinuableIntent {}
 
-private final class WidgetIntentBoardRepository: WidgetBoardSelectionRepository {
+final class WidgetIntentBoardRepository: WidgetBoardSelectionRepository {
     private var persistenceBaseline: BingoBoardStore.NamedBoardsSnapshot?
 
     func loadNamedBoardsSnapshot() -> BingoBoardStore.NamedBoardsSnapshot {

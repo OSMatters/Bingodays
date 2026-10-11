@@ -1,5 +1,4 @@
 import SwiftUI
-import Speech
 
 struct EditTaskSheet: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -9,6 +8,8 @@ struct EditTaskSheet: View {
     @State var residentWeekdays: Set<Int>
     @State var isOneTimeTask: Bool
     @State private var scheduleMode: TaskScheduleMode
+    @State private var didExplicitlySelectScheduleMode = false
+    private let wasLegacyUnspecifiedTask: Bool
     @State private var recurrenceKind: TaskRecurrenceRule.Kind
     @State private var recurrenceMonthDay: Int
     @State private var recurrenceDayInterval: Int
@@ -43,7 +44,6 @@ struct EditTaskSheet: View {
     @State private var isApplyingSpeechTranscript = false
     @State private var didRequestInitialTaskFocus = false
     @State private var isClosingSheet = false
-    @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -92,6 +92,8 @@ struct EditTaskSheet: View {
         onDelete: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
+        wasLegacyUnspecifiedTask = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            recurrenceRule == nil && residentWeekdays.isEmpty && !isOneTimeTask
         let recurrenceDefaultDate = recurrenceRule?.anchorDate ?? startVisibleAt ?? Date()
         let normalizedRecurrenceRule = recurrenceRule?.normalized(
             defaultWeekday: Calendar.current.component(.weekday, from: recurrenceDefaultDate),
@@ -170,8 +172,7 @@ struct EditTaskSheet: View {
             : nil
     }
     private let secondaryTextColor = Color(hex: "828282")
-    private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
-    private var accentColor: Color { activeTheme.color }
+    private var accentColor: Color { NeumorphicColors.modalAccent }
     private var contentColumnWidth: CGFloat { isPadLayout ? 420 : 313 }
     private var voiceInputButtonWidth: CGFloat {
         speechRecognizer.isRecording ? scaled(108, pad: 132) : scaled(36, pad: 44)
@@ -1223,6 +1224,7 @@ struct EditTaskSheet: View {
 
     private func selectScheduleMode(_ mode: TaskScheduleMode) {
         dismissKeyboard()
+        didExplicitlySelectScheduleMode = true
         scheduleMode = mode
         switch mode {
         case .single:
@@ -1289,7 +1291,13 @@ struct EditTaskSheet: View {
     }
 
     private func recurrenceRuleForSave() -> TaskRecurrenceRule? {
-        guard scheduleMode == .repeating else { return nil }
+        guard scheduleMode == .repeating else {
+            if wasLegacyUnspecifiedTask && !didExplicitlySelectScheduleMode &&
+                startVisibleAt == initialStartVisibleAt && endVisibleAt == initialEndVisibleAt {
+                return nil
+            }
+            return TaskRecurrenceRule(kind: .none)
+        }
         return recurrenceRuleForCurrentRepeatingDraft(defaultDate: recurrenceAnchorDate)
     }
 
@@ -1991,7 +1999,7 @@ struct NeumorphicSwitchToggleStyle: ToggleStyle {
         if #available(iOS 26.0, *) {
             Toggle(configuration)
                 .toggleStyle(.switch)
-                .tint(NeumorphicColors.accent)
+                .tint(NeumorphicColors.modalAccent)
         } else {
             legacyBody(configuration: configuration)
         }
@@ -2009,7 +2017,7 @@ struct NeumorphicSwitchToggleStyle: ToggleStyle {
                     .shadow(color: NeumorphicColors.lightShadow.opacity(0.85), radius: 5, x: -3, y: -3)
 
                 Circle()
-                    .fill(configuration.isOn ? NeumorphicColors.accent : NeumorphicColors.background)
+                    .fill(configuration.isOn ? NeumorphicColors.modalAccent : NeumorphicColors.background)
                     .frame(width: 28, height: 28)
                     .shadow(color: NeumorphicColors.darkShadow.opacity(0.28), radius: 4, x: 2, y: 2)
                     .shadow(color: NeumorphicColors.lightShadow.opacity(0.85), radius: 4, x: -2, y: -2)
@@ -2045,78 +2053,5 @@ struct DarkSheetToggleStyle: ToggleStyle {
             }
         }
         .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Speech Recognizer
-class SpeechRecognizer: ObservableObject {
-    @Published var isRecording = false
-    private var audioEngine = AVAudioEngine()
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
-    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: AppLanguage.speechLocaleIdentifier))
-
-    func startRecording(onResult: @escaping (String) -> Void) {
-        SFSpeechRecognizer.requestAuthorization { [weak self] status in
-            DispatchQueue.main.async {
-                guard status == .authorized else { return }
-                self?.beginRecording(onResult: onResult)
-            }
-        }
-    }
-
-    private func beginRecording(onResult: @escaping (String) -> Void) {
-        if recognitionTask != nil {
-            recognitionTask?.cancel()
-            recognitionTask = nil
-        }
-
-        let audioSession = AVAudioSession.sharedInstance()
-        do {
-            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-        } catch {
-            return
-        }
-
-        recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-        guard let recognitionRequest = recognitionRequest else { return }
-        recognitionRequest.shouldReportPartialResults = true
-
-        recognitionTask = speechRecognizer?.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-            if let result = result {
-                DispatchQueue.main.async {
-                    onResult(result.bestTranscription.formattedString)
-                }
-            }
-            if error != nil || (result?.isFinal ?? false) {
-                self?.stopRecording()
-            }
-        }
-
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-            recognitionRequest.append(buffer)
-        }
-
-        audioEngine.prepare()
-        do {
-            try audioEngine.start()
-            DispatchQueue.main.async { self.isRecording = true }
-        } catch {
-            return
-        }
-    }
-
-    func stopRecording() {
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
-        recognitionRequest?.endAudio()
-        recognitionRequest = nil
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        AppAudioSessionConfigurator.deactivateRecordingSession()
-        DispatchQueue.main.async { self.isRecording = false }
     }
 }

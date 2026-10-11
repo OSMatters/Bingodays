@@ -95,6 +95,63 @@ enum PremiumPlanKind: String {
 
 @MainActor
 final class SubscriptionManager: ObservableObject {
+    private enum OfferingsLoadError: LocalizedError {
+        case timedOut
+
+        var errorDescription: String? { "Subscription request timed out." }
+    }
+
+    private final class TimeoutRace<Value>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var isFinished = false
+        private var continuation: CheckedContinuation<Value, Error>?
+        private var operationTask: Task<Void, Never>?
+        private var timeoutTask: Task<Void, Never>?
+
+        init(continuation: CheckedContinuation<Value, Error>) {
+            self.continuation = continuation
+        }
+
+        func setTasks(
+            operationTask: Task<Void, Never>,
+            timeoutTask: Task<Void, Never>
+        ) {
+            lock.lock()
+            let shouldCancel = isFinished
+            if !shouldCancel {
+                self.operationTask = operationTask
+                self.timeoutTask = timeoutTask
+            }
+            lock.unlock()
+
+            if shouldCancel {
+                operationTask.cancel()
+                timeoutTask.cancel()
+            }
+        }
+
+        func finish(_ result: Result<Value, Error>) {
+            lock.lock()
+            guard !isFinished else {
+                lock.unlock()
+                return
+            }
+            isFinished = true
+            let continuation = self.continuation
+            self.continuation = nil
+            let operationTask = self.operationTask
+            let timeoutTask = self.timeoutTask
+            self.operationTask = nil
+            self.timeoutTask = nil
+            lock.unlock()
+
+            operationTask?.cancel()
+            timeoutTask?.cancel()
+            continuation?.resume(with: result)
+        }
+    }
+
+    private static let offeringsRequestTimeoutNanoseconds: UInt64 = 8_000_000_000
     private static let revenueCatAPIKey = "appl_egWkNCljyLRHddIlFQGmnxEsPiL"
     private static let premiumEntitlementID = "premium"
     private static let defaultOfferingID = "default"
@@ -140,15 +197,25 @@ final class SubscriptionManager: ObservableObject {
     @Published private(set) var storefrontID = "--"
     @Published private(set) var loadedProductIDs: [String] = []
     @Published private(set) var missingProductIDs: [String] = []
-    @Published private(set) var priceCatalogState: PaywallPriceCatalogState = .idle
+    @Published private(set) var priceCatalogState: PaywallPriceCatalogState = .idle {
+        didSet {
+            guard oldValue != priceCatalogState else { return }
+            DiagnosticLogStore.recordStateChange(
+                "subscription.price_catalog_state_changed",
+                details: ["state": String(describing: priceCatalogState)]
+            )
+        }
+    }
     @Published private(set) var currentPlanKind: PremiumPlanKind?
     @Published private(set) var currentPlanExpirationDate: Date?
     @Published private(set) var autoRenewablePlanKind: PremiumPlanKind?
     @Published private(set) var hasCompletedEntitlementRefresh = false
+    @Published private(set) var hasConfirmedNoPremiumAccess = false
 
     private var bootstrapTask: Task<Void, Never>?
     private var customerInfoUpdatesTask: Task<Void, Never>?
     private var storefrontUpdatesTask: Task<Void, Never>?
+    private var storefrontResolutionTask: Task<Void, Never>?
     private var entitlementRefreshTask: Task<Void, Never>?
     private var legacyPurchaseMigrationTask: Task<Void, Never>?
     private var hasCompletedBootstrap = false
@@ -176,6 +243,7 @@ final class SubscriptionManager: ObservableObject {
         bootstrapTask?.cancel()
         customerInfoUpdatesTask?.cancel()
         storefrontUpdatesTask?.cancel()
+        storefrontResolutionTask?.cancel()
     }
 
     func bootstrap() async {
@@ -198,7 +266,6 @@ final class SubscriptionManager: ObservableObject {
 
     private func performBootstrap() async {
         DiagnosticLogStore.recordStateChange("subscription.bootstrap_started")
-        await refreshStorefront()
         configureRevenueCatIfNeeded()
         await refreshPriceCatalog()
         await refreshEntitlementsAfterConfiguration()
@@ -210,9 +277,16 @@ final class SubscriptionManager: ObservableObject {
                 "revenuecat_package_count": "\(packagesByProductID.count)"
             ]
         )
+        startStorefrontResolutionIfNeeded()
     }
 
     private func configureRevenueCatIfNeeded() {
+#if DEBUG
+        Purchases.logLevel = .debug
+        Purchases.logHandler = { level, message in
+            print("[RevenueCat \(level)] \(message)")
+        }
+#endif
         DiagnosticLogStore.recordStateChange(
             "subscription.revenuecat_configuration_started",
             details: [
@@ -221,7 +295,13 @@ final class SubscriptionManager: ObservableObject {
             ]
         )
         if !Purchases.isConfigured {
-            let configuration = Configuration.Builder(withAPIKey: Self.revenueCatAPIKey).build()
+            let builder = Configuration.Builder(withAPIKey: Self.revenueCatAPIKey)
+#if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-DebugStoreKit1") {
+                _ = builder.with(storeKitVersion: .storeKit1)
+            }
+#endif
+            let configuration = builder.build()
             Purchases.configure(with: configuration)
         }
         startCustomerInfoUpdatesIfNeeded()
@@ -244,6 +324,26 @@ final class SubscriptionManager: ObservableObject {
             for await storefront in StoreKit.Storefront.updates {
                 guard let self else { return }
                 guard self.applyStorefront(storefront) else { continue }
+                await self.reloadPriceCatalogAfterStorefrontChange()
+            }
+        }
+    }
+
+    private func startStorefrontResolutionIfNeeded() {
+        guard storefrontResolutionTask == nil else { return }
+        DiagnosticLogStore.recordStateChange("subscription.storefront_resolution_started")
+        storefrontResolutionTask = Task { [weak self] in
+            guard let self else { return }
+            let didChange = await self.refreshStorefront()
+            guard !Task.isCancelled else { return }
+            DiagnosticLogStore.recordStateChange(
+                "subscription.storefront_resolution_finished",
+                details: [
+                    "resolved": "\(self.storefrontID != "--")",
+                    "changed": "\(didChange)"
+                ]
+            )
+            if didChange, self.hasCompletedBootstrap {
                 await self.reloadPriceCatalogAfterStorefrontChange()
             }
         }
@@ -283,22 +383,50 @@ final class SubscriptionManager: ObservableObject {
     }
 
     private func performEntitlementRefresh() async {
+        var didFetchCustomerInfo = false
+        if let cachedCustomerInfo = Purchases.shared.cachedCustomerInfo {
+            apply(customerInfo: cachedCustomerInfo, marksRefreshComplete: false)
+        }
         do {
+            let customerInfo = try await withTimeout(
+                operationName: "customer_info",
+                nanoseconds: Self.offeringsRequestTimeoutNanoseconds
+            ) {
+                try await Purchases.shared.customerInfo()
+            }
             apply(
-                customerInfo: try await Purchases.shared.customerInfo(),
+                customerInfo: customerInfo,
                 marksRefreshComplete: false
             )
+            didFetchCustomerInfo = true
         } catch {
             // Keep the last known CustomerInfo cache during transient network failures.
+            DiagnosticLogStore.recordWarning(
+                "subscription.customer_info_refresh_failed",
+                details: ["error": error.localizedDescription]
+            )
         }
 
         await resolveLegacyStoreKitEntitlementIfNeeded()
         hasCompletedEntitlementRefresh = true
+        if didFetchCustomerInfo {
+            hasConfirmedNoPremiumAccess = !hasPremiumAccess
+        }
     }
 
     @discardableResult
     func refreshStorefront() async -> Bool {
-        applyStorefront(await StoreKit.Storefront.current)
+        do {
+            let storefront = try await withTimeout(
+                operationName: "storefront",
+                nanoseconds: Self.offeringsRequestTimeoutNanoseconds
+            ) {
+                await StoreKit.Storefront.current
+            }
+            return applyStorefront(storefront)
+        } catch {
+            return false
+        }
     }
 
     @discardableResult
@@ -346,10 +474,7 @@ final class SubscriptionManager: ObservableObject {
     }
 
     private func refreshPriceCatalog() async {
-        let resolvedStorefront = await refreshStorefront()
-        if resolvedStorefront && storefrontID != "--" {
-            priceCatalogState = productsByID.isEmpty ? .loading : .refreshing
-        } else if productsByID.isEmpty {
+        if productsByID.isEmpty {
             priceCatalogState = .loading
         }
 
@@ -372,6 +497,9 @@ final class SubscriptionManager: ObservableObject {
             if loadedAllProducts {
                 return
             }
+            if priceCatalogState == .unavailable {
+                return
+            }
             if attempt < maxAttempts - 1 {
                 try? await Task.sleep(nanoseconds: 350_000_000)
             }
@@ -381,7 +509,12 @@ final class SubscriptionManager: ObservableObject {
     @discardableResult
     private func loadOfferingsAttempt(forceCurrentFetch: Bool) async -> Bool {
         do {
-            let offerings = try await fetchOfferings(forceCurrentFetch: forceCurrentFetch)
+            let offerings = try await withTimeout(
+                operationName: "offerings",
+                nanoseconds: Self.offeringsRequestTimeoutNanoseconds
+            ) {
+                try await self.fetchOfferings(forceCurrentFetch: forceCurrentFetch)
+            }
             let relevantOfferings = [
                 offerings.offering(identifier: Self.defaultOfferingID),
                 offerings.offering(identifier: Self.limitedOfferOfferingID)
@@ -428,6 +561,14 @@ final class SubscriptionManager: ObservableObject {
                 missingProductIDs = Self.allProductIDs
             }
             recordRevenueCatProductDiagnostics()
+            DiagnosticLogStore.recordStateChange(
+                "subscription.price_catalog_loaded",
+                details: [
+                    "loaded_count": "\(mergedProducts.count)",
+                    "missing_product_ids": missingProductIDs.joined(separator: ","),
+                    "storefront_country": storefrontCountryCode
+                ]
+            )
             return Self.allProductIDs.allSatisfy { mergedProducts[$0] != nil }
         } catch {
             // A temporary Offering failure must not erase a package that was
@@ -436,9 +577,12 @@ final class SubscriptionManager: ObservableObject {
                 packagesByProductID = [:]
                 loadedProductIDs = []
                 missingProductIDs = Self.allProductIDs
+                priceCatalogState = .unavailable
             }
             DiagnosticLogStore.recordWarning(
-                "subscription.revenuecat_offerings_failed",
+                error is OfferingsLoadError
+                    ? "subscription.revenuecat_offerings_timeout"
+                    : "subscription.revenuecat_offerings_failed",
                 details: [
                     "error": error.localizedDescription,
                     "retained_product_count": "\(productsByID.count)"
@@ -446,6 +590,72 @@ final class SubscriptionManager: ObservableObject {
             )
             return false
         }
+    }
+
+    private func withTimeout<T>(
+        operationName: String,
+        nanoseconds: UInt64,
+        operation: @escaping () async throws -> T
+    ) async throws -> T {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        DiagnosticLogStore.recordStateChange(
+            "subscription.request_started",
+            details: ["operation": operationName, "timeout_ms": "\(nanoseconds / 1_000_000)"]
+        )
+        do {
+            let value: T = try await withCheckedThrowingContinuation { continuation in
+                let race = TimeoutRace(continuation: continuation)
+                let operationTask = Task { @MainActor in
+                    do {
+                        race.finish(.success(try await operation()))
+                    } catch {
+                        race.finish(.failure(error))
+                    }
+                }
+                let timeoutTask = Task { @MainActor in
+                    do {
+                        try await Task.sleep(nanoseconds: nanoseconds)
+                        race.finish(.failure(OfferingsLoadError.timedOut))
+                    } catch {
+                        // The operation won the race and cancelled this task.
+                    }
+                }
+                race.setTasks(operationTask: operationTask, timeoutTask: timeoutTask)
+            }
+            recordRequestResult(operation: operationName, startedAt: startedAt, error: nil)
+            return value
+        } catch {
+            recordRequestResult(operation: operationName, startedAt: startedAt, error: error)
+            throw error
+        }
+    }
+
+    private func recordRequestResult(operation: String, startedAt: TimeInterval, error: Error?) {
+        let elapsedMilliseconds = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+        let result = error == nil ? "success" : (error is OfferingsLoadError ? "timeout" : "failed")
+        var details = [
+            "operation": operation,
+            "result": result,
+            "elapsed_ms": "\(elapsedMilliseconds)",
+            "loaded_count": "\(productsByID.count)",
+            "storefront_country": storefrontCountryCode,
+            "storefront_id": storefrontID
+        ]
+        if let error {
+            let nsError = error as NSError
+            details["error_domain"] = nsError.domain
+            details["error_code"] = "\(nsError.code)"
+            details["error"] = error.localizedDescription
+            DiagnosticLogStore.recordWarning("subscription.request_failed", details: details)
+        } else {
+            DiagnosticLogStore.recordStateChange("subscription.request_completed", details: details)
+        }
+        AnalyticsService.logSubscriptionRequestResult(
+            operation: operation,
+            result: result,
+            elapsedMilliseconds: elapsedMilliseconds,
+            storefrontCountry: storefrontCountryCode
+        )
     }
 
     private func fetchOfferings(forceCurrentFetch: Bool) async throws -> Offerings {
@@ -505,7 +715,23 @@ final class SubscriptionManager: ObservableObject {
             return
         }
 
-        guard let entitlement = await activeStoreKitEntitlement() else {
+        let entitlement: StoreKitEntitlement?
+        do {
+            entitlement = try await withTimeout(
+                operationName: "legacy_entitlements",
+                nanoseconds: Self.offeringsRequestTimeoutNanoseconds
+            ) {
+                await self.activeStoreKitEntitlement()
+            }
+        } catch {
+            DiagnosticLogStore.recordWarning(
+                "subscription.storekit_entitlement_refresh_failed",
+                details: ["error": error.localizedDescription]
+            )
+            return
+        }
+
+        guard let entitlement else {
             // There is no legacy purchase on this Apple account, so no receipt import is needed.
             UserDefaults.standard.set(true, forKey: Self.migrationSyncCompletedKey)
             return
@@ -586,6 +812,7 @@ final class SubscriptionManager: ObservableObject {
         hasLifetimeAccess = isLifetime
         hasActiveAutoRenewable = !isLifetime && plan != nil
         hasPremiumAccess = isLifetime || plan != nil
+        if hasPremiumAccess { hasConfirmedNoPremiumAccess = false }
         autoRenewablePlanKind = plan
         currentPlanKind = isLifetime ? .lifetime : plan
         currentPlanExpirationDate = isLifetime ? nil : entitlement.expirationDate
@@ -614,6 +841,11 @@ final class SubscriptionManager: ObservableObject {
         hasLifetimeAccess = hasLifetime
         hasActiveAutoRenewable = !hasLifetime && autoRenewablePlan != nil
         hasPremiumAccess = entitlement?.isActive == true
+        if hasPremiumAccess {
+            hasConfirmedNoPremiumAccess = false
+        } else if marksRefreshComplete {
+            hasConfirmedNoPremiumAccess = true
+        }
         autoRenewablePlanKind = hasLifetime ? nil : autoRenewablePlan
         currentPlanKind = hasLifetime ? .lifetime : autoRenewablePlan
         currentPlanExpirationDate = hasLifetime ? nil : entitlement?.expirationDate
@@ -758,6 +990,7 @@ final class SubscriptionManager: ObservableObject {
         for attempt in 0..<maxAttempts {
             await refreshAll()
             if hasDisplayPrices(for: requiredProductIDs) { return }
+            if priceCatalogState == .unavailable { return }
             if attempt < (maxAttempts - 1) {
                 try? await Task.sleep(nanoseconds: 350_000_000)
             }

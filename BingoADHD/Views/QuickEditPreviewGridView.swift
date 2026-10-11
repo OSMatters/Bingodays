@@ -88,7 +88,7 @@ struct QuickEditPreviewGridView: View {
     private var controlsRow: some View {
         let controlSize: CGFloat = isPadLayout ? 38 : 32
         let iconSize: CGFloat = isPadLayout ? 18 : 16
-        let theme = AppTheme.current
+        let theme = AppTheme.concise
 
         return HStack(alignment: .center, spacing: 12) {
             HStack(spacing: isPadLayout ? 14 : 11) {
@@ -150,7 +150,7 @@ struct QuickEditPreviewGridView: View {
     }
 
     private func controlButtonSurface(size: CGFloat) -> some View {
-        let theme = AppTheme.current
+        let theme = AppTheme.concise
         return Circle()
             .fill(theme.color.opacity(theme == .concise ? 0.12 : 0.14))
             .shadow(color: Color.white.opacity(theme == .concise ? 0.72 : 0.62), radius: 6, x: -3, y: -3)

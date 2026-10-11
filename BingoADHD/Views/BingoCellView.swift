@@ -1,5 +1,72 @@
 import SwiftUI
 
+private struct HandDrawnRoundedRectangle: Shape {
+    let cornerRadius: CGFloat
+    let variation: CGFloat
+    let phase: Int
+
+    func path(in rect: CGRect) -> Path {
+        let bounds = rect.insetBy(dx: 0.55, dy: 0.55)
+        let radius = min(cornerRadius, min(bounds.width, bounds.height) / 2)
+        let left = bounds.minX
+        let right = bounds.maxX
+        let top = bounds.minY
+        let bottom = bounds.maxY
+
+        var path = Path()
+        path.move(to: point(x: left + radius, y: top, index: 0))
+
+        path.addCurve(
+            to: point(x: right - radius, y: top, index: 1),
+            control1: point(x: left + radius + (right - left - 2 * radius) * 0.28, y: top, index: 2),
+            control2: point(x: right - radius - (right - left - 2 * radius) * 0.24, y: top, index: 3)
+        )
+        path.addCurve(
+            to: point(x: right, y: top + radius, index: 4),
+            control1: point(x: right - radius * 0.36, y: top, index: 5),
+            control2: point(x: right, y: top + radius * 0.38, index: 6)
+        )
+        path.addCurve(
+            to: point(x: right, y: bottom - radius, index: 7),
+            control1: point(x: right, y: top + radius + (bottom - top - 2 * radius) * 0.28, index: 8),
+            control2: point(x: right, y: bottom - radius - (bottom - top - 2 * radius) * 0.26, index: 9)
+        )
+        path.addCurve(
+            to: point(x: right - radius, y: bottom, index: 10),
+            control1: point(x: right, y: bottom - radius * 0.36, index: 11),
+            control2: point(x: right - radius * 0.38, y: bottom, index: 12)
+        )
+        path.addCurve(
+            to: point(x: left + radius, y: bottom, index: 13),
+            control1: point(x: right - radius - (right - left - 2 * radius) * 0.28, y: bottom, index: 14),
+            control2: point(x: left + radius + (right - left - 2 * radius) * 0.25, y: bottom, index: 15)
+        )
+        path.addCurve(
+            to: point(x: left, y: bottom - radius, index: 16),
+            control1: point(x: left + radius * 0.36, y: bottom, index: 17),
+            control2: point(x: left, y: bottom - radius * 0.38, index: 18)
+        )
+        path.addCurve(
+            to: point(x: left, y: top + radius, index: 19),
+            control1: point(x: left, y: bottom - radius - (bottom - top - 2 * radius) * 0.28, index: 20),
+            control2: point(x: left, y: top + radius + (bottom - top - 2 * radius) * 0.25, index: 21)
+        )
+        path.addCurve(
+            to: point(x: left + radius, y: top, index: 22),
+            control1: point(x: left, y: top + radius * 0.36, index: 23),
+            control2: point(x: left + radius * 0.38, y: top, index: 24)
+        )
+        path.closeSubpath()
+        return path
+    }
+
+    private func point(x: CGFloat, y: CGFloat, index: Int) -> CGPoint {
+        let offsets: [CGFloat] = [0.12, -0.28, 0.22, -0.16, 0.30, -0.18, 0.14, -0.24]
+        let offset = offsets[(index + phase) % offsets.count] * variation
+        return CGPoint(x: x + offset, y: y + offset * 0.72)
+    }
+}
+
 enum TaskCountdownDisplayRules {
     static let refreshInterval: TimeInterval = 1
 
@@ -64,10 +131,19 @@ struct BingoCellView: View {
     @State private var completionPulseGeneration = 0
     @State private var completionPulseWorkItem: DispatchWorkItem?
 
-    private let boardSurfaceColor = Color(hex: "F4F4F4")
+    private let boardSurfaceColor = Color.white
     private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
     private var bingoLineColor: Color { activeTheme.color }
-    private var selectedColor: Color { reducedSaturationColor(from: activeTheme.color, by: 0.30) }
+    private var selectedColor: Color { activeTheme.bingoSurfaceColor }
+    private var cellBorderColor: Color {
+        if isInBingoLine {
+            return bingoLineColor
+        }
+        if cell.isCompleted {
+            return selectedColor
+        }
+        return activeTheme.bingoCellOutlineColor
+    }
     private let primaryTextColor = Color(hex: "291E0A")
     private let cellCornerRadius: CGFloat = 12
     private var isPadLayout: Bool { horizontalSizeClass == .regular }
@@ -520,6 +596,8 @@ struct BingoCellView: View {
                     .fill(Color.white.opacity(0.2))
             }
 
+            handDrawnBorder
+
             if isDropTarget {
                 RoundedRectangle(cornerRadius: cellCornerRadius)
                     .stroke(
@@ -543,6 +621,9 @@ struct BingoCellView: View {
     private var hiddenBackgroundSurface: some View {
         RoundedRectangle(cornerRadius: cellCornerRadius, style: .continuous)
             .fill(isInBingoLine ? bingoLineColor : selectedColor)
+            .overlay {
+                handDrawnBorder
+            }
     }
 
     private var completionArtwork: some View {
@@ -590,23 +671,28 @@ struct BingoCellView: View {
 #endif
     }
 
-    private func reducedSaturationColor(from color: Color, by amount: CGFloat) -> Color {
-        let ui = UIColor(color)
-        var hue: CGFloat = 0
-        var saturation: CGFloat = 0
-        var brightness: CGFloat = 0
-        var alpha: CGFloat = 0
+    private var handDrawnBorder: some View {
+        ZStack {
+            HandDrawnRoundedRectangle(
+                cornerRadius: cellCornerRadius,
+                variation: 0.9,
+                phase: 0
+            )
+            .stroke(
+                cellBorderColor.opacity(0.78),
+                style: StrokeStyle(lineWidth: 1.15, lineCap: .round, lineJoin: .round)
+            )
 
-        guard ui.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha) else {
-            return color
+            HandDrawnRoundedRectangle(
+                cornerRadius: cellCornerRadius + 0.35,
+                variation: 1.2,
+                phase: 3
+            )
+            .stroke(
+                cellBorderColor.opacity(0.24),
+                style: StrokeStyle(lineWidth: 0.7, lineCap: .round, lineJoin: .round)
+            )
         }
-
-        return Color(
-            hue: Double(hue),
-            saturation: Double(max(0, saturation - amount)),
-            brightness: Double(brightness),
-            opacity: Double(alpha)
-        )
     }
 
     private func scheduleLongPressRecognition() {

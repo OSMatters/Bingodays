@@ -1,4 +1,52 @@
 import SwiftUI
+import UIKit
+
+private struct BoardBackgroundBlurView: UIViewRepresentable {
+    let intensity: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> UIVisualEffectView {
+        let view = UIVisualEffectView(effect: nil)
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+        context.coordinator.update(view, intensity: intensity)
+        return view
+    }
+
+    func updateUIView(_ view: UIVisualEffectView, context: Context) {
+        context.coordinator.update(view, intensity: intensity)
+    }
+
+    static func dismantleUIView(_ view: UIVisualEffectView, coordinator: Coordinator) {
+        coordinator.animator?.stopAnimation(true)
+        coordinator.animator = nil
+    }
+
+    final class Coordinator {
+        var animator: UIViewPropertyAnimator?
+        private var currentIntensity: CGFloat?
+
+        func update(_ view: UIVisualEffectView, intensity: CGFloat) {
+            let clampedIntensity = min(max(intensity, 0), 1)
+            guard currentIntensity != clampedIntensity else { return }
+
+            animator?.stopAnimation(true)
+
+            let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) {
+                view.effect = UIBlurEffect(style: .light)
+            }
+            animator.startAnimation()
+            animator.pauseAnimation()
+            animator.fractionComplete = clampedIntensity
+
+            self.animator = animator
+            currentIntensity = clampedIntensity
+        }
+    }
+}
 
 struct BingoBoardView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -52,8 +100,6 @@ struct BingoBoardView: View {
     @State private var pendingPadEditorTargetAfterActions: EditingTarget?
     @State private var taskMutationError: String?
     @State private var editSheetSessionID = UUID()
-    private let boardSurfaceColor = Color(hex: "EBEBEB")
-
     private let boardOuterPadding: CGFloat = 0
     private var boardInnerPadding: CGFloat {
         switch viewModel.gridSize {
@@ -77,7 +123,9 @@ struct BingoBoardView: View {
     }
 
     private var isPadDevice: Bool {
-        UIDevice.current.userInterfaceIdiom == .pad
+        // Use the current window's size class so an unfolded iPhone Duo gets the same
+        // presentation behavior as other regular-width layouts.
+        isPadLayout
     }
 
     var body: some View {
@@ -356,10 +404,16 @@ struct BingoBoardView: View {
         }
     }
 
+    @ViewBuilder
     private var boardContainerSurface: some View {
         let shape = RoundedRectangle(cornerRadius: boardCornerRadius, style: .continuous)
-        return shape
-            .fill(boardSurfaceColor)
+
+        ZStack {
+            BoardBackgroundBlurView(intensity: 0.3)
+
+            shape.fill(Color.white.opacity(0.2))
+        }
+        .clipShape(shape)
     }
 
     private var undoToast: some View {

@@ -62,8 +62,10 @@ enum BingoTimeoutStore {
             }
     }
 
-    static func loadAllPayload() -> [String: [String: Int]] {
-        loadPayload()
+    static func loadAllPayload(
+        reading mode: PersistenceReadMode = .repairingMirrors
+    ) -> [String: [String: Int]] {
+        loadPayload(reading: mode)
     }
 
     static func totalTimedOutTasks() -> Int {
@@ -96,10 +98,13 @@ enum BingoTimeoutStore {
         persist(payload)
     }
 
-    private static func loadPayload() -> [String: [String: Int]] {
+    private static func loadPayload(
+        reading mode: PersistenceReadMode = .repairingMirrors
+    ) -> [String: [String: Int]] {
         if let data = sharedDefaults.data(forKey: key),
            let payload = try? JSONDecoder().decode([String: [String: Int]].self, from: data) {
-            if UserDefaults.standard.data(forKey: key) != data {
+            if mode == .repairingMirrors,
+               UserDefaults.standard.data(forKey: key) != data {
                 _ = PersistenceWriteTransaction.commit([
                     PersistenceWriteTransaction.userDefaultsStep(
                         defaults: .standard,
@@ -116,13 +121,15 @@ enum BingoTimeoutStore {
             return [:]
         }
 
-        _ = PersistenceWriteTransaction.commit([
-            PersistenceWriteTransaction.userDefaultsStep(
-                defaults: sharedDefaults,
-                key: key,
-                newValue: data
-            )
-        ])
+        if mode == .repairingMirrors {
+            _ = PersistenceWriteTransaction.commit([
+                PersistenceWriteTransaction.userDefaultsStep(
+                    defaults: sharedDefaults,
+                    key: key,
+                    newValue: data
+                )
+            ])
+        }
         return payload
     }
 

@@ -400,7 +400,7 @@ struct PointsRewardRedeemOverlay: View {
                 .allowsHitTesting(false)
                 .offset(y: contentLift)
 
-            ZStack {
+            GeometryReader { proxy in
                 ZStack {
                     Image(reward.themeImageName ?? "CustomRewardDefaultCard")
                         .resizable()
@@ -452,7 +452,9 @@ struct PointsRewardRedeemOverlay: View {
                     y: cardDepthShadowY
                 )
                 .scaleEffect(isRedeeming ? 1.06 : (phase == .success ? 1.03 : 1))
-                .position(x: UIScreen.main.bounds.width / 2, y: cardCenterY)
+                // Use the presenting window's width. UIScreen.main can describe the outer
+                // display while this overlay is rendered on Duo's inner display.
+                .position(x: proxy.size.width / 2, y: cardCenterY)
 
                 VStack(spacing: scaled(14, pad: 20)) {
                     Spacer()
@@ -505,7 +507,7 @@ struct PointsRewardRedeemOverlay: View {
 
                     Spacer()
                 }
-                .padding(.horizontal, scaled(32, pad: 64))
+                    .padding(.horizontal, scaled(32, pad: 64))
             }
             .offset(y: contentLift)
         }

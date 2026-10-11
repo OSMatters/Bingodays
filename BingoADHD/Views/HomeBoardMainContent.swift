@@ -77,7 +77,8 @@ struct HomeBoardMainContent: View {
                 onShuffle: onShuffle,
                 onClearBoard: onClearBoard,
                 onGridSize: onGridSize,
-                onQuickEdit: onQuickEdit
+                onQuickEdit: onQuickEdit,
+                liveActivityBoardID: selectedBoardID
             )
             .padding(.top, 10)
         }

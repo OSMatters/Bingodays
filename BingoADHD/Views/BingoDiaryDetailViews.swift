@@ -48,7 +48,7 @@ struct BingoDiaryStatsListSheet: View {
                     }
                     .accessibilityLabel(L10n.done)
                     .fontWeight(.semibold)
-                    .foregroundColor(NeumorphicColors.accent)
+                    .foregroundColor(NeumorphicColors.modalAccent)
                 }
             }
         }
@@ -367,7 +367,7 @@ private struct BingoDiaryDetailView: View {
                     }
                     .accessibilityLabel(L10n.done)
                     .fontWeight(.semibold)
-                    .foregroundColor(NeumorphicColors.accent)
+                    .foregroundColor(NeumorphicColors.modalAccent)
                 }
 
                 ToolbarItem(placement: .principal) {

@@ -35,18 +35,15 @@ enum BingoRewardSettlement {
         _ = mode
         var dailyRewardState = rewardStateResetIfNeeded(input.dailyRewardState, for: input.date)
 
-        let completedCellIDs = Set(
-            input.cells
-                .flatMap { $0 }
-                .filter { $0.isCompleted && !$0.isEmpty }
-                .map(\.id)
-        )
-        let newLineCount = input.completedLines.count
-        let newFullBoardRewardGranted = input.isBoardFullyCompleted
+        let completedCellIDs = completedCellIDs(in: input.cells)
 
         dailyRewardState.rewardedCellIDs = completedCellIDs
-        dailyRewardState.peakCompletedLineCount = newLineCount
-        dailyRewardState.fullBoardRewardGranted = newFullBoardRewardGranted
+        dailyRewardState.peakCompletedLineCount = max(
+            dailyRewardState.peakCompletedLineCount,
+            input.completedLines.count
+        )
+        dailyRewardState.fullBoardRewardGranted =
+            dailyRewardState.fullBoardRewardGranted || input.isBoardFullyCompleted
 
         return BingoRewardSettlementOutput(
             totalPoints: input.totalPoints,
@@ -70,51 +67,101 @@ enum BingoRewardSettlement {
         totalPoints: Int,
         lifetimePoints: Int,
         dailyRewardState: DailyRewardState,
-        taskIsNowCompleted: Bool? = nil
+        taskIsNowCompleted: Bool? = nil,
+        minimumTotalPoints: Int = 0
     ) -> BingoRewardSettlementOutput {
-        let rawTaskDelta = completedTaskCount(in: currentCells) - completedTaskCount(in: previousCells)
-        let taskDelta: Int
-        if let taskIsNowCompleted {
-            taskDelta = taskIsNowCompleted ? 1 : -1
-        } else {
-            taskDelta = rawTaskDelta
+        var currentDailyRewardState = rewardStateResetIfNeeded(dailyRewardState, for: date)
+        let pointsFloor = max(minimumTotalPoints, 0)
+        var updatedTotalPoints = max(totalPoints, pointsFloor)
+        var updatedLifetimePoints = lifetimePoints
+
+        let previousCompletedCellIDs = completedCellIDs(in: previousCells)
+        let currentCompletedCellIDs = completedCellIDs(in: currentCells)
+
+        for cellID in currentCompletedCellIDs.subtracting(previousCompletedCellIDs).sorted(by: stableOrder) {
+            let key = cellID.uuidString.lowercased()
+            if let restoredPoints = currentDailyRewardState.taskReversalCredits.removeValue(forKey: key) {
+                updatedTotalPoints += max(restoredPoints, 0)
+                updatedLifetimePoints += max(restoredPoints, 0)
+            } else {
+                updatedTotalPoints += 1
+                updatedLifetimePoints += 1
+            }
         }
 
-        let rawLineDelta = currentCompletedLines.count - previousCompletedLines.count
-        let lineDelta: Int
+        for cellID in previousCompletedCellIDs.subtracting(currentCompletedCellIDs).sorted(by: stableOrder) {
+            let key = cellID.uuidString.lowercased()
+            currentDailyRewardState.taskReversalCredits[key] = deduct(
+                1,
+                from: &updatedTotalPoints,
+                minimumTotalPoints: pointsFloor
+            )
+        }
+
+        let restoredLines: Set<BingoLine>
+        let undoneLines: Set<BingoLine>
         if taskIsNowCompleted == true {
-            // A completion can create lines but can never revoke them. If an
-            // imported/stale board cache says otherwise, preserve the user's tap.
-            lineDelta = max(rawLineDelta, 0)
+            restoredLines = currentCompletedLines.subtracting(previousCompletedLines)
+            undoneLines = []
         } else if taskIsNowCompleted == false {
-            // Symmetrically, an undo can revoke lines but can never create them.
-            lineDelta = min(rawLineDelta, 0)
+            restoredLines = []
+            undoneLines = previousCompletedLines.subtracting(currentCompletedLines)
         } else {
-            lineDelta = rawLineDelta
+            restoredLines = currentCompletedLines.subtracting(previousCompletedLines)
+            undoneLines = previousCompletedLines.subtracting(currentCompletedLines)
         }
 
-        let rawFullBoardDelta = (currentIsBoardFullyCompleted ? 1 : 0) -
-            (previousIsBoardFullyCompleted ? 1 : 0)
-        let fullBoardDelta: Int
-        if taskIsNowCompleted == true {
-            fullBoardDelta = max(rawFullBoardDelta, 0)
-        } else if taskIsNowCompleted == false {
-            fullBoardDelta = min(rawFullBoardDelta, 0)
-        } else {
-            fullBoardDelta = rawFullBoardDelta
+        for line in restoredLines.sorted(by: stableLineOrder) {
+            let key = lineRewardSourceID(line, cells: currentCells)
+            if let restoredPoints = currentDailyRewardState.lineReversalCredits.removeValue(forKey: key) {
+                updatedTotalPoints += max(restoredPoints, 0)
+                updatedLifetimePoints += max(restoredPoints, 0)
+            } else {
+                updatedTotalPoints += 5
+                updatedLifetimePoints += 5
+            }
         }
 
-        let delta = taskDelta + (lineDelta * 5) + (fullBoardDelta * 10)
-        let currentDailyRewardState = dailyRewardSnapshot(
-            for: date,
-            cells: currentCells,
-            completedLines: currentCompletedLines,
-            isBoardFullyCompleted: currentIsBoardFullyCompleted
+        for line in undoneLines.sorted(by: stableLineOrder) {
+            let key = lineRewardSourceID(line, cells: previousCells)
+            currentDailyRewardState.lineReversalCredits[key] = deduct(
+                5,
+                from: &updatedTotalPoints,
+                minimumTotalPoints: pointsFloor
+            )
+        }
+
+        if taskIsNowCompleted != false,
+           currentIsBoardFullyCompleted && !previousIsBoardFullyCompleted {
+            let key = fullBoardRewardSourceID(cells: currentCells)
+            if let restoredPoints = currentDailyRewardState.fullBoardReversalCredits.removeValue(forKey: key) {
+                updatedTotalPoints += max(restoredPoints, 0)
+                updatedLifetimePoints += max(restoredPoints, 0)
+            } else {
+                updatedTotalPoints += 10
+                updatedLifetimePoints += 10
+            }
+        } else if taskIsNowCompleted != true,
+                  !currentIsBoardFullyCompleted && previousIsBoardFullyCompleted {
+            let key = fullBoardRewardSourceID(cells: previousCells)
+            currentDailyRewardState.fullBoardReversalCredits[key] = deduct(
+                10,
+                from: &updatedTotalPoints,
+                minimumTotalPoints: pointsFloor
+            )
+        }
+
+        currentDailyRewardState.rewardedCellIDs = currentCompletedCellIDs
+        currentDailyRewardState.peakCompletedLineCount = max(
+            currentDailyRewardState.peakCompletedLineCount,
+            currentCompletedLines.count
         )
+        currentDailyRewardState.fullBoardRewardGranted =
+            currentDailyRewardState.fullBoardRewardGranted || currentIsBoardFullyCompleted
 
         return BingoRewardSettlementOutput(
-            totalPoints: max(totalPoints + delta, 0),
-            lifetimePoints: lifetimePoints + max(delta, 0),
+            totalPoints: updatedTotalPoints,
+            lifetimePoints: updatedLifetimePoints,
             dailyRewardState: currentDailyRewardState
         )
     }
@@ -133,7 +180,8 @@ enum BingoRewardSettlement {
         currentIsBoardFullyCompleted: Bool,
         totalPoints: Int,
         lifetimePoints: Int,
-        dailyRewardState: DailyRewardState
+        dailyRewardState: DailyRewardState,
+        minimumTotalPoints: Int = 0
     ) -> BingoRewardSettlementOutput {
         settleTaskToggle(
             date: date,
@@ -146,7 +194,8 @@ enum BingoRewardSettlement {
             totalPoints: totalPoints,
             lifetimePoints: lifetimePoints,
             dailyRewardState: dailyRewardState,
-            taskIsNowCompleted: nil
+            taskIsNowCompleted: nil,
+            minimumTotalPoints: minimumTotalPoints
         )
     }
 
@@ -159,14 +208,18 @@ enum BingoRewardSettlement {
         savedDailyRewardState: DailyRewardState? = PointsStore.loadDailyRewardState()
     ) -> DailyRewardState {
         let todayKey = PointsStore.dateKey(for: referenceDate)
-        if let savedState = savedDailyRewardState,
-           savedState.dateKey == todayKey,
-           isRewardState(
-                savedState,
-                compatibleWith: currentCells,
-                completedLines: currentCompletedLines,
-                isBoardFullyCompleted: isBoardFullyCompleted
-           ) {
+        if var savedState = savedDailyRewardState,
+           savedState.dateKey == todayKey {
+            // The board may differ after an undo, board switch, or CloudKit
+            // refresh. Preserve the reversal credits for this reward day so a
+            // re-completion can only restore what was actually deducted.
+            savedState.rewardedCellIDs = completedCellIDs(in: currentCells)
+            savedState.peakCompletedLineCount = max(
+                savedState.peakCompletedLineCount,
+                currentCompletedLines.count
+            )
+            savedState.fullBoardRewardGranted =
+                savedState.fullBoardRewardGranted || isBoardFullyCompleted
             return savedState
         }
 
@@ -215,23 +268,6 @@ enum BingoRewardSettlement {
         DailyRewardState(dateKey: PointsStore.dateKey(for: date))
     }
 
-    private static func isRewardState(
-        _ state: DailyRewardState,
-        compatibleWith cells: [[BingoCell]],
-        completedLines: Set<BingoLine>,
-        isBoardFullyCompleted: Bool
-    ) -> Bool {
-        let completedCellIDs = Set(
-            cells
-                .flatMap { $0 }
-                .filter { $0.isCompleted && !$0.isEmpty }
-                .map(\.id)
-        )
-        return state.rewardedCellIDs == completedCellIDs &&
-            state.peakCompletedLineCount == completedLines.count &&
-            state.fullBoardRewardGranted == isBoardFullyCompleted
-    }
-
     private static func rewardStateResetIfNeeded(
         _ state: DailyRewardState,
         for date: Date
@@ -241,10 +277,56 @@ enum BingoRewardSettlement {
         return emptyDailyRewardState(for: date)
     }
 
-    private static func completedTaskCount(in cells: [[BingoCell]]) -> Int {
-        cells
+    private static func completedCellIDs(in cells: [[BingoCell]]) -> Set<UUID> {
+        Set(cells
             .flatMap { $0 }
             .filter { $0.isCompleted && !$0.isEmpty }
-            .count
+            .map(\.id))
+    }
+
+    private static func deduct(
+        _ requestedPoints: Int,
+        from totalPoints: inout Int,
+        minimumTotalPoints: Int
+    ) -> Int {
+        let availablePoints = max(totalPoints - minimumTotalPoints, 0)
+        let deductedPoints = min(max(requestedPoints, 0), availablePoints)
+        totalPoints -= deductedPoints
+        return deductedPoints
+    }
+
+    private static func stableOrder(_ lhs: UUID, _ rhs: UUID) -> Bool {
+        lhs.uuidString < rhs.uuidString
+    }
+
+    private static func stableLineOrder(_ lhs: BingoLine, _ rhs: BingoLine) -> Bool {
+        lineToken(lhs) < lineToken(rhs)
+    }
+
+    private static func lineRewardSourceID(_ line: BingoLine, cells: [[BingoCell]]) -> String {
+        "\(boardRewardSourceID(cells: cells)):line:\(lineToken(line))"
+    }
+
+    private static func fullBoardRewardSourceID(cells: [[BingoCell]]) -> String {
+        "\(boardRewardSourceID(cells: cells)):full"
+    }
+
+    private static func boardRewardSourceID(cells: [[BingoCell]]) -> String {
+        let cellIDs = cells
+            .flatMap { $0 }
+            .filter { !$0.isEmpty }
+            .map { $0.id.uuidString.lowercased() }
+            .sorted()
+            .joined(separator: ",")
+        return "board:\(cellIDs)"
+    }
+
+    private static func lineToken(_ line: BingoLine) -> String {
+        switch line {
+        case let .row(index): return "row-\(index)"
+        case let .column(index): return "column-\(index)"
+        case .diagonalMain: return "diagonal-main"
+        case .diagonalAnti: return "diagonal-anti"
+        }
     }
 }

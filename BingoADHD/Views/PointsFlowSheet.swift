@@ -3,7 +3,6 @@ import UIKit
 
 struct PointsFlowPresenter: View {
     let isPadLayout: Bool
-    let points: Int
     let totalPoints: Int
     @ObservedObject var pointsFeatureStore: PointsFeatureStore
     @Binding var limitedOfferState: LimitedOfferHomeState
@@ -21,41 +20,9 @@ struct PointsFlowPresenter: View {
     @State private var portalPresented = false
 
     var body: some View {
-        BlindBoxPullPortal(
-            enteredFromBottomTab: enteredFromBottomTab,
-            isEnabled: AppDebugFlags.blindBoxLiveFlowEnabled || AppDebugFlags.blindBoxPreviewEnabled,
-            isActive: isActive,
-            isRewardsSubpagePresented: rewardsSubpagePresented,
-            onPresentationChange: { presented in
-                portalPresented = presented
-            }
-        ) {
-            rewardsContent
-        } blindBox: { close in
-            if AppDebugFlags.blindBoxLiveFlowEnabled {
-                BlindBoxLiveFlowView(
-                    pointsFeatureStore: pointsFeatureStore,
-                    totalPoints: totalPoints,
-                    onSelectCustomRewards: close,
-                    onShowPremiumPaywall: {
-                        isShowingBlindBoxPremiumPaywall = true
-                    }
-                )
-            } else {
-                BlindBoxFlowView(
-                    previewAvailablePoints: points,
-                    onSelectCustomRewards: close,
-                    onShowPremiumPaywall: {
-                        isShowingBlindBoxPremiumPaywall = true
-                    }
-                )
-            }
-        }
+        rewardsContent
         .fullScreenCover(isPresented: $isShowingBlindBoxPremiumPaywall, onDismiss: {
-            NotificationCenter.default.post(
-                name: BlindBoxPremiumPaywallEntry.didDismiss,
-                object: blindBoxPurchaseTransactionID
-            )
+            NotificationCenter.default.post(name: BlindBoxPremiumPaywallEntry.didDismiss, object: blindBoxPurchaseTransactionID)
             blindBoxPurchaseTransactionID = nil
         }) {
             PremiumPaywallView(
@@ -69,14 +36,64 @@ struct PointsFlowPresenter: View {
         }
     }
 
+    private func rewardsPortal(_ content: AnyView) -> AnyView {
+        AnyView(
+        BlindBoxPullPortal(
+            enteredFromBottomTab: enteredFromBottomTab,
+            isEnabled: AppDebugFlags.blindBoxLiveFlowEnabled || AppDebugFlags.blindBoxPreviewEnabled,
+            isActive: isActive,
+            isRewardsSubpagePresented: rewardsSubpagePresented,
+            onPresentationChange: { presented in
+                portalPresented = presented
+            }
+        ) {
+            content
+        } blindBox: { close in
+            if AppDebugFlags.blindBoxLiveFlowEnabled {
+                BlindBoxLiveFlowView(
+                    pointsFeatureStore: pointsFeatureStore,
+                    totalPoints: totalPoints,
+                    onSelectCustomRewards: close,
+                    onShowPremiumPaywall: {
+                        isShowingBlindBoxPremiumPaywall = true
+                    },
+                    isBlindBoxStickerOnHome: pointsFeatureStore.isBlindBoxStickerOnHome,
+                    onAddBlindBoxStickerToHome: addBlindBoxStickerToHome
+                )
+            } else {
+                BlindBoxFlowView(
+                    previewAvailablePoints: availablePoints,
+                    onSelectCustomRewards: close,
+                    onShowPremiumPaywall: {
+                        isShowingBlindBoxPremiumPaywall = true
+                    },
+                    isBlindBoxStickerOnHome: pointsFeatureStore.isBlindBoxStickerOnHome,
+                    onAddBlindBoxStickerToHome: addBlindBoxStickerToHome
+                )
+            }
+        }
+        .onDisappear { portalPresented = false }
+        )
+    }
+
     private var suppressesTabBar: Bool {
         isActive && (portalPresented || rewardsSubpagePresented || isShowingBlindBoxPremiumPaywall)
+    }
+
+    private var availablePoints: Int {
+        pointsFeatureStore.availablePoints(totalPoints: totalPoints)
+    }
+
+    private func addBlindBoxStickerToHome(_ sticker: BlindBoxStickerDefinition) -> Bool {
+        guard pointsFeatureStore.addBlindBoxStickerToHome(sticker) else { return false }
+        onAddStickerToHomeSuccess()
+        return true
     }
 
     private var rewardsContent: some View {
         PointsFlowSheet(
                     isPadLayout: isPadLayout,
-                    points: points,
+                    points: availablePoints,
                     limitedOfferState: $limitedOfferState,
                     showsCloseButton: showsCloseButton,
                     bottomContentPadding: bottomContentPadding,
@@ -102,13 +119,16 @@ struct PointsFlowPresenter: View {
                         pointsFeatureStore.redeemReward(reward, totalPoints: totalPoints)
                     },
                     onCreateReward: { title, requiredPoints, emoji, themeImageName in
-                        pointsFeatureStore.createReward(
+                        pointsFeatureStore.createRewardResult(
                             title: title,
                             requiredPoints: requiredPoints,
                             emoji: emoji,
                             themeImageName: themeImageName,
                             hasPremiumAccess: subscriptionManager.hasPremiumAccess
                         )
+                    },
+                    canCreateReward: {
+                        pointsFeatureStore.canCreateReward(hasPremiumAccess: subscriptionManager.hasPremiumAccess)
                     },
                     onUpdateReward: { reward, title, requiredPoints, emoji, themeImageName in
                         pointsFeatureStore.updateReward(
@@ -124,7 +144,11 @@ struct PointsFlowPresenter: View {
                                 isArchived: reward.isArchived
                             )
                         )
-                    }
+                    },
+                    onReorderRewards: { orderedRewards in
+                        pointsFeatureStore.reorderRewards(orderedRewards)
+                    },
+                    wrapDetails: rewardsPortal
                 )
     }
 }
@@ -133,6 +157,7 @@ struct PointsFlowSheet: View {
     private enum Screen {
         case details
         case rewardEditor(CustomReward?)
+        case rewardReorder
     }
 
     let isPadLayout: Bool
@@ -149,8 +174,11 @@ struct PointsFlowSheet: View {
     let onAddStickerToHome: (StickerKind) -> Void
     let onDeleteReward: (CustomReward) -> Void
     let onRedeemReward: (CustomReward) -> Void
-    let onCreateReward: (String, Int, String, String?) -> Bool
-    let onUpdateReward: (CustomReward, String, Int, String, String?) -> Void
+    let onCreateReward: (String, Int, String, String?) -> CustomRewardCreationResult
+    let canCreateReward: () -> Bool
+    let onUpdateReward: (CustomReward, String, Int, String, String?) -> CustomRewardCreationResult
+    let onReorderRewards: ([CustomReward]) -> Bool
+    let wrapDetails: (AnyView) -> AnyView
 
     @State private var screen: Screen = .details
     @State private var detailsInitialTab: PointsTab = .rewards
@@ -159,27 +187,28 @@ struct PointsFlowSheet: View {
     @State private var isPremiumPaywallPresented = false
     @State private var isDetailsPresentationPresented = false
     @State private var premiumPaywallSource = "custom_reward_limit_create"
-    @State private var isResolvingRewardCreateAccess = false
     @State private var isSavingNewReward = false
     @State private var rewardSaveFailureMessage: String?
+    @State private var rewardSaveTask: Task<Void, Never>?
+    @State private var rewardSaveOperationID: UUID?
+    @State private var pendingCreateAfterPaywall = false
+    @State private var paywallPresentationID: UUID?
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
 
     var body: some View {
         ZStack {
             switch screen {
             case .details:
-                detailsContent
+                wrapDetails(AnyView(detailsContent))
             case .rewardEditor(let reward):
                 RewardEditorSheet(
                     reward: reward,
                     isSaving: reward == nil && isSavingNewReward,
                     onSave: { title, requiredPoints, emoji, themeImageName in
                         if let reward {
-                            onUpdateReward(reward, title, requiredPoints, emoji, themeImageName)
-                            detailsInitialTab = .rewards
-                            screen = .details
+                            finishRewardSave(onUpdateReward(reward, title, requiredPoints, emoji, themeImageName))
                         } else {
-                            saveNewRewardAfterEntitlementRefresh(
+                            saveNewReward(
                                 title: title,
                                 requiredPoints: requiredPoints,
                                 emoji: emoji,
@@ -193,6 +222,22 @@ struct PointsFlowSheet: View {
                             detailsInitialTab = .rewards
                             screen = .details
                         }
+                    },
+                    onCancel: {
+                        cancelPendingRewardSave()
+                        detailsInitialTab = .rewards
+                        screen = .details
+                    }
+                )
+            case .rewardReorder:
+                RewardReorderListView(
+                    rewards: rewards,
+                    isPadLayout: isPadLayout,
+                    onSave: { orderedRewards in
+                        guard onReorderRewards(orderedRewards) else { return false }
+                        detailsInitialTab = .rewards
+                        screen = .details
+                        return true
                     },
                     onCancel: {
                         detailsInitialTab = .rewards
@@ -239,7 +284,7 @@ struct PointsFlowSheet: View {
                 .zIndex(10)
             }
         }
-        .fullScreenCover(isPresented: $isPremiumPaywallPresented) {
+        .fullScreenCover(isPresented: $isPremiumPaywallPresented, onDismiss: resumePendingRewardCreation) {
             PremiumPaywallView(
                 entrySource: premiumPaywallSource,
                 limitedOfferState: $limitedOfferState
@@ -258,6 +303,7 @@ struct PointsFlowSheet: View {
         .onAppear {
             onSubpagePresentationChange(isSubpagePresented)
         }
+        .onDisappear { cancelPendingRewardSave() }
         .onChange(of: isSubpagePresented) { _, isPresented in
             onSubpagePresentationChange(isPresented)
         }
@@ -269,6 +315,8 @@ struct PointsFlowSheet: View {
             return selectedStickerForDetail != nil || selectedRewardForDetail != nil ||
                 isPremiumPaywallPresented || isDetailsPresentationPresented
         case .rewardEditor:
+            return true
+        case .rewardReorder:
             return true
         }
     }
@@ -284,35 +332,20 @@ struct PointsFlowSheet: View {
         )
     }
 
-    private var canCreateAnotherReward: Bool {
-        subscriptionManager.hasPremiumAccess || rewards.count < AppSettings.maxFreeCustomRewards
-    }
-
     private func handleCreateRewardRequest(source: String = "custom_reward_limit_create") {
-        guard rewards.count >= AppSettings.maxFreeCustomRewards else {
+        DiagnosticLogStore.recordUserAction("custom_reward.add_requested", details: [
+            "active_count": "\(rewards.count)", "has_premium": "\(subscriptionManager.hasPremiumAccess)"
+        ])
+        if canCreateReward() {
             detailsInitialTab = .rewards
             screen = .rewardEditor(nil)
             return
         }
 
-        guard !isResolvingRewardCreateAccess else { return }
-        isResolvingRewardCreateAccess = true
-
-        Task { @MainActor in
-            defer { isResolvingRewardCreateAccess = false }
-            await subscriptionManager.refreshEntitlements()
-
-            guard canCreateAnotherReward else {
-                presentCustomRewardPremiumPaywall(source: source)
-                return
-            }
-
-            detailsInitialTab = .rewards
-            screen = .rewardEditor(nil)
-        }
+        presentCustomRewardPremiumPaywall(source: source)
     }
 
-    private func saveNewRewardAfterEntitlementRefresh(
+    private func saveNewReward(
         title: String,
         requiredPoints: Int,
         emoji: String,
@@ -320,36 +353,79 @@ struct PointsFlowSheet: View {
     ) {
         guard !isSavingNewReward else { return }
         isSavingNewReward = true
+        let operationID = UUID()
+        rewardSaveOperationID = operationID
 
-        Task { @MainActor in
-            defer { isSavingNewReward = false }
+        rewardSaveTask = Task { @MainActor in
+            defer {
+                if rewardSaveOperationID == operationID {
+                    isSavingNewReward = false
+                    rewardSaveOperationID = nil
+                    rewardSaveTask = nil
+                }
+            }
+            guard !Task.isCancelled, rewardSaveOperationID == operationID else { return }
 
-            if rewards.count < AppSettings.maxFreeCustomRewards,
-               onCreateReward(title, requiredPoints, emoji, themeImageName) {
-                detailsInitialTab = .rewards
-                screen = .details
+            let initialResult = onCreateReward(title, requiredPoints, emoji, themeImageName)
+            guard initialResult == .premiumRequired else {
+                finishRewardSave(initialResult)
                 return
             }
 
+            // A real device can enter the points flow before RevenueCat has
+            // finished applying the cached entitlement. Refresh only after
+            // the authoritative store rejects the save, then retry once with
+            // the refreshed access state.
             await subscriptionManager.refreshEntitlements()
+            guard !Task.isCancelled, rewardSaveOperationID == operationID else { return }
 
-            guard canCreateAnotherReward else {
+            guard subscriptionManager.hasPremiumAccess else {
                 presentCustomRewardPremiumPaywall(source: "custom_reward_limit_save")
                 return
             }
 
-            if onCreateReward(title, requiredPoints, emoji, themeImageName) {
-                detailsInitialTab = .rewards
-                screen = .details
-            } else {
-                rewardSaveFailureMessage = L10n.tr(
-                    "Please try again. If it still fails, restore your purchase and reopen this page.",
-                    zhHans: "请重试一次。如果仍然失败，请恢复购买后重新打开此页面。",
-                    zhHant: "請再試一次。如果仍然失敗，請恢復購買後重新開啟此頁面。",
-                    ja: "もう一度お試しください。失敗が続く場合は購入を復元してからこの画面を開き直してください。"
-                )
-            }
+            finishRewardSave(onCreateReward(title, requiredPoints, emoji, themeImageName))
         }
+    }
+
+    private func cancelPendingRewardSave() {
+        rewardSaveTask?.cancel()
+        rewardSaveTask = nil
+        rewardSaveOperationID = nil
+        isSavingNewReward = false
+    }
+
+    private func finishRewardSave(_ result: CustomRewardCreationResult) {
+        DiagnosticLogStore.recordStateChange("custom_reward.save_result", details: [
+            "result": "\(result)", "active_count": "\(rewards.count)",
+            "has_premium": "\(subscriptionManager.hasPremiumAccess)"
+        ])
+        switch result {
+        case .created:
+            detailsInitialTab = .rewards
+            screen = .details
+        case .premiumRequired:
+            presentCustomRewardPremiumPaywall(source: "custom_reward_limit_save")
+        case .invalidInput:
+            rewardSaveFailureMessage = L10n.tr("Check the reward name and points.", zhHans: "请检查奖励名称和兑换积分。", zhHant: "請檢查獎勵名稱和兌換積分。", ja: "報酬名と交換ポイントを確認してください。")
+        case .rewardUnavailable:
+            rewardSaveFailureMessage = L10n.tr("This reward is no longer available. Reopen the reward list.", zhHans: "此奖励已不存在，请重新打开奖励列表。", zhHant: "此獎勵已不存在，請重新開啟獎勵列表。", ja: "この報酬は利用できません。報酬一覧を開き直してください。")
+        case .dataChanged:
+            rewardSaveFailureMessage = L10n.tr("Rewards changed while you were editing. Your input is kept; please try saving again.", zhHans: "编辑期间奖励数据发生变化，已保留输入，请再次保存。", zhHant: "編輯期間獎勵資料發生變化，已保留輸入，請再次儲存。", ja: "編集中に報酬データが変更されました。入力内容を保持しています。再度保存してください。")
+        case .persistenceFailed:
+            rewardSaveFailureMessage = L10n.tr("Couldn't save. Your changes are kept here; please try again.", zhHans: "保存失败，已保留当前输入，请重试。", zhHant: "儲存失敗，已保留目前輸入，請重試。", ja: "保存できませんでした。入力内容は保持されています。再試行してください。")
+        }
+    }
+
+    private func resumePendingRewardCreation() {
+        paywallPresentationID = nil
+        defer { pendingCreateAfterPaywall = false }
+        guard pendingCreateAfterPaywall, subscriptionManager.hasPremiumAccess else { return }
+        if case .details = screen {
+            detailsInitialTab = .rewards
+            screen = .rewardEditor(nil)
+        }
+        // An existing editor stays mounted so its draft survives the paywall.
     }
 
     private func presentCustomRewardPremiumPaywall(source: String) {
@@ -358,9 +434,16 @@ struct PointsFlowSheet: View {
             source: source
         )
         premiumPaywallSource = source
+        pendingCreateAfterPaywall = true
+        let presentationID = UUID()
+        paywallPresentationID = presentationID
         isPremiumPaywallPresented = true
         Task { @MainActor in
             await subscriptionManager.refreshEntitlements()
+            guard paywallPresentationID == presentationID, isPremiumPaywallPresented else { return }
+            if subscriptionManager.hasPremiumAccess {
+                isPremiumPaywallPresented = false
+            }
         }
     }
 
@@ -385,6 +468,10 @@ struct PointsFlowSheet: View {
             onRequestEditReward: { reward in
                 detailsInitialTab = .rewards
                 screen = .rewardEditor(reward)
+            },
+            onRequestReorderRewards: {
+                detailsInitialTab = .rewards
+                screen = .rewardReorder
             },
             onSelectSticker: { sticker in
                 selectedStickerForDetail = sticker
@@ -429,6 +516,7 @@ private struct PointsDetailSheet: View {
     let onRedeemReward: (CustomReward) -> Void
     let onRequestCreateReward: () -> Void
     let onRequestEditReward: (CustomReward) -> Void
+    let onRequestReorderRewards: () -> Void
     let onSelectSticker: (StickerKind) -> Void
     let onSelectReward: (CustomReward) -> Void
     let onPresentationChange: (Bool) -> Void
@@ -438,7 +526,6 @@ private struct PointsDetailSheet: View {
     @State private var actionRewardID: UUID?
     @State private var pendingDeleteReward: CustomReward?
     @State private var isDeleteActionSheetPresented = false
-    @State private var isDeleteSecondConfirmPresented = false
     @State private var isHistoryPresented = false
 
     init(
@@ -456,6 +543,7 @@ private struct PointsDetailSheet: View {
         onRedeemReward: @escaping (CustomReward) -> Void,
         onRequestCreateReward: @escaping () -> Void,
         onRequestEditReward: @escaping (CustomReward) -> Void,
+        onRequestReorderRewards: @escaping () -> Void,
         onSelectSticker: @escaping (StickerKind) -> Void,
         onSelectReward: @escaping (CustomReward) -> Void,
         onPresentationChange: @escaping (Bool) -> Void
@@ -473,6 +561,7 @@ private struct PointsDetailSheet: View {
         self.onRedeemReward = onRedeemReward
         self.onRequestCreateReward = onRequestCreateReward
         self.onRequestEditReward = onRequestEditReward
+        self.onRequestReorderRewards = onRequestReorderRewards
         self.onSelectSticker = onSelectSticker
         self.onSelectReward = onSelectReward
         self.onPresentationChange = onPresentationChange
@@ -484,7 +573,8 @@ private struct PointsDetailSheet: View {
     }
 
     private var isPadDevice: Bool {
-        UIDevice.current.userInterfaceIdiom == .pad
+        // Presentation and card sizing follow the active window, not the physical device.
+        isPadLayout
     }
 
     private var usesPadBottomHalfSheet: Bool {
@@ -628,7 +718,10 @@ private struct PointsDetailSheet: View {
                 titleVisibility: .visible
             ) {
                 Button(L10n.deleteReward, role: .destructive) {
-                    isDeleteSecondConfirmPresented = true
+                    if let pendingDeleteReward {
+                        onDeleteReward(pendingDeleteReward)
+                    }
+                    pendingDeleteReward = nil
                 }
                 Button(L10n.cancel, role: .cancel) {
                     pendingDeleteReward = nil
@@ -636,24 +729,6 @@ private struct PointsDetailSheet: View {
             } message: {
                 Text(L10n.tr("This action cannot be undone.", zhHans: "删除后无法恢复。", zhHant: "刪除後無法復原。", ja: "この操作は取り消せません。"))
             }
-            .alert(
-                L10n.tr("Confirm Delete", zhHans: "再次确认删除", zhHant: "再次確認刪除", ja: "削除の確認"),
-                isPresented: $isDeleteSecondConfirmPresented,
-                actions: {
-                    Button(L10n.cancel, role: .cancel) {
-                        pendingDeleteReward = nil
-                    }
-                    Button(L10n.deleteReward, role: .destructive) {
-                        if let pendingDeleteReward {
-                            onDeleteReward(pendingDeleteReward)
-                        }
-                        pendingDeleteReward = nil
-                    }
-                },
-                message: {
-                    Text(L10n.tr("Are you sure you want to permanently delete this reward?", zhHans: "确定要永久删除这个奖励吗？", zhHant: "確定要永久刪除這個獎勵嗎？", ja: "この報酬を完全に削除してもよろしいですか？"))
-                }
-            )
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
@@ -673,7 +748,7 @@ private struct PointsDetailSheet: View {
                     } : nil
                 )
             }
-            .onChange(of: isHistoryPresented || isDeleteActionSheetPresented || isDeleteSecondConfirmPresented || actionRewardID != nil, initial: true) { _, isPresented in
+            .onChange(of: isHistoryPresented || isDeleteActionSheetPresented || actionRewardID != nil, initial: true) { _, isPresented in
                 onPresentationChange(isPresented)
             }
         }
@@ -700,18 +775,36 @@ private struct PointsDetailSheet: View {
 
             Spacer()
 
-            Button {
-                isHistoryPresented = true
-            } label: {
-                LiquidGlassIconBadge(
-                    imageName: "HistoryIcon",
-                    size: scaled(44, pad: 52),
-                    iconSize: scaled(26, pad: 30)
-                )
+            HStack(spacing: scaled(10, pad: 12)) {
+                if selectedTab == .rewards && rewards.count > 1 {
+                    Button {
+                        onRequestReorderRewards()
+                    } label: {
+                        LiquidGlassIconBadge(
+                            systemName: "arrow.up.arrow.down",
+                            size: scaled(44, pad: 52),
+                            iconSize: scaled(18, pad: 22),
+                            usesLiquidGlass: false
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.reorderRewards)
+                }
+
+                Button {
+                    isHistoryPresented = true
+                } label: {
+                    LiquidGlassIconBadge(
+                        imageName: "HistoryIcon",
+                        size: scaled(44, pad: 52),
+                        iconSize: scaled(26, pad: 30),
+                        usesLiquidGlass: false
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.tr("Reward history", zhHans: "奖励历史", zhHant: "獎勵歷史", ja: "報酬履歴"))
             }
-            .buttonStyle(.plain)
         }
-        .appGlassEffectContainer()
     }
 
     private var tabSelector: some View {
@@ -888,6 +981,8 @@ private struct PointsDetailSheet: View {
             }
         }
         .onLongPressGesture(minimumDuration: 0.35) {
+            guard actionRewardID != reward.id else { return }
+            AppHaptics.control()
             withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
                 actionRewardID = reward.id
             }
@@ -1051,4 +1146,293 @@ private struct PointsDetailSheet: View {
             )
     }
 
+}
+
+private struct RewardReorderListView: View {
+    let rewards: [CustomReward]
+    let isPadLayout: Bool
+    let onSave: ([CustomReward]) -> Bool
+    let onCancel: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var draftRewards: [CustomReward]
+    @State private var draggingRewardID: UUID?
+    @State private var dragStartIndex: Int?
+    @State private var dragTargetIndex: Int?
+    @State private var dragTranslation: CGFloat = 0
+    @State private var saveErrorMessage: String?
+
+    init(
+        rewards: [CustomReward],
+        isPadLayout: Bool,
+        onSave: @escaping ([CustomReward]) -> Bool,
+        onCancel: @escaping () -> Void
+    ) {
+        self.rewards = rewards
+        self.isPadLayout = isPadLayout
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _draftRewards = State(initialValue: rewards)
+    }
+
+    private var didChangeOrder: Bool {
+        draftRewards.map(\.id) != rewards.map(\.id)
+    }
+
+    private var rowHeight: CGFloat {
+        isPadLayout ? 72 : 64
+    }
+
+    private var reorderAnimation: Animation? {
+        reduceMotion ? nil : .smooth(duration: 0.18, extraBounce: 0)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(L10n.rewardOrderHint)
+                        .font(.appSystem(size: isPadLayout ? 16 : 14, weight: .medium, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, isPadLayout ? 24 : 18)
+                        .padding(.top, 12)
+
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(draftRewards.enumerated()), id: \.element.id) { index, reward in
+                            rewardRow(reward, position: index + 1)
+                        }
+                    }
+                    .padding(.horizontal, isPadLayout ? 16 : 12)
+                    .padding(.bottom, 24)
+                }
+            }
+            .scrollDisabled(draggingRewardID != nil)
+            .background {
+                PointsRewardBackground(theme: .concise)
+                    .ignoresSafeArea()
+            }
+            .coordinateSpace(name: "reward-order-list")
+            .navigationTitle(L10n.reorderRewards)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(L10n.cancel, action: cancel)
+                        .font(.appSystem(size: isPadLayout ? 18 : 16, weight: .regular, design: .rounded))
+                        .foregroundColor(NeumorphicColors.text)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(L10n.done, action: save)
+                        .font(.appSystem(size: isPadLayout ? 18 : 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(AppTheme.concise.color)
+                }
+            }
+            .alert(
+                L10n.tr("Couldn't save reward order", zhHans: "奖励顺序保存失败", zhHant: "獎勵順序儲存失敗", ja: "報酬の順番を保存できません"),
+                isPresented: Binding(
+                    get: { saveErrorMessage != nil },
+                    set: { isPresented in
+                        if !isPresented { saveErrorMessage = nil }
+                    }
+                )
+            ) {
+                Button(L10n.ok, role: .cancel) {
+                    saveErrorMessage = nil
+                }
+            } message: {
+                Text(saveErrorMessage ?? "")
+            }
+        }
+    }
+
+    private func rewardRow(_ reward: CustomReward, position: Int) -> some View {
+        HStack(spacing: 12) {
+            Text("\(position)")
+                .font(.appSystem(size: isPadLayout ? 16 : 14, weight: .heavy, design: .rounded))
+                .foregroundColor(AppTheme.concise.color)
+                .frame(width: isPadLayout ? 26 : 22)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(reward.title)
+                    .font(.appSystem(size: isPadLayout ? 18 : 16, weight: .heavy, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text)
+                    .lineLimit(1)
+
+                Text("\(reward.requiredPoints) pts")
+                    .font(.appSystem(size: isPadLayout ? 15 : 13, weight: .semibold, design: .rounded))
+                    .foregroundColor(NeumorphicColors.text.opacity(0.56))
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: isPadLayout ? 20 : 18, weight: .medium))
+                .foregroundColor(AppTheme.concise.color)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                .accessibilityLabel(L10n.dragToReorder)
+                .gesture(rewardReorderGesture(for: reward.id))
+        }
+        .padding(.horizontal, 14)
+        .frame(height: rowHeight)
+        .contentShape(Rectangle())
+        .background {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.38))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(AppTheme.concise.bingoSurfaceShadowColor.opacity(0.16), lineWidth: 1)
+                }
+        }
+        .padding(.vertical, 5)
+        .offset(y: verticalOffset(for: reward.id))
+        .zIndex(draggingRewardID == reward.id ? 1 : 0)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            L10n.tr(
+                "Position \(position), \(reward.title), \(reward.requiredPoints) points",
+                zhHans: "第 \(position) 位，\(reward.title)，\(reward.requiredPoints) 积分",
+                zhHant: "第 \(position) 位，\(reward.title)，\(reward.requiredPoints) 積分",
+                ja: "\(position)番目、\(reward.title)、\(reward.requiredPoints)ポイント"
+            )
+        )
+        .accessibilityHint(L10n.rewardOrderHint)
+        .accessibilityAction(named: Text(L10n.moveUp)) {
+            moveReward(reward.id, by: -1)
+        }
+        .accessibilityAction(named: Text(L10n.moveDown)) {
+            moveReward(reward.id, by: 1)
+        }
+    }
+
+    private func rewardReorderGesture(for rewardID: UUID) -> some Gesture {
+        DragGesture(minimumDistance: 3, coordinateSpace: .named("reward-order-list"))
+            .onChanged { value in
+                if draggingRewardID == nil {
+                    draggingRewardID = rewardID
+                    dragStartIndex = draftRewards.firstIndex(where: { $0.id == rewardID })
+                    dragTargetIndex = dragStartIndex
+                }
+
+                guard draggingRewardID == rewardID,
+                      let dragStartIndex else {
+                    return
+                }
+
+                dragTranslation = value.translation.height
+                let targetIndex = targetIndex(
+                    startIndex: dragStartIndex,
+                    translationInRows: Double(value.translation.height / rowHeight),
+                    itemCount: draftRewards.count
+                )
+                if targetIndex != dragTargetIndex {
+                    withAnimation(reorderAnimation) {
+                        dragTargetIndex = targetIndex
+                    }
+                }
+            }
+            .onEnded { _ in
+                finishDragging()
+            }
+    }
+
+    private func targetIndex(startIndex: Int, translationInRows: Double, itemCount: Int) -> Int {
+        guard itemCount > 1 else { return 0 }
+        let rowOffset = Int(translationInRows.rounded(.toNearestOrAwayFromZero))
+        return min(max(startIndex + rowOffset, 0), itemCount - 1)
+    }
+
+    private func verticalOffset(for rewardID: UUID) -> CGFloat {
+        guard let rewardIndex = draftRewards.firstIndex(where: { $0.id == rewardID }),
+              let dragStartIndex,
+              let dragTargetIndex else {
+            return 0
+        }
+
+        if rewardID == draggingRewardID {
+            return dragTranslation
+        }
+
+        if dragStartIndex < dragTargetIndex,
+           rewardIndex > dragStartIndex,
+           rewardIndex <= dragTargetIndex {
+            return -rowHeight
+        }
+        if dragTargetIndex < dragStartIndex,
+           rewardIndex >= dragTargetIndex,
+           rewardIndex < dragStartIndex {
+            return rowHeight
+        }
+        return 0
+    }
+
+    private func finishDragging() {
+        guard let dragStartIndex,
+              let dragTargetIndex else {
+            resetDragState()
+            return
+        }
+
+        withAnimation(reorderAnimation, completionCriteria: .logicallyComplete) {
+            dragTranslation = CGFloat(dragTargetIndex - dragStartIndex) * rowHeight
+        } completion: {
+            commitDrag(from: dragStartIndex, to: dragTargetIndex)
+        }
+    }
+
+    private func commitDrag(from sourceIndex: Int, to targetIndex: Int) {
+        var reorderedRewards = draftRewards
+        if sourceIndex != targetIndex {
+            reorderedRewards.move(
+                fromOffsets: IndexSet(integer: sourceIndex),
+                toOffset: targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
+            )
+        }
+
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            draftRewards = reorderedRewards
+            resetDragState()
+        }
+    }
+
+    private func moveReward(_ rewardID: UUID, by offset: Int) {
+        guard draggingRewardID == nil,
+              let sourceIndex = draftRewards.firstIndex(where: { $0.id == rewardID }) else {
+            return
+        }
+
+        let targetIndex = sourceIndex + offset
+        guard draftRewards.indices.contains(targetIndex) else { return }
+
+        withAnimation(reorderAnimation) {
+            draftRewards.swapAt(sourceIndex, targetIndex)
+        }
+    }
+
+    private func save() {
+        guard onSave(draftRewards) else {
+            saveErrorMessage = L10n.tr(
+                "Please try again.",
+                zhHans: "请稍后重试。",
+                zhHant: "請稍後再試。",
+                ja: "もう一度お試しください。"
+            )
+            return
+        }
+    }
+
+    private func cancel() {
+        onCancel()
+    }
+
+    private func resetDragState() {
+        draggingRewardID = nil
+        dragStartIndex = nil
+        dragTargetIndex = nil
+        dragTranslation = 0
+    }
 }

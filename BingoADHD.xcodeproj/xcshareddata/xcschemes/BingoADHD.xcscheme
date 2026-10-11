@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
    LastUpgradeVersion = "2630"
-   version = "1.7">
+   version = "2.0">
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES"
@@ -39,7 +39,6 @@
    </BuildAction>
    <TestAction
       buildConfiguration = "Debug"
-      codeCoverageEnabled = "NO"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES">
@@ -58,8 +57,10 @@
       useCustomWorkingDirectory = "NO"
       ignoresPersistentStateOnLaunch = "NO"
       debugDocumentVersioning = "YES"
+      debugXPCServices = "NO"
       debugServiceExtension = "internal"
-      allowLocationSimulation = "YES">
+      allowLocationSimulation = "YES"
+      viewDebuggingEnabled = "No">
       <BuildableProductRunnable
          runnableDebuggingMode = "0">
          <BuildableReference
@@ -74,6 +75,10 @@
          <CommandLineArgument
             argument = "-FIRDebugEnabled "
             isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-DebugForceNoPremium"
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-DebugLimitedOfferEnabled"
@@ -106,10 +111,6 @@
          <CommandLineArgument
             argument = "-DebugForceNoPremium"
             isEnabled = "NO">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "-DebugDisableBlindBoxPreview"
-            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-DebugCustomResetToast"

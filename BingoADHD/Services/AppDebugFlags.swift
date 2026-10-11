@@ -1,6 +1,15 @@
 import Foundation
 
 enum AppDebugFlags {
+    /// Opt-in, same-bundle icon probe. Never available in a shipping build.
+    static var appIconProbeEnabled: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-DebugAppIconProbe")
+#else
+        false
+#endif
+    }
+
     static var tabGlassTrace: Bool {
 #if DEBUG
         ProcessInfo.processInfo.arguments.contains("-DebugTabGlassTrace")
@@ -61,23 +70,21 @@ enum AppDebugFlags {
 #endif
     }
 
-    /// Debug installs expose the isolated Blind Box fixture flow by default,
-    /// so one standard Xcode run can exercise the whole app. Pass
-    /// `-DebugDisableBlindBoxPreview` only when a focused non-Blind Box test
-    /// needs it hidden. The fixture never reads or writes production wallet data.
+    /// The isolated fixture is opt-in. Keeping the production flow as the
+    /// Debug default makes an Xcode install and a home-screen relaunch use the
+    /// same persisted Blind Box account.
     static var blindBoxPreviewEnabled: Bool {
 #if DEBUG
-        !ProcessInfo.processInfo.arguments.contains("-DebugDisableBlindBoxPreview")
+        ProcessInfo.processInfo.arguments.contains("-DebugBlindBoxPreview")
 #else
         false
 #endif
     }
 
-    /// Release builds use the real private-CloudKit Blind Box account.
-    /// Debug builds opt in explicitly to keep fixture testing isolated.
+    /// Release and ordinary Debug builds both use the real local-first account.
     static var blindBoxLiveFlowEnabled: Bool {
 #if DEBUG
-        ProcessInfo.processInfo.arguments.contains("-DebugBlindBoxLive")
+        !blindBoxPreviewEnabled
 #else
         true
 #endif

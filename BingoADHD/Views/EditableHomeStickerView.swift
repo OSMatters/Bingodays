@@ -14,7 +14,7 @@ struct EditableHomeStickerView: View {
     @State private var isMagnifying = false
 
     private var baseStickerWidth: CGFloat {
-        placement.kind.homeDisplayWidth
+        placement.homeDisplayWidth
     }
 
     private var stickerWidth: CGFloat {
@@ -110,12 +110,9 @@ struct EditableHomeStickerView: View {
                     )
 
                     onUpdate(
-                        HomeStickerPlacement(
-                            id: placement.id,
-                            kind: placement.kind,
+                        placement.replacing(
                             xRatio: newX,
-                            yRatio: newY,
-                            scale: placement.scale
+                            yRatio: newY
                         )
                     )
                 }
@@ -142,13 +139,7 @@ struct EditableHomeStickerView: View {
                 .onEnded { _ in
                     if let previewScale {
                         onUpdate(
-                            HomeStickerPlacement(
-                                id: placement.id,
-                                kind: placement.kind,
-                                xRatio: placement.xRatio,
-                                yRatio: placement.yRatio,
-                                scale: previewScale
-                            )
+                            placement.replacing(scale: previewScale)
                         )
                     }
                     previewScale = nil
@@ -159,7 +150,7 @@ struct EditableHomeStickerView: View {
     }
 
     private var stickerImage: some View {
-        Image(placement.kind.unlockedImageName)
+        Image(placement.artworkName)
             .resizable()
             .scaledToFit()
             .frame(width: stickerWidth)

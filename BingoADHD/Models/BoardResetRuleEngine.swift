@@ -7,9 +7,8 @@ enum TaskLifecycleRuleEngine {
         case resetCompletion
     }
 
-    /// Resolves the task-level effect of a scheduled board reset. A single task
-    /// is a one-completion task, so the default reset carries unfinished work
-    /// forward while completed work leaves the board.
+    /// A missing rule is a legacy, unspecified task definition. Preserve its
+    /// pre-single-removal behavior; only an explicit single occurrence is removed.
     static func dailySettlementAction(
         for cell: BingoCell,
         mode: BoardTaskResetMode
@@ -21,7 +20,10 @@ enum TaskLifecycleRuleEngine {
             if cell.hasRepeatingSchedule {
                 return .resetCompletion
             }
-            return cell.isCompleted ? .remove : .preserve
+            if cell.isOneTimeTask {
+                return cell.isCompleted ? .remove : .preserve
+            }
+            return .resetCompletion
         case .clearTasksNextDay:
             return cell.hasRepeatingSchedule ? .resetCompletion : .remove
         case .keepTaskStatus:

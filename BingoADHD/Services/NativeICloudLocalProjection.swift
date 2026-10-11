@@ -25,6 +25,15 @@ enum NativeICloudPrimaryMutationGate {
     }
 }
 
+struct NativeICloudPrimaryProjectionCommitResult {
+    let localSnapshot: NativeICloudPrimaryStateSnapshot
+    let hasPendingLocalMutation: Bool
+    let localHasNewerUserChange: Bool
+    let needsProjection: Bool
+    let didSkipHandledCommit: Bool
+    let didApply: Bool
+}
+
 enum NativeICloudLocalProjectionError: LocalizedError {
     case unsupportedPrimarySchema(Int)
     case invalidPrimarySnapshot
@@ -51,12 +60,15 @@ enum NativeICloudLocalProjectionError: LocalizedError {
 enum NativeICloudPrimaryLocalProjection {
     static func needsDailyRewardStateRepair(
         for snapshot: NativeICloudPrimaryStateSnapshot,
-        referenceDate: Date = .now
+        referenceDate: Date = .now,
+        reading mode: PersistenceReadMode = .readOnly
     ) -> Bool {
         guard snapshot.schemaVersion == NativeICloudPrimaryStateSnapshot.schemaVersion else {
             return false
         }
-        let preferredSelection = BingoBoardStore.loadNamedBoardsSnapshot().selectedBoardID
+        let preferredSelection = BingoBoardStore.loadNamedBoardsSnapshot(
+            repairingPersistence: false
+        ).selectedBoardID
         let selectedID = preferredSelection.flatMap { candidate in
             snapshot.boards.contains(where: { $0.id == candidate }) ? candidate : nil
         } ?? snapshot.boards.first?.id
@@ -64,13 +76,14 @@ enum NativeICloudPrimaryLocalProjection {
               let selectedBoard = snapshot.boards.first(where: { $0.id == selectedID }) else {
             return false
         }
-        return PointsStore.loadPersistenceSnapshot() != localPointsSnapshot(
+        return PointsStore.loadPersistenceSnapshot(reading: mode) != localPointsSnapshot(
             from: snapshot.points,
             selectedBoard: selectedBoard,
             referenceDate: referenceDate
         )
     }
 
+    @MainActor
     static func apply(
         _ snapshot: NativeICloudPrimaryStateSnapshot,
         reloadWidgets: Bool = true
@@ -81,6 +94,86 @@ enum NativeICloudPrimaryLocalProjection {
             throw NativeICloudLocalProjectionError.primaryProjectionFailed
         }
         try outcome.get()
+    }
+
+    /// A CloudKit callback can arrive on a background executor while SwiftUI is
+    /// processing UserDefaults notifications. Keep the whole local decision and
+    /// commit on the main actor so neither side waits on the other's lock.
+    @MainActor
+    static func applyIfCurrent(
+        _ snapshot: NativeICloudPrimaryStateSnapshot,
+        latestStamp: NativeICloudCommitStamp,
+        latestSchemaVersion: Int64,
+        hasHandledLatestCommit: Bool,
+        resolvedStateWasAlreadyHandled: Bool,
+        reloadWidgets: Bool = true
+    ) throws -> NativeICloudPrimaryProjectionCommitResult {
+        guard let outcome = BingoBoardStore.withBoardPersistenceLock({
+            Result {
+                let localSnapshot = NativeICloudPrimaryStateSnapshot.captureLocal()
+                let hasPendingLocalMutation = NativeICloudPreferences.primaryPendingMutationGeneration != 0
+                let localHasNewerUserChange = hasPendingLocalMutation || (
+                    latestSchemaVersion < NativeICloudPrimaryEnvelopeSchema.logicalCommitVersion &&
+                    NativeICloudPrimaryConflictResolver.localChangeIsNewer(
+                        modifiedAt: NativeICloudPreferences.primaryLocalModifiedAt,
+                        than: latestStamp
+                    )
+                )
+                let needsProjection = !localSnapshot.hasSameUserState(as: snapshot) ||
+                    needsDailyRewardStateRepair(for: snapshot)
+
+                guard !localHasNewerUserChange else {
+                    return NativeICloudPrimaryProjectionCommitResult(
+                        localSnapshot: localSnapshot,
+                        hasPendingLocalMutation: hasPendingLocalMutation,
+                        localHasNewerUserChange: true,
+                        needsProjection: needsProjection,
+                        didSkipHandledCommit: false,
+                        didApply: false
+                    )
+                }
+
+                // Preserve the previous import behavior for a commit already
+                // acknowledged by this runtime. In particular, do not turn a
+                // duplicate import into a repair write just because its local
+                // mirrors have drifted.
+                if hasHandledLatestCommit &&
+                    (resolvedStateWasAlreadyHandled || !needsProjection) {
+                    return NativeICloudPrimaryProjectionCommitResult(
+                        localSnapshot: localSnapshot,
+                        hasPendingLocalMutation: hasPendingLocalMutation,
+                        localHasNewerUserChange: false,
+                        needsProjection: needsProjection,
+                        didSkipHandledCommit: true,
+                        didApply: false
+                    )
+                }
+
+                if needsProjection {
+                    try applyUnderPersistenceLock(snapshot, reloadWidgets: reloadWidgets)
+                }
+
+                return NativeICloudPrimaryProjectionCommitResult(
+                    localSnapshot: localSnapshot,
+                    hasPendingLocalMutation: hasPendingLocalMutation,
+                    localHasNewerUserChange: false,
+                    needsProjection: needsProjection,
+                    didSkipHandledCommit: false,
+                    didApply: needsProjection
+                )
+            }
+        }) else {
+            throw NativeICloudLocalProjectionError.primaryProjectionFailed
+        }
+        return try outcome.get()
+    }
+
+    @MainActor
+    static func applyOnMainActor(
+        _ snapshot: NativeICloudPrimaryStateSnapshot,
+        reloadWidgets: Bool = true
+    ) throws {
+        try apply(snapshot, reloadWidgets: reloadWidgets)
     }
 
     private static func applyUnderPersistenceLock(
@@ -155,7 +248,7 @@ enum NativeICloudPrimaryLocalProjection {
         guard PointsStore.replacePersistenceSnapshot(projectedPoints),
               BingoDiaryStore.replaceAllEntriesDictionary(snapshot.diaryEntries),
               BingoTimeoutStore.replacePayload(snapshot.timeoutPayload),
-              RewardStore.saveRewards(snapshot.customRewards),
+              RewardStore.saveRewards(snapshot.customRewards, source: "icloud_projection"),
               PointRedemptionHistoryStore.save(snapshot.redemptionHistory),
               StickerStore.saveInventoryCounts(stickerInventory(from: snapshot.stickerInventory)),
               StickerStore.savePlacements(snapshot.stickerPlacements) else {
@@ -239,9 +332,9 @@ enum NativeICloudPrimaryLocalProjection {
             currentCells: selectedBoard.board.cells,
             currentCompletedLines: selectedBoard.board.completedLines,
             isBoardFullyCompleted: BoardEngine.isBoardFullyCompleted(selectedBoard.board.cells),
-            // Never import this ledger from another device: board selection is
-            // intentionally local and therefore it may describe a different board.
-            savedDailyRewardState: nil
+            // Rebuild the visible board snapshot while retaining this device's
+            // source-keyed reversal credits across cloud refreshes.
+            savedDailyRewardState: PointsStore.loadDailyRewardState(reading: .readOnly)
         )
         return PointsPersistenceSnapshot(
             totalPoints: totalPoints,

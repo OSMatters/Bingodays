@@ -44,7 +44,9 @@ struct NativeICloudPrimaryStateSnapshot: Codable, Equatable {
         self.stickerPlacements = stickerPlacements
     }
 
-    static func captureLocal() -> NativeICloudPrimaryStateSnapshot {
+    static func captureLocal(
+        reading mode: PersistenceReadMode = .readOnly
+    ) -> NativeICloudPrimaryStateSnapshot {
         // CloudKit callbacks may run while the app is about to be suspended.
         // Capturing local state must therefore only read replicas, never repair
         // them or wait on the App Group's cross-process file lock.
@@ -67,15 +69,15 @@ struct NativeICloudPrimaryStateSnapshot: Codable, Equatable {
             deletedBoardIDs: namedSnapshot.effectiveDeletedBoardIDs,
             protectedBoardID: namedSnapshot.effectiveProtectedBoardID,
             boardOrderModifiedAt: namedSnapshot.boardOrderModifiedAt,
-            points: PointsStore.loadPersistenceSnapshot(),
-            diaryEntries: BingoDiaryStore.loadAllEntriesDictionary(),
-            timeoutPayload: BingoTimeoutStore.loadAllPayload(),
-            customRewards: RewardStore.loadRewards(),
-            redemptionHistory: PointRedemptionHistoryStore.load(),
-            stickerInventory: StickerStore.loadInventoryCounts().reduce(into: [:]) { result, entry in
+            points: PointsStore.loadPersistenceSnapshot(reading: mode),
+            diaryEntries: BingoDiaryStore.loadAllEntriesDictionary(reading: mode),
+            timeoutPayload: BingoTimeoutStore.loadAllPayload(reading: mode),
+            customRewards: RewardStore.loadRewards(reading: mode),
+            redemptionHistory: PointRedemptionHistoryStore.load(reading: mode),
+            stickerInventory: StickerStore.loadInventoryCounts(reading: mode).reduce(into: [:]) { result, entry in
                 result[entry.key.rawValue] = entry.value
             },
-            stickerPlacements: StickerStore.loadPlacements()
+            stickerPlacements: StickerStore.loadPlacements(reading: mode)
         )
     }
 

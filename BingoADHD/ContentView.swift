@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import StoreKit
 import UIKit
 
@@ -27,12 +28,16 @@ struct ContentView: View {
     @StateObject private var viewModel = BingoViewModel()
     @StateObject private var boardManagementStore = BoardManagementStore()
     @StateObject private var pointsFeatureStore = PointsFeatureStore()
+    @StateObject private var homeBlindBoxStickerShelfStore = HomeBlindBoxStickerShelfStore()
     @StateObject private var toastStore = HomeToastStore()
     @StateObject private var pointsAnimationStore = PointsAnimationStore()
     @StateObject private var boardActionPresentationStore = BoardActionPresentationStore()
     @StateObject private var boardSharePresentationStore = BoardSharePresentationStore()
     @StateObject private var homeBoardSnapshotSyncStore = HomeBoardSnapshotSyncStore()
     @StateObject private var appReviewEvaluationStore = HomeAppReviewEvaluationStore()
+    @StateObject private var iconStreakStore = AppOpenStreakStore.shared
+    @State private var isIconMilestonePresented = false
+    @State private var presentedIconMilestones: [Int] = []
     @StateObject private var taskStartReminderSyncStore: TaskStartReminderSyncStore
     private let homeLifecycleWorkStore = HomeLifecycleWorkStore()
     private let homeTimeoutWorkStore = HomeTimeoutWorkStore()
@@ -44,6 +49,11 @@ struct ContentView: View {
     @State private var isWidgetGuideExpanded = false
     @State private var isThemePickerExpanded = false
     @State private var isThemePickerSheetPresented = false
+    @State private var themePickerInitialThemeRawValue: String?
+    @State private var themePickerInitialBackgroundRawValue: String?
+    @State private var themePickerDidApply = false
+    @State private var pendingPremiumThemeRawValue: String?
+    @State private var pendingPremiumBackgroundRawValue: String?
     @State private var isMeSettingsPresented = false
     @State private var isICloudSyncPresented = false
     @State private var isPointsFlowPresented = false
@@ -75,6 +85,7 @@ struct ContentView: View {
     @State private var timeoutDelayPickerMinutes = 10
     @State private var isUpdatePromptPresented = false
     @State private var isAppReviewPromptPresented = false
+    @State private var isPremiumBackgroundDowngradeAlertPresented = false
     @State private var hasCheckedAppUpdateOnLaunch = false
     @State private var pendingUpdateInfo: AppUpdateInfo?
     @State private var hasStartedDeferredHomePreloads = false
@@ -94,6 +105,10 @@ struct ContentView: View {
     @AppStorage(AppSettings.soundEffectsEnabledKey) private var isSoundEffectsEnabled = true
     @AppStorage(AppSettings.hasSeenBlindBoxNewBadgeKey) private var hasSeenBlindBoxNewBadge = false
     @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
+    @AppStorage(AppSettings.homeBackgroundKey) private var homeBackgroundRawValue = HomeBackgroundOption.none.rawValue
+    @AppStorage(AppSettings.meSkinKey) private var meSkinRawValue = MeSkin.halloween.rawValue
+    @AppStorage(AppSettings.homeSkinNewBadgeVersionKey) private var homeSkinNewBadgeVersion = ""
+    @AppStorage(AppSettings.homeSkinNewBadgeTapCountKey) private var homeSkinNewBadgeTapCount = 0
     @AppStorage(AppSettings.lastPromptedUpdateVersionKey) private var lastPromptedUpdateVersion = ""
     @AppStorage(AppSettings.skippedUpdateVersionKey) private var skippedUpdateVersion = ""
     @AppStorage(AppSettings.hasRatedAppReviewPromptKey) private var hasRatedAppReviewPrompt = false
@@ -121,9 +136,33 @@ struct ContentView: View {
     @State private var nextCountdownTickWorkDate: Date?
     @State private var hasComputedCountdownTickSchedule = false
     private var bingoStreakDays: Int { BingoDiaryStore.consecutiveBingoDays() }
+    private var meConsecutiveOpenDays: Int { iconStreakStore.currentStreak }
     private var streakGoals: [Int] { bingoStreakDays >= 60 ? [60, 180, 270, 365] : [7, 14, 30, 60] }
     private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
     private var activeThemeColor: Color { activeTheme.color }
+    private var activeHomeBackground: HomeBackgroundOption {
+        let selectedBackground = HomeBackgroundOption(rawValue: homeBackgroundRawValue) ?? .none
+        guard !selectedBackground.isPremiumOnly ||
+            isThemePickerSheetPresented ||
+            !subscriptionManager.hasCompletedEntitlementRefresh ||
+            subscriptionManager.hasPremiumAccess else {
+            return .none
+        }
+        return selectedBackground
+    }
+    private var activeMeSkin: MeSkin {
+        MeSkin(rawValue: meSkinRawValue) ?? .halloween
+    }
+    private var isDarkTabBarBackground: Bool {
+        switch selectedMainTab {
+        case .home:
+            return activeHomeBackground.isDarkTone
+        case .me:
+            return activeMeSkin.isHalloween
+        case .points:
+            return false
+        }
+    }
     private let conciseSurfaceColor = Color(hex: "FAF9F3")
     private var homeThemeBackgroundTint: some View {
         Color(hex: "FAF9F3")
@@ -195,6 +234,7 @@ struct ContentView: View {
             isUpdatePromptPresented ||
             isAppReviewPromptPresented ||
             isCustomResetDowngradeAlertPresented ||
+            isPremiumBackgroundDowngradeAlertPresented ||
             viewModel.expiredTaskEvent != nil ||
             viewModel.expiredBoardCountdownEvent != nil ||
             viewModel.scheduledTaskReplacementEvent != nil ||
@@ -234,7 +274,9 @@ struct ContentView: View {
     }
 
     private var usesPadBottomHalfSheets: Bool {
-        UIDevice.current.userInterfaceIdiom == .pad
+        // iPhone Duo uses the regular size class when its inner display is open.
+        // Presentation behavior should follow the available layout, not the hardware family.
+        isPadLayout
     }
 
     private var isBlindBoxFeatureAvailable: Bool {
@@ -243,6 +285,20 @@ struct ContentView: View {
 
     private var shouldShowBlindBoxNewBadge: Bool {
         isBlindBoxFeatureAvailable && !hasSeenBlindBoxNewBadge
+    }
+
+    private var shouldShowHomeSkinNewBadge: Bool {
+        homeSkinNewBadgeVersion != appShortVersion || homeSkinNewBadgeTapCount < 2
+    }
+
+    private func markHomeSkinNewBadgeInteraction() {
+        if homeSkinNewBadgeVersion != appShortVersion {
+            homeSkinNewBadgeVersion = appShortVersion
+            homeSkinNewBadgeTapCount = 0
+        }
+
+        guard homeSkinNewBadgeTapCount < 2 else { return }
+        homeSkinNewBadgeTapCount += 1
     }
 
     private func shortDiagnosticID(_ id: UUID?) -> String {
@@ -391,6 +447,67 @@ struct ContentView: View {
         }
     }
 
+    private func applyThemePickerSelection() {
+        let selectedTheme = AppTheme(rawValue: themeRawValue) ?? .concise
+        let selectedBackground = HomeBackgroundOption(rawValue: homeBackgroundRawValue) ?? .none
+
+        guard !selectedBackground.isPremiumOnly || subscriptionManager.hasPremiumAccess else {
+            pendingPremiumThemeRawValue = selectedTheme.rawValue
+            pendingPremiumBackgroundRawValue = selectedBackground.rawValue
+            themePickerDidApply = false
+            isThemePickerSheetPresented = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                presentPremiumPaywall(source: "home_background_premium")
+            }
+            return
+        }
+
+        pendingPremiumThemeRawValue = nil
+        pendingPremiumBackgroundRawValue = nil
+        themePickerDidApply = true
+        commitThemePickerSelection(theme: selectedTheme, background: selectedBackground)
+        isThemePickerSheetPresented = false
+    }
+
+    private func commitThemePickerSelection(
+        theme: AppTheme,
+        background: HomeBackgroundOption,
+        comparedToThemeRawValue: String? = nil,
+        comparedToBackgroundRawValue: String? = nil
+    ) {
+        let initialTheme = comparedToThemeRawValue ?? themePickerInitialThemeRawValue
+        let initialBackground = comparedToBackgroundRawValue ?? themePickerInitialBackgroundRawValue
+
+        themeRawValue = theme.rawValue
+        UserDefaults(suiteName: BingoBoardStore.appGroupID)?.set(theme.rawValue, forKey: AppSettings.themeKey)
+        BingoBoardLiveActivityController.scheduleRefresh()
+        homeBackgroundRawValue = background.rawValue
+
+        if initialTheme != theme.rawValue {
+            AnalyticsService.logThemeColorSelected(theme)
+            BingoBoardStore.reloadWidgetTimelines()
+        }
+        if initialBackground != background.rawValue {
+            AnalyticsService.logHomeBackgroundSelected(background)
+        }
+    }
+
+    private func handleThemePickerSheetDismiss() {
+        if !themePickerDidApply {
+            if let originalTheme = themePickerInitialThemeRawValue {
+                themeRawValue = originalTheme
+                UserDefaults(suiteName: BingoBoardStore.appGroupID)?.set(originalTheme, forKey: AppSettings.themeKey)
+            }
+            if let originalBackground = themePickerInitialBackgroundRawValue {
+                homeBackgroundRawValue = originalBackground
+            }
+        }
+
+        themePickerDidApply = false
+        themePickerInitialThemeRawValue = nil
+        themePickerInitialBackgroundRawValue = nil
+    }
+
     private func presentLimitedTimeDiscount() {
         guard shouldShowLimitedOfferEntry else {
             DiagnosticLogStore.recordWarning(
@@ -429,30 +546,80 @@ struct ContentView: View {
             )
         )
         .modifier(BlindBoxSilentTicketRefresh())
+        .fullScreenCover(isPresented: $isIconMilestonePresented, onDismiss: {
+            iconStreakStore.acknowledgeMilestones(presentedIconMilestones)
+            presentedIconMilestones = []
+        }) {
+            AppIconMilestoneSheet(milestones: presentedIconMilestones, streakStore: iconStreakStore)
+        }
+        .task(id: iconMilestonePresentationKey) {
+            guard !isIconMilestonePresented else { return }
+            while !Task.isCancelled && !iconStreakStore.pendingMilestones.isEmpty {
+                do { try await Task.sleep(for: .milliseconds(800)) }
+                catch { return }
+                guard scenePhase == .active, selectedMainTab == .home,
+                      !isMainTabBarSuppressed, firstStepGuideOverlay == nil,
+                      viewModel.taskCompletionMotion == nil else { continue }
+                // Nested sheets (including settings) are owned outside ContentView.
+                // Wait until UIKit has finished dismissing every presented controller.
+                let windows = UIApplication.shared.connectedScenes
+                    .compactMap { $0 as? UIWindowScene }
+                    .flatMap(\.windows)
+                    .filter(\.isKeyWindow)
+                guard !windows.isEmpty,
+                      windows.allSatisfy({ $0.rootViewController?.presentedViewController == nil }) else { continue }
+                presentedIconMilestones = iconStreakStore.pendingMilestones
+                isIconMilestonePresented = true
+                return
+            }
+        }
         .adaptivePadBottomHalfSheet(
             isPresented: $isThemePickerSheetPresented,
             usePadPresentation: usesPadBottomHalfSheets,
             backgroundColor: NeumorphicColors.background,
             contentMaxWidth: 720,
-            maximumPadHeight: 210
+            maximumPadHeight: 450,
+            padHeightFraction: 0.50,
+            onDismiss: handleThemePickerSheetDismiss
         ) {
             HomeThemePickerSheet(
                 themeRawValue: $themeRawValue,
-                isPadLayout: isPadLayout
+                backgroundRawValue: $homeBackgroundRawValue,
+                isPadLayout: isPadLayout,
+                stickerItems: homeBlindBoxStickerShelfStore.items,
+                blindBoxStickerHomeCount: pointsFeatureStore.blindBoxStickerHomeCount,
+                onAddStickerToHome: { item in
+                    guard pointsFeatureStore.addBlindBoxStickerToHome(
+                        item.sticker,
+                        maximumCount: item.ownedCount,
+                        preferredYRatio: 0.22
+                    ) else {
+                        return false
+                    }
+                    homeBlindBoxStickerShelfStore.reload()
+                    selectedStickerID = nil
+                    return true
+                },
+                onApply: applyThemePickerSelection
             )
-            .presentationDetents([.height(isPadLayout ? 158 : 138)])
+            .presentationDetents([.height(450)])
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $isICloudSyncPresented) {
             NativeICloudSettingsView(
                 isPadLayout: isPadLayout,
-                themeColor: activeThemeColor
+                themeColor: NeumorphicColors.modalAccent
             )
                 .environmentObject(iCloudSyncCoordinator)
         }
         .onAppear {
+            viewModel.normalizeTotalPointsForCommittedSpend()
             resetLimitedOfferStateForDebugIfNeeded()
             clearLimitedOfferEntryIfPremium()
+            enforcePremiumBackgroundAccessIfNeeded()
+        }
+        .onChange(of: pointsFeatureStore.committedSpendPoints) { _, _ in
+            viewModel.normalizeTotalPointsForCommittedSpend()
         }
         .onChange(of: subscriptionManager.hasPremiumAccess) { _, hasPremiumAccess in
             clearLimitedOfferEntryIfPremium()
@@ -479,6 +646,10 @@ struct ContentView: View {
                 await refreshLimitedTimeOfferConfig()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .externalBoardTaskDidChange)) { _ in
+            pointsFeatureStore.reloadAfterExternalDataChange()
+            reloadBoardSwitcherSnapshotAfterCelebrationIfNeeded(now: .now)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .nativeICloudPrimaryProjectionDidChange)) { _ in
             // A remote projection replaces the durable board atomically. It is not
             // a sequence of user taps, so per-cell completion animations would make
@@ -488,6 +659,7 @@ struct ContentView: View {
             transaction.disablesAnimations = true
             withTransaction(transaction) {
                 pointsFeatureStore.reloadAfterExternalDataChange()
+                viewModel.normalizeTotalPointsForCommittedSpend()
                 reloadBoardSwitcherSnapshotAfterCelebrationIfNeeded(now: .now)
             }
         }
@@ -511,6 +683,10 @@ struct ContentView: View {
         .onChange(of: viewModel.boardCompletionAnimationID) { _, _ in
             applyDeferredExternalBoardSnapshotReloadIfPossible()
         }
+    }
+
+    private var iconMilestonePresentationKey: String {
+        "\(iconStreakStore.pendingMilestones):\(selectedMainTab):\(scenePhase):\(isMainTabBarSuppressed):\(isIconMilestonePresented)"
     }
 
     private var mainScreenContent: some View {
@@ -566,12 +742,19 @@ struct ContentView: View {
 
     private func nativeTabLabel(_ tab: HomeMainTab) -> some View {
         let assetName = selectedMainTab == tab ? tab.selectedIconName : tab.iconName
+        let shouldUseLightUnselectedIcon = isDarkTabBarBackground && selectedMainTab != tab
         return Group {
-            if let icon = MainTabIconCache.image(named: assetName, scale: displayScale) {
+            if let icon = MainTabIconCache.image(
+                named: assetName,
+                scale: displayScale,
+                tintColor: shouldUseLightUnselectedIcon ? .white : nil
+            ) {
                 Image(uiImage: icon)
                     .renderingMode(.original)
             } else {
                 Image(systemName: tab == .home ? "house" : tab == .points ? "star" : "person.crop.circle")
+                    .renderingMode(shouldUseLightUnselectedIcon ? .template : .original)
+                    .foregroundStyle(shouldUseLightUnselectedIcon ? Color.white : Color.primary)
             }
         }
         .accessibilityLabel(tab.accessibilityTitle)
@@ -579,7 +762,9 @@ struct ContentView: View {
 
     private var homeScreenContent: some View {
         GeometryReader { geo in
-            let usesPadLayout = isPadLayout && geo.size.width >= 768
+            // A Duo inner display can be smaller than an iPad in points, so do not gate the
+            // expanded board layout on an iPad-sized width threshold.
+            let usesPadLayout = isPadLayout
             let horizontalPadding: CGFloat = usesPadLayout ? 30 : 20
             let topLayoutSafeInset: CGFloat = 0
             let layoutLift: CGFloat = -30
@@ -593,12 +778,19 @@ struct ContentView: View {
                 : min(353, widthLimitedContent)
 
             ZStack(alignment: .top) {
-                conciseSurfaceColor
-                    .ignoresSafeArea()
+                HomeBackgroundLayer(
+                    option: activeHomeBackground
+                )
+
+                if activeHomeBackground == .none {
+                    conciseSurfaceColor
+                        .ignoresSafeArea()
+                }
 
                 homeThemeBackgroundTint
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
+                    .opacity(activeHomeBackground == .none ? 1 : 0.08)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
 
                 if selectedMainTab == .home && isEditActionsExpanded {
                     Color.clear
@@ -620,12 +812,17 @@ struct ContentView: View {
                         limitedTimeOfferDuration: limitedTimeOfferConfig.offerDuration,
                         limitedTimeOfferCampaignID: limitedTimeOfferConfig.campaignID,
                         themeColor: activeThemeColor,
+                        showsSkinNewBadge: shouldShowHomeSkinNewBadge,
                         onOpenThemePicker: {
+                            markHomeSkinNewBadgeInteraction()
                             DiagnosticLogStore.recordUserAction(
                                 "home_header.theme_picker",
                                 details: diagnosticHomeStateDetails(source: "home_header")
                             )
                             selectedStickerID = nil
+                            themePickerInitialThemeRawValue = themeRawValue
+                            themePickerInitialBackgroundRawValue = homeBackgroundRawValue
+                            themePickerDidApply = false
                             isThemePickerSheetPresented = true
                         },
                         onOpenBoardShare: {
@@ -677,7 +874,6 @@ struct ContentView: View {
                         onCellCompletionToggled: {
                             commitCellCompletionSnapshot()
                             selectedStickerID = nil
-                            reconcileRedemptionsIfPointsInsufficient()
                         },
                         onTaskPresentationChange: { isBoardTaskPresentationPresented = $0 },
                         onCountdown: {
@@ -785,6 +981,7 @@ struct ContentView: View {
                     isUpdatePromptPresented: isUpdatePromptPresented,
                     isAppReviewPromptPresented: isAppReviewPromptPresented,
                     isCustomResetDowngradeAlertPresented: isCustomResetDowngradeAlertPresented,
+                    isPremiumBackgroundDowngradeAlertPresented: isPremiumBackgroundDowngradeAlertPresented,
                     customResetDowngradeBoardNames: customResetDowngradeBoardNames,
                     isPadLayout: isPadLayout,
                     onFirstStepGuideStart: startFirstStepGuide,
@@ -804,6 +1001,13 @@ struct ContentView: View {
                     onCustomResetDowngradeRestore: {
                         isCustomResetDowngradeAlertPresented = false
                         presentPremiumPaywall(source: "custom_reset_time_expired_restore")
+                    },
+                    onPremiumBackgroundDowngradeContinue: {
+                        isPremiumBackgroundDowngradeAlertPresented = false
+                        presentPremiumPaywall(source: "home_background_expired")
+                    },
+                    onPremiumBackgroundDowngradeNoThanks: {
+                        isPremiumBackgroundDowngradeAlertPresented = false
                     }
                 )
 
@@ -883,7 +1087,6 @@ struct ContentView: View {
     private func pointsTabContent(bottomInset: CGFloat) -> some View {
         PointsFlowPresenter(
             isPadLayout: isPadLayout,
-            points: availablePoints,
             totalPoints: viewModel.totalPoints,
             pointsFeatureStore: pointsFeatureStore,
             limitedOfferState: limitedOfferStateBinding,
@@ -907,6 +1110,8 @@ struct ContentView: View {
     private func meTabContent(bottomInset: CGFloat) -> some View {
         if isMeSettingsPresented {
             MeSettingsScreen(
+                hasPremiumAccess: subscriptionManager.hasPremiumAccess,
+                onOpenPremiumIcon: { presentPremiumPaywall(source: "premium_app_icon") },
                 isPadLayout: isPadLayout,
                 appShortVersion: appShortVersion,
                 iCloudState: iCloudSyncCoordinator.state,
@@ -949,8 +1154,9 @@ struct ContentView: View {
                 isPremiumMember: subscriptionManager.hasPremiumAccess,
                 premiumPlanKind: subscriptionManager.currentPlanKind,
                 hasReviewedApp: hasRatedAppReviewPrompt,
-                streakDays: bingoStreakDays,
+                streakDays: meConsecutiveOpenDays,
                 greetingText: MeGreeting.localizedText(at: meGreetingIndex),
+                skin: activeMeSkin,
                 isPadLayout: isPadLayout,
                 bottomInset: bottomInset,
                 onOpenContact: {
@@ -985,6 +1191,9 @@ struct ContentView: View {
                 },
                 onOpenPremium: {
                     presentPremiumPaywall(source: "me_pro_entry")
+                },
+                onToggleSkin: {
+                    meSkinRawValue = activeMeSkin == .halloween ? MeSkin.normal.rawValue : MeSkin.halloween.rawValue
                 }
             )
             .transition(.opacity)
@@ -1128,7 +1337,6 @@ struct ContentView: View {
                     viewModel: viewModel,
                     pointsFeatureStore: pointsFeatureStore,
                     isPadLayout: isPadLayout,
-                    availablePoints: availablePoints,
                     totalPoints: viewModel.totalPoints,
                     premiumPaywallSource: premiumPaywallSource,
                     limitedTimeOfferConfig: limitedTimeOfferConfig,
@@ -1424,8 +1632,8 @@ struct ContentView: View {
                         onSyncSelectedBoardSnapshot: syncSelectedBoardSnapshotAfterBoardStateChange,
                         onEvaluateFirstStepGuideProgress: evaluateFirstStepGuideProgressIfNeeded,
                         onEvaluateAppReviewPromptOpportunity: scheduleAppReviewPromptEvaluation,
-                        onReconcileStickerOwnership: reconcileRedemptionsIfPointsInsufficient,
-                        onEnforceCustomResetAccess: enforceCustomResetAccessIfNeeded
+                        onEnforceCustomResetAccess: enforceCustomResetAccessIfNeeded,
+                        onEnforcePremiumBackgroundAccess: enforcePremiumBackgroundAccessIfNeeded
                     )
                 )
         )
@@ -1442,7 +1650,6 @@ struct ContentView: View {
                         countdownTicker: countdownTicker,
                         expiredTaskEventID: viewModel.expiredTaskEvent?.id,
                         expiredBoardCountdownEventID: viewModel.expiredBoardCountdownEvent?.id,
-                        onReconcileStickerOwnership: reconcileRedemptionsIfPointsInsufficient,
                         onAvailablePointsChange: { oldValue, newValue in
                             DiagnosticLogStore.recordStateChange(
                                 "points.available_changed",
@@ -1744,6 +1951,7 @@ struct ContentView: View {
     }
 
     private func canPresentAppReviewPrompt(candidate: AppReviewPromptCandidate) -> Bool {
+        guard !isIconMilestonePresented else { return false }
 #if DEBUG
         let debugBypassesBlockers = true
 #else
@@ -2049,6 +2257,29 @@ struct ContentView: View {
     }
 
     private func handlePremiumPaywallDismiss() {
+        if premiumPaywallSource == "home_background_premium" {
+            let pendingThemeRawValue = pendingPremiumThemeRawValue
+            let pendingBackgroundRawValue = pendingPremiumBackgroundRawValue
+            pendingPremiumThemeRawValue = nil
+            pendingPremiumBackgroundRawValue = nil
+
+            guard subscriptionManager.hasPremiumAccess,
+                  let pendingThemeRawValue,
+                  let pendingBackgroundRawValue,
+                  let theme = AppTheme(rawValue: pendingThemeRawValue),
+                  let background = HomeBackgroundOption(rawValue: pendingBackgroundRawValue) else {
+                return
+            }
+
+            commitThemePickerSelection(
+                theme: theme,
+                background: background,
+                comparedToThemeRawValue: themeRawValue,
+                comparedToBackgroundRawValue: homeBackgroundRawValue
+            )
+            return
+        }
+
         if premiumPaywallSource == "board_share_import" ||
             premiumPaywallSource == "board_share_import_grid_5x5" {
             guard subscriptionManager.hasPremiumAccess else { return }
@@ -2241,6 +2472,29 @@ struct ContentView: View {
         )
         customResetDowngradeBoardNames = revokedBoardNames
         isCustomResetDowngradeAlertPresented = true
+    }
+
+    private func enforcePremiumBackgroundAccessIfNeeded() {
+        guard subscriptionManager.hasCompletedEntitlementRefresh,
+              !subscriptionManager.hasPremiumAccess,
+              let selectedBackground = HomeBackgroundOption(rawValue: homeBackgroundRawValue),
+              selectedBackground.isPremiumOnly else {
+            return
+        }
+
+        homeBackgroundRawValue = HomeBackgroundOption.none.rawValue
+        if isThemePickerSheetPresented {
+            // Do not let the sheet's cancel handler restore the revoked Pro background.
+            themePickerInitialBackgroundRawValue = HomeBackgroundOption.none.rawValue
+            pendingPremiumBackgroundRawValue = nil
+        }
+
+        DiagnosticLogStore.recordStateChange(
+            "home_background.premium_access_revoked",
+            details: diagnosticHomeStateDetails(source: "entitlementDowngrade")
+                .merging(["background": selectedBackground.rawValue]) { current, _ in current }
+        )
+        isPremiumBackgroundDowngradeAlertPresented = true
     }
 
     private func handleBoardResetLifecycle(
@@ -2571,6 +2825,7 @@ struct ContentView: View {
         now: Date,
         persistViewModelState: Bool = true
     ) {
+        let previousBoardID = selectedBoardID
         guard let selectedBoard = boardManagementStore.reloadPersistedSnapshot() else {
             return
         }
@@ -2580,7 +2835,8 @@ struct ContentView: View {
             countdownEndsAt: selectedBoard.countdownEndsAt,
             referenceDate: now,
             reloadPersistedPoints: true,
-            persist: persistViewModelState
+            persist: persistViewModelState,
+            preserveTimeoutPresentation: previousBoardID == selectedBoard.id
         )
     }
 
@@ -3165,27 +3421,15 @@ struct ContentView: View {
         return "\(seconds)s"
     }
 
-    private func reconcileRedemptionsIfPointsInsufficient() {
-        let result = pointsFeatureStore.reconcileRedemptionsIfPointsInsufficient(
-            totalPoints: viewModel.totalPoints
-        )
-        guard result.didChange else {
-            return
-        }
-        showCommonTasksToast(L10n.pointRedemptionsRevokedDueToPoints)
-
-        if let selectedStickerID, !pointsFeatureStore.containsPlacement(id: selectedStickerID) {
-            self.selectedStickerID = nil
-        }
-    }
 }
 
 @MainActor
 private enum MainTabIconCache {
     private static var images: [String: UIImage] = [:]
 
-    static func image(named name: String, scale: CGFloat) -> UIImage? {
-        let key = "\(name)@\(scale)"
+    static func image(named name: String, scale: CGFloat, tintColor: UIColor? = nil) -> UIImage? {
+        let tintKey = tintColor.map { "@\($0.description)" } ?? ""
+        let key = "\(name)@\(scale)\(tintKey)"
         if let image = images[key] { return image }
 
         let renderer = ImageRenderer(content:
@@ -3196,8 +3440,11 @@ private enum MainTabIconCache {
                 .frame(width: 28, height: 28)
         )
         renderer.scale = scale
-        guard let image = renderer.uiImage?.withRenderingMode(.alwaysOriginal) else {
+        guard var image = renderer.uiImage?.withRenderingMode(.alwaysOriginal) else {
             return nil
+        }
+        if let tintColor {
+            image = image.withTintColor(tintColor, renderingMode: .alwaysOriginal)
         }
         images[key] = image
         return image

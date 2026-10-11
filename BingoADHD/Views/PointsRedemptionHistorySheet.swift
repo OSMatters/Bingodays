@@ -336,7 +336,7 @@ private struct RedemptionCalendarView: View {
 
     private let calendar = Calendar.redemptionHistoryCalendar
     private let nonSelectedDayColor = Color(hex: "828282")
-    private var historyAccentColor: Color { AppTheme.current.color }
+    private var historyAccentColor: Color { NeumorphicColors.modalAccent }
     private var selectedDayBackground: Color { historyAccentColor.opacity(0.18) }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {

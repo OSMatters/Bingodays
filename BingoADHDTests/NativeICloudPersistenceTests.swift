@@ -1467,8 +1467,39 @@ final class NativeICloudPersistenceTests: XCTestCase {
         )
     }
 
+    func testEnglishStarterGuideRecognizesInstalledAndLegacyTextWithoutRemovingUserEdits() throws {
+        let accountBoard = try XCTUnwrap(accountSnapshot().boards.first)
+        for text in ["Drink a glass of wat", "Drink a glass of water"] {
+            var seed = try XCTUnwrap(starterGuideSnapshot().boards.first)
+            seed.name = "Board 1"
+            seed.board = SavedBoard(
+                gridSize: 3,
+                cells: [[
+                    BingoCell(text: text),
+                    BingoCell(text: "Stand for 1 minute"),
+                    BingoCell(text: "Stretch your body")
+                ]],
+                completedLines: []
+            )
+            XCTAssertTrue(primarySnapshot(boards: [seed]).isSystemStarterGuideSeedData, text)
+            let cleaned = BingoBoardStore.snapshotByRemovingRedundantStarterGuideBoards(
+                .init(selectedBoardID: accountBoard.id, boards: [accountBoard, seed])
+            )
+            XCTAssertEqual(cleaned.boards.map(\.id), [accountBoard.id], text)
+
+            var editedCells = seed.board.cells
+            editedCells[0][0].text = text + "!"
+            seed.board = SavedBoard(gridSize: 3, cells: editedCells, completedLines: [])
+            XCTAssertFalse(primarySnapshot(boards: [seed]).isSystemStarterGuideSeedData, text)
+            let preserved = BingoBoardStore.snapshotByRemovingRedundantStarterGuideBoards(
+                .init(selectedBoardID: accountBoard.id, boards: [accountBoard, seed])
+            )
+            XCTAssertEqual(Set(preserved.boards.map(\.id)), [accountBoard.id, seed.id], text)
+        }
+    }
+
     private func starterGuideSnapshot() -> NativeICloudPrimaryStateSnapshot {
-        let cells = [FirstStepGuideStore.seedTasks.map { BingoCell(text: $0) }]
+        let cells = [FirstStepGuideStore.seedTaskKeys.map { BingoCell(text: $0) }]
         return NativeICloudPrimaryStateSnapshot(
             boards: [
                 BingoBoardStore.NamedBoard(

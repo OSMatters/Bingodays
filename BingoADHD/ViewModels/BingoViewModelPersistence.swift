@@ -160,7 +160,14 @@ struct BingoPendingPersistenceTransaction: Codable, Equatable {
 protocol BingoPersistenceTransactionRepository {
     func loadPendingTransaction() -> BingoPendingPersistenceTransaction?
     func savePendingTransaction(_ transaction: BingoPendingPersistenceTransaction) -> Bool
+    func savePendingTransaction(_ transaction: BingoPendingPersistenceTransaction, encodedData: Data) -> Bool
     func clearPendingTransaction() -> Bool
+}
+
+extension BingoPersistenceTransactionRepository {
+    func savePendingTransaction(_ transaction: BingoPendingPersistenceTransaction, encodedData: Data) -> Bool {
+        savePendingTransaction(transaction)
+    }
 }
 
 struct BingoViewModelPersistenceDependencies {
@@ -384,6 +391,10 @@ struct LiveBingoPersistenceTransactionRepository: BingoPersistenceTransactionRep
 
     func savePendingTransaction(_ transaction: BingoPendingPersistenceTransaction) -> Bool {
         guard let data = try? JSONEncoder().encode(transaction) else { return false }
+        return savePendingTransaction(transaction, encodedData: data)
+    }
+
+    func savePendingTransaction(_ transaction: BingoPendingPersistenceTransaction, encodedData data: Data) -> Bool {
         do {
             try data.write(to: Self.fileURL, options: .atomic)
             return (try? Data(contentsOf: Self.fileURL)) == data
@@ -652,7 +663,9 @@ enum BingoViewModelPersistence {
             result.failedToSaveTransaction = true
             return result
         }
-        guard dependencies.transactionRepository.savePendingTransaction(durableTransaction),
+        // Canonicalization already encoded the entire diary/history ledger.
+        // Reuse those exact journal bytes instead of encoding it a second time.
+        guard dependencies.transactionRepository.savePendingTransaction(durableTransaction, encodedData: transactionData),
               dependencies.transactionRepository.loadPendingTransaction() == durableTransaction else {
             DiagnosticLogStore.recordWarning(
                 "points.persistence_failed",

@@ -1,4 +1,5 @@
 import SwiftUI
+import Lottie
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -385,57 +386,292 @@ struct SidebarThemePickerRow: View {
 
 struct HomeThemePickerSheet: View {
     @Binding var themeRawValue: String
+    @Binding var backgroundRawValue: String
     let isPadLayout: Bool
+    let stickerItems: [BlindBoxStickerShelfItem]
+    let blindBoxStickerHomeCount: (BlindBoxStickerID) -> Int
+    let onAddStickerToHome: (BlindBoxStickerShelfItem) -> Bool
+    let onApply: () -> Void
+
+    private var selectedTheme: AppTheme {
+        AppTheme(rawValue: themeRawValue) ?? .concise
+    }
+
+    private var selectedBackground: HomeBackgroundOption {
+        HomeBackgroundOption(rawValue: backgroundRawValue) ?? .none
+    }
 
     var body: some View {
-        VStack(alignment: .center, spacing: 0) {
-            Text(L10n.themeColor)
+        VStack(spacing: 0) {
+            HStack {
+                Spacer(minLength: 0)
+                Button(action: onApply) {
+                    Text(L10n.apply)
+                        .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(Capsule(style: .continuous).fill(selectedTheme.color))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, scaled(20, pad: 28))
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: scaled(22, pad: 24)) {
+                pickerSection(title: L10n.themeColor) {
+                    LazyVGrid(
+                        columns: Array(
+                            repeating: GridItem(.flexible(minimum: 32), spacing: 4),
+                            count: AppTheme.selectableCases.count
+                        ),
+                        spacing: 0
+                    ) {
+                        ForEach(AppTheme.selectableCases) { theme in
+                            Button {
+                                apply(theme)
+                            } label: {
+                                ZStack {
+                                    Circle()
+                                        .fill(theme.color)
+                                        .frame(width: scaled(26, pad: 31), height: scaled(26, pad: 31))
+
+                                    Circle()
+                                        .stroke(
+                                            themeRawValue == theme.rawValue
+                                                ? NeumorphicColors.text
+                                                : Color.white.opacity(0.72),
+                                            lineWidth: themeRawValue == theme.rawValue ? 2.4 : 1.4
+                                        )
+                                        .frame(width: scaled(35, pad: 40), height: scaled(35, pad: 40))
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .contentShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(theme.rawValue)
+                            .accessibilityAddTraits(themeRawValue == theme.rawValue ? .isSelected : [])
+                        }
+                    }
+                }
+
+                pickerSection(title: L10n.backgroundPattern) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(HomeBackgroundOption.allCases) { option in
+                                Button {
+                                    apply(option)
+                                } label: {
+                                    backgroundThumbnail(for: option)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(
+                                    option == .none
+                                        ? L10n.noBackground
+                                        : [option.badgeTitle, option.rawValue]
+                                            .compactMap { $0 }
+                                            .joined(separator: " ")
+                                )
+                                .accessibilityAddTraits(selectedBackground == option ? .isSelected : [])
+                            }
+                        }
+                        .padding(.horizontal, 2)
+                    }
+                }
+
+                pickerSection(title: L10n.mySticker) {
+                    if stickerItems.isEmpty {
+                        Text(L10n.noBlindBoxStickers)
+                            .font(.appSystem(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
+                            .foregroundColor(NeumorphicColors.text.opacity(0.56))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 10)
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(alignment: .bottom, spacing: 12) {
+                                ForEach(stickerItems) { item in
+                                    let placedCount = blindBoxStickerHomeCount(item.sticker.id)
+                                    let isFullyPlaced = placedCount >= item.ownedCount
+                                    Button {
+                                        guard !isFullyPlaced else { return }
+                                        _ = onAddStickerToHome(item)
+                                    } label: {
+                                        stickerThumbnail(item, placedCount: placedCount)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(isFullyPlaced)
+                                    .accessibilityLabel(item.sticker.id.rawValue)
+                                    .accessibilityValue(String(placedCount) + "/" + String(item.ownedCount))
+                                    .accessibilityHint(isFullyPlaced ? L10n.addedToHome : L10n.addToHome)
+                                }
+                            }
+                            .padding(.horizontal, 2)
+                            .padding(.bottom, 4)
+                        }
+                    }
+                }
+                }
+                .padding(.horizontal, scaled(20, pad: 28))
+                .padding(.top, scaled(37, pad: 40))
+                .padding(.bottom, scaled(12, pad: 16))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .background(NeumorphicColors.background)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func pickerSection<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
                 .font(.appSystem(size: scaled(16, pad: 19), weight: .bold, design: .rounded))
                 .foregroundColor(NeumorphicColors.text)
-                .frame(maxWidth: .infinity, alignment: .center)
+            content()
+        }
+    }
 
-            HStack(spacing: scaled(10, pad: 14)) {
-                ForEach(AppTheme.selectableCases) { theme in
-                    Button {
-                        apply(theme)
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(theme.color)
-                                .frame(width: scaled(26, pad: 31), height: scaled(26, pad: 31))
+    private func backgroundThumbnail(for option: HomeBackgroundOption) -> some View {
+        let isSelected = selectedBackground == option
+        let thumbnailShape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        let thumbnailWidth: CGFloat = 74
+        let thumbnailHeight: CGFloat = 160
+        let optionWidth: CGFloat = 82
+        let optionHeight: CGFloat = 168
 
-                            Circle()
-                                .stroke(themeRawValue == theme.rawValue ? NeumorphicColors.text : Color.white.opacity(0.72), lineWidth: themeRawValue == theme.rawValue ? 2.4 : 1.4)
-                                .frame(width: scaled(34, pad: 40), height: scaled(34, pad: 40))
-                        }
-                        .frame(width: scaled(34, pad: 40), height: scaled(34, pad: 40))
-                        .contentShape(Circle())
+        return Group {
+            ZStack {
+                Group {
+                    if let imageName = option.imageName {
+                        Image(imageName)
+                            .resizable()
+                            .scaledToFit()
+                    } else {
+                        HomeBackgroundStyle.defaultColor
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(theme.rawValue)
-                    .accessibilityAddTraits(themeRawValue == theme.rawValue ? .isSelected : [])
+                }
+                .frame(width: thumbnailWidth, height: thumbnailHeight)
+                .background(HomeBackgroundStyle.defaultColor)
+                .clipped()
+                .clipShape(thumbnailShape)
+                .overlay {
+                    if !isSelected {
+                        thumbnailShape
+                        .strokeBorder(NeumorphicColors.text.opacity(0.12), lineWidth: 1)
+                    }
+                }
+
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(NeumorphicColors.text, lineWidth: 1.5)
+                        .frame(width: optionWidth, height: optionHeight)
                 }
             }
-            .padding(.top, scaled(50, pad: 55))
+            .frame(width: optionWidth, height: optionHeight)
+            .overlay(alignment: .topTrailing) {
+                if let badgeTitle = option.badgeTitle {
+                    Text(badgeTitle)
+                        .font(
+                            option.isHalloweenLimited
+                                ? .system(size: 15)
+                                : .appSystem(size: 9, weight: .bold, design: .rounded)
+                        )
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, option.isHalloweenLimited ? 0 : 5)
+                        .padding(.vertical, option.isHalloweenLimited ? 0 : 3)
+                        .background {
+                            if !option.isHalloweenLimited {
+                                Capsule(style: .continuous)
+                                    .fill(Color.black.opacity(0.62))
+                            }
+                        }
+                        .padding(6)
+                }
+            }
         }
-        .padding(.horizontal, scaled(20, pad: 28))
-        .padding(.top, scaled(23, pad: 25))
-        .padding(.bottom, scaled(8, pad: 10))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(NeumorphicColors.background)
+        .contentShape(
+            RoundedRectangle(
+                cornerRadius: isSelected ? 16 : 12,
+                style: .continuous
+            )
+        )
+    }
+
+    private func stickerThumbnail(
+        _ item: BlindBoxStickerShelfItem,
+        placedCount: Int
+    ) -> some View {
+        let isFullyPlaced = placedCount >= item.ownedCount
+
+        return ZStack(alignment: .topTrailing) {
+            BlindBoxImage(item.sticker.assetName)
+                .frame(width: 76, height: 88)
+                .opacity(isFullyPlaced ? 0.42 : 1)
+
+            if isFullyPlaced {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.appSystem(size: 18, weight: .bold))
+                    .foregroundColor(NeumorphicColors.accent)
+                    .background(Circle().fill(NeumorphicColors.background))
+            } else if item.ownedCount > 1 {
+                Text(placedCount == 0 ? "×\(item.ownedCount)" : "\(placedCount)/\(item.ownedCount)")
+                    .font(.appSystem(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule(style: .continuous).fill(NeumorphicColors.accent))
+            }
+        }
+        .frame(width: 80, height: 92)
+        .contentShape(Rectangle())
     }
 
     private func apply(_ theme: AppTheme) {
         guard themeRawValue != theme.rawValue else { return }
         themeRawValue = theme.rawValue
         UserDefaults(suiteName: BingoBoardStore.appGroupID)?.set(theme.rawValue, forKey: AppSettings.themeKey)
-        AnalyticsService.logThemeColorSelected(theme)
-        BingoBoardStore.reloadWidgetTimelines()
+    }
+
+    private func apply(_ option: HomeBackgroundOption) {
+        guard backgroundRawValue != option.rawValue else { return }
+        backgroundRawValue = option.rawValue
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
         isPadLayout ? (pad ?? base * 1.15) : base
     }
+}
+
+struct HomeBackgroundLayer: View {
+    let option: HomeBackgroundOption
+
+    var body: some View {
+        GeometryReader { geo in
+            Group {
+                if let imageName = option.imageName {
+                    Image(imageName)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFill()
+                } else {
+                    HomeBackgroundStyle.defaultColor
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+}
+
+private enum HomeBackgroundStyle {
+    static let defaultColor = Color(hex: "FAF9F3")
 }
 
 private enum MeScreenPalette {
@@ -446,6 +682,50 @@ private enum MeScreenPalette {
     static let darkBadge = Color(hex: "23190F")
     static let cardBackground = Color.white.opacity(0.84)
     static let border = Color(hex: "2F281F").opacity(0.82)
+}
+
+enum MeSkin: String, Equatable {
+    case normal
+    case halloween
+
+    var isHalloween: Bool { self == .halloween }
+
+    var backgroundImageName: String {
+        isHalloween ? "MeHalloweenBackground" : "MeBackground"
+    }
+
+    var titleColor: Color {
+        isHalloween ? Color(hex: "FFF7E8") : MeScreenPalette.text
+    }
+
+    var actionColor: Color {
+        isHalloween ? Color(hex: "FFC477") : MeScreenPalette.accent
+    }
+
+    var crownArrowImageName: String {
+        isHalloween ? "MeHalloweenCrownArrow" : "MeCrownArrow"
+    }
+
+    func characterImageName(isPremiumMember: Bool, hasReviewedApp: Bool) -> String {
+        switch (isHalloween, isPremiumMember, hasReviewedApp) {
+        case (false, false, false):
+            return "MeNoproUnreviewed"
+        case (false, false, true):
+            return "MeNoproReviewed"
+        case (false, true, false):
+            return "MeProUnreviewed"
+        case (false, true, true):
+            return "MeProReviewed"
+        case (true, false, false):
+            return "MeHalloweenNoproUnreviewed"
+        case (true, false, true):
+            return "MeHalloweenNoproReviewed"
+        case (true, true, false):
+            return "MeHalloweenProUnreviewed"
+        case (true, true, true):
+            return "MeHalloweenProReviewed"
+        }
+    }
 }
 
 enum MeGreeting: Int, CaseIterable {
@@ -533,6 +813,7 @@ struct BingodaysMeScreen: View {
     let hasReviewedApp: Bool
     let streakDays: Int
     let greetingText: String
+    let skin: MeSkin
     let isPadLayout: Bool
     let bottomInset: CGFloat
     let onOpenContact: () -> Void
@@ -540,6 +821,11 @@ struct BingodaysMeScreen: View {
     let onLeaveReview: () -> Void
     let onOpenDiary: () -> Void
     let onOpenPremium: () -> Void
+    let onToggleSkin: () -> Void
+
+    @State private var halloweenCatDotLottieFile: DotLottieFile?
+    @State private var halloweenCatAnimationToken = 0
+    @State private var isHalloweenCatAnimating = false
 
     var body: some View {
         GeometryReader { geo in
@@ -553,16 +839,20 @@ struct BingodaysMeScreen: View {
             )
             let contentX = geo.size.width / 2
             let yLift = isPadLayout ? max(0, (geo.size.height - 849 * layoutScale) * 0.18) : 0
-            let isPadDevice = UIDevice.current.userInterfaceIdiom == .pad
+            // Keep the Me screen adaptive when the same iPhone changes between Duo displays.
+            let isPadDevice = isPadLayout
             let isPadPortraitLayout = isPadDevice && geo.size.height > geo.size.width
             let isPadLandscapeLayout = isPadDevice && geo.size.width > geo.size.height
             let reviewBubbleHorizontalOffset: CGFloat = isPadPortraitLayout ? -60 : 0
-            let characterAndDiaryVerticalOffset: CGFloat = (isPadDevice ? 20 : 0)
+            let meContentVerticalOffset: CGFloat = 16
+            let characterAndDiaryVerticalOffset: CGFloat = meContentVerticalOffset
+                + (isPadDevice ? 20 : 0)
                 + (isPadPortraitLayout ? 40 : 0)
             let backgroundVerticalOffset: CGFloat = isPadLandscapeLayout ? -60 : 0
+            let skinToggleVerticalOffset: CGFloat = 42
 
             ZStack(alignment: .top) {
-                Image("MeBackground")
+                Image(skin.backgroundImageName)
                     .resizable()
                     .interpolation(.high)
                     .scaledToFill()
@@ -573,6 +863,18 @@ struct BingodaysMeScreen: View {
                     )
                     .clipped()
                     .ignoresSafeArea()
+
+                MeSkinToggleButton(
+                    skin: skin,
+                    isPadLayout: isPadLayout,
+                    onTap: onToggleSkin
+                )
+                .scaleEffect(layoutScale, anchor: .center)
+                .position(
+                    x: contentX - contentWidth / 2 + 20 + scaled(39, pad: 44) * layoutScale,
+                    y: y(skinToggleVerticalOffset, scale: layoutScale, lift: yLift)
+                )
+                .zIndex(12)
 
                 VStack(spacing: scaled(20, pad: 24)) {
                     titleBlock
@@ -605,18 +907,20 @@ struct BingodaysMeScreen: View {
                 .scaleEffect(layoutScale, anchor: .center)
                 .position(
                     x: contentX - contentWidth / 2 + 96 * layoutScale,
-                    y: y(266, scale: layoutScale, lift: yLift)
+                    y: y(266, scale: layoutScale, lift: yLift) + meContentVerticalOffset
                 )
 
                 if !isPremiumMember {
                     MeCrownUpgradeButton(
                         isPadLayout: isPadLayout,
+                        textColor: skin.titleColor,
+                        arrowImageName: skin.crownArrowImageName,
                         onTap: onOpenPremium
                     )
                     .scaleEffect(layoutScale, anchor: .center)
                     .position(
                         x: contentX + contentWidth / 2 - 126 * layoutScale,
-                        y: y(270, scale: layoutScale, lift: yLift)
+                        y: y(270, scale: layoutScale, lift: yLift) + meContentVerticalOffset
                     )
                 }
 
@@ -631,6 +935,45 @@ struct BingodaysMeScreen: View {
                         y: y(476, scale: layoutScale, lift: yLift) + characterAndDiaryVerticalOffset
                     )
                     .accessibilityHidden(true)
+
+                if skin.isHalloween {
+                    Button {
+                        AppHaptics.control()
+                        halloweenCatAnimationToken &+= 1
+                        isHalloweenCatAnimating = true
+                    } label: {
+                        Group {
+                            if let halloweenCatDotLottieFile {
+                                MeHalloweenCatLottieView(
+                                    dotLottieFile: halloweenCatDotLottieFile,
+                                    playToken: halloweenCatAnimationToken,
+                                    isPlaying: isHalloweenCatAnimating,
+                                    onFinished: { isHalloweenCatAnimating = false }
+                                )
+                            } else {
+                                Color.clear
+                            }
+                        }
+                        .frame(
+                            width: scaled(112, pad: 128) * layoutScale,
+                            height: scaled(178, pad: 202) * layoutScale
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .position(
+                        x: contentX - contentWidth / 2 + 70 * layoutScale,
+                        y: y(674, scale: layoutScale, lift: yLift) + characterAndDiaryVerticalOffset
+                    )
+                    .accessibilityLabel(
+                        L10n.tr("Play cat animation", zhHans: "播放猫咪动画", zhHant: "播放貓咪動畫", ja: "猫のアニメーションを再生")
+                    )
+                    .task {
+                        guard halloweenCatDotLottieFile == nil else { return }
+                        halloweenCatDotLottieFile = try? await DotLottieFile.asset(named: "MeHalloweenCatLottie")
+                    }
+                    .zIndex(0.5)
+                }
 
                 MeDiaryDeskButton(
                     isPadLayout: isPadLayout,
@@ -667,7 +1010,10 @@ struct BingodaysMeScreen: View {
                 .zIndex(1)
             }
         }
-        .background(MeScreenPalette.background.ignoresSafeArea())
+        .background(
+            (skin.isHalloween ? Color(hex: "131936") : MeScreenPalette.background)
+                .ignoresSafeArea()
+        )
     }
 
     private var membershipBadgeButton: some View {
@@ -689,7 +1035,7 @@ struct BingodaysMeScreen: View {
                 .minimumScaleFactor(0.72)
         }
         .font(.custom("Outfit", size: scaled(23, pad: 27)).weight(.semibold))
-        .foregroundColor(MeScreenPalette.text)
+        .foregroundColor(skin.titleColor)
         .multilineTextAlignment(.center)
         .accessibilityElement(children: .combine)
         .offset(y: scaled(-4, pad: -5))
@@ -700,14 +1046,14 @@ struct BingodaysMeScreen: View {
             Button(action: onOpenContact) {
                 Text("\(L10n.contactUs) 📫")
                     .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                    .foregroundColor(MeScreenPalette.accent)
+                    .foregroundColor(skin.actionColor)
             }
             .buttonStyle(.plain)
 
             Button(action: onOpenSettings) {
                 Text("\(L10n.tr("Preferences", zhHans: "个性设置", zhHant: "個性設定", ja: "個人設定")) ⚙️")
                     .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                    .foregroundColor(MeScreenPalette.accent)
+                    .foregroundColor(skin.actionColor)
             }
             .buttonStyle(.plain)
         }
@@ -715,20 +1061,142 @@ struct BingodaysMeScreen: View {
     }
 
     private var mainImageName: String {
-        switch (isPremiumMember, hasReviewedApp) {
-        case (false, false):
-            return "MeNoproUnreviewed"
-        case (false, true):
-            return "MeNoproReviewed"
-        case (true, false):
-            return "MeProUnreviewed"
-        case (true, true):
-            return "MeProReviewed"
-        }
+        skin.characterImageName(
+            isPremiumMember: isPremiumMember,
+            hasReviewedApp: hasReviewedApp
+        )
     }
 
     private func y(_ value: CGFloat, scale: CGFloat, lift: CGFloat) -> CGFloat {
         value * scale + lift
+    }
+
+    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
+        isPadLayout ? (pad ?? base * 1.15) : base
+    }
+}
+
+private struct MeHalloweenCatLottieView: UIViewRepresentable {
+    let dotLottieFile: DotLottieFile
+    let playToken: Int
+    let isPlaying: Bool
+    let onFinished: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> LottieAnimationView {
+        let view = LottieAnimationView(dotLottie: dotLottieFile)
+        view.loopMode = .playOnce
+        view.contentMode = .scaleAspectFit
+        view.backgroundBehavior = .pauseAndRestore
+        context.coordinator.lastPlayToken = playToken
+        context.coordinator.isPlaying = isPlaying
+        view.currentProgress = Self.staticProgress
+        if isPlaying {
+            play(view)
+        }
+        return view
+    }
+
+    func updateUIView(_ view: LottieAnimationView, context: Context) {
+        if isPlaying {
+            guard context.coordinator.lastPlayToken != playToken else { return }
+            context.coordinator.lastPlayToken = playToken
+            context.coordinator.isPlaying = true
+            play(view)
+        } else if context.coordinator.isPlaying || context.coordinator.lastPlayToken != playToken {
+            view.stop()
+            view.currentProgress = Self.staticProgress
+            context.coordinator.lastPlayToken = playToken
+            context.coordinator.isPlaying = false
+        }
+    }
+
+    private static let staticProgress: AnimationProgressTime = 0
+
+    private func play(_ view: LottieAnimationView) {
+        view.stop()
+        view.currentProgress = 0
+        view.play { finished in
+            guard finished else { return }
+            DispatchQueue.main.async {
+                onFinished()
+            }
+        }
+    }
+
+    final class Coordinator {
+        var lastPlayToken: Int?
+        var isPlaying = false
+    }
+}
+
+private struct MeSkinToggleButton: View {
+    let skin: MeSkin
+    let isPadLayout: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button {
+            AppHaptics.control()
+            onTap()
+        } label: {
+            ZStack {
+                Capsule(style: .continuous)
+                    .fill(skin.isHalloween ? Color(hex: "20294D") : Color(hex: "D9AA7C"))
+                    .overlay {
+                        Capsule(style: .continuous)
+                            .stroke(Color.white.opacity(skin.isHalloween ? 0.28 : 0.42), lineWidth: 1)
+                    }
+                    .shadow(color: Color.black.opacity(0.16), radius: 2, y: 1)
+
+                if skin.isHalloween {
+                    Image("MeHalloweenCasper")
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: casperWidth, height: casperHeight)
+                        .offset(x: -switchWidth / 2 + casperLeading, y: -3)
+                }
+
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: knobSize, height: knobSize)
+                    .shadow(color: Color.black.opacity(0.16), radius: 1.5, y: 1)
+                    .offset(x: knobOffset)
+                    .animation(.spring(response: 0.24, dampingFraction: 0.82), value: skin)
+            }
+            .frame(width: switchWidth, height: switchHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(minWidth: 44, minHeight: 44)
+        .accessibilityLabel(
+            skin.isHalloween
+                ? L10n.tr("Switch to normal theme", zhHans: "切换到普通皮肤", zhHant: "切換到普通皮膚", ja: "通常スキンに切り替える")
+                : L10n.tr("Switch to Halloween theme", zhHans: "切换到万圣节皮肤", zhHant: "切換到萬聖節皮膚", ja: "ハロウィンスキンに切り替える")
+        )
+    }
+
+    private var switchWidth: CGFloat { scaled(78, pad: 88) }
+
+    private var switchHeight: CGFloat { scaled(40, pad: 46) }
+
+    private var knobSize: CGFloat { scaled(27, pad: 31) }
+
+    private var casperWidth: CGFloat { scaled(56, pad: 63) }
+
+    private var casperHeight: CGFloat { scaled(38, pad: 43) }
+
+    private var casperLeading: CGFloat { scaled(27, pad: 31) }
+
+    private var knobOffset: CGFloat {
+        let inset = scaled(4, pad: 5)
+        return skin.isHalloween
+            ? switchWidth / 2 - knobSize / 2 - inset
+            : -switchWidth / 2 + knobSize / 2 + inset
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
@@ -808,14 +1276,14 @@ private struct MeStreakCard: View {
                         .foregroundColor(MeScreenPalette.accent)
                 }
 
-                Text(L10n.dayStreak)
+                Text(L10n.consecutiveOpenDays)
                     .font(.appSystem(size: scaled(9.5, pad: 11), weight: .bold, design: .rounded))
                     .foregroundColor(MeScreenPalette.accent.opacity(0.8))
             }
             .offset(y: scaled(10, pad: 12))
         }
         .frame(width: scaled(96, pad: 108), height: scaled(110, pad: 124))
-        .accessibilityLabel(L10n.dayStreak)
+        .accessibilityLabel(L10n.consecutiveOpenDays)
         .accessibilityValue("\(streakDays)")
     }
 
@@ -826,6 +1294,8 @@ private struct MeStreakCard: View {
 
 private struct MeCrownUpgradeButton: View {
     let isPadLayout: Bool
+    let textColor: Color
+    let arrowImageName: String
     let onTap: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isCrownFloating = false
@@ -857,11 +1327,11 @@ private struct MeCrownUpgradeButton: View {
 
                 Text(L10n.tr("Go Crowned", zhHans: "戴上皇冠", zhHant: "戴上皇冠", ja: "王冠をかぶる"))
                     .font(.appSystem(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
-                    .foregroundColor(MeScreenPalette.text)
+                    .foregroundColor(textColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
 
-                Image("MeCrownArrow")
+                Image(arrowImageName)
                     .resizable()
                     .interpolation(.high)
                     .scaledToFit()
@@ -1038,6 +1508,8 @@ private struct MeOutlinedPillButton: View {
 }
 
 struct MeSettingsScreen: View {
+    let hasPremiumAccess: Bool
+    let onOpenPremiumIcon: () -> Void
     let isPadLayout: Bool
     let appShortVersion: String
     let iCloudState: NativeICloudSyncCoordinator.State
@@ -1124,6 +1596,14 @@ struct MeSettingsScreen: View {
                             RoundedRectangle(cornerRadius: scaled(15, pad: 18), style: .continuous)
                                 .fill(Color.white.opacity(0.88))
                         )
+
+                        AppIconSettingsSection(
+                            isPadLayout: isPadLayout,
+                            themeColor: themeColor,
+                            hasPremiumAccess: hasPremiumAccess,
+                            onOpenPremium: onOpenPremiumIcon
+                        )
+                        .frame(width: contentWidth)
 
                         settingsLegalLinks
                             .padding(.top, scaled(16, pad: 22))

@@ -442,6 +442,19 @@ actor NativeICloudRuntime {
         lastHandledPrimarySchemaVersion = schemaVersion
     }
 
+    private func rememberPrimaryHandled(
+        stamp: NativeICloudCommitStamp,
+        schemaVersion: Int64,
+        state: NativeICloudPrimaryStateSnapshot
+    ) {
+        rememberPrimaryHandled(stamp: stamp, schemaVersion: schemaVersion)
+        guard lastHandledPrimaryStamp == stamp,
+              lastHandledPrimarySchemaVersion == schemaVersion else {
+            return
+        }
+        lastHandledPrimaryState = state
+    }
+
     func schedulePrimaryExport(requestedAt: Date = .now) {
         guard NativeICloudPreferences.isEnabled else { return }
         scheduledExportGeneration &+= 1
@@ -599,20 +612,32 @@ actor NativeICloudRuntime {
               let newestSnapshot = decodedHistory.last?.1,
               let snapshot = NativeICloudPrimaryHistoryResolver.resolve(
                   decodedHistory
-              ) else {
+        ) else {
             return false
         }
-        NativeICloudPrimaryMutationGate.acquire()
-        defer { NativeICloudPrimaryMutationGate.release() }
-        let localSnapshot = NativeICloudPrimaryStateSnapshot.captureLocal()
-        let hasPendingLocalMutation = NativeICloudPreferences.primaryPendingMutationGeneration != 0
-        let localHasNewerUserChange = hasPendingLocalMutation || (
-            latest.schemaVersion < NativeICloudPrimaryEnvelopeSchema.logicalCommitVersion &&
-            NativeICloudPrimaryConflictResolver.localChangeIsNewer(
-                modifiedAt: NativeICloudPreferences.primaryLocalModifiedAt,
-                than: latest.stamp
-            )
+        let hasHandledLatestCommit = hasHandledPrimaryCommit(latest)
+        let resolvedStateWasAlreadyHandled = NativeICloudPrimaryHandledStateResolver.contains(
+            latestStamp: latest.stamp,
+            latestSchemaVersion: latest.schemaVersion,
+            resolvedState: snapshot,
+            handledStamp: lastHandledPrimaryStamp,
+            handledSchemaVersion: lastHandledPrimarySchemaVersion,
+            handledState: lastHandledPrimaryState
         )
+        // Local projection writes UserDefaults and SwiftUI observes those writes.
+        // Run the complete local compare-and-commit on the main actor, with no
+        // persistence lock held while this actor awaits the handoff.
+        let projection = try await MainActor.run {
+            try NativeICloudPrimaryLocalProjection.applyIfCurrent(
+                snapshot,
+                latestStamp: latest.stamp,
+                latestSchemaVersion: latest.schemaVersion,
+                hasHandledLatestCommit: hasHandledLatestCommit,
+                resolvedStateWasAlreadyHandled: resolvedStateWasAlreadyHandled,
+                reloadWidgets: reloadWidgets
+            )
+        }
+        let localSnapshot = projection.localSnapshot
         let localTotal = localSnapshot.points.totalPoints.map(String.init) ?? "nil"
         let cloudTotal = snapshot.points.totalPoints.map(String.init) ?? "nil"
         let localLifetime = localSnapshot.points.lifetimePoints.map(String.init) ?? "nil"
@@ -629,37 +654,29 @@ actor NativeICloudRuntime {
             "local_modified": localModified,
             "cloud_stamp": cloudStamp,
             "commit_id": commitID,
-            "local_newer": String(localHasNewerUserChange),
-            "pending_local_mutation": String(hasPendingLocalMutation),
+            "local_newer": String(projection.localHasNewerUserChange),
+            "pending_local_mutation": String(projection.hasPendingLocalMutation),
             "cloud_schema": String(latest.schemaVersion),
             "history_count": String(decodedHistory.count),
             "history_repaired_latest": String(!snapshot.hasSameUserState(as: newestSnapshot))
         ]
-        let needsProjection = !localSnapshot.hasSameUserState(as: snapshot) ||
-            NativeICloudPrimaryLocalProjection.needsDailyRewardStateRepair(for: snapshot)
-        let resolvedStateWasAlreadyHandled = NativeICloudPrimaryHandledStateResolver.contains(
-            latestStamp: latest.stamp,
-            latestSchemaVersion: latest.schemaVersion,
-            resolvedState: snapshot,
-            handledStamp: lastHandledPrimaryStamp,
-            handledSchemaVersion: lastHandledPrimarySchemaVersion,
-            handledState: lastHandledPrimaryState
-        )
-        if hasHandledPrimaryCommit(latest),
-           !localHasNewerUserChange,
-           (resolvedStateWasAlreadyHandled || !needsProjection) {
+        if projection.didSkipHandledCommit {
             DiagnosticLogStore.recordStateChange(
                 "points.icloud_import_skipped_handled",
                 details: importDetails
             )
-            lastHandledPrimaryState = snapshot
+            rememberPrimaryHandled(
+                stamp: latest.stamp,
+                schemaVersion: latest.schemaVersion,
+                state: snapshot
+            )
             return false
         }
 
         // A local tap that has not reached CloudKit yet must not be replaced by a
         // delayed import. The scheduled exporter retains the dirty timestamp and
         // will publish that exact local commit.
-        guard !localHasNewerUserChange else {
+        guard !projection.localHasNewerUserChange else {
             DiagnosticLogStore.recordStateChange(
                 "points.icloud_import_skipped_local_newer",
                 details: importDetails
@@ -668,7 +685,7 @@ actor NativeICloudRuntime {
             // for its first CloudKit import. Keep the durable mutation marker and
             // retry the export after the import notification instead of allowing
             // the newly tapped task to remain local forever.
-            if hasPendingLocalMutation {
+            if projection.hasPendingLocalMutation {
                 schedulePrimaryExport()
             }
             return false
@@ -678,25 +695,24 @@ actor NativeICloudRuntime {
         // cloud history, then stops. In particular, an import must never create
         // another primary record. The former import/export feedback loop was the
         // source of repeated point jumps and task-state reversions.
-        let didApplyProjection: Bool
-        if needsProjection {
+        if projection.didApply {
             DiagnosticLogStore.recordWarning(
                 "points.icloud_import_applying",
                 details: importDetails
             )
-            try NativeICloudPrimaryLocalProjection.apply(snapshot, reloadWidgets: reloadWidgets)
             primaryProjectionRevision &+= 1
-            didApplyProjection = true
         } else {
             DiagnosticLogStore.recordStateChange(
                 "points.icloud_import_same_state",
                 details: importDetails
             )
-            didApplyProjection = false
         }
-        rememberPrimaryHandled(stamp: latest.stamp, schemaVersion: latest.schemaVersion)
-        lastHandledPrimaryState = snapshot
-        return didApplyProjection
+        rememberPrimaryHandled(
+            stamp: latest.stamp,
+            schemaVersion: latest.schemaVersion,
+            state: snapshot
+        )
+        return projection.didApply
     }
 
     func beginObservingRemoteChanges() async throws {
@@ -708,7 +724,7 @@ actor NativeICloudRuntime {
             forName: .NSPersistentStoreRemoteChange,
             object: store.persistentStoreCoordinator,
             queue: nil
-        ) { _ in
+        ) { [weak self] _ in
             Task { [weak self] in
                 await self?.schedulePersistentStoreChangeImport(
                     forStoreGeneration: storeGeneration
@@ -894,9 +910,9 @@ actor NativeICloudRuntime {
         guard storeGeneration == activeStoreGeneration else { return }
         scheduledRemoteImportGeneration &+= 1
         let generation = scheduledRemoteImportGeneration
-        Task { [weak self] in
+        Task {
             try? await Task.sleep(nanoseconds: 200_000_000)
-            await self?.handlePersistentStoreChange(
+            await self.handlePersistentStoreChange(
                 scheduledGeneration: generation,
                 storeGeneration: storeGeneration
             )
@@ -938,7 +954,7 @@ actor NativeICloudRuntime {
             forName: NSPersistentCloudKitContainer.eventChangedNotification,
             object: store.persistentCloudKitContainer,
             queue: nil
-        ) { notification in
+        ) { [weak self] notification in
             guard let event = notification.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey]
                     as? NSPersistentCloudKitContainer.Event else {
                 return

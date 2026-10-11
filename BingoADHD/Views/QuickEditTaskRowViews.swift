@@ -37,7 +37,7 @@ struct QuickEditReadOnlyTaskRow: View {
         Button(action: action) {
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .font(.appSystem(size: scaled(18, pad: 20), weight: .bold))
-                .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.38))
+                .foregroundColor(isSelected ? NeumorphicColors.modalAccent : NeumorphicColors.text.opacity(0.38))
                 .frame(width: 24, height: 24)
         }
         .buttonStyle(.plain)
@@ -191,8 +191,8 @@ struct QuickEditAddTaskButton: View {
                 .frame(height: 48)
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(NeumorphicColors.accent)
-                        .shadow(color: AppTheme.current.bingoSurfaceShadowColor.opacity(0.24), radius: 10, x: 0, y: 6)
+                        .fill(NeumorphicColors.modalAccent)
+                        .shadow(color: AppTheme.concise.bingoSurfaceShadowColor.opacity(0.24), radius: 10, x: 0, y: 6)
                 )
         }
         .buttonStyle(.plain)

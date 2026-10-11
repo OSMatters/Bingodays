@@ -65,9 +65,11 @@ struct HomeLifecycleObserversModifier: ViewModifier {
             .onAppear {
                 onProcessLifecycleEvents(Date(), true, "onAppear", true)
                 refreshLimitedTimeOfferConfig()
-                startDeferredHomePreloadsIfNeeded()
                 startDeferredUpdateCheckIfNeeded()
                 startDeferredSubscriptionRefreshIfNeeded()
+            }
+            .task {
+                await startDeferredHomePreloadsIfNeeded()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 guard newPhase == .active else { return }
@@ -89,7 +91,8 @@ struct HomeLifecycleObserversModifier: ViewModifier {
         }
     }
 
-    private func startDeferredHomePreloadsIfNeeded() {
+    @MainActor
+    private func startDeferredHomePreloadsIfNeeded() async {
         guard !hasStartedDeferredHomePreloads else { return }
         hasStartedDeferredHomePreloads = true
         // This tiny, tap-triggered effect must already be decoded before the user can complete
@@ -104,34 +107,48 @@ struct HomeLifecycleObserversModifier: ViewModifier {
             maxFrameRate: 60
         )
         // Stagger startup work so first-frame home rendering does not compete with preloads.
-        Task(priority: .utility) {
-            try? await Task.sleep(nanoseconds: 900_000_000)
-            await MainActor.run {
-                PAGCompletionView.preload(
-                    resourceName: "complete_bingo_background_bmp",
-                    cacheAllFrames: true,
-                    renderScale: 1,
-                    maxFrameRate: 60
-                )
-                PAGCompletionView.preload(
-                    resourceName: "complete_bingo_bmp",
-                    playsSound: true,
-                    soundResourceName: "complete_bingo",
-                    soundFileExtension: "mp3",
-                    renderScale: 1,
-                    maxFrameRate: 60
-                )
-                PAGRewardSoundPlayer.shared.preload(
-                    resourceName: "complete_bingo_background",
-                    fileExtension: "mp3"
-                )
-                PAGRewardSoundPlayer.shared.preload(
-                    resourceName: "complete_allbingo",
-                    fileExtension: "mp3"
-                )
-                PointsSoundPlayer.shared.preload()
-            }
+        do {
+            try await Task.sleep(for: .milliseconds(900))
+        } catch {
+            // SwiftUI cancels this task on disappearance. Allow a later entry
+            // to finish preloading; the lightweight effect is already cached.
+            hasStartedDeferredHomePreloads = false
+            return
         }
+        guard !Task.isCancelled else {
+            hasStartedDeferredHomePreloads = false
+            return
+        }
+        // Keep the source composition without retaining a second decoded
+        // all-frame cache for the larger background effect.
+        PAGCompletionView.preload(
+            resourceName: "complete_bingo_background_bmp",
+            cacheAllFrames: false,
+            renderScale: 1,
+            maxFrameRate: 60
+        )
+        await Task.yield()
+        guard !Task.isCancelled else {
+            hasStartedDeferredHomePreloads = false
+            return
+        }
+        PAGCompletionView.preload(
+            resourceName: "complete_bingo_bmp",
+            playsSound: true,
+            soundResourceName: "complete_bingo",
+            soundFileExtension: "mp3",
+            renderScale: 1,
+            maxFrameRate: 60
+        )
+        PAGRewardSoundPlayer.shared.preload(
+            resourceName: "complete_bingo_background",
+            fileExtension: "mp3"
+        )
+        PAGRewardSoundPlayer.shared.preload(
+            resourceName: "complete_allbingo",
+            fileExtension: "mp3"
+        )
+        PointsSoundPlayer.shared.preload()
     }
 
     private func startDeferredUpdateCheckIfNeeded() {
@@ -219,8 +236,8 @@ struct HomeBoardStateObserversModifier: ViewModifier {
     let onSyncSelectedBoardSnapshot: (HomeBoardStateChange) -> Void
     let onEvaluateFirstStepGuideProgress: () -> Void
     let onEvaluateAppReviewPromptOpportunity: (AppReviewPromptCandidate) -> Void
-    let onReconcileStickerOwnership: () -> Void
     let onEnforceCustomResetAccess: () -> Void
+    let onEnforcePremiumBackgroundAccess: () -> Void
 
     private var boardSignature: BoardSignature {
         BoardSignature(
@@ -240,7 +257,6 @@ struct HomeBoardStateObserversModifier: ViewModifier {
 
                 if change.didChangeCells {
                     onEvaluateFirstStepGuideProgress()
-                    onReconcileStickerOwnership()
                 }
 
                 if let trigger = change.appReviewPromptTrigger {
@@ -250,11 +266,13 @@ struct HomeBoardStateObserversModifier: ViewModifier {
             .onChange(of: hasCompletedEntitlementRefresh) { _, hasCompleted in
                 guard hasCompleted else { return }
                 onEnforceCustomResetAccess()
+                onEnforcePremiumBackgroundAccess()
             }
             .onChange(of: hasPremiumAccess) { _, _ in
                 // Entitlement changes can revoke custom reset access, so re-check after refreshes.
                 guard hasCompletedEntitlementRefresh else { return }
                 onEnforceCustomResetAccess()
+                onEnforcePremiumBackgroundAccess()
             }
     }
 }
@@ -266,7 +284,6 @@ struct HomePointsAndTimeoutObserversModifier: ViewModifier {
     let countdownTicker: Publishers.Autoconnect<Timer.TimerPublisher>
     let expiredTaskEventID: UUID?
     let expiredBoardCountdownEventID: UUID?
-    let onReconcileStickerOwnership: () -> Void
     let onAvailablePointsChange: (Int, Int) -> Void
     let onShowDailyReset: () -> Void
     let onTick: (Date) -> Void
@@ -275,14 +292,7 @@ struct HomePointsAndTimeoutObserversModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onAppear {
-                onReconcileStickerOwnership()
-            }
-            .onChange(of: totalPoints) { _, _ in
-                onReconcileStickerOwnership()
-            }
             .onChange(of: availablePoints) { oldValue, newValue in
-                onReconcileStickerOwnership()
                 onAvailablePointsChange(oldValue, newValue)
             }
             .onChange(of: dailyResetNoticeID) { _, newValue in

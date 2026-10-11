@@ -9,6 +9,7 @@ struct HomeHeaderView: View {
     let limitedTimeOfferDuration: TimeInterval
     let limitedTimeOfferCampaignID: String
     let themeColor: Color
+    let showsSkinNewBadge: Bool
     let onOpenThemePicker: () -> Void
     let onOpenBoardShare: () -> Void
     let onOpenPointsFlow: () -> Void
@@ -17,18 +18,35 @@ struct HomeHeaderView: View {
     var body: some View {
         ZStack {
             HStack(spacing: 2) {
-                Button(action: onOpenThemePicker) {
-                    Image("HomeSkin")
-                        .resizable()
-                        .interpolation(.high)
-                        .renderingMode(.template)
-                        .foregroundColor(themeColor)
-                        .scaledToFit()
-                        .frame(width: scaled(24, pad: 28), height: scaled(24, pad: 28))
-                        .frame(width: headerIconSize, height: headerIconSize)
-                        .contentShape(Rectangle())
+                ZStack(alignment: .topTrailing) {
+                    Button(action: onOpenThemePicker) {
+                        Image("HomeSkin")
+                            .resizable()
+                            .interpolation(.high)
+                            .renderingMode(.template)
+                            .foregroundColor(themeColor)
+                            .scaledToFit()
+                            .frame(width: scaled(24, pad: 28), height: scaled(24, pad: 28))
+                            .frame(width: headerIconSize, height: headerIconSize)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if showsSkinNewBadge {
+                        Text("NEW")
+                            .font(.appSystem(size: scaled(7, pad: 8), weight: .heavy, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(Color(hex: "E56F5B"))
+                            )
+                            .offset(x: scaled(8, pad: 10), y: scaled(-7, pad: -9))
+                            .accessibilityHidden(true)
+                    }
                 }
-                .buttonStyle(.plain)
+                .frame(width: headerIconSize, height: headerIconSize)
                 .offset(y: -20)
 
                 headerIconButton(

@@ -82,7 +82,7 @@ struct QuickEditPreviewSlot: Identifiable, Equatable {
             endAt: cellState.endVisibleAt,
             startMonth: cellState.startVisibleMonth,
             startDay: cellState.startVisibleDay,
-            recurrenceRule: cellState.recurrenceRule
+            recurrenceRule: cellState.effectiveRecurrenceRule
         )
     }
 }
@@ -97,11 +97,22 @@ struct QuickEditDeselectedTaskDraft {
            task.startAt == sourceTask.startAt,
            task.endAt == sourceTask.endAt,
            task.startMonth == sourceTask.startMonth,
-           task.startDay == sourceTask.startDay {
+           task.startDay == sourceTask.startDay,
+           task.recurrenceRule == sourceTask.recurrenceRule {
             return cellState
         }
+
+        // A missing library rule is legacy/unspecified data, not an explicit
+        // request to downgrade a previously edited preview cell to a single
+        // task. Keep the draft's effective rule while applying newer task
+        // metadata such as a renamed title.
+        var taskToRestore = task
+        if taskToRestore.recurrenceRule == nil,
+           let draftRule = cellState.effectiveRecurrenceRule {
+            taskToRestore.recurrenceRule = draftRule
+        }
         return quickEditMakePreviewCell(
-            from: task,
+            from: taskToRestore,
             preserving: cellState,
             availableHistoryCount: availableHistoryCount
         )
@@ -263,26 +274,49 @@ func quickEditMakePreviewCell(
     }
 
     var cell = existingCell
+    let isRepeating = taskCopy.recurrenceRule.map { $0.kind != .none } ?? false
+    let startAt = isRepeating ? nil : taskCopy.startAt
+    let endAt = isRepeating ? nil : taskCopy.endAt
+    let startMonth = isRepeating ? nil : taskCopy.startMonth
+    let startDay = isRepeating ? nil : taskCopy.startDay
+    let usesStoredSchedule = taskCopy.recurrenceRule != nil ||
+        startAt != nil || endAt != nil || startMonth != nil || startDay != nil
+    let definitionChanged = existingCell.storedTaskText != taskCopy.trimmedText ||
+        existingCell.recurrenceRule != taskCopy.recurrenceRule ||
+        !existingCell.residentWeekdays.isEmpty ||
+        existingCell.oneTimeVisibleDate != nil ||
+        existingCell.startVisibleAt != startAt ||
+        existingCell.endVisibleAt != endAt ||
+        existingCell.startVisibleMonth != startMonth ||
+        existingCell.startVisibleDay != startDay
     cell.text = taskCopy.trimmedText
-    if cell.residentTaskText != nil {
-        cell.residentTaskText = taskCopy.trimmedText
-    }
-    cell.startVisibleAt = taskCopy.startAt
-    cell.endVisibleAt = taskCopy.endAt
+    cell.residentTaskText = usesStoredSchedule ? taskCopy.trimmedText : nil
+    cell.residentWeekdays = []
+    cell.oneTimeVisibleDate = nil
+    cell.recurrenceRule = taskCopy.recurrenceRule
+    cell.startVisibleAt = startAt
+    cell.endVisibleAt = endAt
     cell.usesRecurringTimeWindow = false
     cell.startReminderEnabled = false
     cell.startReminderOffsetMinutes = BingoCell.defaultStartReminderOffsetMinutes
-    cell.startVisibleMonth = taskCopy.startMonth
-    cell.startVisibleDay = taskCopy.startDay
+    cell.startVisibleMonth = startMonth
+    cell.startVisibleDay = startDay
     cell.isTaskHidden = false
     // Force flag is only set by explicit EditTaskSheet toggle.
     cell.isForced = false
     cell.completionStreakCount = TaskCompletionHistoryRuleEngine.inheritedCompletionCount(
         previousTaskText: existingCell.storedTaskText,
-        previousCompletionCount: existingCell.completionStreakCount,
+        previousCompletionCount: definitionChanged ? 0 : existingCell.completionStreakCount,
         updatedTaskText: taskCopy.trimmedText,
         availableHistoryCount: availableHistoryCount
     )
+    if definitionChanged {
+        cell.isCompleted = false
+        cell.lastCompletedAt = nil
+        cell.countdownEndsAt = nil
+        cell.countdownPausedRemainingSeconds = nil
+        cell.estimatedDurationMinutes = nil
+    }
     return cell
 }
 
@@ -486,6 +520,17 @@ func quickEditHistoryTaskKey(_ record: TaskHistoryRecord) -> String {
     "history:\(record.key)"
 }
 
+func quickEditTaskFromHistory(_ record: TaskHistoryRecord) -> MyTaskItem {
+    return MyTaskItem(
+        text: record.trimmedText,
+        startAt: record.startAt,
+        endAt: record.endAt,
+        startMonth: record.startMonth,
+        startDay: record.startDay,
+        recurrenceRule: record.recurrenceRule
+    )
+}
+
 func quickEditLibraryTaskIDs(library: MyTasksLibrary) -> Set<UUID> {
     Set(library.tasks.map(\.id) + library.groups.flatMap { $0.tasks.map(\.id) })
 }
@@ -545,14 +590,7 @@ func quickEditAllTaskCandidates(library: MyTasksLibrary, unlockedHistoryRecords:
         candidates.append(
             QuickEditTaskCandidate(
                 id: key,
-                task: MyTaskItem(
-                    text: record.trimmedText,
-                    startAt: record.startAt,
-                    endAt: record.endAt,
-                    startMonth: record.startMonth,
-                    startDay: record.startDay,
-                    recurrenceRule: record.recurrenceRule
-                )
+                task: quickEditTaskFromHistory(record)
             )
         )
         seenIDs.insert(key)
@@ -603,14 +641,7 @@ func quickEditFilteredTaskItems(
             return QuickEditFilteredTaskItem(
                 id: quickEditHistoryTaskKey(record),
                 source: .history,
-                task: MyTaskItem(
-                    text: record.trimmedText,
-                    startAt: record.startAt,
-                    endAt: record.endAt,
-                    startMonth: record.startMonth,
-                    startDay: record.startDay,
-                    recurrenceRule: record.recurrenceRule
-                ),
+                task: quickEditTaskFromHistory(record),
                 operationDate: record.lastEditedAt,
                 isLocked: isLocked
             )
@@ -761,6 +792,7 @@ func quickEditAddPreviewTask(
     currentSlots: [QuickEditPreviewSlot],
     deselectedTaskDrafts: inout [String: QuickEditDeselectedTaskDraft],
     source: String = "task_library",
+    explicitlyEditedCellIDs: Set<UUID> = [],
     completionHistoryCountProvider: (String) -> Int = { _ in 0 }
 ) -> (updatedSlots: [QuickEditPreviewSlot], wasAdded: Bool) {
     guard let task = candidateTaskMap[key], task.isStartDateReached() else {
@@ -769,6 +801,10 @@ func quickEditAddPreviewTask(
 
     var slots = currentSlots
     if let existingIndex = slots.firstIndex(where: { $0.sourceTaskKey == key }) {
+        if let cellID = slots[existingIndex].cellState?.id,
+           explicitlyEditedCellIDs.contains(cellID) {
+            return (slots, true)
+        }
         slots[existingIndex].cellState = quickEditMakePreviewCell(
             from: task,
             preserving: slots[existingIndex].cellState,
@@ -808,6 +844,7 @@ func quickEditAppendTasksToPreview(
     candidateTaskMap: [String: MyTaskItem],
     currentSlots: [QuickEditPreviewSlot],
     deselectedTaskDrafts: inout [String: QuickEditDeselectedTaskDraft],
+    explicitlyEditedCellIDs: Set<UUID> = [],
     completionHistoryCountProvider: (String) -> Int = { _ in 0 }
 ) -> QuickEditPreviewAppendResult {
     var slots = currentSlots
@@ -818,12 +855,19 @@ func quickEditAppendTasksToPreview(
         guard let task = candidateTaskMap[key], task.isStartDateReached() else { continue }
 
         let wasSelected = slots.contains { $0.sourceTaskKey == key }
+        // Group application is idempotent. In particular, do not run an
+        // already restored draft through quickEditMakePreviewCell again,
+        // because a duplicate key must not replace its preserved rule with
+        // an unspecified library rule.
+        if wasSelected { continue }
+
         let result = quickEditAddPreviewTask(
             key: key,
             candidateTaskMap: candidateTaskMap,
             currentSlots: slots,
             deselectedTaskDrafts: &deselectedTaskDrafts,
             source: "group_apply",
+            explicitlyEditedCellIDs: explicitlyEditedCellIDs,
             completionHistoryCountProvider: completionHistoryCountProvider
         )
         guard result.wasAdded else {
@@ -866,6 +910,7 @@ func quickEditSyncPreviewSlotsWithLibrary(
     currentSlots: [QuickEditPreviewSlot],
     candidateTaskMap: [String: MyTaskItem],
     totalGridSlots: Int,
+    explicitlyEditedCellIDs: Set<UUID> = [],
     completionHistoryCountProvider: (String) -> Int = { _ in 0 }
 ) -> [QuickEditPreviewSlot] {
     guard !currentSlots.isEmpty else { return currentSlots }
@@ -880,6 +925,8 @@ func quickEditSyncPreviewSlotsWithLibrary(
             slots[index].sourceTaskKey = nil
             continue
         }
+        if let cellID = slots[index].cellState?.id,
+           explicitlyEditedCellIDs.contains(cellID) { continue }
         slots[index].cellState = quickEditMakePreviewCell(
             from: task,
             preserving: slots[index].cellState,
@@ -1049,15 +1096,18 @@ func quickEditLegacyHistoryItemsFromDiaryEntries(_ entries: [BingoDiaryEntry]) -
             items.append(QuickEditHistoryBackfillItem(task: MyTaskItem(text: trimmed), date: entry.date))
         }
 
-        for cell in entry.board.cells.flatMap({ $0 }) {
+        for cell in (entry.board.fullBoardCells ?? entry.board.cells).flatMap({ $0 }) {
             let trimmed = cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
             items.append(
                 QuickEditHistoryBackfillItem(
                     task: MyTaskItem(
                         text: trimmed,
+                        startAt: cell.startVisibleAt,
+                        endAt: cell.endVisibleAt,
                         startMonth: cell.startVisibleMonth,
-                        startDay: cell.startVisibleDay
+                        startDay: cell.startVisibleDay,
+                        recurrenceRule: cell.effectiveRecurrenceRule
                     ),
                     date: entry.date
                 )
@@ -1125,7 +1175,17 @@ func quickEditCommitInlineTask(
     guard !text.isEmpty else { return .noOp }
 
     let (startMonth, startDay) = quickEditNormalizedMonthDay(monthText: monthText, dayText: dayText)
-    let task = MyTaskItem(text: text, startMonth: startMonth, startDay: startDay)
+    let recurrenceRule: TaskRecurrenceRule
+    switch activeFilter {
+    case .all:
+        recurrenceRule = TaskRecurrenceRule(kind: .none)
+    case .group:
+        recurrenceRule = TaskRecurrenceRule(kind: .daily)
+    }
+    let task = MyTaskItem(
+        text: text, startMonth: startMonth, startDay: startDay,
+        recurrenceRule: recurrenceRule
+    )
 
     switch activeFilter {
     case .all:

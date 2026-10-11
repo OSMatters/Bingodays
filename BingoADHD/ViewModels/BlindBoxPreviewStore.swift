@@ -22,7 +22,10 @@ final class BlindBoxPreviewStore: ObservableObject, BlindBoxDrawRepository {
     private var persistence: UserDefaults?
 
     @Published private(set) var state: BlindBoxAccountState {
-        didSet { savePreview() }
+        didSet {
+            savePreview()
+            NotificationCenter.default.post(name: .blindBoxAccountStateDidChange, object: nil)
+        }
     }
     @Published private(set) var lastOpenResult: BlindBoxOpenResult?
     @Published private(set) var previewAvailablePoints: Int {

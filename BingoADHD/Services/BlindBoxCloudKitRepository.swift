@@ -337,6 +337,46 @@ final class BlindBoxCloudKitAccountStateRepository {
         throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
     }
 
+    /// Best-effort mirror for the local-first account. The committed local
+    /// wallet always wins on upload; a stale cloud snapshot must never restore
+    /// a spent ticket or a receipt already acknowledged by the user. Server
+    /// contention refetches only to retain monotonic inventory progress.
+    func mergeAndSaveLocalAccount(
+        _ localAccountState: BlindBoxAccountState
+    ) async throws -> BlindBoxCloudAccountEnvelope {
+        for attempt in 0..<Self.maximumContentionAttempts {
+            do {
+                guard try await database.fetchZone(BlindBoxCloudKitRecordCodec.zoneID) != nil else {
+                    throw BlindBoxCloudKitRepositoryError.accountNotInitialized
+                }
+                let records = try await database.fetchRecords([
+                    BlindBoxCloudKitRecordCodec.accountRecordID
+                ])
+                guard let accountRecord = records[BlindBoxCloudKitRecordCodec.accountRecordID] else {
+                    throw BlindBoxCloudKitRepositoryError.accountNotInitialized
+                }
+                var envelope = try BlindBoxCloudKitRecordCodec.decodeAccountRecord(accountRecord)
+                let merged = BlindBoxAccountStateMergePolicy.mergeForLocalUpload(
+                    local: localAccountState,
+                    cloud: envelope.accountState
+                )
+                guard merged != envelope.accountState else { return envelope }
+
+                envelope.accountState = merged
+                try BlindBoxCloudKitRecordCodec.updateAccountRecord(accountRecord, with: envelope)
+                try await database.saveRecordsAtomically([accountRecord])
+                return envelope
+            } catch {
+                guard Self.isServerRecordChanged(error) else { throw error }
+                if attempt == Self.maximumContentionAttempts - 1 {
+                    throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+                }
+            }
+        }
+
+        throw BlindBoxCloudKitRepositoryError.contentionRetryLimitReached
+    }
+
     func acknowledgeTicketReceipt(_ id: UUID) async throws -> Bool {
         for attempt in 0..<Self.maximumContentionAttempts {
             do {

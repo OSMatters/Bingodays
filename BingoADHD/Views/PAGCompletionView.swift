@@ -921,7 +921,7 @@ struct BoardAllBingoCompletionView: View {
                         .padding(.vertical, 16)
                         .background(
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(NeumorphicColors.accent)
+                                .fill(NeumorphicColors.modalAccent)
                         )
                     }
                     .buttonStyle(.plain)

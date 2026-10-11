@@ -7,6 +7,7 @@ struct HomePromptLayer: View {
     let isUpdatePromptPresented: Bool
     let isAppReviewPromptPresented: Bool
     let isCustomResetDowngradeAlertPresented: Bool
+    let isPremiumBackgroundDowngradeAlertPresented: Bool
     let customResetDowngradeBoardNames: [String]
     let isPadLayout: Bool
     let onFirstStepGuideStart: () -> Void
@@ -19,12 +20,15 @@ struct HomePromptLayer: View {
     let onCloseAppReviewPrompt: () -> Void
     let onCustomResetDowngradeClose: () -> Void
     let onCustomResetDowngradeRestore: () -> Void
+    let onPremiumBackgroundDowngradeContinue: () -> Void
+    let onPremiumBackgroundDowngradeNoThanks: () -> Void
 
     private var isShowingPrompt: Bool {
         firstStepGuideOverlay != nil ||
             isUpdatePromptPresented ||
             isAppReviewPromptPresented ||
-            isCustomResetDowngradeAlertPresented
+            isCustomResetDowngradeAlertPresented ||
+            isPremiumBackgroundDowngradeAlertPresented
     }
 
     var body: some View {
@@ -73,6 +77,16 @@ struct HomePromptLayer: View {
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 .zIndex(90)
+            }
+
+            if isPremiumBackgroundDowngradeAlertPresented && !isCustomResetDowngradeAlertPresented {
+                PremiumBackgroundDowngradeOverlay(
+                    isPadLayout: isPadLayout,
+                    onContinue: onPremiumBackgroundDowngradeContinue,
+                    onNoThanks: onPremiumBackgroundDowngradeNoThanks
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(95)
             }
         }
         .allowsHitTesting(isShowingPrompt)
@@ -440,5 +454,79 @@ private struct CustomResetDowngradeOverlay: View {
             zhHant: "\(names) 面板",
             ja: "\(names) ボード"
         )
+    }
+}
+
+private struct PremiumBackgroundDowngradeOverlay: View {
+    let isPadLayout: Bool
+    let onContinue: () -> Void
+    let onNoThanks: () -> Void
+
+    private var cardWidth: CGFloat { isPadLayout ? 520 : 322 }
+    private var imageSize: CGSize {
+        isPadLayout
+            ? CGSize(width: 380, height: 236)
+            : CGSize(width: 300, height: 186)
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.78)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Image("ResetPush")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: imageSize.width, height: imageSize.height)
+                    .padding(.top, isPadLayout ? 16 : 10)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: isPadLayout ? 18 : 14) {
+                    Text(L10n.premiumBackgroundExpiredTitle)
+                        .font(.appSystem(size: isPadLayout ? 19 : 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(NeumorphicColors.text)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(L10n.premiumBackgroundExpiredMessage)
+                        .font(.appSystem(size: isPadLayout ? 18 : 15, weight: .medium, design: .rounded))
+                        .foregroundStyle(NeumorphicColors.text)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, isPadLayout ? 40 : 24)
+                .padding(.top, isPadLayout ? 22 : 18)
+
+                Button(action: onContinue) {
+                    Text(L10n.premiumBackgroundExpiredContinue)
+                        .font(.appSystem(size: isPadLayout ? 20 : 17, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: isPadLayout ? 58 : 48)
+                        .background(Capsule().fill(Color(hex: "DBAB7B")))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, isPadLayout ? 40 : 24)
+                .padding(.top, isPadLayout ? 30 : 26)
+
+                Button(action: onNoThanks) {
+                    Text(L10n.premiumBackgroundExpiredNoThanks)
+                        .font(.appSystem(size: isPadLayout ? 15 : 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(NeumorphicColors.text.opacity(0.58))
+                        .frame(minHeight: 30)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+                .padding(.bottom, isPadLayout ? 28 : 22)
+                .accessibilityHint(L10n.tr("Closes this message", zhHans: "关闭此提示", zhHant: "關閉此提示", ja: "このメッセージを閉じます"))
+            }
+            .background(
+                RoundedRectangle(cornerRadius: isPadLayout ? 26 : 20, style: .continuous)
+                    .fill(Color(hex: "FBF6F3"))
+            )
+            .frame(width: cardWidth)
+            .padding(.horizontal, 28)
+        }
     }
 }

@@ -9,9 +9,11 @@ struct QuickEditView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
-    @State private var library = CommonTasksStore.loadLibrary()
-    @State private var taskHistoryRecords = TaskHistoryStore.load()
-    @State private var lastTrackedLibrary = CommonTasksStore.loadLibrary()
+    @State private var library = MyTasksLibrary()
+    @State private var taskHistoryRecords: [TaskHistoryRecord] = []
+    @State private var lastTrackedLibrary = MyTasksLibrary()
+    @State private var pendingTaskHistoryEdits: [UUID: MyTaskItem] = [:]
+    @State private var completionHistoryCountLookup: (String) -> Int = { _ in 0 }
     @FocusState private var focusedField: FocusedMyTaskField?
     @State private var deleteConfirmationTarget: QuickEditDeleteTarget?
     @State private var localToastMessage: String?
@@ -44,7 +46,6 @@ struct QuickEditView: View {
     @State private var pendingGroupDeleteFinalConfirmation: UUID?
     @State private var taskEditorDraft: QuickEditTaskEditorDraft?
     @State private var previewEditingTarget: QuickEditPreviewEditingTarget?
-    @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
 
     typealias PreviewSlot = QuickEditPreviewSlot
 
@@ -52,7 +53,7 @@ struct QuickEditView: View {
         horizontalSizeClass == .regular
     }
     
-    private var activeTheme: AppTheme { AppTheme(rawValue: themeRawValue) ?? .concise }
+    private var activeTheme: AppTheme { .concise }
     private let quickEditBackgroundColor = Color(hex: "F4F4F4")
     private let quickEditBackgroundTint = Color.clear
     private let quickEditSectionFlatBackground = Color.clear
@@ -176,6 +177,21 @@ struct QuickEditView: View {
         }
         .onChange(of: library) { _, _ in
             handleLibraryDidChange()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .nativeICloudSecondaryProjectionDidChange).receive(on: RunLoop.main)) { _ in
+            refreshTaskHistory()
+        }
+        .task(id: library) {
+            guard initialSnapshot != nil else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            flushPendingTaskHistoryEdits()
+            TaskHistoryStore.ensureLibrarySeeded(library)
+            refreshTaskHistory()
         }
         .onChange(of: targetGridSize) { _, _ in
             adjustPreviewSlotCount()
@@ -740,7 +756,7 @@ struct QuickEditView: View {
                 startReminderOffsetMinutes: currentCell.startReminderOffsetMinutes,
                 isCompletedTask: currentCell.isCompleted,
                 estimatedDurationMinutes: quickEditRemainingMinutes(from: currentCell.countdownEndsAt),
-                completionHistoryCountProvider: viewModel.completionHistoryCount(for:),
+                completionHistoryCountProvider: completionHistoryCountLookup,
                 diagnosticCellID: currentCell.id,
                 diagnosticSource: "quick_edit_editor",
                 onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, recurrenceRule, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes in
@@ -859,6 +875,12 @@ struct QuickEditView: View {
 
     private func handleQuickEditAppear() {
         guard initialSnapshot == nil else { return }
+        // SwiftUI may construct this view repeatedly while the sheet is open.
+        // Read persistence once per editing session, never in its initializer.
+        library = CommonTasksStore.loadLibrary()
+        taskHistoryRecords = TaskHistoryStore.load()
+        completionHistoryCountLookup = viewModel.makeCompletionHistoryCountLookup()
+        lastTrackedLibrary = library
         editingContext = viewModel.makeQuickEditBoardContext()
         targetGridSize = viewModel.gridSize
         activeFilter = .all
@@ -872,8 +894,6 @@ struct QuickEditView: View {
     }
 
     private func handleLibraryDidChange() {
-        TaskHistoryStore.ensureLibrarySeeded(library)
-        refreshTaskHistory()
         let candidates = candidateTaskMap
         deselectedTaskDrafts = deselectedTaskDrafts.filter { candidates[$0.key] != nil }
         syncSelectedTaskKeysWithCurrentLibrary()
@@ -887,6 +907,7 @@ struct QuickEditView: View {
 
     private func refreshTaskHistory() {
         taskHistoryRecords = TaskHistoryStore.load()
+        completionHistoryCountLookup = viewModel.makeCompletionHistoryCountLookup()
     }
 
     private func seedTaskHistoryIfNeeded() {
@@ -898,8 +919,27 @@ struct QuickEditView: View {
 
     private func recordTaskHistory(_ task: MyTaskItem, sourceTaskID: UUID? = nil) {
         guard !task.trimmedText.isEmpty else { return }
-        TaskHistoryStore.upsert(task: task, sourceTaskID: sourceTaskID)
+        if sourceTaskID == task.id {
+            // A modal edit supersedes an earlier inline draft of the same task.
+            pendingTaskHistoryEdits[task.id] = task
+        }
+        if TaskHistoryStore.upsert(task: task, sourceTaskID: sourceTaskID), sourceTaskID == task.id {
+            pendingTaskHistoryEdits.removeValue(forKey: task.id)
+        }
         refreshTaskHistory()
+    }
+
+    // Text input stays in the local draft. Coalesce writes while typing and
+    // flush on exit/save so dismissing during the debounce cannot lose edits.
+    private func queueTaskHistoryEdit(_ task: MyTaskItem) {
+        guard !task.trimmedText.isEmpty else { return }
+        pendingTaskHistoryEdits[task.id] = task
+    }
+
+    private func flushPendingTaskHistoryEdits() {
+        guard !pendingTaskHistoryEdits.isEmpty else { return }
+        guard TaskHistoryStore.upsert(tasks: Array(pendingTaskHistoryEdits.values)) else { return }
+        pendingTaskHistoryEdits.removeAll()
     }
 
     private func seedBoardTasksIntoHistory() {
@@ -914,7 +954,12 @@ struct QuickEditView: View {
         let now = Date()
         let diaryItems = quickEditLegacyHistoryItemsFromDiaryEntries(Array(BingoDiaryStore.loadAllEntriesDictionary().values))
         let timeoutItems = quickEditLegacyHistoryItemsFromTimeoutPayload(BingoTimeoutStore.loadAllPayload(), now: now)
-        let backfillItems = diaryItems + timeoutItems
+        let backfillItems = (diaryItems + timeoutItems).sorted { lhs, rhs in
+            if lhs.date != rhs.date { return lhs.date < rhs.date }
+            // A board snapshot can carry an explicit rule that name-only
+            // completion and timeout records cannot represent.
+            return lhs.task.recurrenceRule == nil && rhs.task.recurrenceRule != nil
+        }
         guard !backfillItems.isEmpty else { return }
 
         for item in backfillItems {
@@ -1081,7 +1126,7 @@ struct QuickEditView: View {
                     newValue: newValue,
                     library: &library
                 ) else { return }
-                recordTaskHistory(updatedTask, sourceTaskID: updatedTask.id)
+                queueTaskHistoryEdit(updatedTask)
             }
         )
     }
@@ -1098,7 +1143,7 @@ struct QuickEditView: View {
                     newValue: newValue,
                     library: &library
                 ) else { return }
-                recordTaskHistory(updatedTask, sourceTaskID: updatedTask.id)
+                queueTaskHistoryEdit(updatedTask)
             }
         )
     }
@@ -1125,7 +1170,8 @@ struct QuickEditView: View {
             candidateTaskMap: candidateTaskMap,
             currentSlots: previewSlots,
             deselectedTaskDrafts: &deselectedTaskDrafts,
-            completionHistoryCountProvider: viewModel.completionHistoryCount(for:)
+            explicitlyEditedCellIDs: explicitlyEditedCellIDs,
+            completionHistoryCountProvider: completionHistoryCountLookup
         )
         previewSlots = result.updatedSlots
         selectedTaskKeys = previewSlots.compactMap(\.sourceTaskKey)
@@ -1246,7 +1292,8 @@ struct QuickEditView: View {
             candidateTaskMap: candidateTaskMap,
             currentSlots: previewSlots,
             deselectedTaskDrafts: &deselectedTaskDrafts,
-            completionHistoryCountProvider: viewModel.completionHistoryCount(for:)
+            explicitlyEditedCellIDs: explicitlyEditedCellIDs,
+            completionHistoryCountProvider: completionHistoryCountLookup
         )
         previewSlots = result.updatedSlots
         return result.wasAdded
@@ -1266,7 +1313,8 @@ struct QuickEditView: View {
             currentSlots: previewSlots,
             candidateTaskMap: candidateTaskMap,
             totalGridSlots: totalGridSlots,
-            completionHistoryCountProvider: viewModel.completionHistoryCount(for:)
+            explicitlyEditedCellIDs: explicitlyEditedCellIDs,
+            completionHistoryCountProvider: completionHistoryCountLookup
         )
     }
 
@@ -1276,6 +1324,7 @@ struct QuickEditView: View {
     }
 
     private func finalizeLibrary(showSuccessToast: Bool = false, emitChangeToast: Bool = true) {
+        flushPendingTaskHistoryEdits()
         let previousLibrary = lastTrackedLibrary
         CommonTasksStore.saveLibrary(library)
         let savedLibrary = CommonTasksStore.loadLibrary()

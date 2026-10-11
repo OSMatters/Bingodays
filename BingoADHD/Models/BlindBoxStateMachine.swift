@@ -1,5 +1,9 @@
 import Foundation
 
+extension Notification.Name {
+    static let blindBoxAccountStateDidChange = Notification.Name("blindBoxAccountStateDidChange")
+}
+
 /// A point-to-ticket exchange that CloudKit has accepted but has not yet
 /// finished granting. Reserving the slot first prevents a daily ticket grant
 /// or another device from consuming the final ticket capacity while the
@@ -55,6 +59,18 @@ struct BlindBoxPendingReveal: Codable, Equatable, Sendable {
     }
 }
 
+/// Durable evidence for when a sticker first entered the user's collection.
+/// The position plan ID is stable across local retries and CloudKit mirrors,
+/// so duplicate stickers can be ordered without introducing a second draw ID.
+struct BlindBoxStickerAcquisition: Codable, Equatable, Sendable, Identifiable {
+    let positionID: UUID
+    let stickerID: BlindBoxStickerID
+    let acquiredAt: Date
+    let positionIndex: Int
+
+    var id: UUID { positionID }
+}
+
 /// Persisted per-account state for the blind-box feature. It is deliberately
 /// independent of the legacy `StickerStore`: old direct-redemption stickers
 /// remain readable while CloudKit migration maps them into this catalog.
@@ -72,6 +88,7 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
     var schemaVersion: Int
     var ticketBalance: Int
     var ownedStickerCounts: [String: Int]
+    var stickerAcquisitions: [BlindBoxStickerAcquisition]
     var candidateBatches: [BlindBoxCandidateBatch]
     var lastTicketGrantDayIdentifier: String?
     /// The account's initial time zone defines its persisted 04:00 grant-day
@@ -80,6 +97,9 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
     // Optional for backwards-compatible decoding of existing CloudKit accounts.
     var settledDailyTicketAllowance: Int?
     var rewardedPremiumPurchaseIDs: Set<String> = []
+    /// IDs of receipt popups already shown to the user. This is persisted so
+    /// an older CloudKit mirror cannot make an acknowledged popup reappear.
+    var acknowledgedTicketReceiptIDs: Set<UUID> = []
     var unassignedPremiumTopUp: BlindBoxTicketReceipt?
     var pendingTicketReceipt: BlindBoxTicketReceipt?
     var lastPointExchangeDayIdentifier: String?
@@ -91,6 +111,7 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
         schemaVersion: Int = BlindBoxAccountState.currentSchemaVersion,
         ticketBalance: Int = 0,
         ownedStickerCounts: [String: Int] = [:],
+        stickerAcquisitions: [BlindBoxStickerAcquisition] = [],
         candidateBatches: [BlindBoxCandidateBatch] = [],
         lastTicketGrantDayIdentifier: String? = nil,
         grantDayTimeZoneIdentifier: String? = nil,
@@ -104,6 +125,10 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
         self.ownedStickerCounts = ownedStickerCounts.reduce(into: [:]) { result, entry in
             guard entry.value > 0 else { return }
             result[entry.key] = entry.value
+        }
+        var seenAcquisitionIDs = Set<UUID>()
+        self.stickerAcquisitions = stickerAcquisitions.filter { acquisition in
+            seenAcquisitionIDs.insert(acquisition.positionID).inserted
         }
         self.candidateBatches = candidateBatches
         self.lastTicketGrantDayIdentifier = lastTicketGrantDayIdentifier
@@ -121,15 +146,35 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
         BlindBoxAccountState(ticketBalance: initialTicketBalance)
     }
 
+    /// A zero-value shell is created when the device switches to a different
+    /// private iCloud account. If that account is genuinely new, its freshly
+    /// created cloud record supplies the initial balance instead of uploading
+    /// this placeholder as a real empty wallet.
+    var isEmptyCloudAccountShell: Bool {
+        ticketBalance == 0
+            && ownedStickerCounts.isEmpty
+            && stickerAcquisitions.isEmpty
+            && candidateBatches.isEmpty
+            && lastTicketGrantDayIdentifier == nil
+            && rewardedPremiumPurchaseIDs.isEmpty
+            && unassignedPremiumTopUp == nil
+            && pendingTicketReceipt == nil
+            && lastPointExchangeDayIdentifier == nil
+            && pointExchangesUsedOnLastGrantDay == 0
+            && pendingPointExchange == nil
+            && pendingReveal == nil
+    }
+
     func ownedCount(for stickerID: BlindBoxStickerID) -> Int {
         ownedStickerCounts[stickerID.rawValue] ?? 0
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, ticketBalance, ownedStickerCounts, candidateBatches
+        case stickerAcquisitions
         case lastTicketGrantDayIdentifier, grantDayTimeZoneIdentifier
         case settledDailyTicketAllowance, pendingTicketReceipt
-        case rewardedPremiumPurchaseIDs, unassignedPremiumTopUp
+        case rewardedPremiumPurchaseIDs, acknowledgedTicketReceiptIDs, unassignedPremiumTopUp
         case lastPointExchangeDayIdentifier, pointExchangesUsedOnLastGrantDay
         case pendingPointExchange, pendingReveal
     }
@@ -145,6 +190,10 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
         guard ownedStickerCounts.values.allSatisfy({ $0 >= 0 }) else {
             throw DecodingError.dataCorruptedError(forKey: .ownedStickerCounts, in: values, debugDescription: "Sticker counts cannot be negative.")
         }
+        stickerAcquisitions = try values.decodeIfPresent(
+            [BlindBoxStickerAcquisition].self,
+            forKey: .stickerAcquisitions
+        ) ?? []
         candidateBatches = try values.decode([BlindBoxCandidateBatch].self, forKey: .candidateBatches)
         lastTicketGrantDayIdentifier = try values.decodeIfPresent(String.self, forKey: .lastTicketGrantDayIdentifier)
         grantDayTimeZoneIdentifier = try values.decodeIfPresent(String.self, forKey: .grantDayTimeZoneIdentifier)
@@ -154,6 +203,7 @@ struct BlindBoxAccountState: Codable, Equatable, Sendable {
         }
         pendingTicketReceipt = try values.decodeIfPresent(BlindBoxTicketReceipt.self, forKey: .pendingTicketReceipt)
         rewardedPremiumPurchaseIDs = try values.decodeIfPresent(Set<String>.self, forKey: .rewardedPremiumPurchaseIDs) ?? []
+        acknowledgedTicketReceiptIDs = try values.decodeIfPresent(Set<UUID>.self, forKey: .acknowledgedTicketReceiptIDs) ?? []
         unassignedPremiumTopUp = try values.decodeIfPresent(BlindBoxTicketReceipt.self, forKey: .unassignedPremiumTopUp)
         lastPointExchangeDayIdentifier = try values.decodeIfPresent(String.self, forKey: .lastPointExchangeDayIdentifier)
         pointExchangesUsedOnLastGrantDay = try values.decode(Int.self, forKey: .pointExchangesUsedOnLastGrantDay)
@@ -392,6 +442,14 @@ enum BlindBoxStateMachine {
             batch.openedPositionIndices.insert(position.index)
             let newCount = (state.ownedStickerCounts[position.stickerID.rawValue] ?? 0) + 1
             state.ownedStickerCounts[position.stickerID.rawValue] = newCount
+            state.stickerAcquisitions.append(
+                BlindBoxStickerAcquisition(
+                    positionID: position.id,
+                    stickerID: position.stickerID,
+                    acquiredAt: openedAt,
+                    positionIndex: position.index
+                )
+            )
             openedStickers.append(
                 BlindBoxOpenedSticker(
                     positionIndex: position.index,
@@ -948,7 +1006,7 @@ enum BlindBoxCandidateCoordinator {
         }
 
         // Keep existing progress where possible, but cap each theme's share so
-        // six slots with three active themes always contain two of each.
+        // every incomplete theme is represented and spare slots stay balanced.
         let perThemeLimit = availableThemes.isEmpty ? 0 :
             (targetCount + availableThemes.count - 1) / availableThemes.count
         var retainedCounts: [BlindBoxThemeID: Int] = [:]
@@ -960,6 +1018,24 @@ enum BlindBoxCandidateCoordinator {
             }
             retainedCounts[batch.plan.themeID] = count + 1
             return false
+        }
+
+        // Reserve one slot for every incomplete theme, including newly added
+        // themes, without replacing any retained batch's locked plan.
+        for theme in availableThemes where !state.candidateBatches.contains(where: { $0.plan.themeID == theme.id }) {
+            if state.candidateBatches.count >= targetCount {
+                let counts = Dictionary(grouping: state.candidateBatches, by: { $0.plan.themeID }).mapValues(\.count)
+                if let index = state.candidateBatches.indices.reversed().first(where: {
+                    counts[state.candidateBatches[$0].plan.themeID, default: 0] > 1
+                }) {
+                    removedBatchIDs.append(state.candidateBatches.remove(at: index).id)
+                }
+            }
+            let plan = try generatePlan(
+                theme: theme, ownedStickerCounts: state.ownedStickerCounts,
+                createdAt: now, generator: &generator
+            )
+            state.candidateBatches.append(BlindBoxCandidateBatch(plan: plan))
         }
 
         while state.candidateBatches.count < targetCount, !availableThemes.isEmpty {
@@ -1111,27 +1187,172 @@ enum BlindBoxLocalMigrationPersistenceResult: Equatable, Sendable {
     case persistenceFailed
 }
 
-/// Local persistence is only the development/mock implementation. Production
-/// opening and currency changes will move to an idempotent CloudKit repository.
-/// The envelope still records one-time migration versions atomically with its
-/// local state, so a pre-launch migration cannot be applied twice after an app
-/// interruption between separate UserDefaults writes.
+/// Immutable local evidence for an already committed draw. Keeping a bounded
+/// journal means a retry after process death can return the original result
+/// rather than charging the same request twice, even after its reveal has been
+/// dismissed.
+struct BlindBoxLocalDrawJournalEntry: Codable, Equatable, Sendable {
+    let request: BlindBoxDrawRequest
+    let result: BlindBoxOpenResult
+    let committedAt: Date
+}
+
+enum BlindBoxLocalStateStoreError: Error, Equatable {
+    case persistenceFailed
+    case drawRequestConflict
+}
+
+/// The production, device-local source of truth for Blind Box. Every value
+/// changing action mutates this single encoded envelope before its result is
+/// shown. CloudKit mirrors this state opportunistically, but a missing iCloud
+/// account, quota error, or offline device must never prevent a local draw or
+/// point exchange.
 enum BlindBoxLocalStateStore {
+    private static let maximumDrawJournalEntries = 128
+
     private struct PersistedEnvelope: Codable {
         var accountState: BlindBoxAccountState
         var completedLegacyMigrationVersions: Set<Int>
+        // Optional fields retain compatibility with the development envelope
+        // that shipped before local-first production persistence.
+        var completedDraws: [BlindBoxLocalDrawJournalEntry]?
+        var isCloudSynchronizationPending: Bool?
+        /// A private-cloud read is a one-time baseline, never a prerequisite
+        /// for local use. Its marker prevents a stale remote snapshot from
+        /// being repeatedly treated as authoritative after it has been merged.
+        var didImportCloudBaseline: Bool?
+        /// The private CloudKit user record that owns this local envelope.
+        /// A device can be signed into a different iCloud account later; never
+        /// let the next account see the previous account's local Blind Box.
+        var cloudAccountIdentifier: String?
 
         init(
             accountState: BlindBoxAccountState,
-            completedLegacyMigrationVersions: Set<Int> = []
+            completedLegacyMigrationVersions: Set<Int> = [],
+            completedDraws: [BlindBoxLocalDrawJournalEntry] = [],
+            isCloudSynchronizationPending: Bool = false,
+            didImportCloudBaseline: Bool = false,
+            cloudAccountIdentifier: String? = nil
         ) {
             self.accountState = accountState
             self.completedLegacyMigrationVersions = completedLegacyMigrationVersions
+            self.completedDraws = completedDraws
+            self.isCloudSynchronizationPending = isCloudSynchronizationPending
+            self.didImportCloudBaseline = didImportCloudBaseline
+            self.cloudAccountIdentifier = cloudAccountIdentifier
         }
     }
 
     static func load(defaults: UserDefaults = .standard) -> BlindBoxAccountState {
         normalizedState(loadEnvelope(defaults: defaults).accountState)
+    }
+
+    static func isCloudSynchronizationPending(defaults: UserDefaults = .standard) -> Bool {
+        let envelope = loadEnvelope(defaults: defaults)
+        return (envelope.isCloudSynchronizationPending ?? false)
+            || !(envelope.didImportCloudBaseline ?? false)
+    }
+
+    /// A cloud account is authoritative only during this one-time bind. After
+    /// that, local transactions are committed first and CloudKit is a mirror.
+    static func needsCloudBaselineImport(defaults: UserDefaults = .standard) -> Bool {
+        !(loadEnvelope(defaults: defaults).didImportCloudBaseline ?? false)
+    }
+
+    /// Executes a state transition and synchronously verifies that its complete
+    /// result was written before returning to the caller. The account and draw
+    /// journal intentionally share one envelope so neither can be committed
+    /// without the other.
+    static func mutate<Value>(
+        defaults: UserDefaults = .standard,
+        marksCloudBaselineAsImported: Bool = false,
+        _ transition: (inout BlindBoxAccountState, inout [BlindBoxLocalDrawJournalEntry]) throws -> Value
+    ) throws -> (value: Value, state: BlindBoxAccountState) {
+        var envelope = loadEnvelope(defaults: defaults)
+        var journal = envelope.completedDraws ?? []
+        let value = try transition(&envelope.accountState, &journal)
+        envelope.accountState = normalizedState(envelope.accountState)
+        envelope.completedDraws = Array(journal.suffix(maximumDrawJournalEntries))
+        envelope.isCloudSynchronizationPending = true
+        if marksCloudBaselineAsImported {
+            envelope.didImportCloudBaseline = true
+        }
+        guard saveEnvelope(envelope, defaults: defaults) else {
+            throw BlindBoxLocalStateStoreError.persistenceFailed
+        }
+        NotificationCenter.default.post(name: .blindBoxAccountStateDidChange, object: nil)
+        return (value, envelope.accountState)
+    }
+
+    /// Marks a snapshot as mirrored only when the account has not changed
+    /// while the asynchronous CloudKit request was in flight.
+    static func markCloudSynchronizationCompleted(
+        for state: BlindBoxAccountState,
+        defaults: UserDefaults = .standard
+    ) {
+        var envelope = loadEnvelope(defaults: defaults)
+        guard normalizedState(envelope.accountState) == normalizedState(state) else { return }
+        envelope.isCloudSynchronizationPending = false
+        envelope.didImportCloudBaseline = true
+        _ = saveEnvelope(envelope, defaults: defaults)
+    }
+
+    /// Binds the device-local envelope to the signed-in private CloudKit user.
+    /// On an account switch it starts a separate local account; the former
+    /// account's progress is recovered from its own private cloud zone when
+    /// that user signs in again, rather than ever exposing it to another user.
+    @discardableResult
+    static func activateCloudAccount(
+        identifier: String,
+        defaults: UserDefaults = .standard
+    ) throws -> BlindBoxAccountState {
+        var envelope = loadEnvelope(defaults: defaults)
+        if let previousIdentifier = envelope.cloudAccountIdentifier,
+           previousIdentifier != identifier {
+            envelope = PersistedEnvelope(
+                // Do not pre-credit the new account before its private
+                // baseline is read: an existing account with zero tickets
+                // must never inherit two tickets just because it signed in on
+                // this device. A genuinely new CloudKit account supplies its
+                // own initial balance during bootstrap.
+                accountState: BlindBoxAccountState(ticketBalance: 0),
+                didImportCloudBaseline: false,
+                cloudAccountIdentifier: identifier
+            )
+        } else {
+            envelope.cloudAccountIdentifier = identifier
+        }
+        guard saveEnvelope(envelope, defaults: defaults) else {
+            throw BlindBoxLocalStateStoreError.persistenceFailed
+        }
+        return normalizedState(envelope.accountState)
+    }
+
+    /// Imports the existing private-cloud account exactly once when a device
+    /// binds to it. Subsequent syncs must upload the committed local snapshot,
+    /// never merge a stale cloud balance back into the device.
+    static func importCloudBaseline(
+        _ cloudState: BlindBoxAccountState,
+        defaults: UserDefaults = .standard
+    ) throws -> BlindBoxAccountState {
+        try mutate(defaults: defaults, marksCloudBaselineAsImported: true) { localState, _ in
+            localState = BlindBoxAccountStateMergePolicy.mergeInitialBaseline(
+                local: localState,
+                cloud: cloudState
+            )
+        }.state
+    }
+
+    /// Records the exact result that was successfully persisted to CloudKit.
+    /// This is deliberately a replacement rather than a merge: the remote
+    /// record has already been resolved with the local transaction as winner.
+    static func applyCloudSynchronizedState(
+        _ cloudState: BlindBoxAccountState,
+        defaults: UserDefaults = .standard
+    ) throws -> BlindBoxAccountState {
+        try mutate(defaults: defaults) { localState, _ in
+            localState = normalizedState(cloudState)
+        }.state
     }
 
     /// Copies legacy ownership into the separate Blind Box state. It never
@@ -1140,18 +1361,33 @@ enum BlindBoxLocalStateStore {
     static func migrateLegacyInventoryIfNeeded(
         defaults: UserDefaults = .standard
     ) -> BlindBoxLocalMigrationPersistenceResult {
+        migrateLegacyInventoryIfNeeded(
+            legacyInventoryCounts: BlindBoxLegacyInventoryReader.loadInventoryCounts(defaults: defaults),
+            defaults: defaults
+        )
+    }
+
+    /// Imports a legacy inventory exactly once alongside the local account
+    /// rather than relying on an iCloud bootstrap to make it visible.
+    @discardableResult
+    static func migrateLegacyInventoryIfNeeded(
+        legacyInventoryCounts: [String: Int],
+        defaults: UserDefaults = .standard
+    ) -> BlindBoxLocalMigrationPersistenceResult {
         var envelope = loadEnvelope(defaults: defaults)
         let result = BlindBoxLegacyStickerMigration.apply(
-            legacyInventoryCounts: BlindBoxLegacyInventoryReader.loadInventoryCounts(defaults: defaults),
+            legacyInventoryCounts: legacyInventoryCounts,
             to: &envelope.accountState,
             completedMigrationVersions: &envelope.completedLegacyMigrationVersions
         )
 
         switch result {
         case let .applied(preview):
+            envelope.isCloudSynchronizationPending = true
             guard saveEnvelope(envelope, defaults: defaults) else {
                 return .persistenceFailed
             }
+            NotificationCenter.default.post(name: .blindBoxAccountStateDidChange, object: nil)
             return .applied(preview)
         case .alreadyApplied:
             return .alreadyApplied
@@ -1168,7 +1404,11 @@ enum BlindBoxLocalStateStore {
         if let envelope = try? JSONDecoder().decode(PersistedEnvelope.self, from: data) {
             return PersistedEnvelope(
                 accountState: normalizedState(envelope.accountState),
-                completedLegacyMigrationVersions: envelope.completedLegacyMigrationVersions
+                completedLegacyMigrationVersions: envelope.completedLegacyMigrationVersions,
+                completedDraws: envelope.completedDraws ?? [],
+                isCloudSynchronizationPending: envelope.isCloudSynchronizationPending ?? false,
+                didImportCloudBaseline: envelope.didImportCloudBaseline ?? false,
+                cloudAccountIdentifier: envelope.cloudAccountIdentifier
             )
         }
 
@@ -1186,6 +1426,7 @@ enum BlindBoxLocalStateStore {
             schemaVersion: state.schemaVersion,
             ticketBalance: state.ticketBalance,
             ownedStickerCounts: state.ownedStickerCounts,
+            stickerAcquisitions: state.stickerAcquisitions,
             candidateBatches: state.candidateBatches,
             lastTicketGrantDayIdentifier: state.lastTicketGrantDayIdentifier,
             lastPointExchangeDayIdentifier: state.lastPointExchangeDayIdentifier,
@@ -1196,8 +1437,13 @@ enum BlindBoxLocalStateStore {
         normalized.settledDailyTicketAllowance = state.settledDailyTicketAllowance
         normalized.grantDayTimeZoneIdentifier = state.grantDayTimeZoneIdentifier
         normalized.rewardedPremiumPurchaseIDs = state.rewardedPremiumPurchaseIDs
+        normalized.acknowledgedTicketReceiptIDs = state.acknowledgedTicketReceiptIDs
         normalized.unassignedPremiumTopUp = state.unassignedPremiumTopUp
         normalized.pendingTicketReceipt = state.pendingTicketReceipt
+        if let receipt = normalized.pendingTicketReceipt,
+           normalized.acknowledgedTicketReceiptIDs.contains(receipt.id) {
+            normalized.pendingTicketReceipt = nil
+        }
         return normalized
     }
 
@@ -1208,6 +1454,7 @@ enum BlindBoxLocalStateStore {
     ) -> Bool {
         var envelope = loadEnvelope(defaults: defaults)
         envelope.accountState = normalizedState(state)
+        envelope.isCloudSynchronizationPending = true
         return saveEnvelope(envelope, defaults: defaults)
     }
 
@@ -1221,5 +1468,317 @@ enum BlindBoxLocalStateStore {
         guard defaults.data(forKey: AppSettings.blindBoxLocalStateKey) != data else { return true }
         defaults.set(data, forKey: AppSettings.blindBoxLocalStateKey)
         return defaults.data(forKey: AppSettings.blindBoxLocalStateKey) == data
+    }
+}
+
+/// Local-first command repository used by the production feature store. It is
+/// deliberately synchronous and main-actor isolated: UI actions need a fully
+/// persisted answer in the same turn, not an optimistic task that can vanish
+/// if the app is terminated.
+@MainActor
+final class BlindBoxLocalAccountRepository {
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    var accountState: BlindBoxAccountState {
+        BlindBoxLocalStateStore.load(defaults: defaults)
+    }
+
+    var needsCloudSynchronization: Bool {
+        BlindBoxLocalStateStore.isCloudSynchronizationPending(defaults: defaults)
+    }
+
+    var needsCloudBaselineImport: Bool {
+        BlindBoxLocalStateStore.needsCloudBaselineImport(defaults: defaults)
+    }
+
+    func migrateLegacyInventoryIfNeeded(
+        legacyInventoryCounts: [String: Int]
+    ) -> BlindBoxLocalMigrationPersistenceResult {
+        BlindBoxLocalStateStore.migrateLegacyInventoryIfNeeded(
+            legacyInventoryCounts: legacyInventoryCounts,
+            defaults: defaults
+        )
+    }
+
+    func maintain(
+        themes: [BlindBoxThemeDefinition],
+        hasPremiumAccess: Bool,
+        candidateZoneWasPresented: Bool,
+        isAutomaticOpeningEnabled: Bool,
+        premiumPurchaseTransactionID: String?,
+        now: Date,
+        calendar: Calendar,
+        reason: BlindBoxCandidateRefreshReason
+    ) throws -> BlindBoxAccountMaintenanceResult {
+        try BlindBoxLocalStateStore.mutate(defaults: defaults) { state, _ in
+            if hasPremiumAccess, let premiumPurchaseTransactionID {
+                BlindBoxWalletStateMachine.rewardPremiumPurchase(
+                    state: &state,
+                    transactionID: premiumPurchaseTransactionID,
+                    now: now,
+                    calendar: calendar
+                )
+            }
+            var generator = SystemBlindBoxRandomNumberGenerator()
+            return try BlindBoxAccountMaintenance.apply(
+                state: &state,
+                themes: themes,
+                hasPremiumAccess: hasPremiumAccess,
+                candidateZoneWasPresented: candidateZoneWasPresented,
+                isAutomaticOpeningEnabled: isAutomaticOpeningEnabled,
+                now: now,
+                calendar: calendar,
+                reason: reason,
+                generator: &generator
+            )
+        }.value
+    }
+
+    func open(_ request: BlindBoxDrawRequest, now: Date) throws -> BlindBoxOpenResult {
+        try BlindBoxLocalStateStore.mutate(defaults: defaults) { state, journal in
+            if let previous = journal.first(where: { $0.request.idempotencyKey == request.idempotencyKey }) {
+                guard previous.request == request else {
+                    throw BlindBoxLocalStateStoreError.drawRequestConflict
+                }
+                return previous.result
+            }
+            if let pendingReveal = state.pendingReveal {
+                guard pendingReveal.drawIdempotencyKey == request.idempotencyKey else {
+                    throw BlindBoxOpenError.pendingRevealMustBeAcknowledged
+                }
+                return pendingReveal.result
+            }
+
+            let result: BlindBoxOpenResult
+            switch request.mode {
+            case .single:
+                guard let positionIndex = request.positionIndex else {
+                    throw BlindBoxDrawRequestValidationError.missingPositionIndex
+                }
+                result = try BlindBoxStateMachine.openSingle(
+                    state: &state,
+                    batchID: request.batchID,
+                    positionIndex: positionIndex,
+                    openedAt: now
+                )
+            case .wholeBox:
+                guard request.positionIndex == nil else {
+                    throw BlindBoxDrawRequestValidationError.unexpectedPositionIndex
+                }
+                result = try BlindBoxStateMachine.openWholeBox(
+                    state: &state,
+                    batchID: request.batchID,
+                    openedAt: now
+                )
+            }
+
+            state.pendingReveal = BlindBoxPendingReveal(
+                drawIdempotencyKey: request.idempotencyKey,
+                result: result
+            )
+            journal.append(
+                BlindBoxLocalDrawJournalEntry(
+                    request: request,
+                    result: result,
+                    committedAt: now
+                )
+            )
+            return result
+        }.value
+    }
+
+    func acknowledgePendingReveal(_ pendingReveal: BlindBoxPendingReveal) throws -> Bool {
+        try BlindBoxLocalStateStore.mutate(defaults: defaults) { state, _ in
+            guard let current = state.pendingReveal else { return true }
+            guard current.drawIdempotencyKey == pendingReveal.drawIdempotencyKey else {
+                return false
+            }
+            state.pendingReveal = nil
+            return true
+        }.value
+    }
+
+    func consumeTicketReceipt() throws -> BlindBoxTicketReceipt? {
+        try BlindBoxLocalStateStore.mutate(defaults: defaults) { state, _ in
+            let receipt = state.pendingTicketReceipt
+            state.pendingTicketReceipt = nil
+            if let receipt {
+                state.acknowledgedTicketReceiptIDs.insert(receipt.id)
+            }
+            return receipt
+        }.value
+    }
+
+    func reservePointExchange(
+        request: BlindBoxPointExchangeRequest,
+        availablePoints: Int,
+        calendar: Calendar,
+        economyConfiguration: BlindBoxEconomyConfiguration
+    ) throws -> BlindBoxPointExchangeReservationResult {
+        try BlindBoxLocalStateStore.mutate(defaults: defaults) { state, _ in
+            try BlindBoxWalletStateMachine.reservePointsForOneTicketExchange(
+                state: &state,
+                idempotencyKey: request.idempotencyKey,
+                availablePoints: availablePoints,
+                now: request.requestedAt,
+                calendar: calendar,
+                economyConfiguration: economyConfiguration
+            )
+        }.value
+    }
+
+    func completePointExchange(idempotencyKey: UUID) throws -> BlindBoxPointExchangeResult {
+        try BlindBoxLocalStateStore.mutate(defaults: defaults) { state, _ in
+            try BlindBoxWalletStateMachine.completeReservedPointExchange(
+                state: &state,
+                idempotencyKey: idempotencyKey
+            )
+        }.value
+    }
+
+    func importCloudBaseline(_ cloudState: BlindBoxAccountState) throws -> BlindBoxAccountState {
+        try BlindBoxLocalStateStore.importCloudBaseline(cloudState, defaults: defaults)
+    }
+
+    func applyCloudSynchronizedState(_ cloudState: BlindBoxAccountState) throws -> BlindBoxAccountState {
+        try BlindBoxLocalStateStore.applyCloudSynchronizedState(cloudState, defaults: defaults)
+    }
+
+    func markCloudSynchronizationCompleted(for state: BlindBoxAccountState) {
+        BlindBoxLocalStateStore.markCloudSynchronizationCompleted(for: state, defaults: defaults)
+    }
+
+    func activateCloudAccount(identifier: String) throws -> BlindBoxAccountState {
+        try BlindBoxLocalStateStore.activateCloudAccount(identifier: identifier, defaults: defaults)
+    }
+}
+
+/// Cloud state is used as a compatibility baseline exactly once when a device
+/// joins an existing account. Every later save starts from the committed local
+/// wallet, so a stale remote record cannot restore spent tickets or a receipt
+/// the user already saw.
+enum BlindBoxAccountStateMergePolicy {
+    static func mergeInitialBaseline(local: BlindBoxAccountState, cloud: BlindBoxAccountState) -> BlindBoxAccountState {
+        var merged = local
+        merged.ticketBalance = min(
+            max(local.ticketBalance, cloud.ticketBalance),
+            BlindBoxRuleConfiguration.maximumTicketBalance
+        )
+        for (stickerID, cloudCount) in cloud.ownedStickerCounts {
+            merged.ownedStickerCounts[stickerID] = max(
+                merged.ownedStickerCounts[stickerID] ?? 0,
+                cloudCount
+            )
+        }
+        merged.stickerAcquisitions = mergedAcquisitions(local: local.stickerAcquisitions, cloud: cloud.stickerAcquisitions)
+
+        var batchesByID = Dictionary(uniqueKeysWithValues: local.candidateBatches.map { ($0.id, $0) })
+        for cloudBatch in cloud.candidateBatches {
+            guard let localBatch = batchesByID[cloudBatch.id] else {
+                batchesByID[cloudBatch.id] = cloudBatch
+                continue
+            }
+            batchesByID[cloudBatch.id] = localBatch.openedPositionIndices.count >= cloudBatch.openedPositionIndices.count
+                ? localBatch : cloudBatch
+        }
+        merged.candidateBatches = batchesByID.values.sorted {
+            $0.plan.createdAt < $1.plan.createdAt
+        }
+        merged.rewardedPremiumPurchaseIDs.formUnion(cloud.rewardedPremiumPurchaseIDs)
+        merged.acknowledgedTicketReceiptIDs.formUnion(cloud.acknowledgedTicketReceiptIDs)
+        merged.lastTicketGrantDayIdentifier = maxOptional(
+            local.lastTicketGrantDayIdentifier,
+            cloud.lastTicketGrantDayIdentifier
+        )
+        merged.lastPointExchangeDayIdentifier = maxOptional(
+            local.lastPointExchangeDayIdentifier,
+            cloud.lastPointExchangeDayIdentifier
+        )
+        if merged.lastPointExchangeDayIdentifier == local.lastPointExchangeDayIdentifier,
+           merged.lastPointExchangeDayIdentifier == cloud.lastPointExchangeDayIdentifier {
+            merged.pointExchangesUsedOnLastGrantDay = max(
+                local.pointExchangesUsedOnLastGrantDay,
+                cloud.pointExchangesUsedOnLastGrantDay
+            )
+        }
+        if merged.pendingReveal == nil { merged.pendingReveal = cloud.pendingReveal }
+        if merged.pendingPointExchange == nil { merged.pendingPointExchange = cloud.pendingPointExchange }
+        if merged.pendingTicketReceipt == nil { merged.pendingTicketReceipt = cloud.pendingTicketReceipt }
+        if let receipt = merged.pendingTicketReceipt,
+           merged.acknowledgedTicketReceiptIDs.contains(receipt.id) {
+            merged.pendingTicketReceipt = nil
+        }
+        merged.settledDailyTicketAllowance = max(
+            local.settledDailyTicketAllowance ?? 0,
+            cloud.settledDailyTicketAllowance ?? 0
+        )
+        if merged.settledDailyTicketAllowance == 0 { merged.settledDailyTicketAllowance = nil }
+        merged.grantDayTimeZoneIdentifier = local.grantDayTimeZoneIdentifier ?? cloud.grantDayTimeZoneIdentifier
+        return merged
+    }
+
+    /// Resolve a CloudKit save contention without ever changing locally
+    /// committed wallet fields. Ownership and box visibility are monotonic, so
+    /// progress made by another device can still be included in the mirror.
+    static func mergeForLocalUpload(local: BlindBoxAccountState, cloud: BlindBoxAccountState) -> BlindBoxAccountState {
+        var merged = local
+        for (stickerID, cloudCount) in cloud.ownedStickerCounts {
+            merged.ownedStickerCounts[stickerID] = max(
+                merged.ownedStickerCounts[stickerID] ?? 0,
+                cloudCount
+            )
+        }
+        merged.stickerAcquisitions = mergedAcquisitions(local: local.stickerAcquisitions, cloud: cloud.stickerAcquisitions)
+
+        var batchesByID = Dictionary(uniqueKeysWithValues: local.candidateBatches.map { ($0.id, $0) })
+        for cloudBatch in cloud.candidateBatches {
+            guard let localBatch = batchesByID[cloudBatch.id] else {
+                batchesByID[cloudBatch.id] = cloudBatch
+                continue
+            }
+            batchesByID[cloudBatch.id] = localBatch.openedPositionIndices.count >= cloudBatch.openedPositionIndices.count
+                ? localBatch : cloudBatch
+        }
+        merged.candidateBatches = batchesByID.values.sorted {
+            $0.plan.createdAt < $1.plan.createdAt
+        }
+        merged.rewardedPremiumPurchaseIDs.formUnion(cloud.rewardedPremiumPurchaseIDs)
+        merged.acknowledgedTicketReceiptIDs.formUnion(cloud.acknowledgedTicketReceiptIDs)
+        if let receipt = merged.pendingTicketReceipt,
+           merged.acknowledgedTicketReceiptIDs.contains(receipt.id) {
+            merged.pendingTicketReceipt = nil
+        }
+        return merged
+    }
+
+    private static func maxOptional(_ lhs: String?, _ rhs: String?) -> String? {
+        switch (lhs, rhs) {
+        case let (.some(lhs), .some(rhs)): return max(lhs, rhs)
+        case let (.some(value), .none), let (.none, .some(value)): return value
+        case (.none, .none): return nil
+        }
+    }
+
+    private static func mergedAcquisitions(
+        local: [BlindBoxStickerAcquisition],
+        cloud: [BlindBoxStickerAcquisition]
+    ) -> [BlindBoxStickerAcquisition] {
+        var byPositionID = Dictionary(uniqueKeysWithValues: local.map { ($0.positionID, $0) })
+        for acquisition in cloud where byPositionID[acquisition.positionID] == nil {
+            byPositionID[acquisition.positionID] = acquisition
+        }
+        return byPositionID.values.sorted {
+            if $0.acquiredAt != $1.acquiredAt {
+                return $0.acquiredAt < $1.acquiredAt
+            }
+            if $0.positionIndex != $1.positionIndex {
+                return $0.positionIndex < $1.positionIndex
+            }
+            return $0.positionID.uuidString < $1.positionID.uuidString
+        }
     }
 }

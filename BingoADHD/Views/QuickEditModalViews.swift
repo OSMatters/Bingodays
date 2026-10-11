@@ -334,8 +334,8 @@ private struct QuickEditModalPrimaryButton: View {
             .frame(height: 44)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(NeumorphicColors.accent)
-                    .shadow(color: NeumorphicColors.accent.opacity(0.25), radius: 10, x: 0, y: 4)
+                    .fill(NeumorphicColors.modalAccent)
+                    .shadow(color: NeumorphicColors.modalAccent.opacity(0.25), radius: 10, x: 0, y: 4)
             )
             .buttonStyle(.plain)
             .disabled(!isEnabled)

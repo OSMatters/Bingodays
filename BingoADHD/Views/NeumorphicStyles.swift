@@ -16,60 +16,93 @@ enum AppTheme: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     static var selectableCases: [AppTheme] {
-        allCases.filter { ![.indigo, .ocean, .peach].contains($0) }
+        // Keep the picker in the same order as the product color spec.
+        [.concise, .violet, .sky, .indigo, .lime, .coral, .amber, .mint]
     }
 
     var color: Color {
         switch self {
         case .concise:
-            return Color(hex: "D3A375")
+            return Color(hex: "DFAE81")
         case .sky:
-            return Color(hex: "67B7FF")
+            return Color(hex: "82C0F0")
         case .mint:
-            return Color(hex: "4ECDC4")
+            return Color(hex: "65CFB0")
         case .coral:
-            return Color(hex: "FF8A80")
+            return Color(hex: "ED9D9E")
         case .violet:
-            return Color(hex: "8D7CFF")
+            return Color(hex: "9993CF")
         case .amber:
-            return Color(hex: "FFBE55")
+            return Color(hex: "FFA52F")
         case .indigo:
-            return Color(hex: "5E72E4")
+            return Color(hex: "6D96E8")
         case .rose:
-            return Color(hex: "FF6FAE")
+            // Legacy persisted value. New users see the coral palette instead.
+            return Color(hex: "ED9D9E")
         case .lime:
-            return Color(hex: "9CCC65")
+            return Color(hex: "4F8F4F")
         case .ocean:
-            return Color(hex: "2BB3C0")
+            // Legacy persisted value kept visually close to mint.
+            return Color(hex: "65CFB0")
         case .peach:
-            return Color(hex: "FF9E80")
+            // Legacy persisted value kept visually close to coral.
+            return Color(hex: "ED9D9E")
         }
     }
 
     var bingoSurfaceColor: Color {
         switch self {
         case .concise:
-            return Color(hex: "E7D5C4")
+            return Color(hex: "EFE0D1")
         case .sky:
-            return Color(hex: "8CCBFF")
+            return Color(hex: "CFECFF")
         case .mint:
-            return Color(hex: "75DCD4")
+            return Color(hex: "D1F7EC")
         case .coral:
-            return Color(hex: "FFB0A6")
+            return Color(hex: "FEE4E4")
         case .violet:
-            return Color(hex: "B4A8FF")
+            return Color(hex: "E5E3F7")
         case .amber:
-            return Color(hex: "E7C76A")
+            return Color(hex: "FFDCB6")
         case .indigo:
-            return Color(hex: "8795F0")
+            return Color(hex: "CADCFF")
         case .rose:
-            return Color(hex: "FF9BC5")
+            return Color(hex: "FEE4E4")
         case .lime:
-            return Color(hex: "B8D98A")
+            return Color(hex: "DFF1DF")
         case .ocean:
-            return Color(hex: "6FCFD7")
+            return Color(hex: "D1F7EC")
         case .peach:
-            return Color(hex: "FFB59F")
+            return Color(hex: "FEE4E4")
+        }
+    }
+
+    /// The quiet outline used by an unfinished cell. Keeping this separate from
+    /// the completed surface lets each theme follow the color spec exactly.
+    var bingoCellOutlineColor: Color {
+        switch self {
+        case .concise:
+            return Color(hex: "EFE0D1")
+        case .sky:
+            return Color(hex: "CFECFF")
+        case .mint:
+            return Color(hex: "D1F7EC")
+        case .coral:
+            return Color(hex: "FEE4E4")
+        case .violet:
+            return Color(hex: "E5E3F7")
+        case .amber:
+            return Color(hex: "FFDCB6")
+        case .indigo:
+            return Color(hex: "CADCFF")
+        case .rose:
+            return Color(hex: "FEE4E4")
+        case .lime:
+            return Color(hex: "DFF1DF")
+        case .ocean:
+            return Color(hex: "D1F7EC")
+        case .peach:
+            return Color(hex: "FEE4E4")
         }
     }
 
@@ -144,12 +177,9 @@ enum AppTheme: String, CaseIterable, Identifiable {
     }
 
     var textColor: Color {
-        switch self {
-        case .concise:
-            return Color(hex: "4B463F")
-        default:
-            return Color(hex: "5A6789")
-        }
+        // Keep copy in the default palette, including reward editor text fields.
+        // Theme selection changes decorative colors without recoloring shared text.
+        Color(hex: "4B463F")
     }
 
     var bingoAccentColor: Color {
@@ -187,6 +217,8 @@ struct NeumorphicColors {
     static var darkShadow: Color { AppTheme.current.darkShadowColor }
     static var text: Color { AppTheme.current.textColor }
     static var accent: Color { AppTheme.current.color }
+    // Modal actions keep the default palette when the board skin changes.
+    static var modalAccent: Color { AppTheme.concise.color }
     static var bingoAccent: Color { AppTheme.current.bingoAccentColor }
     static var lineText: Color { AppTheme.current.lineTextColor }
     static var pencilStroke: Color { AppTheme.current.pencilStrokeColor }
@@ -256,7 +288,8 @@ extension View {
     func appLiquidGlass<S: Shape>(
         in shape: S,
         interactive: Bool = true,
-        tint: Color? = nil
+        tint: Color? = nil,
+        fallbackWhiteOpacity: Double = 0.74
     ) -> some View {
         if #available(iOS 26.0, *) {
             self
@@ -276,8 +309,8 @@ extension View {
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    Color.white.opacity(0.74),
-                                    Color.white.opacity(0.38)
+                                    Color.white.opacity(fallbackWhiteOpacity),
+                                    Color.white.opacity(fallbackWhiteOpacity * 0.5)
                                 ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
@@ -322,8 +355,10 @@ struct LiquidGlassIconBadge: View {
     var foregroundColor: Color = NeumorphicColors.text
     var baseFill: Color? = nil
     var glassTint: Color? = nil
+    var usesLiquidGlass: Bool = true
+    var glassInteractive: Bool = true
 
-    var body: some View {
+    private var badgeContent: some View {
         ZStack {
             if let imageName {
                 Image(imageName)
@@ -339,13 +374,31 @@ struct LiquidGlassIconBadge: View {
             }
         }
         .frame(width: size, height: size)
-        .background {
-            if let baseFill {
-                Circle()
-                    .fill(baseFill)
+    }
+
+    var body: some View {
+        Group {
+            if usesLiquidGlass {
+                badgeContent
+                    .background {
+                        if let baseFill {
+                            Circle()
+                                .fill(baseFill)
+                        }
+                    }
+                    .appLiquidGlass(in: Circle(), interactive: glassInteractive, tint: glassTint)
+            } else {
+                badgeContent
+                    .background {
+                        Circle()
+                            .fill(baseFill ?? Color.white.opacity(0.74))
+                    }
+                    .overlay {
+                        Circle()
+                            .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                    }
             }
         }
-        .appLiquidGlass(in: Circle(), interactive: true, tint: glassTint)
         .contentShape(Circle())
     }
 }
