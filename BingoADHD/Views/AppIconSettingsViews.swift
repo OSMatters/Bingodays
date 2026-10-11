@@ -37,9 +37,6 @@ struct AppIconSettingsSection: View {
                     .fill(Color.white.opacity(0.88))
             )
 
-            AppIconStreakProgress(currentStreak: streakStore.currentStreak, bestStreak: streakStore.bestStreak)
-                .padding(16)
-                .background(Color.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 18))
 #if DEBUG
             debugStreakControls
 #endif
