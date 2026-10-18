@@ -6,8 +6,8 @@ extension Notification.Name {
 }
 
 struct ToggleLiveActivityTaskIntent: LiveActivityIntent {
-    static var title = LocalizedStringResource("Toggle Task", table: "LiveActivity")
-    static var openAppWhenRun = false
+    static let title = LocalizedStringResource("Toggle Task", table: "LiveActivity")
+    static let openAppWhenRun = false
     static var authenticationPolicy: IntentAuthenticationPolicy { .alwaysAllowed }
 
     @Parameter(title: LocalizedStringResource("Board ID", table: "LiveActivity")) var boardID: String

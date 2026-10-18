@@ -101,7 +101,7 @@ final class SubscriptionManager: ObservableObject {
         var errorDescription: String? { "Subscription request timed out." }
     }
 
-    private final class TimeoutRace<Value>: @unchecked Sendable {
+    private final class TimeoutRace<Value: Sendable>: @unchecked Sendable {
         private let lock = NSLock()
         private var isFinished = false
         private var continuation: CheckedContinuation<Value, Error>?
@@ -234,7 +234,7 @@ final class SubscriptionManager: ObservableObject {
         }
     }
 
-    private struct StoreKitEntitlement {
+    private struct StoreKitEntitlement: Sendable {
         let productID: String
         let expirationDate: Date?
     }
@@ -592,7 +592,7 @@ final class SubscriptionManager: ObservableObject {
         }
     }
 
-    private func withTimeout<T>(
+    private func withTimeout<T: Sendable>(
         operationName: String,
         nanoseconds: UInt64,
         operation: @escaping () async throws -> T

@@ -195,7 +195,7 @@ struct HomeAppReviewPromptStore {
 
 @MainActor
 final class HomeAppReviewEvaluationStore: ObservableObject {
-    typealias DelayedActionScheduler = (TimeInterval, @escaping () -> Void) -> Void
+    typealias DelayedActionScheduler = @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Void
 
     private struct PendingRequest {
         let boardID: UUID?
@@ -219,8 +219,8 @@ final class HomeAppReviewEvaluationStore: ObservableObject {
     func scheduleEvaluation(
         trigger: AppReviewPromptCandidate,
         boardID: UUID?,
-        currentBoardID: @escaping () -> UUID?,
-        onEvaluate: @escaping (AppReviewPromptCandidate) -> Void
+        currentBoardID: @escaping @MainActor () -> UUID?,
+        onEvaluate: @escaping @MainActor (AppReviewPromptCandidate) -> Void
     ) {
         let coalescedTrigger: AppReviewPromptCandidate
         if let pendingRequest, pendingRequest.boardID == boardID {

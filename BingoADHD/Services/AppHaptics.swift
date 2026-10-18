@@ -2,14 +2,14 @@ import CoreHaptics
 import UIKit
 
 enum AppHaptics {
-    private static let completionGenerator = UIImpactFeedbackGenerator(style: .medium)
-    private static let controlGenerator = UIImpactFeedbackGenerator(style: .light)
-    private static let emphasisGenerator = UIImpactFeedbackGenerator(style: .heavy)
+    @MainActor private static let completionGenerator = UIImpactFeedbackGenerator(style: .medium)
+    @MainActor private static let controlGenerator = UIImpactFeedbackGenerator(style: .light)
+    @MainActor private static let emphasisGenerator = UIImpactFeedbackGenerator(style: .heavy)
 
-    private static func perform(_ work: @escaping () -> Void) {
+    private static func perform(_ work: @escaping @MainActor @Sendable () -> Void) {
         guard AppSettings.isHapticsEnabled else { return }
         if Thread.isMainThread {
-            work()
+            MainActor.assumeIsolated { work() }
         } else {
             DispatchQueue.main.async(execute: work)
         }
@@ -47,9 +47,29 @@ enum AppHaptics {
 
 /// A single, sustained haptic whose intensity ramps up with a celebration animation.
 /// Core Haptics avoids the staccato feel of repeatedly firing impact generators.
+@MainActor
 final class AppHapticContinuousPlayer {
-    private var engine: CHHapticEngine?
-    private var player: CHHapticAdvancedPatternPlayer?
+    // The main-actor owner controls playback. Resource teardown stays in a plain
+    // holder so destruction does not read actor-isolated properties on older iOS.
+    private final class Resources {
+        var engine: CHHapticEngine?
+        var player: CHHapticAdvancedPatternPlayer?
+
+        deinit {
+            try? player?.stop(atTime: 0)
+            engine?.stop()
+        }
+    }
+
+    private let resources = Resources()
+    private var engine: CHHapticEngine? {
+        get { resources.engine }
+        set { resources.engine = newValue }
+    }
+    private var player: CHHapticAdvancedPatternPlayer? {
+        get { resources.player }
+        set { resources.player = newValue }
+    }
 
     func start(
         initialIntensity: CGFloat = 0.10,
@@ -57,17 +77,6 @@ final class AppHapticContinuousPlayer {
         rampDuration: TimeInterval = 1.8,
         sharpness: CGFloat = 0.08
     ) {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.start(
-                    initialIntensity: initialIntensity,
-                    peakIntensity: peakIntensity,
-                    rampDuration: rampDuration,
-                    sharpness: sharpness
-                )
-            }
-            return
-        }
 
         stop()
         guard AppSettings.isHapticsEnabled,
@@ -114,12 +123,6 @@ final class AppHapticContinuousPlayer {
     }
 
     func stop() {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.stop()
-            }
-            return
-        }
 
         try? player?.stop(atTime: 0)
         engine?.stop()
@@ -127,8 +130,4 @@ final class AppHapticContinuousPlayer {
         engine = nil
     }
 
-    deinit {
-        try? player?.stop(atTime: 0)
-        engine?.stop()
-    }
 }

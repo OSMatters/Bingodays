@@ -106,13 +106,13 @@ struct BingoDiaryBubbleView: View {
                 )
 
             Text("\(bubble.count)")
-                .font(.appSystem(size: backgroundNumberFontSize, weight: .bold, design: .rounded))
-                .foregroundColor(.white.opacity(0.2))
+                .appDynamicFont(size: backgroundNumberFontSize, weight: .bold, design: .rounded)
+                .foregroundStyle(.white.opacity(0.2))
                 .minimumScaleFactor(0.4)
 
             Text(bubble.task)
-                .font(.appSystem(size: taskFontSize, weight: .bold, design: .rounded))
-                .foregroundColor(bubbleTextColor)
+                .appDynamicFont(size: taskFontSize, weight: .bold, design: .rounded)
+                .foregroundStyle(bubbleTextColor)
                 .frame(width: labelWidth, height: labelHeight, alignment: .center)
                 .lineLimit(nil)
                 .multilineTextAlignment(.center)

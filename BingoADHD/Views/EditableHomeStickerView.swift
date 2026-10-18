@@ -71,11 +71,14 @@ struct EditableHomeStickerView: View {
                 Button(action: onDelete) {
                     Image(systemName: "xmark")
                         .font(.appSystem(size: 10, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .frame(width: 22, height: 22)
                         .background(Circle().fill(NeumorphicColors.accent))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(L10n.tr("Remove sticker", zhHans: "移除贴纸", zhHant: "移除貼紙", ja: "ステッカーを削除"))
                 .position(
                     x: stickerFrameOffset + stickerWidth + 6,
                     y: stickerFrameOffset - 6
@@ -85,6 +88,13 @@ struct EditableHomeStickerView: View {
         .frame(width: interactionSideLength, height: interactionSideLength)
         .contentShape(Rectangle())
         .position(position)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.tr("Sticker", zhHans: "贴纸", zhHant: "貼紙", ja: "ステッカー"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default) {
+            onSelect()
+        }
+        .accessibilityHint(L10n.tr("Double tap to select this sticker.", zhHans: "轻点两下选中此贴纸。", zhHant: "點兩下選取此貼紙。", ja: "ダブルタップしてこのステッカーを選択します。"))
         .onTapGesture {
             onSelect()
         }

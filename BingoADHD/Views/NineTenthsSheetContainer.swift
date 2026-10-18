@@ -23,7 +23,7 @@ struct NineTenthsSheetContainer<Content: View>: View {
                         .padding(.bottom, 8)
 
                     content
-                        .frame(maxWidth: min(contentMaxWidth, geo.size.width - 32), maxHeight: .infinity)
+                        .frame(maxWidth: max(0, min(contentMaxWidth, geo.size.width - 32)), maxHeight: .infinity)
                 }
                 .frame(
                     width: min(max(geo.size.width - 24, 0), contentMaxWidth + 32),
@@ -53,6 +53,7 @@ private struct PadBottomHalfSheetLayer<SheetContent: View>: View {
     let sheetContent: SheetContent
 
     @GestureState private var dragOffset: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         isPresented: Bool,
@@ -83,6 +84,7 @@ private struct PadBottomHalfSheetLayer<SheetContent: View>: View {
                         .contentShape(Rectangle())
                         .onTapGesture(perform: onDismiss)
                         .transition(.opacity)
+                        .accessibilityHidden(true)
 
                     VStack(spacing: 0) {
                         Capsule(style: .continuous)
@@ -91,6 +93,7 @@ private struct PadBottomHalfSheetLayer<SheetContent: View>: View {
                             .frame(maxWidth: .infinity, minHeight: 30)
                             .contentShape(Rectangle())
                             .gesture(dismissDragGesture)
+                            .accessibilityHidden(true)
 
                         sheetContent
                             .frame(maxWidth: min(contentMaxWidth, geo.size.width), maxHeight: .infinity)
@@ -123,14 +126,16 @@ private struct PadBottomHalfSheetLayer<SheetContent: View>: View {
                     .shadow(color: NeumorphicColors.darkShadow.opacity(0.18), radius: 18, x: 0, y: -3)
                     .offset(y: dragOffset)
                     .transition(.move(edge: .bottom))
+                    .accessibilityElement(children: .contain)
                     .accessibilityAddTraits(.isModal)
+                    .accessibilityAction(.escape, onDismiss)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .ignoresSafeArea()
         .allowsHitTesting(isPresented)
-        .animation(.easeInOut(duration: 0.22), value: isPresented)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isPresented)
     }
 
     private var dismissDragGesture: some Gesture {
@@ -160,6 +165,7 @@ private struct AdaptivePadBottomHalfSheetModifier<SheetContent: View>: ViewModif
     func body(content: Content) -> some View {
         if usePadPresentation {
             content
+                .accessibilityHidden(isPresented)
                 .overlay {
                     PadBottomHalfSheetLayer(
                         isPresented: isPresented,

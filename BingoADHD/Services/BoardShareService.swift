@@ -240,7 +240,7 @@ struct BoardSharePublishResult: Equatable, Sendable {
     let payload: BoardSharePayload
 }
 
-protocol BoardShareServicing {
+protocol BoardShareServicing: Sendable {
     func publish(
         board: BingoBoardStore.NamedBoard,
         now: Date

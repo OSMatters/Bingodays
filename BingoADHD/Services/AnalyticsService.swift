@@ -1,4 +1,5 @@
 import Foundation
+import os
 import FirebaseAnalytics
 import StoreKit
 
@@ -180,8 +181,7 @@ enum AnalyticsEventContract {
 
 enum AnalyticsService {
     private static let loggedStoreKitTransactionIDsKey = "analytics.logged_storekit_transaction_ids"
-    private static let offerBannerViewLock = NSLock()
-    private static var viewedOfferBannerCampaignIDs = Set<String>()
+    private static let viewedOfferBannerCampaignIDs = OSAllocatedUnfairLock(initialState: Set<String>())
 
     static func setCollectionEnabled(_ isEnabled: Bool) {
         Analytics.setAnalyticsCollectionEnabled(isEnabled)
@@ -326,9 +326,9 @@ enum AnalyticsService {
 
     static func logOfferBannerViewed(campaignID: String, countdownStarted: Bool) {
         let campaignID = sanitizedCampaignID(campaignID)
-        offerBannerViewLock.lock()
-        let isFirstViewThisSession = viewedOfferBannerCampaignIDs.insert(campaignID).inserted
-        offerBannerViewLock.unlock()
+        let isFirstViewThisSession = viewedOfferBannerCampaignIDs.withLock {
+            $0.insert(campaignID).inserted
+        }
         guard isFirstViewThisSession else { return }
 
         logCustomEvent("offer_banner_viewed", parameters: [

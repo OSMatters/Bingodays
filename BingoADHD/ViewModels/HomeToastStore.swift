@@ -8,80 +8,80 @@ final class HomeToastStore: ObservableObject {
     @Published var isDailyResetVisible = false
     @Published var isCompletedSingleTaskRemovalVisible = false
 
-    private var hideCommonWorkItem: DispatchWorkItem?
-    private var hideContactUsCopyWorkItem: DispatchWorkItem?
-    private var hideDailyResetWorkItem: DispatchWorkItem?
-    private var hideCompletedSingleTaskRemovalWorkItem: DispatchWorkItem?
+    private var hideCommonTask: Task<Void, Never>?
+    private var hideContactUsCopyTask: Task<Void, Never>?
+    private var hideDailyResetTask: Task<Void, Never>?
+    private var hideCompletedSingleTaskRemovalTask: Task<Void, Never>?
 
     deinit {
-        hideCommonWorkItem?.cancel()
-        hideContactUsCopyWorkItem?.cancel()
-        hideDailyResetWorkItem?.cancel()
-        hideCompletedSingleTaskRemovalWorkItem?.cancel()
+        hideCommonTask?.cancel()
+        hideContactUsCopyTask?.cancel()
+        hideDailyResetTask?.cancel()
+        hideCompletedSingleTaskRemovalTask?.cancel()
     }
 
     func showCommon(_ message: String) {
-        hideCommonWorkItem?.cancel()
+        hideCommonTask?.cancel()
         commonMessage = message
 
         withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
             isCommonVisible = true
         }
 
-        let workItem = DispatchWorkItem { [weak self] in
+        hideCommonTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(2.2)) } catch { return }
+            guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.26)) {
                 self?.isCommonVisible = false
             }
         }
-        hideCommonWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2, execute: workItem)
     }
 
     func showContactUsCopy() {
-        hideContactUsCopyWorkItem?.cancel()
+        hideContactUsCopyTask?.cancel()
 
         withAnimation(.easeInOut(duration: 0.2)) {
             isContactUsCopyVisible = true
         }
 
-        let workItem = DispatchWorkItem { [weak self] in
+        hideContactUsCopyTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(1.6)) } catch { return }
+            guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.2)) {
                 self?.isContactUsCopyVisible = false
             }
         }
-        hideContactUsCopyWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6, execute: workItem)
     }
 
     func showDailyReset() {
-        hideDailyResetWorkItem?.cancel()
+        hideDailyResetTask?.cancel()
 
         withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
             isDailyResetVisible = true
         }
 
-        let workItem = DispatchWorkItem { [weak self] in
+        hideDailyResetTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(2.2)) } catch { return }
+            guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.28)) {
                 self?.isDailyResetVisible = false
             }
         }
-        hideDailyResetWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2, execute: workItem)
     }
 
     func showCompletedSingleTaskRemoval() {
-        hideCompletedSingleTaskRemovalWorkItem?.cancel()
+        hideCompletedSingleTaskRemovalTask?.cancel()
 
         withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
             isCompletedSingleTaskRemovalVisible = true
         }
 
-        let workItem = DispatchWorkItem { [weak self] in
+        hideCompletedSingleTaskRemovalTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(3.2)) } catch { return }
+            guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.28)) {
                 self?.isCompletedSingleTaskRemovalVisible = false
             }
         }
-        hideCompletedSingleTaskRemovalWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2, execute: workItem)
     }
 }

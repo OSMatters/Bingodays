@@ -84,7 +84,7 @@ struct BoardSwitcherControlsView: View {
                                         .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
                                         .lineLimit(1)
                                         .truncationMode(.tail)
-                                        .foregroundColor(isSelected ? NeumorphicColors.accent : NeumorphicColors.text)
+                                        .foregroundStyle(isSelected ? NeumorphicColors.accent : NeumorphicColors.text)
                                         .padding(.horizontal, 14)
                                         .frame(height: isPadLayout ? 38 : 36)
                                         .background(
@@ -125,7 +125,7 @@ struct BoardSwitcherControlsView: View {
                 Button(action: onCreateBoard) {
                     Text(L10n.tr("+ add board", zhHans: "+ 添加棋盘", zhHant: "+ 新增棋盤"))
                         .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
+                        .foregroundStyle(NeumorphicColors.text)
                         .lineLimit(1)
                         .padding(.horizontal, 16)
                         .frame(height: isPadLayout ? 38 : 36)
@@ -196,19 +196,19 @@ private struct BoardEditHintBubbleView: View {
             HStack(spacing: isPadLayout ? 7 : 6) {
                 Image(systemName: "hand.tap")
                     .font(.appSystem(size: isPadLayout ? 14 : 12, weight: .medium))
-                    .foregroundColor(Color(hex: "9D9D9D"))
+                    .foregroundStyle(Color(hex: "9D9D9D"))
                     .frame(width: isPadLayout ? 18 : 16)
 
                 Text(L10n.boardEditHintMessage)
                     .font(.appSystem(size: isPadLayout ? 12 : 11, weight: .semibold, design: .rounded))
-                    .foregroundColor(Color(hex: "2B2B2B"))
+                    .foregroundStyle(Color(hex: "2B2B2B"))
                     .lineLimit(1)
                     .minimumScaleFactor(0.84)
 
                 Button(action: onDismiss) {
                     Text(L10n.boardEditHintAcknowledge)
                         .font(.appSystem(size: isPadLayout ? 11 : 10, weight: .bold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.modalAccent)
+                        .foregroundStyle(NeumorphicColors.modalAccent)
                         .padding(.horizontal, 3)
                         .frame(height: isPadLayout ? 23 : 21)
                 }
@@ -300,7 +300,7 @@ struct BoardActionsOverlayView: View {
         Button(action: action) {
             Text(title)
                 .font(.appSystem(size: scaled(16, pad: 18), weight: .semibold, design: .rounded))
-                .foregroundColor(color)
+                .foregroundStyle(color)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
                 .background(
@@ -397,7 +397,7 @@ struct BoardBottomControlsView: View {
     }
 
     private var moreActionsPanelOffsetX: CGFloat {
-        isPadLayout ? 63 : 53
+        isPadLayout ? 63 : 59
     }
 
     private var moreActionsPanelOffsetY: CGFloat {
@@ -419,23 +419,25 @@ struct BoardMoreActionsTriggerView: View {
 
     var body: some View {
         let buttonSize: CGFloat = isPadLayout ? 44 : 38
+        let touchTargetSize = max(buttonSize, 44)
 
         Button(action: onTap) {
             Image("HomeMore")
                 .resizable()
                 .interpolation(.high)
                 .renderingMode(.template)
-                .foregroundColor(themeColor)
+                .foregroundStyle(themeColor)
                 .scaledToFit()
                 .frame(width: isPadLayout ? 25 : 21, height: isPadLayout ? 25 : 21)
                 .frame(width: buttonSize, height: buttonSize)
                 .background(Circle().fill(Color.white.opacity(0.74)))
                 .appLiquidGlass(in: Circle(), interactive: true, tint: .white.opacity(0.72))
                 .environment(\.colorScheme, .light)
+                .frame(width: touchTargetSize, height: touchTargetSize)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .frame(width: buttonSize, height: buttonSize, alignment: .bottomTrailing)
+        .frame(width: touchTargetSize, height: touchTargetSize, alignment: .bottomTrailing)
         .accessibilityLabel(L10n.tr("More board actions", zhHans: "更多棋盘操作", zhHant: "更多棋盤操作", ja: "その他のボード操作"))
         .accessibilityAddTraits(isExpanded ? .isSelected : [])
     }
@@ -447,19 +449,21 @@ struct BoardQuickEditTriggerView: View {
 
     var body: some View {
         let buttonSize: CGFloat = isPadLayout ? 44 : 38
+        let touchTargetSize = max(buttonSize, 44)
 
         Button(action: onTap) {
             Image(systemName: "square.and.pencil")
                 .font(.appSystem(size: isPadLayout ? 20 : 18, weight: .bold))
-                .foregroundColor(NeumorphicColors.accent)
+                .foregroundStyle(NeumorphicColors.accent)
                 .frame(width: buttonSize, height: buttonSize)
                 .background(Circle().fill(Color.white.opacity(0.74)))
                 .appLiquidGlass(in: Circle(), interactive: true, tint: .white.opacity(0.72))
                 .environment(\.colorScheme, .light)
+                .frame(width: touchTargetSize, height: touchTargetSize)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .frame(width: buttonSize, height: buttonSize, alignment: .bottomTrailing)
+        .frame(width: touchTargetSize, height: touchTargetSize, alignment: .bottomTrailing)
         .accessibilityLabel(L10n.quickEdit)
     }
 }
@@ -507,7 +511,7 @@ struct BoardMoreActionsSidePanel: View {
         } label: {
             Text(title)
                 .font(.appSystem(size: scaled(16, pad: 18), weight: .regular, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .foregroundStyle(NeumorphicColors.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.86)
                 .multilineTextAlignment(.center)
@@ -536,12 +540,12 @@ struct BoardCountdownTriggerView: View {
                 Text(text)
                     .font(.appSystem(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
                     .monospacedDigit()
-                    .foregroundColor(NeumorphicColors.text)
+                    .foregroundStyle(NeumorphicColors.text)
                     .lineLimit(1)
 
                 Image(systemName: "chevron.right")
                     .font(.appSystem(size: scaled(11, pad: 12), weight: .semibold))
-                    .foregroundColor(NeumorphicColors.accent)
+                    .foregroundStyle(NeumorphicColors.accent)
             }
             .padding(.horizontal, isPadLayout ? 20 : 16)
             .frame(height: isPadLayout ? 38 : 32)

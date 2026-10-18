@@ -92,6 +92,7 @@ enum FirstStepGuideStore {
         }
     }
 
+    @MainActor
     static func installSeedTasks(in viewModel: BingoViewModel) {
         if viewModel.gridSize < minimumGridSize {
             viewModel.resizeGrid(to: minimumGridSize)

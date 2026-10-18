@@ -25,7 +25,7 @@ struct BoardLiveActivityMenuAction: View {
                 ? L10n.tr("Stop Lock Screen Display", zhHans: "停止锁屏展示", zhHant: "停止鎖屏展示", ja: "ロック画面の表示を停止")
                 : L10n.tr("Show on Lock Screen", zhHans: "显示在锁屏", zhHant: "顯示在鎖屏", ja: "ロック画面に表示"))
                 .font(.appSystem(size: isPadLayout ? 18 : 16, weight: .regular, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .foregroundStyle(NeumorphicColors.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.86)
                 .frame(maxWidth: .infinity)

@@ -1,5 +1,34 @@
 import SwiftUI
 
+private struct BingoCellAccessibilityActions: ViewModifier {
+    let hasStoredTask: Bool
+    let isInteractive: Bool
+    let secondaryActionTitle: String
+    let onTap: () -> Void
+    let onLongPressRelease: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if hasStoredTask {
+            content
+                .accessibilityAction(.default) {
+                    guard isInteractive else { return }
+                    onTap()
+                }
+                .accessibilityAction(named: Text(secondaryActionTitle)) {
+                    guard isInteractive else { return }
+                    onLongPressRelease()
+                }
+        } else {
+            content
+                .accessibilityAction(.default) {
+                    guard isInteractive else { return }
+                    onLongPressRelease()
+                }
+        }
+    }
+}
+
 private struct HandDrawnRoundedRectangle: Shape {
     let cornerRadius: CGFloat
     let variation: CGFloat
@@ -172,12 +201,26 @@ struct BingoCellView: View {
         .scaleEffect(touchScale)
         .scaleEffect(completionPulseScale)
         .opacity(isDragSource ? 0.18 : 1)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: cell.isCompleted)
-        .animation(.easeInOut(duration: 0.45), value: isTaskHiddenFaceVisible)
-        .animation(.interactiveSpring(response: 0.22, dampingFraction: 0.8), value: touchScale)
-        .animation(.easeInOut(duration: 0.18), value: isDragSource)
-        .animation(.easeInOut(duration: 0.18), value: isDropTarget)
+        .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.7), value: cell.isCompleted)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: isTaskHiddenFaceVisible)
+        .animation(reduceMotion ? nil : .interactiveSpring(response: 0.22, dampingFraction: 0.8), value: touchScale)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: isDragSource)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: isDropTarget)
         .contentShape(RoundedRectangle(cornerRadius: cellCornerRadius))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityTitle)
+        .accessibilityValue(accessibilityStatus)
+        .accessibilityHint(accessibilityActionHint)
+        .accessibilityAddTraits(.isButton)
+        .modifier(
+            BingoCellAccessibilityActions(
+                hasStoredTask: cell.hasStoredTask,
+                isInteractive: isInteractive,
+                secondaryActionTitle: accessibilitySecondaryActionTitle,
+                onTap: onTap,
+                onLongPressRelease: onLongPressRelease
+            )
+        )
         .onChange(of: cell.isCompleted) { _, isCompleted in
             // Undoing a completion must not leave a transient scale on the cell.
             if !isCompleted {
@@ -349,6 +392,64 @@ struct BingoCellView: View {
         return max(baseSize * scale, minimumSize)
     }
 
+    private var accessibilityTitle: String {
+        if isTaskHiddenFaceVisible {
+            return L10n.tr("Completed task", zhHans: "已完成的任务", zhHant: "已完成的任務", ja: "完了したタスク")
+        }
+        if !cell.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return cell.text
+        }
+        if cell.hasStoredTask {
+            return L10n.tr("Scheduled task", zhHans: "已安排的任务", zhHant: "已安排的任務", ja: "予定されたタスク")
+        }
+        return L10n.tr("Empty tile", zhHans: "空格子", zhHant: "空格", ja: "空のマス")
+    }
+
+    private var accessibilityStatus: String {
+        var values = [
+            cell.isCompleted
+                ? L10n.tr("Completed", zhHans: "已完成", zhHant: "已完成", ja: "完了")
+                : L10n.tr("Not completed", zhHans: "未完成", zhHant: "未完成", ja: "未完了")
+        ]
+
+        if isLocked {
+            values.append(L10n.tr("Locked", zhHans: "已锁定", zhHant: "已鎖定", ja: "ロック中"))
+        } else if isScheduledInactive, let scheduleStatusText {
+            values.append(scheduleStatusText)
+        }
+
+        if let countdown = displayCountdownText(at: currentTime) {
+            values.append(
+                L10n.tr(
+                    "Time remaining: \(countdown)",
+                    zhHans: "剩余时间：\(countdown)",
+                    zhHant: "剩餘時間：\(countdown)",
+                    ja: "残り時間：\(countdown)"
+                )
+            )
+        }
+
+        return values.joined(separator: ", ")
+    }
+
+    private var accessibilitySecondaryActionTitle: String {
+        cell.hasStoredTask
+            ? L10n.tr("More task actions", zhHans: "更多任务操作", zhHant: "更多任務操作", ja: "その他のタスク操作")
+            : L10n.addTask
+    }
+
+    private var accessibilityActionHint: String {
+        if isLocked {
+            return L10n.tr("This tile is locked.", zhHans: "此格子已锁定。", zhHant: "此格子已鎖定。", ja: "このマスはロックされています。")
+        }
+        if isScheduledInactive {
+            return scheduleStatusText ?? L10n.tr("This task is not available yet.", zhHans: "此任务目前尚不可用。", zhHant: "此任務目前尚不可用。", ja: "このタスクはまだ利用できません。")
+        }
+        return cell.hasStoredTask
+            ? L10n.tr("Double tap to toggle completion. Use the Actions menu to edit this task.", zhHans: "轻点两下切换完成状态；在操作菜单中编辑任务。", zhHant: "點兩下切換完成狀態；在操作選單中編輯任務。", ja: "ダブルタップで完了状態を切り替え、アクションメニューから編集します。")
+            : L10n.tr("Double tap to add a task to this tile.", zhHans: "轻点两下为此格子添加任务。", zhHant: "點兩下為此格子新增任務。", ja: "ダブルタップしてこのマスにタスクを追加します。")
+    }
+
     private var comboBadgeVisible: Bool {
         !cell.isEmpty &&
         TaskCompletionHistoryRuleEngine.shouldDisplayCompletionHistoryBadge(
@@ -406,8 +507,8 @@ struct BingoCellView: View {
                     if !cell.isEmpty {
                         VStack(spacing: cellSize < 72 && auxiliaryStatusText != nil ? 8 : 0) {
                             Text(cell.text)
-                                .font(.appSystem(size: taskTitleFontSize, weight: .medium))
-                                .foregroundColor(cellTextColor)
+                                .appDynamicFont(size: taskTitleFontSize, weight: .medium)
+                                .foregroundStyle(cellTextColor)
                                 .multilineTextAlignment(.center)
                                 .lineLimit(taskTitleLineLimit)
                                 .minimumScaleFactor(0.5)
@@ -430,8 +531,8 @@ struct BingoCellView: View {
                         )
                     } else if let emptyHintText, !emptyHintText.isEmpty {
                         Text(emptyHintText)
-                            .font(.appSystem(size: max(dynamicFontSize * 0.68, 10), weight: .semibold, design: .rounded))
-                            .foregroundColor(primaryTextColor.opacity(0.46))
+                            .appDynamicFont(size: max(dynamicFontSize * 0.68, 10), weight: .semibold, design: .rounded)
+                            .foregroundStyle(primaryTextColor.opacity(0.46))
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
                             .minimumScaleFactor(0.75)
@@ -452,17 +553,17 @@ struct BingoCellView: View {
                 )
             ) { context in
                 Text(displayCountdownText(at: context.date) ?? "00:00:00")
-                    .font(.appSystem(size: max(dynamicFontSize * 0.42, 9), weight: .bold, design: .rounded))
+                    .appDynamicFont(size: max(dynamicFontSize * 0.42, 9), weight: .bold, design: .rounded)
                     .monospacedDigit()
-                    .foregroundColor(NeumorphicColors.accent.opacity(0.9))
+                    .foregroundStyle(NeumorphicColors.accent.opacity(0.9))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
                     .padding(.horizontal, 4)
             }
         } else if let auxiliaryStatusText {
             Text(auxiliaryStatusText)
-                .font(.appSystem(size: auxiliaryStatusFontSize, weight: .semibold, design: .rounded))
-                .foregroundColor(primaryTextColor.opacity(isScheduledInactive ? 0.45 : 0.58))
+                .appDynamicFont(size: auxiliaryStatusFontSize, weight: .semibold, design: .rounded)
+                .foregroundStyle(primaryTextColor.opacity(isScheduledInactive ? 0.45 : 0.58))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .minimumScaleFactor(0.7)
@@ -491,8 +592,8 @@ struct BingoCellView: View {
 
     private var comboBadge: some View {
         Text("x\(cell.completionStreakCount)")
-            .font(.appSystem(size: max(dynamicFontSize * 0.4, 9), weight: .regular, design: .rounded))
-            .foregroundColor(cellTextColor.opacity(0.9))
+            .appDynamicFont(size: max(dynamicFontSize * 0.4, 9), weight: .regular, design: .rounded)
+            .foregroundStyle(cellTextColor.opacity(0.9))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .shadow(color: Color.black.opacity(cell.isCompleted ? 0.28 : 0.14), radius: 1.5, x: 0, y: 1)
@@ -648,8 +749,8 @@ struct BingoCellView: View {
                 .fill(boardSurfaceColor)
 
             Image(systemName: "lock.fill")
-                .font(.appSystem(size: size * 0.42, weight: .bold))
-                .foregroundColor(NeumorphicColors.text.opacity(0.55))
+                .appDynamicFont(size: size * 0.42, weight: .bold)
+                .foregroundStyle(NeumorphicColors.text.opacity(0.55))
         }
         .frame(width: size, height: size)
     }

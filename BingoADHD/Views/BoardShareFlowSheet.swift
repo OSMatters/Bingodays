@@ -8,6 +8,7 @@ enum BoardShareImportAction: String, Equatable {
 
 struct BoardShareFlowSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ObservedObject var store: BoardSharePresentationStore
 
     let boards: [BingoBoardStore.NamedBoard]
@@ -19,19 +20,28 @@ struct BoardShareFlowSheet: View {
 
     @State private var isReplacementConfirmationPresented = false
     @FocusState private var isShareCodeInputFocused: Bool
+    @ScaledMetric(relativeTo: .body) private var shareCodeFontSize: CGFloat = 24
+    @ScaledMetric(relativeTo: .body) private var publishedCodeFontSize: CGFloat = 31
+
+    private var usesReflowedLayout: Bool {
+        dynamicTypeSize == .xLarge ||
+            dynamicTypeSize == .xxLarge ||
+            dynamicTypeSize == .xxxLarge ||
+            dynamicTypeSize.isAccessibilitySize
+    }
 
     var body: some View {
         NavigationStack {
             Group {
                 switch store.page {
                 case .menu:
-                    menu
+                    adaptivePageContent(menu)
                 case .selectBoard:
                     boardPicker
                 case .shareResult(let result):
-                    shareResult(result)
+                    adaptivePageContent(shareResult(result))
                 case .importCode:
-                    importCode
+                    adaptivePageContent(importCode)
                 case .importPreview(let lookup):
                     importPreview(lookup)
                 }
@@ -43,7 +53,7 @@ struct BoardShareFlowSheet: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text(navigationTitle)
-                        .font(.appSystem(size: 18, weight: .semibold, design: .rounded))
+                        .appDynamicFont(size: 18, weight: .semibold, design: .rounded)
                         .foregroundStyle(NeumorphicColors.text)
                         .accessibilityAddTraits(.isHeader)
                 }
@@ -56,6 +66,7 @@ struct BoardShareFlowSheet: View {
                         } label: {
                             Image(systemName: "chevron.left")
                         }
+                        .accessibilityLabel(L10n.tr("Back", zhHans: "返回", zhHant: "返回", ja: "戻る"))
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -64,10 +75,11 @@ struct BoardShareFlowSheet: View {
                     } label: {
                         Image(systemName: "xmark")
                     }
+                    .accessibilityLabel(L10n.tr("Close", zhHans: "关闭", zhHant: "關閉", ja: "閉じる"))
                 }
             }
         }
-        .presentationDetents(presentationDetents)
+        .presentationDetents(usesReflowedLayout ? [.large] : presentationDetents)
         .presentationContentInteraction(.scrolls)
         .alert(
             L10n.tr("Replace current board?", zhHans: "替换当前棋盘？", zhHant: "替換目前棋盤？"),
@@ -130,6 +142,18 @@ struct BoardShareFlowSheet: View {
         }
     }
 
+    @ViewBuilder
+    private func adaptivePageContent<Content: View>(_ content: Content) -> some View {
+        if usesReflowedLayout {
+            ScrollView(showsIndicators: false) {
+                content
+                    .padding(.bottom, 28)
+            }
+        } else {
+            content
+        }
+    }
+
     private var menu: some View {
         VStack(spacing: 14) {
             menuButton(
@@ -161,11 +185,13 @@ struct BoardShareFlowSheet: View {
                         store.publish(board)
                     } label: {
                         Text(board.name)
-                            .font(.appSystem(size: 17, weight: .medium, design: .rounded))
-                            .foregroundColor(NeumorphicColors.text)
+                            .appDynamicFont(size: 17, weight: .medium, design: .rounded)
+                            .foregroundStyle(NeumorphicColors.text)
+                            .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 16)
-                            .frame(height: 54)
+                            .padding(.vertical, 12)
+                            .frame(minHeight: 54)
                             .background(
                                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                                     .fill(Color.white.opacity(BoardSharePayload.isShareable(board.board) ? 0.92 : 0.46))
@@ -185,15 +211,17 @@ struct BoardShareFlowSheet: View {
     private func shareResult(_ result: BoardSharePublishResult) -> some View {
         VStack(spacing: 20) {
             Text(result.payload.boardName)
-                .font(.appSystem(size: 18, weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-                .lineLimit(1)
+                .appDynamicFont(size: 18, weight: .semibold, design: .rounded)
+                .foregroundStyle(NeumorphicColors.text)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
 
             Text(BoardShareCode.display(result.code))
-                .font(.system(size: 31, weight: .bold, design: .monospaced))
-                .foregroundColor(NeumorphicColors.text)
+                .font(.system(size: publishedCodeFontSize, weight: .bold, design: .monospaced))
+                .foregroundStyle(NeumorphicColors.text)
                 .tracking(1.5)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
 
             Text(
                 L10n.tr(
@@ -202,34 +230,50 @@ struct BoardShareFlowSheet: View {
                     zhHant: "有效期 30 天"
                 )
             )
-            .font(.appSystem(size: 14, weight: .regular, design: .rounded))
-            .foregroundColor(NeumorphicColors.text.opacity(0.62))
+            .appDynamicFont(size: 14, weight: .regular, design: .rounded)
+            .foregroundStyle(NeumorphicColors.text.opacity(0.62))
 
-            HStack(spacing: 12) {
-                Button {
-                    UIPasteboard.general.string = result.code
-                    AnalyticsService.logBoardShareCodeCopied(payload: result.payload)
-                    onCopyCode()
-                } label: {
-                    Label(L10n.tr("Copy", zhHans: "复制", zhHant: "複製"), systemImage: "doc.on.doc")
-                        .frame(maxWidth: .infinity)
+            Group {
+                if usesReflowedLayout {
+                    VStack(spacing: 12) {
+                        copyCodeButton(for: result)
+                        systemShareButton(for: result)
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        copyCodeButton(for: result)
+                        systemShareButton(for: result)
+                    }
                 }
-                .buttonStyle(BoardShareFilledButtonStyle())
-
-                ShareLink(
-                    item: shareText(for: result),
-                    subject: Text(L10n.tr("Bingodays board", zhHans: "Bingodays 棋盘", zhHant: "Bingodays 棋盤"))
-                ) {
-                    Label(L10n.tr("Share", zhHans: "系统分享", zhHant: "系統分享"), systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(BoardShareFilledButtonStyle())
-                .simultaneousGesture(TapGesture().onEnded {
-                    AnalyticsService.logBoardShareSystemShareTapped(payload: result.payload)
-                })
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func copyCodeButton(for result: BoardSharePublishResult) -> some View {
+        Button {
+            UIPasteboard.general.string = result.code
+            AnalyticsService.logBoardShareCodeCopied(payload: result.payload)
+            onCopyCode()
+        } label: {
+            Label(L10n.tr("Copy", zhHans: "复制", zhHant: "複製"), systemImage: "doc.on.doc")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(BoardShareFilledButtonStyle())
+    }
+
+    private func systemShareButton(for result: BoardSharePublishResult) -> some View {
+        ShareLink(
+            item: shareText(for: result),
+            subject: Text(L10n.tr("Bingodays board", zhHans: "Bingodays 棋盘", zhHant: "Bingodays 棋盤"))
+        ) {
+            Label(L10n.tr("Share", zhHans: "系统分享", zhHant: "系統分享"), systemImage: "square.and.arrow.up")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(BoardShareFilledButtonStyle())
+        .simultaneousGesture(TapGesture().onEnded {
+            AnalyticsService.logBoardShareSystemShareTapped(payload: result.payload)
+        })
     }
 
     private var importCode: some View {
@@ -241,15 +285,29 @@ struct BoardShareFlowSheet: View {
                     zhHant: "輸入 10 位數字分享碼"
                 )
             )
-            .font(.appSystem(size: 16, weight: .regular, design: .rounded))
-            .foregroundColor(NeumorphicColors.text.opacity(0.75))
+            .appDynamicFont(size: 16, weight: .regular, design: .rounded)
+            .foregroundStyle(NeumorphicColors.text.opacity(0.75))
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
 
             TextField("000 000 000 0", text: $store.codeDraft)
                 .keyboardType(.numberPad)
                 .textContentType(.oneTimeCode)
-                .font(.system(size: 24, weight: .semibold, design: .monospaced))
-                .foregroundColor(NeumorphicColors.text)
+                .font(.system(size: shareCodeFontSize, weight: .semibold, design: .monospaced))
+                .foregroundStyle(NeumorphicColors.text)
                 .tint(NeumorphicColors.text)
+                .accessibilityLabel(L10n.tr(
+                    "10-digit share code",
+                    zhHans: "10位数字分享码",
+                    zhHant: "10位數字分享碼",
+                    ja: "10桁の共有コード"
+                ))
+                .accessibilityHint(L10n.tr(
+                    "Enter the code shared with you",
+                    zhHans: "输入对方分享给你的代码",
+                    zhHant: "輸入對方分享給你的代碼",
+                    ja: "共有されたコードを入力します"
+                ))
                 .focused($isShareCodeInputFocused)
                 .multilineTextAlignment(.center)
                 .padding(.vertical, 14)
@@ -284,8 +342,10 @@ struct BoardShareFlowSheet: View {
         ScrollView {
             VStack(spacing: 16) {
                 Text(lookup.payload.boardName)
-                    .font(.appSystem(size: 20, weight: .bold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
+                    .appDynamicFont(size: 20, weight: .bold, design: .rounded)
+                    .foregroundStyle(NeumorphicColors.text)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 BoardSharePreviewGrid(payload: lookup.payload)
 
@@ -307,16 +367,18 @@ struct BoardShareFlowSheet: View {
         } else if lookup.payload.gridSize == 5 {
             premiumGatedImportButton(for: lookup)
         } else {
-            HStack(spacing: 12) {
-                premiumImportAsNewBoardButton(for: lookup)
-
-                Button {
-                    isReplacementConfirmationPresented = true
-                } label: {
-                    Text(L10n.tr("Replace current board", zhHans: "替换当前棋盘", zhHant: "替換目前棋盤"))
-                        .frame(maxWidth: .infinity)
+            Group {
+                if usesReflowedLayout {
+                    VStack(spacing: 12) {
+                        premiumImportAsNewBoardButton(for: lookup)
+                        replaceCurrentBoardButton()
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        premiumImportAsNewBoardButton(for: lookup)
+                        replaceCurrentBoardButton()
+                    }
                 }
-                .buttonStyle(BoardShareFilledButtonStyle())
             }
         }
     }
@@ -342,6 +404,16 @@ struct BoardShareFlowSheet: View {
         .buttonStyle(BoardShareFilledButtonStyle())
     }
 
+    private func replaceCurrentBoardButton() -> some View {
+        Button {
+            isReplacementConfirmationPresented = true
+        } label: {
+            Text(L10n.tr("Replace current board", zhHans: "替换当前棋盘", zhHant: "替換目前棋盤"))
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(BoardShareFilledButtonStyle())
+    }
+
     private func importBoard(_ payload: BoardSharePayload, action: BoardShareImportAction) {
         guard onImport(payload, action) else { return }
         store.clearPendingPremiumImport()
@@ -354,21 +426,23 @@ struct BoardShareFlowSheet: View {
                 ProgressView()
                     .padding(12)
                     .background(.ultraThinMaterial, in: Capsule())
+                    .accessibilityLabel(L10n.tr("Loading", zhHans: "正在加载", zhHant: "正在載入", ja: "読み込み中"))
             }
         }
     }
 
     private func errorText(_ text: String) -> some View {
         Text(text)
-            .font(.appSystem(size: 13, weight: .regular, design: .rounded))
-            .foregroundColor(.red.opacity(0.85))
+            .appDynamicFont(size: 13, weight: .regular, design: .rounded)
+            .foregroundStyle(.red.opacity(0.85))
             .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func menuButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
-                .font(.appSystem(size: 17, weight: .semibold, design: .rounded))
+                .appDynamicFont(size: 17, weight: .semibold, design: .rounded)
                 .frame(maxWidth: .infinity, minHeight: 58)
         }
         .buttonStyle(BoardShareFilledButtonStyle())
@@ -384,7 +458,15 @@ struct BoardShareFlowSheet: View {
 }
 
 private struct BoardSharePreviewGrid: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let payload: BoardSharePayload
+
+    private var usesReflowedLayout: Bool {
+        dynamicTypeSize == .xLarge ||
+            dynamicTypeSize == .xxLarge ||
+            dynamicTypeSize == .xxxLarge ||
+            dynamicTypeSize.isAccessibilitySize
+    }
 
     private var cellsByCoordinate: [String: String] {
         Dictionary(
@@ -399,22 +481,54 @@ private struct BoardSharePreviewGrid: View {
             ForEach(0..<(payload.gridSize * payload.gridSize), id: \.self) { index in
                 let row = index / payload.gridSize
                 let column = index % payload.gridSize
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.white.opacity(0.86))
-
-                    Text(cellsByCoordinate["\(row):\(column)"] ?? "")
-                        .font(.appSystem(size: payload.gridSize == 5 ? 10 : 12, weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                        .minimumScaleFactor(0.65)
-                        .padding(5)
+                let text = cellsByCoordinate["\(row):\(column)"] ?? ""
+                Group {
+                    if usesReflowedLayout {
+                        previewCell(text, dynamicType: true)
+                            .frame(maxWidth: .infinity, minHeight: 64)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        previewCell(text, dynamicType: false)
+                            .frame(maxWidth: .infinity)
+                            .aspectRatio(1, contentMode: .fit)
+                    }
                 }
-                .aspectRatio(1, contentMode: .fit)
             }
         }
         .frame(maxWidth: 440)
+    }
+
+    private func previewCell(_ text: String, dynamicType: Bool) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(0.86))
+
+            if !text.isEmpty {
+                Group {
+                    if dynamicType {
+                        Text(text)
+                            .appDynamicFont(
+                                size: payload.gridSize == 5 ? 10 : 12,
+                                weight: .medium,
+                                design: .rounded
+                            )
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text(text)
+                            .font(.appSystem(
+                                size: payload.gridSize == 5 ? 10 : 12,
+                                weight: .medium,
+                                design: .rounded
+                            ))
+                            .lineLimit(3)
+                            .minimumScaleFactor(0.65)
+                    }
+                }
+                .foregroundStyle(NeumorphicColors.text)
+                .multilineTextAlignment(.center)
+                .padding(5)
+            }
+        }
     }
 }
 
@@ -428,6 +542,8 @@ struct BoardShareActionOverlayView: View {
     let onShareBoard: () -> Void
     let onImportBoard: () -> Void
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     private var backgroundColor: Color { Color(hex: "FAF9F3") }
 
     var body: some View {
@@ -435,6 +551,7 @@ struct BoardShareActionOverlayView: View {
             Color.black.opacity(0.42)
                 .ignoresSafeArea()
                 .onTapGesture(perform: onDismiss)
+                .accessibilityHidden(true)
 
             VStack(spacing: 12) {
                 actionButton(
@@ -457,15 +574,21 @@ struct BoardShareActionOverlayView: View {
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape, onDismiss)
     }
 
     private func actionButton(title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.appSystem(size: isPadLayout ? 18 : 16, weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .appDynamicFont(size: isPadLayout ? 18 : 16, weight: .semibold, design: .rounded)
+                .foregroundStyle(NeumorphicColors.text)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
-                .frame(height: isPadLayout ? 60 : 56)
+                .frame(minHeight: isPadLayout ? 60 : 56)
+                .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 10 : 0)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(backgroundColor)
@@ -478,8 +601,8 @@ struct BoardShareActionOverlayView: View {
 private struct BoardShareFilledButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.appSystem(size: 16, weight: .semibold, design: .rounded))
-            .foregroundColor(.white)
+            .appDynamicFont(size: 16, weight: .semibold, design: .rounded)
+            .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .frame(minHeight: 50)
             .background(
@@ -492,8 +615,8 @@ private struct BoardShareFilledButtonStyle: ButtonStyle {
 private struct BoardShareOutlinedButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.appSystem(size: 16, weight: .semibold, design: .rounded))
-            .foregroundColor(NeumorphicColors.text)
+            .appDynamicFont(size: 16, weight: .semibold, design: .rounded)
+            .foregroundStyle(NeumorphicColors.text)
             .padding(.horizontal, 16)
             .frame(minHeight: 50)
             .background(

@@ -103,7 +103,7 @@ struct NativeICloudSettingsView: View {
                             .fill(Color.white.opacity(0.94))
                         Image(systemName: cloudSymbol)
                             .font(.appSystem(size: scaled(28, pad: 32), weight: .semibold))
-                            .foregroundColor(statusColor)
+                            .foregroundStyle(statusColor)
                     }
                     .frame(width: scaled(58, pad: 66), height: scaled(58, pad: 66))
                     .shadow(color: statusColor.opacity(0.18), radius: 12, x: 0, y: 6)
@@ -114,13 +114,13 @@ struct NativeICloudSettingsView: View {
 
             VStack(spacing: 6) {
                 Text(statusTitle)
-                    .font(.appSystem(size: scaled(19, pad: 22), weight: .bold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
+                    .appDynamicFont(size: scaled(19, pad: 22), weight: .bold, design: .rounded)
+                    .foregroundStyle(NeumorphicColors.text)
                     .multilineTextAlignment(.center)
 
                 Text(statusDetail)
-                    .font(.appSystem(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                    .appDynamicFont(size: scaled(13, pad: 15), weight: .medium, design: .rounded)
+                    .foregroundStyle(NeumorphicColors.text.opacity(0.58))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -136,16 +136,16 @@ struct NativeICloudSettingsView: View {
             Toggle(isOn: enabledBinding) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L10n.tr("Sync with iCloud", zhHans: "使用 iCloud 同步", zhHant: "使用 iCloud 同步", ja: "iCloudで同期"))
-                        .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
+                        .appDynamicFont(size: scaled(15, pad: 17), weight: .bold, design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text)
                     Text(L10n.tr(
                         "Your local data stays on this device when sync is off.",
                         zhHans: "关闭后，本地数据仍保留在这台设备上。",
                         zhHant: "關閉後，本機資料仍保留在這台裝置上。",
                         ja: "オフにしても、この端末のデータは残ります。"
                     ))
-                    .font(.appSystem(size: scaled(11.5, pad: 13), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.54))
+                    .appDynamicFont(size: scaled(11.5, pad: 13), weight: .medium, design: .rounded)
+                    .foregroundStyle(NeumorphicColors.text.opacity(0.54))
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -175,8 +175,8 @@ struct NativeICloudSettingsView: View {
                                 .font(.caption.bold())
                         }
                     }
-                    .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                    .foregroundColor(themeColor)
+                    .appDynamicFont(size: scaled(14, pad: 16), weight: .semibold, design: .rounded)
+                    .foregroundStyle(themeColor)
                 }
                 .buttonStyle(.plain)
                 .disabled(isBusy)
@@ -340,7 +340,7 @@ struct NativeICloudSettingsView: View {
     private func deviceIcon(_ systemName: String) -> some View {
         Image(systemName: systemName)
             .font(.appSystem(size: scaled(23, pad: 27), weight: .semibold))
-            .foregroundColor(themeColor.opacity(0.76))
+            .foregroundStyle(themeColor.opacity(0.76))
             .frame(width: scaled(34, pad: 40), height: scaled(44, pad: 50))
     }
 

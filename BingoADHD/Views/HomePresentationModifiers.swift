@@ -5,6 +5,17 @@ private struct BoardCompletionPresentation: Identifiable {
     let id: UUID
 }
 
+struct VisibleNavigationBarBackgroundModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.toolbarBackgroundVisibility(.visible, for: .navigationBar)
+        } else {
+            content.toolbarBackground(.visible, for: .navigationBar)
+        }
+    }
+}
+
 struct HomePrimaryCoversModifier: ViewModifier {
     @Binding var isQuickEditPresented: Bool
     @Binding var isPointsFlowPresented: Bool
@@ -389,7 +400,7 @@ private struct BoardOrderSheet: View {
                         HStack(spacing: 12) {
                             Text(board.name)
                                 .font(.appSystem(size: scaled(16, pad: 18), weight: .regular, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text)
+                                .foregroundStyle(NeumorphicColors.text)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
 
@@ -398,19 +409,19 @@ private struct BoardOrderSheet: View {
                             if board.id == lockedBoardID {
                                 Image(systemName: "lock.fill")
                                     .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold))
-                                    .foregroundColor(NeumorphicColors.modalAccent)
+                                    .foregroundStyle(NeumorphicColors.modalAccent)
                                     .accessibilityLabel(L10n.tr("Locked board", zhHans: "已锁定棋盘", zhHant: "已鎖定棋盤"))
                             } else if board.id == selectedBoardID {
                                 Image(systemName: "checkmark")
                                     .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold))
-                                    .foregroundColor(NeumorphicColors.modalAccent)
+                                    .foregroundStyle(NeumorphicColors.modalAccent)
                                     .accessibilityLabel(L10n.tr("Current board", zhHans: "当前棋盘", zhHant: "目前棋盤"))
                             }
 
                             if board.id != lockedBoardID {
                                 Image(systemName: "line.3.horizontal")
                                     .font(.appSystem(size: scaled(18, pad: 20), weight: .medium))
-                                    .foregroundColor(NeumorphicColors.modalAccent)
+                                    .foregroundStyle(NeumorphicColors.modalAccent)
                                     .accessibilityLabel(L10n.tr("Drag to reorder", zhHans: "长按拖动排序", zhHant: "長按拖動排序"))
                                     .frame(width: 44, height: 44)
                                     .contentShape(Rectangle())
@@ -437,21 +448,21 @@ private struct BoardOrderSheet: View {
             }
             .scrollDisabled(draggingBoardID != nil)
             .background(sheetBackground)
-            .coordinateSpace(name: "board-order-list")
+            .coordinateSpace(.named("board-order-list"))
             .navigationTitle(L10n.tr("Board Order", zhHans: "棋盘顺序", zhHant: "棋盤順序"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(sheetBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
+            .modifier(VisibleNavigationBarBackgroundModifier())
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(L10n.cancel, action: cancel)
                         .font(.appSystem(size: scaled(16, pad: 18), weight: .regular, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
+                        .foregroundStyle(NeumorphicColors.text)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(L10n.save, action: save)
                         .font(.appSystem(size: scaled(16, pad: 18), weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.modalAccent)
+                        .foregroundStyle(NeumorphicColors.modalAccent)
                         .disabled(!didChangeOrder)
                 }
             }

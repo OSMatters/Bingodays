@@ -191,11 +191,15 @@ struct BingoViewModelPersistenceDependencies {
         self.transactionRepository = transactionRepository
     }
 
-    static let live = BingoViewModelPersistenceDependencies(
-        boardRepository: LiveBingoBoardRepository(),
-        diaryRepository: LiveBingoDiaryRepository(),
-        pointsRepository: LiveBingoPointsRepository()
-    )
+    // These adapters are stateless values. Construct them per dependency bundle rather
+    // than sharing a non-Sendable existential bundle across callers.
+    static var live: Self {
+        Self(
+            boardRepository: LiveBingoBoardRepository(),
+            diaryRepository: LiveBingoDiaryRepository(),
+            pointsRepository: LiveBingoPointsRepository()
+        )
+    }
 }
 
 private struct LiveTaskCompletionHistoryRepository: TaskCompletionHistoryRepository {

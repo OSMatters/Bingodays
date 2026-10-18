@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct HomeBoardMainContent: View {
-    @ObservedObject var viewModel: BingoViewModel
+    let viewModel: BingoViewModel
 
     let namedBoards: [BingoBoardStore.NamedBoard]
     let selectedBoardID: UUID?

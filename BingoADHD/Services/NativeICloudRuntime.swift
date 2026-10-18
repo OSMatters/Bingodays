@@ -1,6 +1,7 @@
 import CloudKit
 import CoreData
 import Foundation
+import os
 
 extension Notification.Name {
     static let nativeICloudRuntimeDidImport = Notification.Name("NativeICloudRuntimeDidImport")
@@ -1080,17 +1081,12 @@ actor NativeICloudRuntime {
 }
 
 enum NativeICloudLocalChangeReporter {
-    private static let lock = NSLock()
-    private static var suppressionDepth = 0
+    private static let suppressionDepth = OSAllocatedUnfairLock(initialState: 0)
 
     static func withReportingSuppressed<T>(_ body: () throws -> T) rethrows -> T {
-        lock.lock()
-        suppressionDepth += 1
-        lock.unlock()
+        suppressionDepth.withLock { $0 += 1 }
         defer {
-            lock.lock()
-            suppressionDepth = max(suppressionDepth - 1, 0)
-            lock.unlock()
+            suppressionDepth.withLock { $0 = max($0 - 1, 0) }
         }
         return try body()
     }
@@ -1123,8 +1119,6 @@ enum NativeICloudLocalChangeReporter {
     }
 
     private static var isReportingSuppressed: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return suppressionDepth > 0
+        suppressionDepth.withLock { $0 > 0 }
     }
 }

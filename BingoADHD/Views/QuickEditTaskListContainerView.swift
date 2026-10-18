@@ -57,7 +57,7 @@ struct QuickEditTaskListContainerView<Header: View, Rows: View, InlineRow: View,
             )
         )
         .font(.appSystem(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
-        .foregroundColor(NeumorphicColors.text.opacity(0.55))
+        .foregroundStyle(NeumorphicColors.text.opacity(0.55))
         .padding(.top, 2)
         .padding(.bottom, 4)
     }
@@ -65,7 +65,7 @@ struct QuickEditTaskListContainerView<Header: View, Rows: View, InlineRow: View,
     private var emptyState: some View {
         Text(L10n.quickEditNoTasksInFilter)
             .font(.appSystem(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
-            .foregroundColor(NeumorphicColors.text.opacity(0.56))
+            .foregroundStyle(NeumorphicColors.text.opacity(0.56))
             .padding(.vertical, 8)
     }
 

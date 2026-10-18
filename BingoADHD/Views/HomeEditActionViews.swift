@@ -18,7 +18,7 @@ struct GridSizeAdjustmentSheet: View {
                     Button(action: onDecrease) {
                         Image(systemName: "minus")
                             .font(.appSystem(size: iconSize, weight: .bold))
-                            .foregroundColor(NeumorphicColors.modalAccent)
+                            .foregroundStyle(NeumorphicColors.modalAccent)
                             .frame(width: controlSize, height: controlSize)
                             .background(functionSurface(cornerRadius: controlSize / 2, shadowRadius: isPadLayout ? 10 : 8, offset: isPadLayout ? 5 : 4))
                     }
@@ -28,14 +28,14 @@ struct GridSizeAdjustmentSheet: View {
 
                     Text("\(gridSize) × \(gridSize)")
                         .font(.appSystem(size: scaled(30, pad: 36), weight: .bold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
+                        .foregroundStyle(NeumorphicColors.text)
                         .frame(minWidth: isPadLayout ? 140 : 120)
                         .multilineTextAlignment(.center)
 
                     Button(action: onIncrease) {
                         Image(systemName: "plus")
                             .font(.appSystem(size: iconSize, weight: .bold))
-                            .foregroundColor(NeumorphicColors.modalAccent)
+                            .foregroundStyle(NeumorphicColors.modalAccent)
                             .frame(width: controlSize, height: controlSize)
                             .background(functionSurface(cornerRadius: controlSize / 2, shadowRadius: isPadLayout ? 10 : 8, offset: isPadLayout ? 5 : 4))
                     }
@@ -125,7 +125,7 @@ struct EditActionsFullscreenOverlay: View {
         } label: {
             Text(title)
                 .font(.appSystem(size: scaled(28, pad: 38), weight: fontWeight, design: .rounded))
-                .foregroundColor(color)
+                .foregroundStyle(color)
                 .frame(maxWidth: .infinity)
                 .padding(.top, extraTopPadding)
         }

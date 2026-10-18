@@ -97,7 +97,7 @@ struct QuickEditPreviewGridView: View {
                 } label: {
                     Image(systemName: "minus")
                         .font(.appSystem(size: iconSize, weight: .bold))
-                        .foregroundColor(theme.color)
+                        .foregroundStyle(theme.color)
                         .frame(width: controlSize, height: controlSize)
                         .background(controlButtonSurface(size: controlSize))
                 }
@@ -107,22 +107,22 @@ struct QuickEditPreviewGridView: View {
 
                 Text("\(targetGridSize)")
                     .font(.appSystem(size: scaled(18, pad: 22), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
+                    .foregroundStyle(NeumorphicColors.text)
 
                 Image(systemName: "xmark")
                     .font(.appSystem(size: scaled(10, pad: 12), weight: .bold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.6))
+                    .foregroundStyle(NeumorphicColors.text.opacity(0.6))
 
                 Text("\(targetGridSize)")
                     .font(.appSystem(size: scaled(18, pad: 22), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
+                    .foregroundStyle(NeumorphicColors.text)
 
                 Button {
                     onIncreaseGrid()
                 } label: {
                     Image(systemName: "plus")
                         .font(.appSystem(size: iconSize, weight: .bold))
-                        .foregroundColor(theme.color)
+                        .foregroundStyle(theme.color)
                         .frame(width: controlSize, height: controlSize)
                         .background(controlButtonSurface(size: controlSize))
                 }
@@ -135,7 +135,7 @@ struct QuickEditPreviewGridView: View {
 
             Text(selectedCountSummary)
                 .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.92))
+                .foregroundStyle(NeumorphicColors.text.opacity(0.92))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(
@@ -182,7 +182,7 @@ private struct QuickEditPreviewSlotCard: View {
             if let task = slot.task?.trimmedText, !task.isEmpty {
                 Text(task)
                     .font(.appSystem(size: scaled(14, pad: 18), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
+                    .foregroundStyle(NeumorphicColors.text)
                     .lineLimit(3)
                     .multilineTextAlignment(.center)
                     .minimumScaleFactor(0.72)

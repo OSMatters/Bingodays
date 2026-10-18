@@ -1,12 +1,12 @@
 import CoreData
 import Foundation
 
-enum NativeICloudDomain: String, CaseIterable {
+enum NativeICloudDomain: String, CaseIterable, Sendable {
     case primaryState
     case secondaryState
 }
 
-struct NativeICloudCommitStamp: Codable, Equatable, Comparable {
+struct NativeICloudCommitStamp: Codable, Equatable, Comparable, Sendable {
     let modifiedAt: Date
     let commitID: UUID
 
@@ -18,7 +18,7 @@ struct NativeICloudCommitStamp: Codable, Equatable, Comparable {
     }
 }
 
-struct NativeICloudEnvelopeValue: Equatable {
+struct NativeICloudEnvelopeValue: Equatable, Sendable {
     let domain: NativeICloudDomain
     let payload: Data
     let stamp: NativeICloudCommitStamp
@@ -68,8 +68,9 @@ final class NativeICloudSyncStore {
         controller.container
     }
 
-    func load() async throws {
-        try await controller.load()
+    // Keep the non-Sendable store owned by the caller (the runtime actor in production).
+    func load(isolation: isolated (any Actor)? = #isolation) async throws {
+        try await controller.load(isolation: isolation)
     }
 
     func unload() throws {
@@ -82,14 +83,14 @@ final class NativeICloudSyncStore {
     }
     #endif
 
-    func latestValue(for domain: NativeICloudDomain) async throws -> NativeICloudEnvelopeValue? {
+    func latestValue(for domain: NativeICloudDomain, isolation: isolated (any Actor)? = #isolation) async throws -> NativeICloudEnvelopeValue? {
         let container = controller.container
         return try await container.performBackgroundTask { context in
             try Self.fetchLatestValue(for: domain, in: context)
         }
     }
 
-    func values(for domain: NativeICloudDomain) async throws -> [NativeICloudEnvelopeValue] {
+    func values(for domain: NativeICloudDomain, isolation: isolated (any Actor)? = #isolation) async throws -> [NativeICloudEnvelopeValue] {
         let container = controller.container
         return try await container.performBackgroundTask { context in
             try Self.fetchValues(for: domain, in: context)
@@ -101,7 +102,8 @@ final class NativeICloudSyncStore {
         domain: NativeICloudDomain,
         payload: Data,
         stamp: NativeICloudCommitStamp = NativeICloudCommitStamp(modifiedAt: .now, commitID: UUID()),
-        schemaVersion: Int64 = 1
+        schemaVersion: Int64 = 1,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws -> NativeICloudEnvelopeValue {
         let container = controller.container
         return try await container.performBackgroundTask { context in

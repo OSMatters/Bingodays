@@ -508,7 +508,8 @@ final class HomeBlindBoxStickerShelfStore: ObservableObject {
             .publisher(for: .blindBoxAccountStateDidChange)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.reload()
+                // receive(on:) above guarantees synchronous main-actor delivery.
+                MainActor.assumeIsolated { self?.reload() }
             }
     }
 

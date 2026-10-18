@@ -53,33 +53,35 @@ struct HomeTimeoutOverlayLayer: View {
         ZStack {
             TimeoutDialogBackdrop()
 
-            VStack(spacing: 0) {
-                let overtimeSeconds = max(Int(countdownNow.timeIntervalSince(event.expiredAt)), 0)
-                let taskText = event.taskText.isEmpty ? L10n.task : event.taskText
+            adaptiveScrollableDialog {
+                VStack(spacing: 0) {
+                    let overtimeSeconds = max(Int(countdownNow.timeIntervalSince(event.expiredAt)), 0)
+                    let taskText = event.taskText.isEmpty ? L10n.task : event.taskText
 
-                TimeoutDialogCard(
-                    headline: L10n.taskTimedOutHeadline(task: taskText, seconds: overtimeSeconds),
-                    ruleReason: taskTimeoutRuleReason(for: event),
-                    boardNameLabel: L10n.timeoutBoardNameLabel(selectedBoardName),
-                    isPadLayout: isPadLayout,
-                    showsSecondaryAction: event.allowsPostpone,
-                    bottomActionTitle: L10n.tr("Remove task", zhHans: "删除任务", zhHant: "刪除任務"),
-                    onPrimaryAction: {
-                        if let message = viewModel.resolveExpiredTask(.markAsCompleted, now: countdownNow) {
-                            onToast(message)
+                    TimeoutDialogCard(
+                        headline: L10n.taskTimedOutHeadline(task: taskText, seconds: overtimeSeconds),
+                        ruleReason: taskTimeoutRuleReason(for: event),
+                        boardNameLabel: L10n.timeoutBoardNameLabel(selectedBoardName),
+                        isPadLayout: isPadLayout,
+                        showsSecondaryAction: event.allowsPostpone,
+                        bottomActionTitle: L10n.tr("Remove task", zhHans: "删除任务", zhHant: "刪除任務"),
+                        onPrimaryAction: {
+                            if let message = viewModel.resolveExpiredTask(.markAsCompleted, now: countdownNow) {
+                                onToast(message)
+                            }
+                        },
+                        onSecondaryAction: {
+                            openTimeoutDelayPicker(for: .task, presetMinutes: taskTimeoutDelayMinutes)
+                        },
+                        onBottomAction: {
+                            if let message = viewModel.resolveExpiredTask(.abandon, now: countdownNow) {
+                                onToast(message)
+                            }
                         }
-                    },
-                    onSecondaryAction: {
-                        openTimeoutDelayPicker(for: .task, presetMinutes: taskTimeoutDelayMinutes)
-                    },
-                    onBottomAction: {
-                        if let message = viewModel.resolveExpiredTask(.abandon, now: countdownNow) {
-                            onToast(message)
-                        }
-                    }
-                )
+                    )
+                }
+                .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 24)
         }
     }
 
@@ -88,31 +90,33 @@ struct HomeTimeoutOverlayLayer: View {
         ZStack {
             TimeoutDialogBackdrop()
 
-            VStack(spacing: 0) {
-                let overtimeSeconds = max(Int(countdownNow.timeIntervalSince(event.expiredAt)), 0)
+            adaptiveScrollableDialog {
+                VStack(spacing: 0) {
+                    let overtimeSeconds = max(Int(countdownNow.timeIntervalSince(event.expiredAt)), 0)
 
-                TimeoutDialogCard(
-                    headline: L10n.boardTimedOutHeadline(seconds: overtimeSeconds),
-                    ruleReason: L10n.timeoutRuleReasonBoardCountdown,
-                    boardNameLabel: L10n.timeoutBoardNameLabel(selectedBoardName),
-                    isPadLayout: isPadLayout,
-                    bottomActionTitle: L10n.tr("Cancel countdown", zhHans: "取消倒计时", zhHant: "取消倒計時"),
-                    onPrimaryAction: {
-                        if let message = viewModel.resolveExpiredBoardCountdown(.markAsCompleted, now: countdownNow) {
-                            onToast(message)
+                    TimeoutDialogCard(
+                        headline: L10n.boardTimedOutHeadline(seconds: overtimeSeconds),
+                        ruleReason: L10n.timeoutRuleReasonBoardCountdown,
+                        boardNameLabel: L10n.timeoutBoardNameLabel(selectedBoardName),
+                        isPadLayout: isPadLayout,
+                        bottomActionTitle: L10n.tr("Cancel countdown", zhHans: "取消倒计时", zhHant: "取消倒計時"),
+                        onPrimaryAction: {
+                            if let message = viewModel.resolveExpiredBoardCountdown(.markAsCompleted, now: countdownNow) {
+                                onToast(message)
+                            }
+                        },
+                        onSecondaryAction: {
+                            openTimeoutDelayPicker(for: .board, presetMinutes: boardTimeoutDelayMinutes)
+                        },
+                        onBottomAction: {
+                            if let message = viewModel.resolveExpiredBoardCountdown(.abandon, now: countdownNow) {
+                                onToast(message)
+                            }
                         }
-                    },
-                    onSecondaryAction: {
-                        openTimeoutDelayPicker(for: .board, presetMinutes: boardTimeoutDelayMinutes)
-                    },
-                    onBottomAction: {
-                        if let message = viewModel.resolveExpiredBoardCountdown(.abandon, now: countdownNow) {
-                            onToast(message)
-                        }
-                    }
-                )
+                    )
+                }
+                .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 24)
         }
     }
 
@@ -121,27 +125,29 @@ struct HomeTimeoutOverlayLayer: View {
         ZStack {
             TimeoutDialogBackdrop()
 
-            VStack(spacing: 20) {
-                ScheduledTaskReplacementDialogCard(
-                    currentTaskText: event.currentTaskText,
-                    presetTaskText: event.presetTaskText,
-                    isPadLayout: isPadLayout,
-                    onClose: {
-                        viewModel.dismissScheduledTaskReplacementPrompt()
-                    },
-                    onReplace: {
-                        if let message = viewModel.resolveScheduledTaskReplacement(.replaceWithPreset, now: countdownNow) {
-                            onToast(message)
+            adaptiveScrollableDialog {
+                VStack(spacing: 20) {
+                    ScheduledTaskReplacementDialogCard(
+                        currentTaskText: event.currentTaskText,
+                        presetTaskText: event.presetTaskText,
+                        isPadLayout: isPadLayout,
+                        onClose: {
+                            viewModel.dismissScheduledTaskReplacementPrompt()
+                        },
+                        onReplace: {
+                            if let message = viewModel.resolveScheduledTaskReplacement(.replaceWithPreset, now: countdownNow) {
+                                onToast(message)
+                            }
+                        },
+                        onKeepCurrent: {
+                            if let message = viewModel.resolveScheduledTaskReplacement(.keepCurrentTask, now: countdownNow) {
+                                onToast(message)
+                            }
                         }
-                    },
-                    onKeepCurrent: {
-                        if let message = viewModel.resolveScheduledTaskReplacement(.keepCurrentTask, now: countdownNow) {
-                            onToast(message)
-                        }
-                    }
-                )
+                    )
+                }
+                .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 24)
         }
     }
 
@@ -159,6 +165,28 @@ struct HomeTimeoutOverlayLayer: View {
                 },
                 onApply: applyTimeoutDelayPickerSelection
             )
+        }
+    }
+
+    @ViewBuilder
+    private func adaptiveScrollableDialog<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let dialogContent = content()
+        GeometryReader { proxy in
+            ViewThatFits(in: .vertical) {
+                dialogContent
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ScrollView {
+                    dialogContent
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            }
+            .frame(maxHeight: max(0, proxy.size.height - proxy.safeAreaInsets.top - proxy.safeAreaInsets.bottom - 32))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

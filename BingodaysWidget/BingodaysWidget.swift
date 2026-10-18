@@ -231,10 +231,13 @@ struct BingodaysLargeWidget: Widget {
 
 private struct BingodaysCountdownWidgetView: View {
     let entry: BingodaysWidgetEntry
+    @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
         ZStack {
-            NeumorphicColors.background
+            if renderingMode == .fullColor {
+                NeumorphicColors.background
+            }
 
             VStack(spacing: 14) {
                 if let countdownRange = countdownRange {
@@ -258,9 +261,9 @@ private struct BingodaysCountdownWidgetView: View {
                         .padding(.vertical, 12)
                         .background(
                             Capsule()
-                                .fill(NeumorphicColors.background)
-                                .shadow(color: NeumorphicColors.darkShadow.opacity(0.2), radius: 8, x: 4, y: 4)
-                                .shadow(color: Color.white.opacity(0.8), radius: 8, x: -4, y: -4)
+                                .fill(renderingMode == .fullColor ? NeumorphicColors.background : Color.white.opacity(0.12))
+                                .shadow(color: NeumorphicColors.darkShadow.opacity(renderingMode == .fullColor ? 0.2 : 0), radius: 8, x: 4, y: 4)
+                                .shadow(color: Color.white.opacity(renderingMode == .fullColor ? 0.8 : 0), radius: 8, x: -4, y: -4)
                         )
                 } else {
                     Text(L10n.dontForget)
@@ -280,9 +283,9 @@ private struct BingodaysCountdownWidgetView: View {
                         .padding(.vertical, 12)
                         .background(
                             Capsule()
-                                .fill(NeumorphicColors.background)
-                                .shadow(color: NeumorphicColors.darkShadow.opacity(0.2), radius: 8, x: 4, y: 4)
-                                .shadow(color: Color.white.opacity(0.8), radius: 8, x: -4, y: -4)
+                                .fill(renderingMode == .fullColor ? NeumorphicColors.background : Color.white.opacity(0.12))
+                                .shadow(color: NeumorphicColors.darkShadow.opacity(renderingMode == .fullColor ? 0.2 : 0), radius: 8, x: 4, y: 4)
+                                .shadow(color: Color.white.opacity(renderingMode == .fullColor ? 0.8 : 0), radius: 8, x: -4, y: -4)
                         )
                 }
             }
@@ -305,6 +308,7 @@ private struct BingodaysCountdownWidgetView: View {
 private struct BingodaysLargeWidgetView: View {
     let entry: BingodaysWidgetEntry
     @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetRenderingMode) private var renderingMode
 
     private var board: SavedBoard { entry.board }
     private var hasMultiplePanels: Bool { entry.panels.count > 1 }
@@ -362,7 +366,9 @@ private struct BingodaysLargeWidgetView: View {
 
     var body: some View {
         ZStack {
-            widgetBackgroundColor
+            if renderingMode == .fullColor {
+                widgetBackgroundColor
+            }
 
             if family == .systemMedium {
                 mediumView
@@ -582,16 +588,18 @@ private struct BingodaysLargeWidgetView: View {
         Button(intent: SwitchBoardIntent(step: step)) {
             Image(systemName: systemImage)
                 .font(.system(size: 11, weight: .bold))
-                .foregroundColor(NeumorphicColors.text.opacity(0.72))
+                .foregroundColor(renderingMode == .fullColor ? NeumorphicColors.text.opacity(0.72) : .white)
                 .frame(width: largeSwitchButtonSize, height: largeSwitchButtonSize)
-                .background(
-                    Circle()
-                        .fill(widgetBackgroundColor.opacity(0.98))
-                )
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.62), lineWidth: 1)
-                )
+                .background {
+                    if renderingMode == .fullColor {
+                        Circle()
+                            .fill(widgetBackgroundColor.opacity(0.98))
+                            .overlay {
+                                Circle()
+                                    .stroke(Color.white.opacity(0.62), lineWidth: 1)
+                            }
+                    }
+                }
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -798,6 +806,7 @@ private struct WidgetBingoCellView: View {
     let cellSize: CGFloat
     let isFirstCell: Bool
     let usesCompletionArtwork: Bool
+    @Environment(\.widgetRenderingMode) private var renderingMode
 
     private static let scheduleDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -808,6 +817,7 @@ private struct WidgetBingoCellView: View {
     }()
 
     private var activeTheme: AppTheme { AppTheme.current }
+    private var isAccented: Bool { renderingMode == .accented }
     private var bingoLineColor: Color { activeTheme.color }
     private let boardSurfaceColor = Color.white
     private var primaryTextColor: Color { Color(hex: "291E0A") }
@@ -853,7 +863,9 @@ private struct WidgetBingoCellView: View {
                         if hasFooterContent {
                             footerContent
                                 .font(.system(size: max(dynamicFontSize * 0.34, 7), weight: .semibold, design: .rounded))
-                                .foregroundColor(primaryTextColor.opacity(isScheduledInactive ? 0.45 : 0.58))
+                                .foregroundColor(isAccented
+                                    ? Color.white.opacity(isScheduledInactive ? 0.45 : 0.72)
+                                    : primaryTextColor.opacity(isScheduledInactive ? 0.45 : 0.58))
                                 .multilineTextAlignment(.center)
                                 .lineLimit(2)
                                 .minimumScaleFactor(0.65)
@@ -920,6 +932,9 @@ private struct WidgetBingoCellView: View {
     }
 
     private var cellTextColor: Color {
+        if isAccented {
+            return .white.opacity(isScheduledInactive || isLocked ? 0.5 : 1)
+        }
         if isInBingoLine {
             return .white
         }
@@ -997,27 +1012,30 @@ private struct WidgetBingoCellView: View {
             .overlay {
                 baseShape
                     .stroke(
-                        cellBorderColor.opacity(0.78),
+                        isAccented ? Color.white.opacity(0.55) : cellBorderColor.opacity(0.78),
                         lineWidth: isInBingoLine ? 1.15 : 1.0
                     )
 
-                if isLocked && !isInBingoLine {
+                if isLocked && !isInBingoLine && !isAccented {
                     baseShape
                         .fill(boardSurfaceColor.opacity(0.62))
                 }
 
-                if isScheduledInactive && !isInBingoLine {
+                if isScheduledInactive && !isInBingoLine && !isAccented {
                     baseShape
                         .fill(Color.white.opacity(0.2))
                 }
 
-                if cell.isCompleted && !isInBingoLine {
+                if cell.isCompleted && !isInBingoLine && !isAccented {
                     baseShape.stroke(selectedColor.opacity(0.24), lineWidth: 1.2)
                 }
             }
     }
 
     private var cellFillColor: Color {
+        if isAccented {
+            return .white.opacity(isInBingoLine || cell.isCompleted ? 0.22 : 0.08)
+        }
         if isInBingoLine {
             return bingoLineColor
         }
@@ -1027,14 +1045,26 @@ private struct WidgetBingoCellView: View {
         return boardSurfaceColor
     }
 
+    @ViewBuilder
     private var completionArtwork: some View {
-        Image(isInBingoLine ? "CellBingo" : "CellComplete")
-            .resizable()
-            .interpolation(.high)
-            .scaledToFit()
-            .frame(width: cellSize * 0.76, height: cellSize * 0.76)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            .allowsHitTesting(false)
+        if #available(iOS 18.0, *) {
+            Image(isInBingoLine ? "CellBingo" : "CellComplete")
+                .resizable()
+                .interpolation(.high)
+                .widgetAccentedRenderingMode(.accented)
+                .scaledToFit()
+                .frame(width: cellSize * 0.76, height: cellSize * 0.76)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .allowsHitTesting(false)
+        } else {
+            Image(isInBingoLine ? "CellBingo" : "CellComplete")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: cellSize * 0.76, height: cellSize * 0.76)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .allowsHitTesting(false)
+        }
     }
 
     private var completionIcon: some View {

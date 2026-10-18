@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 enum DiagnosticLogStore {
     struct PointsBaseline: Equatable {
@@ -6,13 +7,13 @@ enum DiagnosticLogStore {
         let lifetimePoints: Int
     }
 
-    enum Level: String, Codable {
+    enum Level: String, Codable, Sendable {
         case info
         case warning
         case error
     }
 
-    struct Entry: Codable, Equatable {
+    struct Entry: Codable, Equatable, Sendable {
         let timestamp: Date
         let level: Level
         let category: String
@@ -33,15 +34,17 @@ enum DiagnosticLogStore {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: BingoBoardStore.appGroupID)?
             .appendingPathComponent("diagnostic_\(processSource)_v2.json")
     }
-    private static let lock = NSLock()
     private static let persistenceQueue = DispatchQueue(
         label: "com.bingoday.diagnostic-log.persistence",
         qos: .utility
     )
-    private static var entriesCache: [Entry]?
-    private static var criticalEntriesCache: [Entry]?
-    private static var ruleEntriesCache: [Entry]?
-    private static var pendingPersistenceWorkItem: DispatchWorkItem?
+    private struct CacheState: Sendable {
+        var entries: [Entry]?
+        var critical: [Entry]?
+        var rules: [Entry]?
+        var isPersistenceScheduled = false
+    }
+    private static let cache = OSAllocatedUnfairLock(initialState: CacheState())
 
     static func record(
         _ name: String,
@@ -72,27 +75,26 @@ enum DiagnosticLogStore {
         }
         #endif
 
-        lock.lock()
-
-        var entries = cachedEntries()
-        entries.append(entry)
-        if entries.count > maxEntries {
-            entries = Array(entries.suffix(maxEntries))
+        cache.withLock { state in
+            var entries = cachedEntries(state: &state)
+            entries.append(entry)
+            if entries.count > maxEntries {
+                entries = Array(entries.suffix(maxEntries))
+            }
+            state.entries = entries
+            var critical = cachedCriticalEntries(state: &state)
+            var rules = cachedRuleEntries(state: &state)
+            if isRuleTrace(entry) {
+                rules.append(entry)
+                rules = retainedRuleEntries(rules)
+                state.rules = rules
+            } else if isCritical(entry) {
+                critical.append(entry)
+                critical = Array(critical.suffix(maxCriticalEntries))
+                state.critical = critical
+            }
+            schedulePersistenceLocked(state: &state)
         }
-        entriesCache = entries
-        var critical = cachedCriticalEntries()
-        var rules = cachedRuleEntries()
-        if isRuleTrace(entry) {
-            rules.append(entry)
-            rules = retainedRuleEntries(rules)
-            ruleEntriesCache = rules
-        } else if isCritical(entry) {
-            critical.append(entry)
-            critical = Array(critical.suffix(maxCriticalEntries))
-            criticalEntriesCache = critical
-        }
-        schedulePersistenceLocked()
-        lock.unlock()
     }
 
     static func recordUserAction(_ name: String, details: [String: String] = [:]) {
@@ -188,9 +190,7 @@ enum DiagnosticLogStore {
     }
 
     static func snapshot() -> [Entry] {
-        lock.lock()
-        defer { lock.unlock() }
-        return cachedEntries()
+        cache.withLock { state in cachedEntries(state: &state) }
     }
 
     /// Returns the durable points state immediately before the current run of
@@ -258,30 +258,30 @@ enum DiagnosticLogStore {
         return (try? JSONDecoder().decode([Entry].self, from: data)) ?? []
     }
 
-    private static func cachedEntries() -> [Entry] {
-        if let entriesCache {
-            return entriesCache
+    private static func cachedEntries(state: inout CacheState) -> [Entry] {
+        if let entries = state.entries {
+            return entries
         }
         let entries = loadEntries()
-        entriesCache = entries
+        state.entries = entries
         return entries
     }
 
-    private static func cachedCriticalEntries() -> [Entry] {
-        if let criticalEntriesCache {
-            return criticalEntriesCache
+    private static func cachedCriticalEntries(state: inout CacheState) -> [Entry] {
+        if let entries = state.critical {
+            return entries
         }
         let entries = loadCriticalEntries()
-        criticalEntriesCache = entries
+        state.critical = entries
         return entries
     }
 
-    private static func cachedRuleEntries() -> [Entry] {
-        if let ruleEntriesCache {
-            return ruleEntriesCache
+    private static func cachedRuleEntries(state: inout CacheState) -> [Entry] {
+        if let entries = state.rules {
+            return entries
         }
         let entries = loadRuleEntries()
-        ruleEntriesCache = entries
+        state.rules = entries
         return entries
     }
 
@@ -290,17 +290,17 @@ enum DiagnosticLogStore {
         critical: [Entry],
         rules: [Entry]
     ) {
-        lock.lock()
-        defer { lock.unlock() }
-        return (cachedEntries(), cachedCriticalEntries(), cachedRuleEntries())
+        cache.withLock { state in
+            (cachedEntries(state: &state), cachedCriticalEntries(state: &state), cachedRuleEntries(state: &state))
+        }
     }
 
-    private static func schedulePersistenceLocked() {
-        guard pendingPersistenceWorkItem == nil else { return }
+    private static func schedulePersistenceLocked(state: inout CacheState) {
+        guard !state.isPersistenceScheduled else { return }
         let workItem = DispatchWorkItem {
             persistCachedEntries()
         }
-        pendingPersistenceWorkItem = workItem
+        state.isPersistenceScheduled = true
         persistenceQueue.asyncAfter(deadline: .now() + .milliseconds(250), execute: workItem)
     }
 
@@ -327,10 +327,10 @@ enum DiagnosticLogStore {
         critical: [Entry],
         rules: [Entry]
     ) {
-        lock.lock()
-        defer { lock.unlock() }
-        pendingPersistenceWorkItem = nil
-        return (cachedEntries(), cachedCriticalEntries(), cachedRuleEntries())
+        cache.withLock { state in
+            state.isPersistenceScheduled = false
+            return (cachedEntries(state: &state), cachedCriticalEntries(state: &state), cachedRuleEntries(state: &state))
+        }
     }
 
     private static func saveEntries(_ entries: [Entry]) {

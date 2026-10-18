@@ -25,6 +25,7 @@ private struct BoardBackgroundBlurView: UIViewRepresentable {
         coordinator.animator = nil
     }
 
+    @MainActor
     final class Coordinator {
         var animator: UIViewPropertyAnimator?
         private var currentIntensity: CGFloat?
@@ -1100,7 +1101,7 @@ private struct TaskActionsOverlayView: View {
         Button(action: action) {
             Text(title)
                 .font(.appSystem(size: scaled(16, pad: 18), weight: .semibold, design: .rounded))
-                .foregroundColor(color)
+                .foregroundStyle(color)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
                 .background(
@@ -1267,12 +1268,12 @@ private struct TaskCountdownSheetView: View {
                 VStack(spacing: 8) {
                     Text(formattedCountdownText(referenceDate: context.date))
                         .font(.appSystem(size: scaled(48, pad: 58), weight: .bold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
+                        .foregroundStyle(NeumorphicColors.text)
                         .monospacedDigit()
 
                     Text(countdownStatusText(referenceDate: context.date))
                         .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.62))
+                        .foregroundStyle(NeumorphicColors.text.opacity(0.62))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, scaled(18, pad: 22))
@@ -1321,7 +1322,7 @@ private struct TaskCountdownSheetView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(L10n.tr("Set countdown", zhHans: "设置倒计时", zhHant: "設定倒計時", ja: "カウントダウンを設定"))
                 .font(.appSystem(size: scaled(20, pad: 24), weight: .bold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .foregroundStyle(NeumorphicColors.text)
 
             Text(L10n.tr(
                 "Countdown starts when the task becomes clickable.",
@@ -1330,7 +1331,7 @@ private struct TaskCountdownSheetView: View {
                 ja: "タスクが開始時刻になり、タップ可能になると開始します。"
             ))
             .font(.appSystem(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
-            .foregroundColor(NeumorphicColors.text.opacity(0.62))
+            .foregroundStyle(NeumorphicColors.text.opacity(0.62))
 
             HStack(spacing: 8) {
                 ForEach(presetMinutes, id: \.self) { minutes in
@@ -1346,7 +1347,7 @@ private struct TaskCountdownSheetView: View {
         HStack(spacing: 10) {
             Text(L10n.tr("Custom", zhHans: "自定义", zhHant: "自訂", ja: "カスタム"))
                 .font(.appSystem(size: scaled(15, pad: 17), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .foregroundStyle(NeumorphicColors.text)
 
             Spacer(minLength: 0)
 
@@ -1358,7 +1359,7 @@ private struct TaskCountdownSheetView: View {
             .submitLabel(.done)
             .focused($isCustomFieldFocused)
             .font(.appSystem(size: scaled(15, pad: 17), weight: .semibold, design: .rounded))
-            .foregroundColor(NeumorphicColors.text)
+            .foregroundStyle(NeumorphicColors.text)
             .multilineTextAlignment(.trailing)
             .frame(width: scaled(92, pad: 116))
             .onTapGesture {
@@ -1394,7 +1395,7 @@ private struct TaskCountdownSheetView: View {
         } label: {
             Text(L10n.tr("Start", zhHans: "开始", zhHant: "開始", ja: "開始"))
                 .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
-                .foregroundColor(normalizedMinutes == nil ? NeumorphicColors.text.opacity(0.34) : AppTheme.concise.color)
+                .foregroundStyle(normalizedMinutes == nil ? NeumorphicColors.text.opacity(0.34) : AppTheme.concise.color)
                 .frame(height: scaled(38, pad: 44))
                 .padding(.horizontal, 2)
         }
@@ -1411,7 +1412,7 @@ private struct TaskCountdownSheetView: View {
         } label: {
             Text(L10n.tr("Reset", zhHans: "重新设定", zhHant: "重新設定", ja: "再設定"))
                 .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
-                .foregroundColor(AppTheme.concise.color)
+                .foregroundStyle(AppTheme.concise.color)
                 .frame(height: scaled(38, pad: 44))
                 .padding(.horizontal, 2)
         }
@@ -1433,7 +1434,7 @@ private struct TaskCountdownSheetView: View {
         } label: {
             Image(systemName: systemName)
                 .font(.appSystem(size: scaled(22, pad: 26), weight: .bold))
-                .foregroundColor(foregroundColor)
+                .foregroundStyle(foregroundColor)
                 .frame(maxWidth: .infinity)
                 .frame(height: scaled(58, pad: 66))
                 .background(
@@ -1536,7 +1537,7 @@ private struct TaskCountdownSheetView: View {
         } label: {
             Text("\(minutes)")
                 .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                .foregroundColor(selectedPresetMinutes == minutes ? .white : NeumorphicColors.text.opacity(0.88))
+                .foregroundStyle(selectedPresetMinutes == minutes ? .white : NeumorphicColors.text.opacity(0.88))
                 .frame(maxWidth: .infinity)
                 .frame(height: scaled(42, pad: 48))
                 .background(

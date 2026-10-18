@@ -1,8 +1,16 @@
 import SwiftUI
 import Foundation
 
+@MainActor
+final class BingoDiaryBubbleMotionState: ObservableObject {
+    static let zero = BingoDiaryBubbleMotionState()
+
+    @Published var offset: CGSize = .zero
+}
+
+@MainActor
 final class BingoDiaryBubbleDynamicsSimulator: ObservableObject {
-    @Published private var offsets: [String: CGSize] = [:]
+    @Published private(set) var motionStates: [String: BingoDiaryBubbleMotionState] = [:]
 
     private var velocities: [String: CGVector] = [:]
     private var impulses: [String: CGVector] = [:]
@@ -17,9 +25,10 @@ final class BingoDiaryBubbleDynamicsSimulator: ObservableObject {
 
     func start() {
         guard timer == nil else { return }
-        let interval: CGFloat = 1.0 / 45.0
+        let interval: CGFloat = 1.0 / 30.0
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            self?.step(deltaTime: interval)
+            // This timer is installed exclusively on RunLoop.main.
+            MainActor.assumeIsolated { self?.step(deltaTime: interval) }
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
@@ -28,7 +37,10 @@ final class BingoDiaryBubbleDynamicsSimulator: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
-        offsets.removeAll()
+        for state in motionStates.values {
+            state.offset = .zero
+        }
+        motionStates.removeAll()
         velocities.removeAll()
         impulses.removeAll()
         motionFactors.removeAll()
@@ -43,7 +55,7 @@ final class BingoDiaryBubbleDynamicsSimulator: ObservableObject {
     func updateBubbles(_ bubbles: [BingoDiaryBubble], canvasSize: CGSize) {
         self.canvasSize = canvasSize
         let activeIDs = Set(bubbles.map(\.id))
-        offsets = offsets.filter { activeIDs.contains($0.key) }
+        var updatedStates = motionStates.filter { activeIDs.contains($0.key) }
         velocities = velocities.filter { activeIDs.contains($0.key) }
         impulses = impulses.filter { activeIDs.contains($0.key) }
         motionFactors = motionFactors.filter { activeIDs.contains($0.key) }
@@ -57,8 +69,8 @@ final class BingoDiaryBubbleDynamicsSimulator: ObservableObject {
             let radius = bubble.diameter / 2
             radii[bubble.id] = radius
             baseCenters[bubble.id] = bubble.position
-            if offsets[bubble.id] == nil {
-                offsets[bubble.id] = .zero
+            if updatedStates[bubble.id] == nil {
+                updatedStates[bubble.id] = BingoDiaryBubbleMotionState()
             }
             if velocities[bubble.id] == nil {
                 velocities[bubble.id] = .zero
@@ -67,6 +79,8 @@ final class BingoDiaryBubbleDynamicsSimulator: ObservableObject {
                 impulses[bubble.id] = .zero
             }
         }
+
+        motionStates = updatedStates
     }
 
     func updateGravity(_ value: CGSize) {
@@ -77,14 +91,14 @@ final class BingoDiaryBubbleDynamicsSimulator: ObservableObject {
         isPaused = paused
     }
 
-    func offset(for id: String) -> CGSize {
-        offsets[id] ?? .zero
+    func motionState(for id: String) -> BingoDiaryBubbleMotionState {
+        motionStates[id] ?? .zero
     }
 
     private func step(deltaTime: CGFloat) {
-        guard !isPaused, !offsets.isEmpty, canvasSize.width > 0, canvasSize.height > 0 else { return }
+        guard !isPaused, !motionStates.isEmpty, canvasSize.width > 0, canvasSize.height > 0 else { return }
 
-        var updatedOffsets = offsets
+        var updatedOffsets: [String: CGSize] = [:]
         let gravityX = activeGravityComponent(gravity.width)
         let gravityY = activeGravityComponent(gravity.height)
         let smoothing = min(max(deltaTime * 14, 0.10), 0.36)
@@ -98,7 +112,8 @@ final class BingoDiaryBubbleDynamicsSimulator: ObservableObject {
             maxDistance: maxOffsetDistance
         )
 
-        for (id, currentOffset) in offsets {
+        for (id, state) in motionStates {
+            let currentOffset = state.offset
             let nextOffset = clampedOffset(
                 CGSize(
                     width: currentOffset.width + (unifiedTargetOffset.width - currentOffset.width) * smoothing,
@@ -109,9 +124,14 @@ final class BingoDiaryBubbleDynamicsSimulator: ObservableObject {
             maxDelta = max(maxDelta, hypot(nextOffset.width - currentOffset.width, nextOffset.height - currentOffset.height))
             updatedOffsets[id] = nextOffset
         }
-        // Avoid needless full cloud redraws when offset changes are visually negligible.
+        // Each bubble publishes only its own offset, so the whole cloud doesn't rebuild
+        // whenever one animation frame advances.
         if maxDelta > 0.03 {
-            offsets = updatedOffsets
+            for (id, nextOffset) in updatedOffsets {
+                if let state = motionStates[id] {
+                    state.offset = nextOffset
+                }
+            }
         }
     }
 

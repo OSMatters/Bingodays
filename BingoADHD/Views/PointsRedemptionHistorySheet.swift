@@ -17,6 +17,7 @@ struct PointsRedemptionHistorySheet: View {
     let isPadLayout: Bool
     var onClose: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectedDate = Calendar.current.startOfDay(for: .now)
     @State private var displayedMonth = Calendar.current.startOfMonth(for: .now)
     private let calendar = Calendar.redemptionHistoryCalendar
@@ -133,6 +134,21 @@ struct PointsRedemptionHistorySheet: View {
         Color(red: 0.42, green: 0.36, blue: 0.31)
     }
 
+    private func historyAccessibilitySummary(for item: HistoryItem) -> String {
+        var components = [item.detail]
+        if item.redeemedAt != .distantPast {
+            components.append(
+                DateFormatter.localizedString(
+                    from: item.redeemedAt,
+                    dateStyle: .full,
+                    timeStyle: .short
+                )
+            )
+        }
+        components.append("\(item.points) \(L10n.pointsUnit)")
+        return components.joined(separator: ", ")
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -141,8 +157,11 @@ struct PointsRedemptionHistorySheet: View {
 
                 if historyItems.isEmpty {
                     Text(L10n.tr("No redemption history yet", zhHans: "暂无兑换记录", zhHant: "暫無兌換記錄", ja: "交換履歴はまだありません"))
-                        .font(.appSystem(size: scaled(17, pad: 20), weight: .semibold, design: .rounded))
-                        .foregroundColor(historySecondaryTextColor.opacity(0.82))
+                        .appDynamicFont(size: scaled(17, pad: 20), weight: .semibold, design: .rounded)
+                        .foregroundStyle(historySecondaryTextColor.opacity(0.82))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 24)
                 } else {
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: scaled(16, pad: 20)) {
@@ -150,9 +169,10 @@ struct PointsRedemptionHistorySheet: View {
 
                             VStack(alignment: .leading, spacing: scaled(10, pad: 12)) {
                                 Text(selectedSectionTitle)
-                                    .font(.appSystem(size: scaled(14, pad: 17), weight: .heavy, design: .rounded))
-                                    .foregroundColor(historySecondaryTextColor.opacity(0.95))
+                                    .appDynamicFont(size: scaled(14, pad: 17), weight: .heavy, design: .rounded)
+                                    .foregroundStyle(historySecondaryTextColor.opacity(0.95))
                                     .padding(.horizontal, scaled(4, pad: 6))
+                                    .accessibilityAddTraits(.isHeader)
 
                                 if selectedItems.isEmpty {
                                     emptySelectedDateState
@@ -164,10 +184,11 @@ struct PointsRedemptionHistorySheet: View {
 
                                 if !legacyItems.isEmpty {
                                     Text(L10n.tr("Earlier", zhHans: "较早记录", zhHant: "較早記錄", ja: "過去の記録"))
-                                        .font(.appSystem(size: scaled(14, pad: 17), weight: .heavy, design: .rounded))
-                                        .foregroundColor(historySecondaryTextColor.opacity(0.95))
+                                        .appDynamicFont(size: scaled(14, pad: 17), weight: .heavy, design: .rounded)
+                                        .foregroundStyle(historySecondaryTextColor.opacity(0.95))
                                         .padding(.horizontal, scaled(4, pad: 6))
                                         .padding(.top, scaled(8, pad: 10))
+                                        .accessibilityAddTraits(.isHeader)
 
                                     ForEach(legacyItems) { item in
                                         historyRow(item)
@@ -186,8 +207,9 @@ struct PointsRedemptionHistorySheet: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text(L10n.tr("Redemption History", zhHans: "兑换记录", zhHant: "兌換記錄", ja: "交換履歴"))
-                        .font(.appSystem(size: scaled(17, pad: 20), weight: .heavy, design: .rounded))
-                        .foregroundColor(historyPrimaryTextColor)
+                        .appDynamicFont(size: scaled(17, pad: 20), weight: .heavy, design: .rounded)
+                        .foregroundStyle(historyPrimaryTextColor)
+                        .accessibilityAddTraits(.isHeader)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -198,13 +220,14 @@ struct PointsRedemptionHistorySheet: View {
                         }
                     } label: {
                         Image(systemName: "xmark")
-                            .foregroundColor(historyPrimaryTextColor)
+                            .foregroundStyle(historyPrimaryTextColor)
+                            .frame(minWidth: 44, minHeight: 44)
                     }
                     .accessibilityLabel(L10n.done)
                 }
             }
         }
-        .presentationDetents([.fraction(0.9)])
+        .presentationDetents([dynamicTypeSize.isAccessibilitySize ? .large : .fraction(0.9)])
         .presentationDragIndicator(.visible)
         .preferredColorScheme(.light)
     }
@@ -234,8 +257,8 @@ struct PointsRedemptionHistorySheet: View {
 
     private var emptySelectedDateState: some View {
         Text(L10n.tr("No redemptions on this date", zhHans: "这一天没有兑换记录", zhHant: "這一天沒有兌換記錄", ja: "この日に交換履歴はありません"))
-            .font(.appSystem(size: scaled(14, pad: 17), weight: .semibold, design: .rounded))
-            .foregroundColor(historySecondaryTextColor.opacity(0.88))
+            .appDynamicFont(size: scaled(14, pad: 17), weight: .semibold, design: .rounded)
+            .foregroundStyle(historySecondaryTextColor.opacity(0.88))
             .frame(maxWidth: .infinity)
             .padding(.vertical, scaled(18, pad: 22))
             .background(
@@ -245,58 +268,114 @@ struct PointsRedemptionHistorySheet: View {
     }
 
     private func historyRow(_ item: HistoryItem) -> some View {
-        HStack(spacing: scaled(12, pad: 16)) {
-            ZStack {
-                RoundedRectangle(cornerRadius: scaled(14, pad: 16), style: .continuous)
-                    .fill(Color.white.opacity(0.72))
+        historyRowContent(item)
+            .padding(.horizontal, scaled(14, pad: 18))
+            .padding(.vertical, scaled(12, pad: 15))
+            .frame(minHeight: 44)
+            .background(
+                RoundedRectangle(cornerRadius: scaled(20, pad: 24), style: .continuous)
+                    .fill(Color.white.opacity(0.9))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: scaled(20, pad: 24), style: .continuous)
+                            .stroke(historySecondaryTextColor.opacity(0.14), lineWidth: 1)
+                    )
+            )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(item.title)
+            .accessibilityValue(historyAccessibilitySummary(for: item))
+    }
 
-                if let imageName = item.imageName {
-                    Image(imageName)
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFit()
-                        .padding(scaled(8, pad: 10))
-                } else if let emoji = item.emoji {
-                    Text(emoji)
-                        .font(.system(size: scaled(28, pad: 34)))
+    @ViewBuilder
+    private func historyRowContent(_ item: HistoryItem) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    historyThumbnail(item)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(item.title)
+                            .appDynamicFont(size: scaled(16, pad: 19), weight: .bold, design: .rounded)
+                            .foregroundStyle(historyPrimaryTextColor)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text(item.detail)
+                            .appDynamicFont(size: scaled(12, pad: 14), weight: .semibold, design: .rounded)
+                            .foregroundStyle(historySecondaryTextColor.opacity(0.86))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                HStack(alignment: .firstTextBaseline) {
+                    if item.redeemedAt != .distantPast {
+                        Text(timeText(for: item.redeemedAt))
+                            .appDynamicFont(size: scaled(13, pad: 15), weight: .heavy, design: .rounded)
+                            .foregroundStyle(historySecondaryTextColor.opacity(0.92))
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Text("\(item.points) \(L10n.pointsUnit)")
+                        .appDynamicFont(size: scaled(12, pad: 14), weight: .semibold, design: .rounded)
+                        .foregroundStyle(historyPrimaryTextColor)
                 }
             }
-            .frame(width: scaled(56, pad: 68), height: scaled(56, pad: 68))
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            HStack(spacing: scaled(12, pad: 16)) {
+                historyThumbnail(item)
 
-            VStack(alignment: .leading, spacing: scaled(4, pad: 5)) {
-                Text(item.title)
-                    .font(.appSystem(size: scaled(16, pad: 19), weight: .bold, design: .rounded))
-                    .foregroundColor(historyPrimaryTextColor)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: scaled(4, pad: 5)) {
+                    Text(item.title)
+                        .appDynamicFont(size: scaled(16, pad: 19), weight: .bold, design: .rounded)
+                        .foregroundStyle(historyPrimaryTextColor)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                Text(item.detail)
-                    .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                    .foregroundColor(historySecondaryTextColor.opacity(0.86))
-            }
-
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: scaled(4, pad: 5)) {
-                if item.redeemedAt != .distantPast {
-                    Text(timeText(for: item.redeemedAt))
-                        .font(.appSystem(size: scaled(13, pad: 15), weight: .heavy, design: .rounded))
-                        .foregroundColor(historySecondaryTextColor.opacity(0.92))
+                    Text(item.detail)
+                        .appDynamicFont(size: scaled(12, pad: 14), weight: .semibold, design: .rounded)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(historySecondaryTextColor.opacity(0.86))
                 }
 
-                Text("\(item.points) pts")
-                    .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                    .foregroundColor(historyPrimaryTextColor)
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: scaled(4, pad: 5)) {
+                    if item.redeemedAt != .distantPast {
+                        Text(timeText(for: item.redeemedAt))
+                            .appDynamicFont(size: scaled(13, pad: 15), weight: .heavy, design: .rounded)
+                            .foregroundStyle(historySecondaryTextColor.opacity(0.92))
+                    }
+
+                    Text("\(item.points) pts")
+                        .appDynamicFont(size: scaled(12, pad: 14), weight: .semibold, design: .rounded)
+                        .foregroundStyle(historyPrimaryTextColor)
+                }
             }
         }
-        .padding(.horizontal, scaled(14, pad: 18))
-        .padding(.vertical, scaled(12, pad: 15))
-        .background(
-            RoundedRectangle(cornerRadius: scaled(20, pad: 24), style: .continuous)
-                .fill(Color.white.opacity(0.9))
-                .overlay(
-                    RoundedRectangle(cornerRadius: scaled(20, pad: 24), style: .continuous)
-                        .stroke(historySecondaryTextColor.opacity(0.14), lineWidth: 1)
-                )
+    }
+
+    private func historyThumbnail(_ item: HistoryItem) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: scaled(14, pad: 16), style: .continuous)
+                .fill(Color.white.opacity(0.72))
+
+            if let imageName = item.imageName {
+                Image(imageName)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .padding(scaled(8, pad: 10))
+                    .accessibilityHidden(true)
+            } else if let emoji = item.emoji {
+                Text(emoji)
+                    .font(.system(size: scaled(28, pad: 34)))
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(
+            width: dynamicTypeSize.isAccessibilitySize ? scaled(68, pad: 80) : scaled(56, pad: 68),
+            height: dynamicTypeSize.isAccessibilitySize ? scaled(68, pad: 80) : scaled(56, pad: 68)
         )
     }
 
@@ -333,6 +412,7 @@ private struct RedemptionCalendarView: View {
     @Binding var selectedDate: Date
     let recordedDates: Set<Date>
     let isPadLayout: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private let calendar = Calendar.redemptionHistoryCalendar
     private let nonSelectedDayColor = Color(hex: "828282")
@@ -356,8 +436,11 @@ private struct RedemptionCalendarView: View {
     private var header: some View {
         HStack {
             Text(monthTitle)
-                .font(.appSystem(size: scaled(17, pad: 20), weight: .bold, design: .rounded))
-                .foregroundColor(Color.black.opacity(0.92))
+                .appDynamicFont(size: scaled(17, pad: 20), weight: .bold, design: .rounded)
+                .foregroundStyle(Color.black.opacity(0.92))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
 
             Spacer()
 
@@ -376,8 +459,10 @@ private struct RedemptionCalendarView: View {
         HStack(spacing: 0) {
             ForEach(weekdaySymbols, id: \.self) { symbol in
                 Text(symbol)
-                    .font(.appSystem(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
-                    .foregroundColor(nonSelectedDayColor)
+                    .appDynamicFont(size: scaled(13, pad: 15), weight: .bold, design: .rounded)
+                    .foregroundStyle(nonSelectedDayColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(dynamicTypeSize.isAccessibilitySize ? 0.55 : 1)
                     .frame(maxWidth: .infinity)
             }
         }
@@ -407,12 +492,18 @@ private struct RedemptionCalendarView: View {
             ZStack {
                 Circle()
                     .fill(isSelected ? selectedDayBackground : Color.clear)
-                    .frame(width: scaled(36, pad: 42), height: scaled(36, pad: 42))
+                    .frame(
+                        width: dynamicTypeSize.isAccessibilitySize ? scaled(40, pad: 46) : scaled(36, pad: 42),
+                        height: dynamicTypeSize.isAccessibilitySize ? scaled(40, pad: 46) : scaled(36, pad: 42)
+                    )
 
                 VStack(spacing: scaled(1, pad: 2)) {
                     Text("\(calendar.component(.day, from: date))")
-                        .font(.appSystem(size: scaled(18, pad: 21), weight: isSelected ? .heavy : .medium, design: .rounded))
-                        .foregroundColor(dayTextColor(isSelected: isSelected, hasRecord: hasRecord))
+                        .appDynamicFont(size: scaled(18, pad: 21), weight: isSelected ? .heavy : .medium, design: .rounded)
+                        .foregroundStyle(dayTextColor(isSelected: isSelected, hasRecord: hasRecord))
+                        .lineLimit(1)
+                        .minimumScaleFactor(dynamicTypeSize.isAccessibilitySize ? 0.55 : 1)
+                        .monospacedDigit()
 
                     Circle()
                         .fill(hasRecord && !isSelected ? historyAccentColor : Color.clear)
@@ -420,9 +511,17 @@ private struct RedemptionCalendarView: View {
                 }
                 .offset(y: hasRecord && !isSelected ? scaled(2, pad: 2) : 0)
             }
-            .frame(width: scaled(42, pad: 48), height: scaled(38, pad: 44))
+            .frame(maxWidth: .infinity, minHeight: dynamicTypeSize.isAccessibilitySize ? 48 : scaled(38, pad: 44))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(DateFormatter.localizedString(from: date, dateStyle: .full, timeStyle: .none))
+        .accessibilityValue(
+            hasRecord
+                ? L10n.tr("Has redemptions", zhHans: "有兑换记录", zhHant: "有兌換記錄", ja: "交換履歴あり")
+                : L10n.tr("No redemptions", zhHans: "没有兑换记录", zhHant: "沒有兌換記錄", ja: "交換履歴なし")
+        )
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityHint(L10n.tr("Shows redemptions for this date.", zhHans: "显示这一天的兑换记录。", zhHant: "顯示這一天的兌換記錄。", ja: "この日の交換履歴を表示します。"))
     }
 
     private func dayTextColor(isSelected: Bool, hasRecord: Bool) -> Color {
@@ -438,11 +537,17 @@ private struct RedemptionCalendarView: View {
     private func monthButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.appSystem(size: scaled(20, pad: 23), weight: .heavy))
-                .foregroundColor(Color.black.opacity(0.9))
-                .frame(width: scaled(34, pad: 40), height: scaled(34, pad: 40))
+                .appDynamicFont(size: scaled(20, pad: 23), weight: .heavy)
+                .foregroundStyle(Color.black.opacity(0.9))
+                .frame(minWidth: 44, minHeight: 44)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(
+            systemName == "chevron.left"
+                ? L10n.tr("Previous month", zhHans: "上个月", zhHant: "上個月", ja: "前の月")
+                : L10n.tr("Next month", zhHans: "下个月", zhHant: "下個月", ja: "次の月")
+        )
+        .accessibilityValue(monthTitle)
     }
 
     private var monthTitle: String {

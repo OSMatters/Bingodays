@@ -16,7 +16,7 @@ struct QuickEditReadOnlyTaskRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(text)
                     .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
+                    .foregroundStyle(NeumorphicColors.text)
                     .lineLimit(1)
             }
 
@@ -25,7 +25,7 @@ struct QuickEditReadOnlyTaskRow: View {
             Button(action: onDelete) {
                 Image(systemName: "trash")
                     .font(.appSystem(size: scaled(13, pad: 15), weight: .medium))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.52))
+                    .foregroundStyle(NeumorphicColors.text.opacity(0.52))
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
@@ -37,7 +37,7 @@ struct QuickEditReadOnlyTaskRow: View {
         Button(action: action) {
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .font(.appSystem(size: scaled(18, pad: 20), weight: .bold))
-                .foregroundColor(isSelected ? NeumorphicColors.modalAccent : NeumorphicColors.text.opacity(0.38))
+                .foregroundStyle(isSelected ? NeumorphicColors.modalAccent : NeumorphicColors.text.opacity(0.38))
                 .frame(width: 24, height: 24)
         }
         .buttonStyle(.plain)
@@ -75,13 +75,13 @@ struct QuickEditLockedTaskRow: View {
         HStack(spacing: 10) {
             Image(systemName: "circle")
                 .font(.appSystem(size: scaled(18, pad: 20), weight: .bold))
-                .foregroundColor(NeumorphicColors.text.opacity(0.28))
+                .foregroundStyle(NeumorphicColors.text.opacity(0.28))
                 .frame(width: 24, height: 24)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(text)
                     .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.7))
+                    .foregroundStyle(NeumorphicColors.text.opacity(0.7))
                     .lineLimit(1)
             }
 
@@ -97,7 +97,7 @@ struct QuickEditLockedTaskRow: View {
                 .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
                 .lineLimit(1)
         }
-        .foregroundColor(.white.opacity(0.96))
+        .foregroundStyle(.white.opacity(0.96))
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(
@@ -142,13 +142,13 @@ struct QuickEditLockedHistoryPreviewBlock: View {
         HStack(spacing: 10) {
             Image(systemName: "circle")
                 .font(.appSystem(size: scaled(18, pad: 20), weight: .bold))
-                .foregroundColor(NeumorphicColors.text.opacity(0.28))
+                .foregroundStyle(NeumorphicColors.text.opacity(0.28))
                 .frame(width: 24, height: 24)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(text)
                     .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.7))
+                    .foregroundStyle(NeumorphicColors.text.opacity(0.7))
                     .lineLimit(1)
             }
 
@@ -164,7 +164,7 @@ struct QuickEditLockedHistoryPreviewBlock: View {
                 .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
                 .lineLimit(1)
         }
-        .foregroundColor(.white.opacity(0.96))
+        .foregroundStyle(.white.opacity(0.96))
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(
@@ -186,7 +186,7 @@ struct QuickEditAddTaskButton: View {
         Button(action: onTap) {
             Text(L10n.addTask)
                 .font(.appSystem(size: scaled(15, pad: 17), weight: .semibold, design: .rounded))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
                 .background(

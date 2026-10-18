@@ -38,6 +38,7 @@ struct BlindBoxSilentTicketRefresh: ViewModifier {
 /// separate preview store until the CloudKit transaction repository is ready.
 struct BlindBoxFlowView: View {
     @Environment(\.blindBoxEntranceReady) private var entranceReady
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private enum Route {
         case lobby
         case detail(UUID)
@@ -51,6 +52,7 @@ struct BlindBoxFlowView: View {
     @State private var toastMessage: String?
     @State private var toastDismissalTask: Task<Void, Never>?
     @State private var isShowingTicketExchange = false
+    @AccessibilityFocusState private var ticketWalletAccessibilityFocused: Bool
     @AppStorage("blindBox.suppressFreeTicketReminder") private var suppressFreeTicketReminder = false
     @State private var isDailyTicketReceipt = false
     @State private var isExplicitTicketWalletEntry = false
@@ -100,93 +102,99 @@ struct BlindBoxFlowView: View {
 
     var body: some View {
         ZStack {
-            switch route {
-            case .lobby:
-                BlindBoxLobbyView(
-                    highlightsAvailableBoxes: toastMessage == BlindBoxL10n.chooseBoxToOpen,
-                    ticketBalance: store.state.ticketBalance,
-                    candidates: store.candidates(hasPremiumAccess: subscriptionManager.hasPremiumAccess),
-                    themes: store.themes,
-                    isPremium: subscriptionManager.hasPremiumAccess,
-                    hasCollectedEveryActiveTheme: store.themes.allSatisfy {
-                        BlindBoxCandidateCoordinator.isThemeComplete(
-                            $0,
-                            ownedStickerCounts: store.state.ownedStickerCounts
-                        )
-                    },
-                    onSelectCustomRewards: onSelectCustomRewards,
-                    onShowRules: {
-                        isShowingRules = true
-                    },
-                    onSelectTicketBalance: { showTicketWallet() },
-                    onSelectBatch: { batchID in
-                        route = .detail(batchID)
-                    },
-                    onShowMyBox: {
-                        route = .myBox
-                    },
-                    onShowPremiumPaywall: beginUpgrade,
-                    onDismiss: {
-                        dismiss()
-                    }
-                )
-
-            case .detail(let batchID):
-                if let batch = store.state.candidateBatches.first(where: { $0.id == batchID }),
-                   let theme = store.theme(for: batch.plan.themeID) {
-                    BlindBoxDetailView(
-                        batch: batch,
-                        theme: theme,
+            Group {
+                switch route {
+                case .lobby:
+                    BlindBoxLobbyView(
+                        highlightsAvailableBoxes: toastMessage == BlindBoxL10n.chooseBoxToOpen,
                         ticketBalance: store.state.ticketBalance,
-                        isStickerOnHome: isBlindBoxStickerOnHome,
-                        onAddStickerToHome: onAddBlindBoxStickerToHome,
-                        onTickets: showTicketWallet,
-                        onBack: {
-                            route = .lobby
+                        candidates: store.candidates(hasPremiumAccess: subscriptionManager.hasPremiumAccess),
+                        themes: store.themes,
+                        isPremium: subscriptionManager.hasPremiumAccess,
+                        hasCollectedEveryActiveTheme: store.themes.allSatisfy {
+                            BlindBoxCandidateCoordinator.isThemeComplete(
+                                $0,
+                                ownedStickerCounts: store.state.ownedStickerCounts
+                            )
                         },
-                        onOpenPosition: { position in
-                            open(.position(batchID: batchID, positionIndex: position))
+                        onSelectCustomRewards: onSelectCustomRewards,
+                        onShowRules: {
+                            isShowingRules = true
                         },
-                        onOpenRandom: {
-                            open(.random(batchID: batchID))
+                        onSelectTicketBalance: { showTicketWallet() },
+                        onSelectBatch: { batchID in
+                            route = .detail(batchID)
                         },
-                        onOpenWholeBox: {
-                            open(.wholeBox(
-                                batchID: batchID,
-                                ticketCost: batch.remainingPositionCount
-                            ))
+                        onShowMyBox: {
+                            route = .myBox
+                        },
+                        onShowPremiumPaywall: beginUpgrade,
+                        onDismiss: {
+                            dismiss()
+                        },
+                        ticketWalletAccessibilityFocused: $ticketWalletAccessibilityFocused
+                    )
+
+                case .detail(let batchID):
+                    if let batch = store.state.candidateBatches.first(where: { $0.id == batchID }),
+                       let theme = store.theme(for: batch.plan.themeID) {
+                        BlindBoxDetailView(
+                            batch: batch,
+                            theme: theme,
+                            ticketBalance: store.state.ticketBalance,
+                            isStickerOnHome: isBlindBoxStickerOnHome,
+                            onAddStickerToHome: onAddBlindBoxStickerToHome,
+                            onTickets: showTicketWallet,
+                            ticketWalletAccessibilityFocused: $ticketWalletAccessibilityFocused,
+                            onBack: {
+                                route = .lobby
+                            },
+                            onOpenPosition: { position in
+                                open(.position(batchID: batchID, positionIndex: position))
+                            },
+                            onOpenRandom: {
+                                open(.random(batchID: batchID))
+                            },
+                            onOpenWholeBox: {
+                                open(.wholeBox(
+                                    batchID: batchID,
+                                    ticketCost: batch.remainingPositionCount
+                                ))
+                            }
+                        )
+                    } else {
+                        BlindBoxEmptyState(onBack: { route = .lobby })
+                    }
+
+                case .reveal(let result):
+                    BlindBoxRevealView(
+                        result: result,
+                        themes: store.themes,
+                        onContinue: {
+                            store.acknowledgePendingReveal(result)
+                            route = .detail(result.batchID)
                         }
                     )
-                } else {
-                    BlindBoxEmptyState(onBack: { route = .lobby })
+
+                case .myBox:
+                    BlindBoxCollectionView(
+                        themes: store.themes,
+                        ownedStickerCounts: store.state.ownedStickerCounts,
+                        isStickerOnHome: isBlindBoxStickerOnHome,
+                        onAddStickerToHome: onAddBlindBoxStickerToHome,
+                        onBack: {
+                            route = .lobby
+                        }
+                    )
                 }
-
-            case .reveal(let result):
-                BlindBoxRevealView(
-                    result: result,
-                    themes: store.themes,
-                    onContinue: {
-                        store.acknowledgePendingReveal(result)
-                        route = .detail(result.batchID)
-                    }
-                )
-
-            case .myBox:
-                BlindBoxCollectionView(
-                    themes: store.themes,
-                    ownedStickerCounts: store.state.ownedStickerCounts,
-                    isStickerOnHome: isBlindBoxStickerOnHome,
-                    onAddStickerToHome: onAddBlindBoxStickerToHome,
-                    onBack: {
-                        route = .lobby
-                    }
-                )
             }
+            .accessibilityHidden(isShowingTicketExchange)
 
             if let toastMessage {
                 BlindBoxToast(message: toastMessage)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .allowsHitTesting(false)
+                    .accessibilityHidden(isShowingTicketExchange)
                     .zIndex(20)
             }
 
@@ -210,14 +218,12 @@ struct BlindBoxFlowView: View {
                     isProcessing: isProcessingTickets,
                     onUpgrade: beginUpgrade,
                     onGoOpen: {
-                        isShowingTicketExchange = false
+                        closeTicketWallet()
                         if case .lobby = route {
                             presentToast(BlindBoxL10n.chooseBoxToOpen)
                         }
                     },
-                    onClose: {
-                        isShowingTicketExchange = false
-                    },
+                    onClose: closeTicketWallet,
                     onRequestExchange: { _ in confirmTicketExchange() }
                 )
                 .zIndex(10)
@@ -236,6 +242,9 @@ struct BlindBoxFlowView: View {
         .task(id: previewMaintenanceScheduleIdentifier) {
             await runPreviewMaintenanceWhenDue()
         }
+        .onChange(of: isShowingTicketExchange) { _, isPresented in
+            if isPresented { ticketWalletAccessibilityFocused = false }
+        }
         .task(id: "\(entranceReady)-\(routeDescription)-\(store.state.pendingTicketReceipt?.id.uuidString ?? "none")-\(isShowingTicketExchange)-\(isShowingRules)") {
             guard entranceReady, case .lobby = route, !isShowingTicketExchange, !isShowingRules,
                   !isAwaitingUpgrade, let receipt = store.consumeTicketReceipt(), receipt.count > 0,
@@ -246,7 +255,7 @@ struct BlindBoxFlowView: View {
             requiredTickets = 0
             isShowingTicketExchange = true
         }
-        .animation(.easeInOut(duration: 0.22), value: routeDescription)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: routeDescription)
         .onReceive(NotificationCenter.default.publisher(for: BlindBoxPremiumPaywallEntry.didDismiss)) { notification in
             guard isAwaitingUpgrade else { return }
             if subscriptionManager.hasPremiumAccess, let transactionID = notification.object as? String {
@@ -272,8 +281,18 @@ struct BlindBoxFlowView: View {
     }
 
     private func showTicketWallet() {
+        ticketWalletAccessibilityFocused = false
         isExplicitTicketWalletEntry = true
         presentTicketWallet(showReceipt: false)
+    }
+
+    private func closeTicketWallet() {
+        isShowingTicketExchange = false
+        Task { @MainActor in
+            await Task.yield()
+            guard !isShowingTicketExchange, !isShowingRules else { return }
+            ticketWalletAccessibilityFocused = true
+        }
     }
 
     private func presentTicketWallet(showReceipt: Bool, premiumPurchaseTransactionID: String? = nil) {
@@ -473,6 +492,7 @@ struct BlindBoxFlowView: View {
 /// launch flag until the final release gate is opened.
 struct BlindBoxLiveFlowView: View {
     @Environment(\.blindBoxEntranceReady) private var entranceReady
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private enum Route {
         case lobby
         case detail(UUID)
@@ -493,6 +513,7 @@ struct BlindBoxLiveFlowView: View {
     @State private var toastMessage: String?
     @State private var toastDismissalTask: Task<Void, Never>?
     @State private var isShowingTicketExchange = false
+    @AccessibilityFocusState private var ticketWalletAccessibilityFocused: Bool
     @AppStorage("blindBox.suppressFreeTicketReminder") private var suppressFreeTicketReminder = false
     @State private var isDailyTicketReceipt = false
     @State private var isExplicitTicketWalletEntry = false
@@ -546,7 +567,10 @@ struct BlindBoxLiveFlowView: View {
             guard let pendingReveal else { return }
             route = .reveal(pendingReveal.result)
         }
-        .animation(.easeInOut(duration: 0.22), value: routeDescription)
+        .onChange(of: isShowingTicketExchange) { _, isPresented in
+            if isPresented { ticketWalletAccessibilityFocused = false }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: routeDescription)
         .onReceive(NotificationCenter.default.publisher(for: BlindBoxPremiumPaywallEntry.didDismiss)) { notification in
             guard isAwaitingUpgrade else { return }
             if subscriptionManager.hasPremiumAccess, let transactionID = notification.object as? String {
@@ -572,8 +596,18 @@ struct BlindBoxLiveFlowView: View {
     }
 
     private func showTicketWallet() {
+        ticketWalletAccessibilityFocused = false
         isExplicitTicketWalletEntry = true
         presentTicketWallet(showReceipt: false)
+    }
+
+    private func closeTicketWallet() {
+        isShowingTicketExchange = false
+        Task { @MainActor in
+            await Task.yield()
+            guard !isShowingTicketExchange, !isShowingRules else { return }
+            ticketWalletAccessibilityFocused = true
+        }
     }
 
     @MainActor
@@ -683,112 +717,118 @@ struct BlindBoxLiveFlowView: View {
 
     private var liveFlow: some View {
         ZStack {
-            switch route {
-        case .lobby:
-            BlindBoxLobbyView(
-                highlightsAvailableBoxes: toastMessage == BlindBoxL10n.chooseBoxToOpen,
-                ticketBalance: store.accountState.ticketBalance,
-                candidates: store.candidates(hasPremiumAccess: subscriptionManager.hasPremiumAccess),
-                themes: store.themes,
-                isPremium: subscriptionManager.hasPremiumAccess,
-                hasCollectedEveryActiveTheme: store.hasCollectedEveryActiveTheme,
-                onSelectCustomRewards: onSelectCustomRewards,
-                onShowRules: {
-                    AnalyticsService.logBlindBoxRulesViewed()
-                    isShowingRules = true
-                },
-                onSelectTicketBalance: { showTicketWallet() },
-                onSelectBatch: { batchID in
-                    if let batch = store.accountState.candidateBatches.first(where: { $0.id == batchID }) {
-                        AnalyticsService.logBlindBoxBatchViewed(batch)
-                    }
-                    route = .detail(batchID)
-                },
-                onShowMyBox: {
-                    AnalyticsService.logBlindBoxCollectionViewed(
-                        themeCount: store.themes.count,
-                        ownedStickerTypeCount: store.accountState.ownedStickerCounts.count
+            Group {
+                switch route {
+                case .lobby:
+                    BlindBoxLobbyView(
+                        highlightsAvailableBoxes: toastMessage == BlindBoxL10n.chooseBoxToOpen,
+                        ticketBalance: store.accountState.ticketBalance,
+                        candidates: store.candidates(hasPremiumAccess: subscriptionManager.hasPremiumAccess),
+                        themes: store.themes,
+                        isPremium: subscriptionManager.hasPremiumAccess,
+                        hasCollectedEveryActiveTheme: store.hasCollectedEveryActiveTheme,
+                        onSelectCustomRewards: onSelectCustomRewards,
+                        onShowRules: {
+                            AnalyticsService.logBlindBoxRulesViewed()
+                            isShowingRules = true
+                        },
+                        onSelectTicketBalance: { showTicketWallet() },
+                        onSelectBatch: { batchID in
+                            if let batch = store.accountState.candidateBatches.first(where: { $0.id == batchID }) {
+                                AnalyticsService.logBlindBoxBatchViewed(batch)
+                            }
+                            route = .detail(batchID)
+                        },
+                        onShowMyBox: {
+                            AnalyticsService.logBlindBoxCollectionViewed(
+                                themeCount: store.themes.count,
+                                ownedStickerTypeCount: store.accountState.ownedStickerCounts.count
+                            )
+                            route = .myBox
+                        },
+                        onShowPremiumPaywall: beginUpgrade,
+                        onDismiss: {
+                            dismiss()
+                        },
+                        ticketWalletAccessibilityFocused: $ticketWalletAccessibilityFocused
                     )
-                    route = .myBox
-                },
-                onShowPremiumPaywall: beginUpgrade,
-                onDismiss: {
-                    dismiss()
-                }
-            )
-            .onAppear {
-                AnalyticsService.logBlindBoxLobbyViewed(
-                    ticketBalance: store.accountState.ticketBalance,
-                    candidateCount: store.candidates(
-                        hasPremiumAccess: subscriptionManager.hasPremiumAccess
-                    ).count,
-                    hasPremiumAccess: subscriptionManager.hasPremiumAccess
-                )
-                Task {
-                    await store.refresh(
-                        hasPremiumAccess: subscriptionManager.hasPremiumAccess,
-                        candidateZoneWasPresented: true,
-                        nativeICloudInitialImportComplete: nativeICloudInitialImportComplete
+                    .onAppear {
+                        AnalyticsService.logBlindBoxLobbyViewed(
+                            ticketBalance: store.accountState.ticketBalance,
+                            candidateCount: store.candidates(
+                                hasPremiumAccess: subscriptionManager.hasPremiumAccess
+                            ).count,
+                            hasPremiumAccess: subscriptionManager.hasPremiumAccess
+                        )
+                        Task {
+                            await store.refresh(
+                                hasPremiumAccess: subscriptionManager.hasPremiumAccess,
+                                candidateZoneWasPresented: true,
+                                nativeICloudInitialImportComplete: nativeICloudInitialImportComplete
+                            )
+                        }
+                    }
+
+                case .detail(let batchID):
+                    if let batch = store.accountState.candidateBatches.first(where: { $0.id == batchID }),
+                       let theme = store.theme(for: batch.plan.themeID) {
+                        BlindBoxDetailView(
+                            batch: batch,
+                            theme: theme,
+                            ticketBalance: store.accountState.ticketBalance,
+                            isStickerOnHome: isBlindBoxStickerOnHome,
+                            onAddStickerToHome: onAddBlindBoxStickerToHome,
+                            onTickets: showTicketWallet,
+                            ticketWalletAccessibilityFocused: $ticketWalletAccessibilityFocused,
+                            onBack: {
+                                route = .lobby
+                            },
+                            onOpenPosition: { position in
+                                open(.position(batchID: batchID, positionIndex: position))
+                            },
+                            onOpenRandom: {
+                                open(.random(batchID: batchID))
+                            },
+                            onOpenWholeBox: {
+                                open(.wholeBox(
+                                    batchID: batchID,
+                                    ticketCost: batch.remainingPositionCount
+                                ))
+                            }
+                        )
+                    } else {
+                        BlindBoxEmptyState(onBack: { route = .lobby })
+                    }
+
+                case .reveal(let result):
+                    BlindBoxRevealView(
+                        result: result,
+                        themes: store.themes,
+                        isContinuing: isAcknowledgingReveal,
+                        onContinue: {
+                            acknowledgeReveal(result)
+                        }
+                    )
+
+                case .myBox:
+                    BlindBoxCollectionView(
+                        themes: store.themes,
+                        ownedStickerCounts: store.accountState.ownedStickerCounts,
+                        isStickerOnHome: isBlindBoxStickerOnHome,
+                        onAddStickerToHome: onAddBlindBoxStickerToHome,
+                        onBack: {
+                            route = .lobby
+                        }
                     )
                 }
             }
-
-        case .detail(let batchID):
-            if let batch = store.accountState.candidateBatches.first(where: { $0.id == batchID }),
-               let theme = store.theme(for: batch.plan.themeID) {
-                BlindBoxDetailView(
-                    batch: batch,
-                    theme: theme,
-                    ticketBalance: store.accountState.ticketBalance,
-                    isStickerOnHome: isBlindBoxStickerOnHome,
-                    onAddStickerToHome: onAddBlindBoxStickerToHome,
-                    onTickets: showTicketWallet,
-                    onBack: {
-                        route = .lobby
-                    },
-                    onOpenPosition: { position in
-                        open(.position(batchID: batchID, positionIndex: position))
-                    },
-                    onOpenRandom: {
-                        open(.random(batchID: batchID))
-                    },
-                    onOpenWholeBox: {
-                        open(.wholeBox(
-                            batchID: batchID,
-                            ticketCost: batch.remainingPositionCount
-                        ))
-                    }
-                )
-            } else {
-                BlindBoxEmptyState(onBack: { route = .lobby })
-            }
-
-        case .reveal(let result):
-            BlindBoxRevealView(
-                result: result,
-                themes: store.themes,
-                isContinuing: isAcknowledgingReveal,
-                onContinue: {
-                    acknowledgeReveal(result)
-                }
-            )
-
-        case .myBox:
-            BlindBoxCollectionView(
-                themes: store.themes,
-                ownedStickerCounts: store.accountState.ownedStickerCounts,
-                isStickerOnHome: isBlindBoxStickerOnHome,
-                onAddStickerToHome: onAddBlindBoxStickerToHome,
-                onBack: {
-                    route = .lobby
-                }
-            )
-            }
+            .accessibilityHidden(isShowingTicketExchange)
 
             if let toastMessage {
                 BlindBoxToast(message: toastMessage)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .allowsHitTesting(false)
+                    .accessibilityHidden(isShowingTicketExchange)
                     .zIndex(20)
             }
 
@@ -813,14 +853,12 @@ struct BlindBoxLiveFlowView: View {
                     isProcessing: isProcessingTickets,
                     onUpgrade: beginUpgrade,
                     onGoOpen: {
-                        isShowingTicketExchange = false
+                        closeTicketWallet()
                         if case .lobby = route {
                             presentToast(BlindBoxL10n.chooseBoxToOpen)
                         }
                     },
-                    onClose: {
-                        isShowingTicketExchange = false
-                    },
+                    onClose: closeTicketWallet,
                     onRequestExchange: { configuration in confirmTicketExchange(configuration) }
                 )
                 .zIndex(10)
@@ -1164,6 +1202,7 @@ private struct BlindBoxLobbyView: View {
     let onShowMyBox: () -> Void
     let onShowPremiumPaywall: () -> Void
     let onDismiss: () -> Void
+    @AccessibilityFocusState.Binding var ticketWalletAccessibilityFocused: Bool
 
     var body: some View {
         BlindBoxCanvas(backgroundAssetName: "BlindBoxLobbyBackground", backgroundVerticalOffset: 20) {
@@ -1277,6 +1316,7 @@ private struct BlindBoxLobbyView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(BlindBoxL10n.ticketsBalance(ticketBalance))
+        .accessibilityFocused($ticketWalletAccessibilityFocused)
     }
 
     @ViewBuilder
@@ -1411,6 +1451,7 @@ private struct BlindBoxDetailView: View {
     let isStickerOnHome: (BlindBoxStickerID) -> Bool
     let onAddStickerToHome: (BlindBoxStickerDefinition) -> Bool
     let onTickets: () -> Void
+    @AccessibilityFocusState.Binding var ticketWalletAccessibilityFocused: Bool
     let onBack: () -> Void
     let onOpenPosition: (Int) -> Void
     let onOpenRandom: () -> Void
@@ -1464,6 +1505,7 @@ private struct BlindBoxDetailView: View {
             Button(action: onTickets) { detailTicketBadge }
                 .buttonStyle(.plain)
                 .accessibilityLabel(BlindBoxL10n.getTickets)
+                .accessibilityFocused($ticketWalletAccessibilityFocused)
                 .position(x: 192, y: 74)
 
             Button {
@@ -2926,6 +2968,8 @@ private struct BlindBoxOpenConfirmation: View {
 /// Click-triggered receipt and exchange states share the supplied popup artwork.
 private struct BlindBoxTicketExchangeSheet: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AccessibilityFocusState private var exchangeTitleFocused: Bool
+    @AccessibilityFocusState private var successMessageFocused: Bool
     @State private var successVisible = false
     let availablePoints: Int
     let ticketBalance: Int
@@ -3003,10 +3047,15 @@ private struct BlindBoxTicketExchangeSheet: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let popupWidth = max(0, min(proxy.size.width - 40, 350))
+            let headerWidth = min(288, max(0, popupWidth - 16))
+            let headerHeight = headerWidth * (169.0 / 288.0)
+
             ZStack {
                 Color.black.opacity(0.62)
                     .ignoresSafeArea()
                     .onTapGesture { if !isProcessing { onClose() } }
+                    .accessibilityHidden(true)
 
                 if !showsWalletOverview, isExchangeReceipt, let receivedTickets {
                     exchangeSuccess(count: receivedTickets)
@@ -3017,7 +3066,8 @@ private struct BlindBoxTicketExchangeSheet: View {
                         Image(showsInsufficientTicketHeader ? "BlindBoxTicketExhaustedTop" : "BlindBoxTicketPopupTop")
                             .resizable()
                             .scaledToFit()
-                            .frame(width: 288, height: 169)
+                            .frame(width: headerWidth, height: headerHeight)
+                            .accessibilityHidden(true)
                             .scaleEffect(1.08, anchor: .bottom)
                             .offset(
                                 x: showsInsufficientTicketHeader ? 8 : 0,
@@ -3163,7 +3213,7 @@ private struct BlindBoxTicketExchangeSheet: View {
                         .accessibilityLabel(BlindBoxL10n.close)
                         .padding(.top, 18)
                     }
-                    .frame(width: min(proxy.size.width - 40, 350))
+                    .frame(width: popupWidth)
                     .padding(.vertical, 24)
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: proxy.size.height)
@@ -3172,9 +3222,28 @@ private struct BlindBoxTicketExchangeSheet: View {
                 }
                 }
             }
-            .animation(.easeOut(duration: 0.2), value: isExchangeReceipt)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: isExchangeReceipt)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
+        .onAppear {
+            Task { @MainActor in
+                await Task.yield()
+                if isExchangeReceipt {
+                    successMessageFocused = true
+                } else {
+                    exchangeTitleFocused = true
+                }
+            }
+        }
+        .onChange(of: isExchangeReceipt) { _, isShowingReceipt in
+            guard isShowingReceipt else { return }
+            Task { @MainActor in
+                await Task.yield()
+                exchangeTitleFocused = false
+                successMessageFocused = true
+            }
+        }
     }
 
     private func exchangeSuccess(count: Int) -> some View {
@@ -3195,6 +3264,7 @@ private struct BlindBoxTicketExchangeSheet: View {
                     .font(.appSystem(size: 26, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .accessibilityAddTraits(.isHeader)
+                    .accessibilityFocused($successMessageFocused)
                 HStack(spacing: 12) {
                     receiptCount(count)
                     Text(BlindBoxL10n.ticketUnit)
@@ -3281,6 +3351,7 @@ private struct BlindBoxTicketExchangeSheet: View {
         .frame(height: 70)
         .accessibilityLabel(title)
         .accessibilityAddTraits(.isHeader)
+        .accessibilityFocused($exchangeTitleFocused)
         .allowsHitTesting(false)
     }
 

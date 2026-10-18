@@ -35,6 +35,8 @@ private final class LimitedTimePAGContainerView: UIView {
 
 private struct LimitedTimePAGView: UIViewRepresentable {
     let resourceName: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     func makeUIView(context: Context) -> LimitedTimePAGContainerView {
         let container = LimitedTimePAGContainerView()
@@ -48,12 +50,15 @@ private struct LimitedTimePAGView: UIViewRepresentable {
         }
 
         imageView.setCurrentFrame(0)
-        imageView.play()
+        if !reduceMotion && scenePhase == .active { imageView.play() }
         return container
     }
 
     func updateUIView(_ uiView: LimitedTimePAGContainerView, context: Context) {
-        if !uiView.imageView.isPlaying() {
+        if reduceMotion || scenePhase != .active {
+            uiView.imageView.pause()
+            if reduceMotion { uiView.imageView.setCurrentFrame(0) }
+        } else if !uiView.imageView.isPlaying() {
             uiView.imageView.play()
         }
     }
@@ -192,7 +197,7 @@ struct LimitedTimeDiscountView: View {
             if let feedbackMessage {
                 Text(feedbackMessage)
                     .font(.appSystem(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(0.78))
+                    .foregroundStyle(.white.opacity(0.78))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.78)
@@ -205,7 +210,7 @@ struct LimitedTimeDiscountView: View {
 
             Text(L10n.paywallLegalOneLine)
                 .font(.appSystem(size: 11, weight: .medium))
-                .foregroundColor(Color.white.opacity(0.52))
+                .foregroundStyle(Color.white.opacity(0.52))
                 .multilineTextAlignment(.center)
                 .lineLimit(1)
                 .minimumScaleFactor(0.62)
@@ -232,7 +237,7 @@ struct LimitedTimeDiscountView: View {
         return VStack(spacing: 20) {
             Text(L10n.limitedDiscountCountdownTitle)
                 .font(.appSystem(size: 14, weight: .regular))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
 
@@ -259,7 +264,7 @@ struct LimitedTimeDiscountView: View {
             .overlay {
                 Text(value)
                     .font(.appSystem(size: 25, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .monospacedDigit()
             }
     }
@@ -267,7 +272,7 @@ struct LimitedTimeDiscountView: View {
     private var countdownColon: some View {
         Text(":")
             .font(.appSystem(size: 28, weight: .bold))
-            .foregroundColor(.white.opacity(0.58))
+            .foregroundStyle(.white.opacity(0.58))
             .frame(width: 10, height: 48)
     }
 
@@ -308,7 +313,7 @@ struct LimitedTimeDiscountView: View {
                 .overlay {
                     Image(systemName: "xmark")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                 }
                 .shadow(color: Color.white.opacity(0.12), radius: 4, x: -2, y: -2)
                 .shadow(color: Color.black.opacity(0.16), radius: 12, x: 0, y: 7)
@@ -325,7 +330,7 @@ struct LimitedTimeDiscountView: View {
 
             Text(L10n.limitedDiscountHeadline)
                 .font(.appSystem(size: 21, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .minimumScaleFactor(0.82)
@@ -395,27 +400,27 @@ struct LimitedTimeDiscountView: View {
             .overlay {
                 Text(L10n.limitedDiscountBadge)
                     .font(.appSystem(size: 12, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .lineLimit(1)
             }
             .offset(x: 263, y: 0)
 
             Text(L10n.paywallLifetime)
                 .font(.appSystem(size: 16, weight: .bold))
-                .foregroundColor(.black)
+                .foregroundStyle(.black)
                 .frame(width: 145, alignment: .leading)
                 .offset(x: 16, y: 17)
 
             Text(spacedPrice(originalLifetimePrice))
                 .font(.appSystem(size: 14, weight: .medium))
-                .foregroundColor(Color(hex: "8E8278"))
+                .foregroundStyle(Color(hex: "8E8278"))
                 .strikethrough(true, color: Color(hex: "8E8278"))
                 .frame(width: 140, alignment: .leading)
                 .offset(x: 18, y: 63)
 
             Text(spacedPrice(discountedLifetimePrice))
                 .font(.appSystem(size: 40, weight: .bold))
-                .foregroundColor(Color(hex: "3F270F"))
+                .foregroundStyle(Color(hex: "3F270F"))
                 .lineLimit(1)
                 .minimumScaleFactor(0.66)
                 .frame(width: 178, alignment: .leading)
@@ -457,7 +462,7 @@ struct LimitedTimeDiscountView: View {
                 .overlay {
                     Text(subscriptionManager.isPurchasing ? L10n.subscriptionPleaseWait : L10n.limitedDiscountButtonTitle)
                         .font(.appSystem(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.82)
                 }
@@ -557,47 +562,35 @@ struct LimitedTimeDiscountView: View {
 }
 
 private struct LimitedTimePaymentButtonSweep: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isSweeping = false
 
     var body: some View {
-        GeometryReader { geo in
-            let sweepWidth = geo.size.width * 0.34
-            let travelDistance = geo.size.width + sweepWidth
+        DecorativeAnimationTimeline { time in
+            let progress = time.map { max(0, ($0.truncatingRemainder(dividingBy: 1.8) - 0.45) / 1.35) }
+            GeometryReader { geo in
+                let sweepWidth = geo.size.width * 0.34
+                let travelDistance = geo.size.width + sweepWidth
 
-            LinearGradient(
-                colors: [
-                    Color.white.opacity(0),
-                    Color.white.opacity(0.12),
-                    Color.white.opacity(0.62),
-                    Color.white.opacity(0.16),
-                    Color.white.opacity(0)
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(width: sweepWidth, height: geo.size.height * 2.4)
-            .rotationEffect(.degrees(18))
-            .offset(
-                x: reduceMotion ? geo.size.width * 0.15 : (isSweeping ? travelDistance : -sweepWidth * 1.35),
-                y: -geo.size.height * 0.7
-            )
-            .blendMode(.screen)
-            .opacity(reduceMotion ? 0.18 : 1)
-        }
-        .compositingGroup()
-        .onAppear {
-            guard !reduceMotion else { return }
-            isSweeping = false
-            DispatchQueue.main.async {
-                withAnimation(
-                    .linear(duration: 1.35)
-                    .delay(0.45)
-                    .repeatForever(autoreverses: false)
-                ) {
-                    isSweeping = true
-                }
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0),
+                        Color.white.opacity(0.12),
+                        Color.white.opacity(0.62),
+                        Color.white.opacity(0.16),
+                        Color.white.opacity(0)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: sweepWidth, height: geo.size.height * 2.4)
+                .rotationEffect(.degrees(18))
+                .offset(
+                    x: progress.map { -sweepWidth * 1.35 + (travelDistance + sweepWidth * 1.35) * $0 } ?? geo.size.width * 0.15,
+                    y: -geo.size.height * 0.7
+                )
+                .blendMode(.screen)
+                .opacity(time == nil ? 0.18 : 1)
             }
+            .compositingGroup()
         }
     }
 }

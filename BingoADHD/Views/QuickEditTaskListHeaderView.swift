@@ -13,14 +13,14 @@ struct QuickEditTaskListHeaderView: View {
         HStack(spacing: 10) {
             Text(title)
                 .font(.appSystem(size: scaled(15, pad: 19), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .foregroundStyle(NeumorphicColors.text)
 
             Spacer(minLength: 0)
 
             if let activeGroupID {
                 Button(action: onApplyGroup) {
                     actionLabel(systemName: "square.grid.2x2", title: L10n.quickEditApplyGroup)
-                        .foregroundColor(NeumorphicColors.modalAccent)
+                        .foregroundStyle(NeumorphicColors.modalAccent)
                         .background(actionBackground(stroke: NeumorphicColors.modalAccent.opacity(0.28)))
                 }
                 .buttonStyle(.plain)
@@ -34,7 +34,7 @@ struct QuickEditTaskListHeaderView: View {
                         systemName: "trash",
                         title: L10n.tr("Delete Group", zhHans: "删除分组", zhHant: "刪除分組")
                     )
-                    .foregroundColor(NeumorphicColors.bingoAccent)
+                    .foregroundStyle(NeumorphicColors.bingoAccent)
                     .background(actionBackground(stroke: NeumorphicColors.bingoAccent.opacity(0.28)))
                 }
                 .buttonStyle(.plain)

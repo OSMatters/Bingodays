@@ -32,7 +32,7 @@ final class BoardActionPresentationStore: ObservableObject {
         }
     }
 
-    func performAfterDismissingActions(_ action: @escaping () -> Void) {
+    func performAfterDismissingActions(_ action: @escaping @MainActor () -> Void) {
         dismissActions()
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.actionSelectionDelay) {
             action()

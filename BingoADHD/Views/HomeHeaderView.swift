@@ -24,7 +24,7 @@ struct HomeHeaderView: View {
                             .resizable()
                             .interpolation(.high)
                             .renderingMode(.template)
-                            .foregroundColor(themeColor)
+                            .foregroundStyle(themeColor)
                             .scaledToFit()
                             .frame(width: scaled(24, pad: 28), height: scaled(24, pad: 28))
                             .frame(width: headerIconSize, height: headerIconSize)
@@ -35,7 +35,7 @@ struct HomeHeaderView: View {
                     if showsSkinNewBadge {
                         Text("NEW")
                             .font(.appSystem(size: scaled(7, pad: 8), weight: .heavy, design: .rounded))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 2)
                             .background(
@@ -63,12 +63,12 @@ struct HomeHeaderView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "star.fill")
                                 .font(.appSystem(size: scaled(20, pad: 22), weight: .semibold))
-                                .foregroundColor(NeumorphicColors.accent)
+                                .foregroundStyle(NeumorphicColors.accent)
                                 .symbolEffect(.bounce, value: pointsAnimationStore.animationTrigger)
 
                             Text("\(availablePoints)")
                                 .font(.appSystem(size: scaled(18, pad: 20), weight: .medium, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text)
+                                .foregroundStyle(NeumorphicColors.text)
                                 .contentTransition(.numericText())
                                 .animation(.spring(response: 0.35, dampingFraction: 0.82), value: availablePoints)
                         }
@@ -82,7 +82,7 @@ struct HomeHeaderView: View {
                     if let floatingPointsDelta = pointsAnimationStore.floatingDelta {
                         Text(floatingPointsDelta > 0 ? "+\(floatingPointsDelta)" : "\(floatingPointsDelta)")
                             .font(.appSystem(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
-                            .foregroundColor(floatingPointsDelta > 0 ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.72))
+                            .foregroundStyle(floatingPointsDelta > 0 ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.72))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(
@@ -124,7 +124,7 @@ struct HomeHeaderView: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.appSystem(size: scaled(19, pad: 22), weight: .semibold))
-                .foregroundColor(themeColor)
+                .foregroundStyle(themeColor)
                 .frame(width: headerIconSize, height: headerIconSize)
                 .contentShape(Rectangle())
         }

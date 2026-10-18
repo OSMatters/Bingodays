@@ -5,6 +5,7 @@ import UIKit
 #if canImport(libpag)
 import libpag
 
+@MainActor
 final class PAGRewardSoundPlayer {
     static let shared = PAGRewardSoundPlayer()
 
@@ -40,26 +41,28 @@ final class PAGRewardSoundPlayer {
 /// Retains decoded PAG files across transient SwiftUI views. Without this cache, a task tap has
 /// to load the file again while the completion view is being created, which makes the first frame
 /// feel late even for a short effect.
+@MainActor
 final class PAGCompletionAssetCache {
     static let shared = PAGCompletionAssetCache()
 
     private var files: [String: PAGFile] = [:]
     private var warmupViews: [String: PAGImageView] = [:]
-    private var memoryWarningObserver: NSObjectProtocol?
+    private final class MemoryWarningObservation {
+        var token: NSObjectProtocol?
+
+        deinit {
+            if let token { NotificationCenter.default.removeObserver(token) }
+        }
+    }
+    private let memoryWarningObservation = MemoryWarningObservation()
 
     private init() {
-        memoryWarningObserver = NotificationCenter.default.addObserver(
+        memoryWarningObservation.token = NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.releaseWarmupFrames()
-        }
-    }
-
-    deinit {
-        if let memoryWarningObserver {
-            NotificationCenter.default.removeObserver(memoryWarningObserver)
+            MainActor.assumeIsolated { self?.releaseWarmupFrames() }
         }
     }
 
@@ -286,6 +289,7 @@ struct PAGCompletionView: UIViewRepresentable {
         coordinator.stopContinuousHaptics()
     }
 
+    @MainActor
     final class Coordinator: NSObject, PAGImageViewListener {
         var didFinish = false
         var didReportNearEnd = false
@@ -323,13 +327,30 @@ struct PAGCompletionView: UIViewRepresentable {
             self.onFinished = onFinished
         }
 
+        // PAGImageView.h permits update callbacks on arbitrary threads, and start/cancel
+        // on the play/stop caller's thread. Preserve synchronous delivery when already on UI.
+        private nonisolated static func deliverOnMain(_ action: @escaping @MainActor @Sendable () -> Void) {
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { action() }
+            } else {
+                DispatchQueue.main.async(execute: action)
+            }
+        }
+
         func prepareForPresentation() {
             didFinish = false
             didReportNearEnd = false
             didStart = false
         }
 
-        func onAnimationStart(_ pagView: PAGImageView) {
+        nonisolated func onAnimationStart(_ pagView: PAGImageView) {
+            Self.deliverOnMain { [weak self, weak pagView] in
+                guard let self, let pagView else { return }
+                self.handleAnimationStart(pagView)
+            }
+        }
+
+        private func handleAnimationStart(_ pagView: PAGImageView) {
             guard !didFinish, !didStart else { return }
             didStart = true
             DiagnosticLogStore.recordStateChange(
@@ -355,7 +376,14 @@ struct PAGCompletionView: UIViewRepresentable {
             }
         }
 
-        func onAnimationUpdate(_ pagView: PAGImageView) {
+        nonisolated func onAnimationUpdate(_ pagView: PAGImageView) {
+            Self.deliverOnMain { [weak self, weak pagView] in
+                guard let self, let pagView else { return }
+                self.handleAnimationUpdate(pagView)
+            }
+        }
+
+        private func handleAnimationUpdate(_ pagView: PAGImageView) {
             guard let nearEndProgress,
                   !didReportNearEnd else {
                 return
@@ -370,7 +398,14 @@ struct PAGCompletionView: UIViewRepresentable {
             }
         }
 
-        func onAnimationEnd(_ pagView: PAGImageView) {
+        nonisolated func onAnimationEnd(_ pagView: PAGImageView) {
+            Self.deliverOnMain { [weak self, weak pagView] in
+                guard let self, let pagView else { return }
+                self.handleAnimationEnd(pagView)
+            }
+        }
+
+        private func handleAnimationEnd(_ pagView: PAGImageView) {
             DiagnosticLogStore.recordStateChange(
                 "completion_pag_finished",
                 details: [
@@ -384,7 +419,14 @@ struct PAGCompletionView: UIViewRepresentable {
             finish()
         }
 
-        func onAnimationCancel(_ pagView: PAGImageView) {
+        nonisolated func onAnimationCancel(_ pagView: PAGImageView) {
+            Self.deliverOnMain { [weak self, weak pagView] in
+                guard let self, let pagView else { return }
+                self.handleAnimationCancel(pagView)
+            }
+        }
+
+        private func handleAnimationCancel(_ pagView: PAGImageView) {
             // A cancellation has no end callback. Finish this transient presentation once so a
             // cancelled player cannot leave the board's motion state stuck indefinitely. The
             // diagnostic distinguishes renderer/lifecycle cancellation from normal completion.
@@ -589,6 +631,7 @@ private struct BoardCompletionVideoView: UIViewRepresentable {
         uiView.playerLayer.player = nil
     }
 
+    @MainActor
     final class Coordinator {
         var didFinish = false
         private var didReportNearEnd = false
@@ -614,14 +657,14 @@ private struct BoardCompletionVideoView: UIViewRepresentable {
             self.player = player
             let interval = CMTime(value: 1, timescale: 30)
             progressObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-                self?.reportNearEndIfNeeded(at: time)
+                MainActor.assumeIsolated { self?.reportNearEndIfNeeded(at: time) }
             }
             finishObserver = NotificationCenter.default.addObserver(
                 forName: .AVPlayerItemDidPlayToEndTime,
                 object: player.currentItem,
                 queue: .main
             ) { [weak self] _ in
-                self?.finish()
+                MainActor.assumeIsolated { self?.finish() }
             }
         }
 
@@ -729,6 +772,7 @@ private struct BoardAllBingoPAGView: UIViewRepresentable {
         coordinator.stopContinuousHaptics()
     }
 
+    @MainActor
     final class Coordinator: NSObject, PAGViewListener {
         var didFinish = false
         private var didReportNearEnd = false
@@ -753,13 +797,30 @@ private struct BoardAllBingoPAGView: UIViewRepresentable {
             self.onFinished = onFinished
         }
 
+        // PAGView.h permits update callbacks on arbitrary threads, and start/cancel
+        // on the play/stop caller's thread. Preserve synchronous delivery when already on UI.
+        private nonisolated static func deliverOnMain(_ action: @escaping @MainActor @Sendable () -> Void) {
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { action() }
+            } else {
+                DispatchQueue.main.async(execute: action)
+            }
+        }
+
         func reset() {
             didFinish = false
             didReportNearEnd = false
             stopContinuousHaptics()
         }
 
-        func onAnimationStart(_ pagView: PAGView) {
+        nonisolated func onAnimationStart(_ pagView: PAGView) {
+            Self.deliverOnMain { [weak self, weak pagView] in
+                guard let self, let pagView else { return }
+                self.handleAnimationStart(pagView)
+            }
+        }
+
+        private func handleAnimationStart(_ pagView: PAGView) {
             DiagnosticLogStore.recordStateChange(
                 "board_completion_pag_started",
                 details: ["resource": resourceName]
@@ -772,7 +833,14 @@ private struct BoardAllBingoPAGView: UIViewRepresentable {
             )
         }
 
-        func onAnimationUpdate(_ pagView: PAGView) {
+        nonisolated func onAnimationUpdate(_ pagView: PAGView) {
+            Self.deliverOnMain { [weak self, weak pagView] in
+                guard let self, let pagView else { return }
+                self.handleAnimationUpdate(pagView)
+            }
+        }
+
+        private func handleAnimationUpdate(_ pagView: PAGView) {
             if pagView.getProgress() >= bearFlightEndProgress {
                 stopContinuousHaptics()
             }
@@ -793,7 +861,14 @@ private struct BoardAllBingoPAGView: UIViewRepresentable {
             }
         }
 
-        func onAnimationEnd(_ pagView: PAGView) {
+        nonisolated func onAnimationEnd(_ pagView: PAGView) {
+            Self.deliverOnMain { [weak self, weak pagView] in
+                guard let self, let pagView else { return }
+                self.handleAnimationEnd(pagView)
+            }
+        }
+
+        private func handleAnimationEnd(_ pagView: PAGView) {
             DiagnosticLogStore.recordStateChange(
                 "board_completion_pag_finished",
                 details: [
@@ -806,7 +881,14 @@ private struct BoardAllBingoPAGView: UIViewRepresentable {
             finish()
         }
 
-        func onAnimationCancel(_ pagView: PAGView) {
+        nonisolated func onAnimationCancel(_ pagView: PAGView) {
+            Self.deliverOnMain { [weak self, weak pagView] in
+                guard let self, let pagView else { return }
+                self.handleAnimationCancel(pagView)
+            }
+        }
+
+        private func handleAnimationCancel(_ pagView: PAGView) {
             // PAG cancellation has no end callback. Preserve the completion screen and advance
             // it to its actionable state instead of leaving the user on an inert final frame.
             DiagnosticLogStore.recordWarning(
@@ -903,7 +985,7 @@ struct BoardAllBingoCompletionView: View {
                     Text(completionMessage)
                     .font(.appSystem(size: 20, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.center)
-                    .foregroundColor(Color(hex: "291E0A"))
+                    .foregroundStyle(Color(hex: "291E0A"))
                     .offset(y: -30)
 
                     Button {
@@ -916,7 +998,7 @@ struct BoardAllBingoCompletionView: View {
                             ja: "私ってすごい！"
                         ))
                         .font(.appSystem(size: 17, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                         .background(

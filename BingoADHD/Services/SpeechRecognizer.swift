@@ -8,24 +8,28 @@ import Speech
 /// Keeping this service outside the sheet prevents the view from also owning
 /// the audio session lifecycle and makes the recognizer reusable by other
 /// input surfaces.
+@MainActor
 final class SpeechRecognizer: ObservableObject {
     @Published var isRecording = false
     private var audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var isInputTapInstalled = false
+    private var recordingSessionID = UUID()
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: AppLanguage.speechLocaleIdentifier))
 
-    func startRecording(onResult: @escaping (String) -> Void) {
+    func startRecording(onResult: @escaping @MainActor (String) -> Void) {
+        let sessionID = UUID()
+        recordingSessionID = sessionID
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
-            DispatchQueue.main.async {
-                guard status == .authorized else { return }
-                self?.beginRecording(onResult: onResult)
+            Task { @MainActor [weak self] in
+                guard let self, self.recordingSessionID == sessionID, status == .authorized else { return }
+                self.beginRecording(onResult: onResult)
             }
         }
     }
 
-    private func beginRecording(onResult: @escaping (String) -> Void) {
+    private func beginRecording(onResult: @escaping @MainActor (String) -> Void) {
         if recognitionTask != nil {
             recognitionTask?.cancel()
             recognitionTask = nil
@@ -47,14 +51,15 @@ final class SpeechRecognizer: ObservableObject {
         guard let recognitionRequest = recognitionRequest else { return }
         recognitionRequest.shouldReportPartialResults = true
 
+        let sessionID = recordingSessionID
         recognitionTask = speechRecognizer?.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-            if let result = result {
-                DispatchQueue.main.async {
-                    onResult(result.bestTranscription.formattedString)
-                }
-            }
-            if error != nil || (result?.isFinal ?? false) {
-                self?.stopRecording()
+            // Copy framework results before crossing into UI isolation.
+            let transcript = result?.bestTranscription.formattedString
+            let shouldStop = error != nil || (result?.isFinal ?? false)
+            Task { @MainActor [weak self] in
+                guard let self, self.recordingSessionID == sessionID else { return }
+                if let transcript { onResult(transcript) }
+                if shouldStop { self.stopRecording() }
             }
         }
 
@@ -68,7 +73,7 @@ final class SpeechRecognizer: ObservableObject {
         audioEngine.prepare()
         do {
             try audioEngine.start()
-            DispatchQueue.main.async { self.isRecording = true }
+            isRecording = true
         } catch {
             stopRecording()
             return
@@ -76,6 +81,7 @@ final class SpeechRecognizer: ObservableObject {
     }
 
     func stopRecording() {
+        recordingSessionID = UUID()
         audioEngine.stop()
         removeInputTapIfNeeded()
         recognitionRequest?.endAudio()
@@ -83,7 +89,7 @@ final class SpeechRecognizer: ObservableObject {
         recognitionTask?.cancel()
         recognitionTask = nil
         AppAudioSessionConfigurator.deactivateRecordingSession()
-        DispatchQueue.main.async { self.isRecording = false }
+        isRecording = false
     }
 
     private func removeInputTapIfNeeded() {

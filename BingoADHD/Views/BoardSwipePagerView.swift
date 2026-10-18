@@ -5,7 +5,8 @@ import SwiftUI
 /// pages, while leaving every cell's existing interaction untouched.
 struct BoardSwipePagerView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ObservedObject var viewModel: BingoViewModel
+    // The active BingoBoardView owns the observation; the pager only forwards it.
+    let viewModel: BingoViewModel
 
     let namedBoards: [BingoBoardStore.NamedBoard]
     let selectedBoardID: UUID?
@@ -26,11 +27,20 @@ struct BoardSwipePagerView: View {
     @State private var pageOffsetX: CGFloat = 0
     @State private var isCellReordering = false
     @State private var isPagerTransitioning = false
+    @State private var settledBoardID: UUID?
+    @State private var retainedPageRange: Range<Int> = 0..<0
+    @State private var pageAnimationID = UUID()
 
     var body: some View {
+        let pageRange = renderedPageRange
         ZStack(alignment: .leading) {
             HStack(spacing: 0) {
-                ForEach(namedBoards) { board in
+                // Preserve absolute page positions without constructing offscreen boards.
+                Color.clear
+                    .frame(width: CGFloat(pageRange.lowerBound) * contentWidth, height: contentWidth)
+                    .accessibilityHidden(true)
+
+                ForEach(namedBoards[pageRange]) { board in
                     page(for: board)
                         .frame(width: contentWidth, height: contentWidth)
                         .accessibilityHidden(board.id != activeBoardID)
@@ -56,6 +66,9 @@ struct BoardSwipePagerView: View {
         .onChange(of: namedBoards.map(\.id)) { _, _ in
             reconcilePageOffsetAfterBoardListChange()
         }
+        .onChange(of: contentWidth) { _, _ in
+            setPageOffsetWithoutAnimation(to: activeBoardID)
+        }
     }
 
     @ViewBuilder
@@ -78,7 +91,20 @@ struct BoardSwipePagerView: View {
                 currentTime: currentTime,
                 sideLength: contentWidth
             )
+            .equatable()
         }
+    }
+
+    private var renderedPageRange: Range<Int> {
+        let activeIndex = namedBoards.firstIndex { $0.id == activeBoardID }
+        let visibleIndex = contentWidth > 0 ? Int(floor(-(pageOffsetX + displayedDragOffset) / contentWidth)) : nil
+        return BoardSwipePageWindow.range(
+            boardCount: namedBoards.count,
+            activeIndex: activeIndex,
+            settledIndex: reduceMotion ? activeIndex : namedBoards.firstIndex { $0.id == settledBoardID },
+            retainedRange: reduceMotion ? 0..<0 : retainedPageRange,
+            visibleIndex: reduceMotion || settledBoardID == nil ? nil : visibleIndex
+        )
     }
 
     private var activeBoardID: UUID? {
@@ -163,7 +189,7 @@ struct BoardSwipePagerView: View {
     }
 
     private func synchronizePageOffsetWithSelectedBoard() {
-        guard !isPagerTransitioning else { return }
+        guard pageOffsetX != pageOffset(for: activeBoardID) else { return }
         animateToPage(activeBoardID)
     }
 
@@ -180,15 +206,26 @@ struct BoardSwipePagerView: View {
         let destinationOffset = pageOffset(for: boardID)
 
         guard !reduceMotion else {
-            pageOffsetX = destinationOffset
-            isPagerTransitioning = false
+            setPageOffsetWithoutAnimation(to: boardID)
             return
         }
 
+        // Keep every page crossed by a jump until the latest animation finishes.
+        // Rapid retargeting must not release pages still visible in the old animation.
+        retainedPageRange = renderedPageRange
+        let animationID = UUID()
+        pageAnimationID = animationID
         withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.86, blendDuration: 0.1)) {
             pageOffsetX = destinationOffset
         } completion: {
-            isPagerTransitioning = false
+            guard pageAnimationID == animationID else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                settledBoardID = boardID
+                retainedPageRange = 0..<0
+                isPagerTransitioning = false
+            }
         }
     }
 
@@ -196,7 +233,10 @@ struct BoardSwipePagerView: View {
         var transaction = Transaction()
         transaction.animation = nil
         withTransaction(transaction) {
+            pageAnimationID = UUID()
             pageOffsetX = pageOffset(for: boardID)
+            settledBoardID = boardID
+            retainedPageRange = 0..<0
             isPagerTransitioning = false
         }
     }

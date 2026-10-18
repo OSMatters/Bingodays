@@ -6,6 +6,8 @@ struct QuickEditGroupTab: Identifiable, Equatable {
 }
 
 struct QuickEditFilterTabsView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private enum ScrollTarget: Hashable {
         case allTasks
         case group(UUID)
@@ -64,7 +66,7 @@ struct QuickEditFilterTabsView: View {
             Button(action: onAddGroup) {
                 Text("+ \(L10n.addGroup)")
                     .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
+                    .foregroundStyle(NeumorphicColors.text)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(tabSurface(isSelected: false))
@@ -77,7 +79,7 @@ struct QuickEditFilterTabsView: View {
         Button(action: action) {
             Text(title)
                 .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                .foregroundColor(isSelected ? .white : NeumorphicColors.text)
+                .foregroundStyle(isSelected ? .white : NeumorphicColors.text)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(
@@ -122,7 +124,7 @@ struct QuickEditFilterTabsView: View {
         animated: Bool
     ) {
         DispatchQueue.main.async {
-            if animated {
+            if animated && !reduceMotion {
                 withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
                     proxy.scrollTo(target, anchor: anchor)
                 }

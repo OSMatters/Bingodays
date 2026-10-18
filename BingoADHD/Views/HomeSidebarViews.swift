@@ -16,18 +16,18 @@ struct SidebarMenuRow: View {
         HStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.appSystem(size: scaled(18, pad: 20), weight: .bold))
-                .foregroundColor(themeColor)
+                .foregroundStyle(themeColor)
                 .frame(width: isPadLayout ? 24 : 22, height: isPadLayout ? 24 : 22)
 
             Text(title)
                 .font(.appSystem(size: scaled(15, pad: 18), weight: .bold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .foregroundStyle(NeumorphicColors.text)
 
             Spacer()
 
             Image(systemName: trailingIcon)
                 .font(.appSystem(size: scaled(14, pad: 16), weight: .bold))
-                .foregroundColor(NeumorphicColors.text.opacity(0.42))
+                .foregroundStyle(NeumorphicColors.text.opacity(0.42))
                 .rotationEffect(.degrees(trailingRotation))
         }
     }
@@ -47,7 +47,7 @@ struct SidebarToggleRowView: View {
         HStack(spacing: 14) {
             Text(title)
                 .font(.appSystem(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.78))
+                .foregroundStyle(NeumorphicColors.text.opacity(0.78))
 
             Spacer()
 
@@ -77,13 +77,13 @@ struct SidebarDisclosureRow: View {
             HStack(spacing: 14) {
                 Text(title)
                     .font(.appSystem(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
+                    .foregroundStyle(NeumorphicColors.text.opacity(0.78))
 
                 Spacer()
 
                 Image(systemName: "chevron.down")
                     .font(.appSystem(size: 13, weight: .bold))
-                    .foregroundColor(themeColor)
+                    .foregroundStyle(themeColor)
                     .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
         }
@@ -109,13 +109,13 @@ struct SidebarSettingsLinkRow: View {
             HStack(spacing: 14) {
                 Text(title)
                     .font(.appSystem(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
+                    .foregroundStyle(NeumorphicColors.text.opacity(0.78))
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
                     .font(.appSystem(size: 13, weight: .bold))
-                    .foregroundColor(themeColor)
+                    .foregroundStyle(themeColor)
             }
         }
         .buttonStyle(.plain)
@@ -133,7 +133,7 @@ struct SidebarWidgetGuideTextRow: View {
     var body: some View {
         Text(L10n.homeWidgetInstructions)
             .font(.appSystem(size: scaled(12.5, pad: 14.5), weight: .medium, design: .rounded))
-            .foregroundColor(NeumorphicColors.text.opacity(0.6))
+            .foregroundStyle(NeumorphicColors.text.opacity(0.6))
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
@@ -171,7 +171,7 @@ struct SidebarStreakHeroView: View {
 
                 Text(L10n.dayStreak)
                     .font(.appSystem(size: scaled(16, pad: 19), weight: .bold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
+                    .foregroundStyle(NeumorphicColors.text)
             }
 
             Spacer(minLength: 8)
@@ -220,7 +220,7 @@ struct SidebarStreakGoalsView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(L10n.streakGoals)
                 .font(.appSystem(size: scaled(15, pad: 18), weight: .bold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .foregroundStyle(NeumorphicColors.text)
 
             HStack(alignment: .center, spacing: 8) {
                 ForEach(Array(goals.enumerated()), id: \.offset) { index, goal in
@@ -291,7 +291,7 @@ struct SidebarStreakGoalsView: View {
 
             Text("\(goal)")
                 .font(.appSystem(size: scaled(16, pad: 18), weight: .bold, design: .rounded))
-                .foregroundColor(isAchieved ? activeTone : NeumorphicColors.text.opacity(isCurrent ? 0.62 : 0.5))
+                .foregroundStyle(isAchieved ? activeTone : NeumorphicColors.text.opacity(isCurrent ? 0.62 : 0.5))
         }
         .frame(width: 44, height: 48)
     }
@@ -322,7 +322,7 @@ struct SidebarThemePickerTriggerRow: View {
         HStack(spacing: 14) {
             Text(L10n.themeColor)
                 .font(.appSystem(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.78))
+                .foregroundStyle(NeumorphicColors.text.opacity(0.78))
 
             Spacer()
 
@@ -337,7 +337,7 @@ struct SidebarThemePickerTriggerRow: View {
                         .padding(2)
                     Image(systemName: "paintpalette.fill")
                         .font(.appSystem(size: 11, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                 }
                 .frame(width: 26, height: 26)
                 .shadow(color: themeColor.opacity(0.24), radius: 6, x: 0, y: 3)
@@ -408,7 +408,7 @@ struct HomeThemePickerSheet: View {
                 Button(action: onApply) {
                     Text(L10n.apply)
                         .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 7)
                         .background(Capsule(style: .continuous).fill(selectedTheme.color))
@@ -485,7 +485,7 @@ struct HomeThemePickerSheet: View {
                     if stickerItems.isEmpty {
                         Text(L10n.noBlindBoxStickers)
                             .font(.appSystem(size: scaled(14, pad: 16), weight: .medium, design: .rounded))
-                            .foregroundColor(NeumorphicColors.text.opacity(0.56))
+                            .foregroundStyle(NeumorphicColors.text.opacity(0.56))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical, 10)
                     } else {
@@ -530,7 +530,7 @@ struct HomeThemePickerSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.appSystem(size: scaled(16, pad: 19), weight: .bold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .foregroundStyle(NeumorphicColors.text)
             content()
         }
     }
@@ -615,12 +615,12 @@ struct HomeThemePickerSheet: View {
             if isFullyPlaced {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.appSystem(size: 18, weight: .bold))
-                    .foregroundColor(NeumorphicColors.accent)
+                    .foregroundStyle(NeumorphicColors.accent)
                     .background(Circle().fill(NeumorphicColors.background))
             } else if item.ownedCount > 1 {
                 Text(placedCount == 0 ? "×\(item.ownedCount)" : "\(placedCount)/\(item.ownedCount)")
                     .font(.appSystem(size: 11, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
                     .background(Capsule(style: .continuous).fill(NeumorphicColors.accent))
@@ -1035,7 +1035,7 @@ struct BingodaysMeScreen: View {
                 .minimumScaleFactor(0.72)
         }
         .font(.custom("Outfit", size: scaled(23, pad: 27)).weight(.semibold))
-        .foregroundColor(skin.titleColor)
+        .foregroundStyle(skin.titleColor)
         .multilineTextAlignment(.center)
         .accessibilityElement(children: .combine)
         .offset(y: scaled(-4, pad: -5))
@@ -1046,14 +1046,14 @@ struct BingodaysMeScreen: View {
             Button(action: onOpenContact) {
                 Text("\(L10n.contactUs) 📫")
                     .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                    .foregroundColor(skin.actionColor)
+                    .foregroundStyle(skin.actionColor)
             }
             .buttonStyle(.plain)
 
             Button(action: onOpenSettings) {
                 Text("\(L10n.tr("Preferences", zhHans: "个性设置", zhHant: "個性設定", ja: "個人設定")) ⚙️")
                     .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                    .foregroundColor(skin.actionColor)
+                    .foregroundStyle(skin.actionColor)
             }
             .buttonStyle(.plain)
         }
@@ -1218,7 +1218,7 @@ private struct MeMembershipBadge: View {
 
             Text(memberTitle)
                 .font(.appSystem(size: scaled(10.5, pad: 12), weight: .bold, design: .rounded))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
@@ -1255,36 +1255,48 @@ private struct MeMembershipBadge: View {
 private struct MeStreakCard: View {
     let streakDays: Int
     let isPadLayout: Bool
+    @StateObject private var streakStore = AppOpenStreakStore.shared
+    @State private var isIconProgressPresented = false
 
     var body: some View {
-        ZStack {
-            Image("MeStreakBackground")
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
+        Button {
+            AppHaptics.control()
+            isIconProgressPresented = true
+        } label: {
+            ZStack {
+                Image("MeStreakBackground")
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
 
-            VStack(spacing: 2) {
-                HStack(spacing: 4) {
-                    Image("MeStreakIcon")
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFit()
-                        .frame(width: scaled(19, pad: 22), height: scaled(19, pad: 22))
+                VStack(spacing: 2) {
+                    HStack(spacing: 4) {
+                        Image("MeStreakIcon")
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFit()
+                            .frame(width: scaled(19, pad: 22), height: scaled(19, pad: 22))
 
-                    Text("\(streakDays)")
-                        .font(.appSystem(size: scaled(28, pad: 32), weight: .bold, design: .rounded))
-                        .foregroundColor(MeScreenPalette.accent)
+                        Text("\(streakDays)")
+                            .font(.appSystem(size: scaled(28, pad: 32), weight: .bold, design: .rounded))
+                            .foregroundStyle(MeScreenPalette.accent)
+                    }
+
+                    Text(L10n.consecutiveOpenDays)
+                        .font(.appSystem(size: scaled(9.5, pad: 11), weight: .bold, design: .rounded))
+                        .foregroundStyle(MeScreenPalette.accent.opacity(0.8))
                 }
-
-                Text(L10n.consecutiveOpenDays)
-                    .font(.appSystem(size: scaled(9.5, pad: 11), weight: .bold, design: .rounded))
-                    .foregroundColor(MeScreenPalette.accent.opacity(0.8))
+                .offset(y: scaled(10, pad: 12))
             }
-            .offset(y: scaled(10, pad: 12))
+            .frame(width: scaled(96, pad: 108), height: scaled(110, pad: 124))
+            .contentShape(Rectangle())
         }
-        .frame(width: scaled(96, pad: 108), height: scaled(110, pad: 124))
-        .accessibilityLabel(L10n.consecutiveOpenDays)
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.tr("View app icon unlock progress", zhHans: "查看桌面图标解锁进度", zhHant: "查看桌面圖標解鎖進度", ja: "アプリアイコンの解放進捗を見る"))
         .accessibilityValue("\(streakDays)")
+        .sheet(isPresented: $isIconProgressPresented) {
+            AppIconMilestoneSheet(milestones: [], streakStore: streakStore)
+        }
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
@@ -1297,9 +1309,6 @@ private struct MeCrownUpgradeButton: View {
     let textColor: Color
     let arrowImageName: String
     let onTap: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isCrownFloating = false
-    @State private var lightRotationDegrees = 0.0
 
     var body: some View {
         Button {
@@ -1307,27 +1316,30 @@ private struct MeCrownUpgradeButton: View {
             onTap()
         } label: {
             VStack(spacing: -5) {
-                ZStack {
-                    Image("MeLightBackground")
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFit()
-                        .frame(width: scaled(156, pad: 176), height: scaled(156, pad: 176))
-                        .rotationEffect(.degrees(reduceMotion ? 0 : lightRotationDegrees))
+                DecorativeAnimationTimeline { time in
+                    let floatProgress = time.map { (1 - cos(.pi * $0 / 1.15)) / 2 }
+                    ZStack {
+                        Image("MeLightBackground")
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFit()
+                            .frame(width: scaled(156, pad: 176), height: scaled(156, pad: 176))
+                            .rotationEffect(.degrees(time.map { $0.truncatingRemainder(dividingBy: 18) * 20 } ?? 0))
 
-                    Image("MeCrown")
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFit()
-                        .frame(width: scaled(78, pad: 88), height: scaled(70, pad: 80))
-                        .rotationEffect(.degrees(-10))
-                        .offset(y: scaled(reduceMotion ? 4 : (isCrownFloating ? 0 : 6), pad: reduceMotion ? 5 : (isCrownFloating ? 1 : 7)))
+                        Image("MeCrown")
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFit()
+                            .frame(width: scaled(78, pad: 88), height: scaled(70, pad: 80))
+                            .rotationEffect(.degrees(-10))
+                            .offset(y: scaled(floatProgress.map { 6 - 6 * $0 } ?? 4, pad: floatProgress.map { 7 - 6 * $0 } ?? 5))
+                    }
                 }
                 .frame(width: scaled(150, pad: 170), height: scaled(88, pad: 98))
 
                 Text(L10n.tr("Go Crowned", zhHans: "戴上皇冠", zhHant: "戴上皇冠", ja: "王冠をかぶる"))
                     .font(.appSystem(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
-                    .foregroundColor(textColor)
+                    .foregroundStyle(textColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
 
@@ -1343,19 +1355,6 @@ private struct MeCrownUpgradeButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(L10n.paywallHeroAllFeaturesTitle)
-        .onAppear {
-            startCrownMotionIfNeeded()
-        }
-    }
-
-    private func startCrownMotionIfNeeded() {
-        guard !reduceMotion else { return }
-        withAnimation(.easeInOut(duration: 1.15).repeatForever(autoreverses: true)) {
-            isCrownFloating = true
-        }
-        withAnimation(.linear(duration: 18).repeatForever(autoreverses: false)) {
-            lightRotationDegrees = 360
-        }
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
@@ -1476,7 +1475,7 @@ private struct MeOutlinedPillButton: View {
                 HStack(spacing: scaled(6, pad: 7)) {
                     Text(title)
                         .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                        .foregroundColor(MeScreenPalette.text)
+                        .foregroundStyle(MeScreenPalette.text)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                         .minimumScaleFactor(0.76)
@@ -1571,7 +1570,7 @@ struct MeSettingsScreen: View {
                             if isWidgetGuideExpanded {
                                 Text(L10n.homeWidgetInstructions)
                                     .font(.appSystem(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
-                                    .foregroundColor(MeScreenPalette.mutedText)
+                                    .foregroundStyle(MeScreenPalette.mutedText)
                                     .multilineTextAlignment(.leading)
                                     .fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1626,13 +1625,13 @@ struct MeSettingsScreen: View {
         ZStack {
             Text(L10n.setting)
                 .font(.appSystem(size: scaled(18, pad: 21), weight: .bold, design: .rounded))
-                .foregroundColor(MeScreenPalette.text)
+                .foregroundStyle(MeScreenPalette.text)
 
             HStack {
                 Button(action: onBack) {
                     Image(systemName: "chevron.left")
                         .font(.appSystem(size: scaled(17, pad: 19), weight: .bold))
-                        .foregroundColor(MeScreenPalette.text)
+                        .foregroundStyle(MeScreenPalette.text)
                         .frame(width: scaled(40, pad: 46), height: scaled(40, pad: 46))
                         .appLiquidGlass(in: Circle(), interactive: true)
                 }
@@ -1664,7 +1663,7 @@ struct MeSettingsScreen: View {
             Text("Version \(appShortVersion)")
         }
         .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-        .foregroundColor(MeScreenPalette.mutedText.opacity(0.72))
+        .foregroundStyle(MeScreenPalette.mutedText.opacity(0.72))
         .lineLimit(1)
         .minimumScaleFactor(0.72)
     }
@@ -1688,12 +1687,12 @@ private struct MeICloudSettingsEntry: View {
                 HStack(spacing: 5) {
                     Text(L10n.tr("iCloud Sync", zhHans: "iCloud 同步", zhHant: "iCloud 同步", ja: "iCloud同期"))
                         .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
-                        .foregroundColor(MeScreenPalette.text)
+                        .foregroundStyle(MeScreenPalette.text)
 
                     if let statusText {
                         Text("(\(statusText))")
                             .font(.appSystem(size: scaled(11, pad: 12.5), weight: .medium, design: .rounded))
-                            .foregroundColor(statusColor)
+                            .foregroundStyle(statusColor)
                             .lineLimit(1)
                             .minimumScaleFactor(0.78)
                     }
@@ -1704,7 +1703,7 @@ private struct MeICloudSettingsEntry: View {
             }
             .buttonStyle(.plain)
 
-            Toggle("", isOn: Binding(get: { isEnabled }, set: onSetEnabled))
+            Toggle("", isOn: Binding(get: { isEnabled }, set: { onSetEnabled($0) }))
                 .labelsHidden()
                 .toggleStyle(
                     SidebarGlassToggleStyle(
@@ -1767,7 +1766,7 @@ private struct MeSettingsToggleRow: View {
         HStack(spacing: 12) {
             Text(title)
                 .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
-                .foregroundColor(MeScreenPalette.text)
+                .foregroundStyle(MeScreenPalette.text)
 
             Spacer()
 
@@ -1799,13 +1798,13 @@ private struct MeSettingsActionRow: View {
             HStack(spacing: 12) {
                 Text(title)
                     .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
-                    .foregroundColor(MeScreenPalette.text)
+                    .foregroundStyle(MeScreenPalette.text)
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
                     .font(.appSystem(size: scaled(12, pad: 14), weight: .bold))
-                    .foregroundColor(MeScreenPalette.mutedText.opacity(0.48))
+                    .foregroundStyle(MeScreenPalette.mutedText.opacity(0.48))
             }
             .frame(height: scaled(50, pad: 58))
             .padding(.horizontal, scaled(18, pad: 22))
@@ -1834,30 +1833,30 @@ struct SidebarPricingDebugInfoRow: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Debug")
                 .font(.appSystem(size: scaled(12, pad: 13), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.6))
+                .foregroundStyle(NeumorphicColors.text.opacity(0.6))
             Text("Locale Region: \(AppLanguage.currentRegionCode)")
                 .font(debugFont)
-                .foregroundColor(debugTextColor)
+                .foregroundStyle(debugTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Text("Storefront: \(storefrontCountryCode) | \(storefrontID)")
                 .font(debugFont)
-                .foregroundColor(debugTextColor)
+                .foregroundStyle(debugTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Text("Language: \(languageCode)")
                 .font(debugFont)
-                .foregroundColor(debugTextColor)
+                .foregroundStyle(debugTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Text("Loaded Products: \(loaded)")
                 .font(debugFont)
-                .foregroundColor(debugTextColor)
+                .foregroundStyle(debugTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.45)
             Text("Missing Products: \(missing)")
                 .font(debugFont)
-                .foregroundColor(debugTextColor)
+                .foregroundStyle(debugTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.45)
         }
@@ -1955,12 +1954,12 @@ struct SidebarProEntryRow: View {
 
                 Image(systemName: "sparkle")
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .position(x: proStarCenterX, y: 21.5)
 
                 Text(titleText)
                     .font(OnboardingFonts.supporting(size: 20, weight: 600))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: titleFrameWidth, height: 25, alignment: textAlignment)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -1969,7 +1968,7 @@ struct SidebarProEntryRow: View {
 
                 Text(subtitleText)
                     .font(OnboardingFonts.supporting(size: 14, weight: 500))
-                    .foregroundColor(subtitleColor)
+                    .foregroundStyle(subtitleColor)
                     .frame(width: subtitleFrameWidth, height: 18, alignment: textAlignment)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -2092,7 +2091,7 @@ struct HomeSidebarView: View {
         .overlay(alignment: .bottomLeading) {
             Text("v\(appShortVersion)")
                 .font(.appSystem(size: scaled(12, pad: 13), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.35))
+                .foregroundStyle(NeumorphicColors.text.opacity(0.35))
                 .padding(.leading, 22)
                 .padding(.bottom, max(bottomInset, 12) + 8)
         }

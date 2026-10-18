@@ -140,7 +140,7 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
 
                 if isEnabled && (phase == .idle || phase == .hint || phase == .dragging) {
                     Button { enter(size: size, diameter: diameter) } label: {
-                        BlindBoxLottie(name: "blinbox_la", loop: true, still: reduceMotion)
+                        BlindBoxLottie(name: "blinbox_la", loop: true, still: reduceMotion || !isActive || isRewardsSubpagePresented)
                             .frame(width: 45, height: 66)
                             .frame(width: 60, height: 76)
                             .contentShape(Rectangle())
@@ -155,7 +155,7 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
                 }
 
                 if phase == .hint {
-                    BlindBoxLottie(name: cutoutTopInset == nil ? "blindbox_shou" : "blindbox_shou_hand", still: reduceMotion)
+                    BlindBoxLottie(name: cutoutTopInset == nil ? "blindbox_shou" : "blindbox_shou_hand", still: reduceMotion || !isActive || isRewardsSubpagePresented)
                         .id(cutoutTopInset == nil)
                         .frame(width: 108, height: 100)
                         // The hand matte begins about 46pt into this 100pt view.
@@ -167,7 +167,7 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
 
                 if phase == .dragging {
                     VStack(spacing: 8) {
-                        BlindBoxLottie(name: "blinbox_box", loop: true, still: reduceMotion)
+                        BlindBoxLottie(name: "blinbox_box", loop: true, still: reduceMotion || !isActive || isRewardsSubpagePresented)
                             .frame(width: 60, height: 60)
                         Text(L10n.tr("Release to enter Blind Boxes", zhHans: "下拉后松手，进入盲盒页", zhHant: "下拉後鬆手，進入盲盒頁", ja: "指を離してブラインドボックスへ"))
                             .font(.appSystem(size: 13, weight: .medium))
@@ -196,7 +196,7 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
             // The rewards grid owns ordinary vertical drags. The parent only
             // observes a deliberate pull that starts around the rope at top.
             .simultaneousGesture(pullGesture(size: size, diameter: diameter))
-            .task(id: canScheduleHints) {
+            .task(id: canScheduleHints && !reduceMotion) {
                 guard canScheduleHints else { return }
                 if !guideCompleted {
                     tutorialStart = .now
@@ -204,6 +204,7 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
                     return
                 }
                 // The rope loops independently. Only the hand has a quiet interval.
+                guard !reduceMotion else { return }
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .seconds(5)) } catch { return }
                     guard canScheduleHints else { return }
@@ -217,6 +218,15 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
             }
         }
         .ignoresSafeArea()
+        .onChange(of: reduceMotion) { _, reduced in
+            guard reduced, phase == .hint else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                circleBottom = -30
+                phase = .idle
+            }
+        }
         .background {
             BlindBoxCutoutProbe { insets in
                 let hasCutout = UIDevice.current.userInterfaceIdiom == .phone &&
@@ -280,7 +290,7 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
                 Button {
                     enter(size: size, diameter: max(size.width * 3, size.height * 2.4))
                 } label: {
-                    BlindBoxLottie(name: "blinbox_la", loop: true, still: reduceMotion)
+                    BlindBoxLottie(name: "blinbox_la", loop: true, still: reduceMotion || !isActive || isRewardsSubpagePresented)
                         .frame(width: 45, height: 66)
                         .frame(width: 60, height: 76)
                         .contentShape(Rectangle())
@@ -291,7 +301,7 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
 
                 // The hand demonstrates the gesture above the boundary; the
                 // caption keeps the exact eligible pull area unambiguous.
-                BlindBoxLottie(name: "scroll_down", still: reduceMotion, progress: progress)
+                BlindBoxLottie(name: "scroll_down", still: reduceMotion || !isActive || isRewardsSubpagePresented, progress: progress)
                     .frame(width: 98, height: 92)
                     .position(x: size.width / 2, y: dividerY - 61)
                     .allowsHitTesting(false)
@@ -460,33 +470,47 @@ private struct BlindBoxLottie: UIViewRepresentable {
     var loop = false
     var still = false
     var progress: Double? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+
+    final class Coordinator {
+        var wasPaused = false
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    private var shouldPause: Bool { still || reduceMotion || scenePhase != .active }
 
     func makeUIView(context: Context) -> LottieAnimationView {
         let view = LottieAnimationView(name: name, subdirectory: "BlindBoxMotion")
         view.contentMode = .scaleAspectFit
-        view.backgroundBehavior = .pauseAndRestore
+        view.backgroundBehavior = .pause
         view.isUserInteractionEnabled = false
-        if let progress, !still {
-            view.currentProgress = progress
-        } else if still {
+        view.loopMode = loop ? .loop : .playOnce
+        context.coordinator.wasPaused = shouldPause
+        if shouldPause {
             view.currentProgress = 0.5
+        } else if let progress {
+            view.currentProgress = progress
         } else {
-            view.loopMode = loop ? .loop : .playOnce
             view.play()
         }
         return view
     }
 
     func updateUIView(_ uiView: LottieAnimationView, context: Context) {
-        if still {
+        if shouldPause {
             uiView.pause()
-            uiView.currentProgress = 0.5
+            if still || reduceMotion { uiView.currentProgress = 0.5 }
         } else if let progress {
             uiView.currentProgress = progress
+        } else if context.coordinator.wasPaused {
+            uiView.play()
         }
+        context.coordinator.wasPaused = shouldPause
     }
 
-    static func dismantleUIView(_ uiView: LottieAnimationView, coordinator: ()) {
+    static func dismantleUIView(_ uiView: LottieAnimationView, coordinator: Coordinator) {
         uiView.stop()
     }
 }

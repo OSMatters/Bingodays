@@ -8,6 +8,7 @@ struct QuickEditView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @State private var library = MyTasksLibrary()
     @State private var taskHistoryRecords: [TaskHistoryRecord] = []
@@ -88,6 +89,15 @@ struct QuickEditView: View {
 
     private var isPremiumUser: Bool {
         subscriptionManager.hasPremiumAccess
+    }
+
+    private var isQuickEditCustomModalPresented: Bool {
+        isAddingGroupModalPresented
+            || groupRenameTargetID != nil
+            || taskEditorDraft != nil
+            || (groupActionTargetID.map { groupID in
+                library.groups.contains(where: { $0.id == groupID })
+            } ?? false)
     }
 
     private var canAddStandaloneTask: Bool {
@@ -287,20 +297,29 @@ struct QuickEditView: View {
         .safeAreaInset(edge: .bottom) {
             if isPremiumUser && activeFilter == .all && !isAddingGroupModalPresented {
                 quickEditBottomAddTaskBar
+                    .accessibilityHidden(isQuickEditCustomModalPresented)
             }
         }
     }
 
     private var quickEditNavigationContent: some View {
         ZStack {
-            quickEditBackground
-            quickEditMainScroll
-            QuickEditToastOverlayView(
-                isVisible: isLocalToastVisible,
-                message: localToastMessage,
-                isPadLayout: isPadLayout
-            )
+            Group {
+                quickEditBackground
+                quickEditMainScroll
+                QuickEditToastOverlayView(
+                    isVisible: isLocalToastVisible,
+                    message: localToastMessage,
+                    isPadLayout: isPadLayout
+                )
+            }
+            .accessibilityHidden(isQuickEditCustomModalPresented)
             quickEditModalOverlays
+        }
+        .transaction { transaction in
+            if reduceMotion {
+                transaction.animation = nil
+            }
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -380,7 +399,8 @@ struct QuickEditView: View {
         ToolbarItem(placement: .principal) {
             Text(L10n.quickEdit)
                 .font(.appSystem(size: scaled(20, pad: 23), weight: .bold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .foregroundStyle(NeumorphicColors.text)
+                .accessibilityHidden(isQuickEditCustomModalPresented)
         }
 
         ToolbarItem(placement: .topBarLeading) {
@@ -388,7 +408,8 @@ struct QuickEditView: View {
                 handleExitTap()
             }
             .fontWeight(.semibold)
-            .foregroundColor(NeumorphicColors.text)
+            .foregroundStyle(NeumorphicColors.text)
+            .accessibilityHidden(isQuickEditCustomModalPresented)
         }
 
         ToolbarItem(placement: .topBarTrailing) {
@@ -396,7 +417,8 @@ struct QuickEditView: View {
                 handleDoneTap()
             }
             .fontWeight(.semibold)
-            .foregroundColor(NeumorphicColors.text)
+            .foregroundStyle(NeumorphicColors.text)
+            .accessibilityHidden(isQuickEditCustomModalPresented)
         }
 
     }
@@ -454,7 +476,7 @@ struct QuickEditView: View {
             },
             onLongPressGroup: { groupID in
                 focusedField = nil
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                     groupActionTargetID = groupID
                 }
             },
@@ -1086,7 +1108,7 @@ struct QuickEditView: View {
     }
 
     private func dismissGroupActions() {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
             groupActionTargetID = nil
         }
     }
@@ -1419,12 +1441,12 @@ private func finalizeGroupDeletion(_ groupID: UUID) {
         hideLocalToastWorkItem?.cancel()
         localToastMessage = message
 
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.84)) {
+        withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.84)) {
             isLocalToastVisible = true
         }
 
         let workItem = DispatchWorkItem {
-            withAnimation(.easeOut(duration: 0.22)) {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
                 isLocalToastVisible = false
             }
         }

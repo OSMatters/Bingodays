@@ -25,24 +25,28 @@ enum BingoBoardLiveActivityController {
     }
 
     static func toggle(boardID: UUID) async throws {
-        try await enqueue {
-            if isDisplaying(boardID) {
-                for activity in activities {
-                    await activity.end(nil, dismissalPolicy: .immediate)
-                }
-                return
-            }
-            guard ActivityAuthorizationInfo().areActivitiesEnabled else { throw Failure.unavailable }
-            guard let board = loadBoard(boardID) else { throw Failure.boardMissing }
-            let attributes = BingoBoardActivityAttributes(boardID: boardID)
-            let content = try content(for: board)
-            let previous = activities
-            // Request first: a failed request leaves the previous board available.
-            _ = try Activity.request(attributes: attributes, content: content, pushType: nil)
-            for activity in previous {
+        try await enqueue { try await performToggle(boardID: boardID) }.value
+    }
+
+    // Keep ActivityKit reference objects inside a single nonisolated operation.
+    // The main-actor queue still serializes complete operations in their original order.
+    private nonisolated static func performToggle(boardID: UUID) async throws {
+        if activities.contains(where: { $0.attributes.boardID == boardID }) {
+            for activity in activities {
                 await activity.end(nil, dismissalPolicy: .immediate)
             }
-        }.value
+            return
+        }
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { throw Failure.unavailable }
+        guard let board = loadBoard(boardID) else { throw Failure.boardMissing }
+        let attributes = BingoBoardActivityAttributes(boardID: boardID)
+        let content = try content(for: board)
+        let previous = activities
+        // Request first: a failed request leaves the previous board available.
+        _ = try Activity.request(attributes: attributes, content: content, pushType: nil)
+        for activity in previous {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
     }
 
     static func scheduleRefresh() {
@@ -53,7 +57,7 @@ enum BingoBoardLiveActivityController {
         _ = try? await enqueue { await refreshActivities() }.value
     }
 
-    private static var activities: [Activity<BingoBoardActivityAttributes>] {
+    private nonisolated static var activities: [Activity<BingoBoardActivityAttributes>] {
         Activity.activities.filter { $0.activityState == .active || $0.activityState == .stale }
     }
 
@@ -67,7 +71,7 @@ enum BingoBoardLiveActivityController {
         return task
     }
 
-    private static func refreshActivities() async {
+    private nonisolated static func refreshActivities() async {
         for activity in activities {
             guard let board = loadBoard(activity.attributes.boardID) else {
                 await activity.end(nil, dismissalPolicy: .immediate)
@@ -86,13 +90,13 @@ enum BingoBoardLiveActivityController {
         }
     }
 
-    private static func loadBoard(_ id: UUID) -> BingoBoardStore.NamedBoard? {
+    private nonisolated static func loadBoard(_ id: UUID) -> BingoBoardStore.NamedBoard? {
         BingoBoardStore.withBoardPersistenceLock {
             BingoBoardStore.loadNamedBoardsSnapshot(repairingPersistence: false).boards.first { $0.id == id }
         } ?? nil
     }
 
-    static func content(for board: BingoBoardStore.NamedBoard, now: Date = .now) throws -> ActivityContent<BingoBoardActivityAttributes.ContentState> {
+    nonisolated static func content(for board: BingoBoardStore.NamedBoard, now: Date = .now) throws -> ActivityContent<BingoBoardActivityAttributes.ContentState> {
         let snapshot = BingoBoardActivitySnapshotBuilder.make(board: board, now: now)
         let state = try BingoBoardActivityAttributes.ContentState(snapshot: snapshot)
         let encoder = JSONEncoder()

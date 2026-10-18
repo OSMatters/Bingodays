@@ -1,8 +1,9 @@
 import SwiftUI
 import Combine
 
+@MainActor
 class BingoViewModel: ObservableObject {
-    typealias BingoCelebrationDismissScheduler = (TimeInterval, @escaping () -> Void) -> Void
+    typealias BingoCelebrationDismissScheduler = @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Void
 
     enum CompletionHistoryInheritance {
         case inheritExistingCount
@@ -40,10 +41,10 @@ class BingoViewModel: ObservableObject {
         }
     }
 
-    static let maxGridSize = BoardEngine.maxGridSize
-    static let defaultInitialGridSize = 3
-    static let maxTaskLength = AppSettings.maxTaskLength
-    static let maxCountdownMinutes = 30 * 24 * 60
+    nonisolated static let maxGridSize = BoardEngine.maxGridSize
+    nonisolated static let defaultInitialGridSize = 3
+    nonisolated static let maxTaskLength = AppSettings.maxTaskLength
+    nonisolated static let maxCountdownMinutes = 30 * 24 * 60
     private static let bingoCelebrationDuration: TimeInterval = 2.5
 
     struct ExpiredTaskEvent: Identifiable, Equatable {

@@ -54,42 +54,41 @@ struct TimeoutDialogCard: View {
                 .padding(.top, -8)
 
             Text(headline)
-                .font(.appSystem(size: scaled(20, pad: 24), weight: .bold, design: .rounded))
-                .foregroundColor(Color(red: 0.20, green: 0.14, blue: 0.09))
+                .appDynamicFont(size: scaled(20, pad: 24), weight: .bold, design: .rounded)
+                .foregroundStyle(Color(red: 0.20, green: 0.14, blue: 0.09))
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
-                .minimumScaleFactor(0.75)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 18)
                 .padding(.horizontal, 14)
 
             if let ruleReason, !ruleReason.isEmpty {
                 Text(ruleReason)
-                    .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                    .foregroundColor(Color(red: 0.20, green: 0.14, blue: 0.09).opacity(0.72))
+                    .appDynamicFont(size: scaled(14, pad: 16), weight: .semibold, design: .rounded)
+                    .foregroundStyle(Color(red: 0.20, green: 0.14, blue: 0.09).opacity(0.72))
                     .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.78)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 10)
                     .padding(.horizontal, 18)
             }
 
             if let boardNameLabel, !boardNameLabel.isEmpty {
                 Text(boardNameLabel)
-                    .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                    .foregroundColor(Color.black.opacity(0.58))
+                    .appDynamicFont(size: scaled(14, pad: 16), weight: .semibold, design: .rounded)
+                    .foregroundStyle(Color.black.opacity(0.58))
                     .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.78)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 10)
                     .padding(.horizontal, 18)
             }
 
             Button(action: onPrimaryAction) {
                 Text(L10n.markAsCompleted)
-                    .font(.appSystem(size: scaled(18, pad: 21), weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+                    .appDynamicFont(size: scaled(18, pad: 21), weight: .bold, design: .rounded)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .frame(height: scaled(56, pad: 62))
+                    .padding(.vertical, 12)
+                    .frame(minHeight: scaled(56, pad: 62))
                     .background(
                         Capsule(style: .continuous)
                             .fill(NeumorphicColors.modalAccent)
@@ -101,9 +100,10 @@ struct TimeoutDialogCard: View {
             if showsSecondaryAction {
                 Button(action: onSecondaryAction) {
                     Text(L10n.tr("Task postpone", zhHans: "任务延期", zhHant: "任務延期"))
-                        .font(.appSystem(size: scaled(18, pad: 21), weight: .semibold, design: .rounded))
-                        .foregroundColor(Color(red: 0.20, green: 0.14, blue: 0.09))
+                        .appDynamicFont(size: scaled(18, pad: 21), weight: .semibold, design: .rounded)
+                        .foregroundStyle(Color(red: 0.20, green: 0.14, blue: 0.09))
                         .padding(.vertical, 26)
+                        .frame(minHeight: 44)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.plain)
@@ -112,9 +112,10 @@ struct TimeoutDialogCard: View {
             if let bottomActionTitle, let onBottomAction {
                 Button(action: onBottomAction) {
                     Text(bottomActionTitle)
-                        .font(.appSystem(size: scaled(17, pad: 20), weight: .semibold, design: .rounded))
-                        .foregroundColor(Color.black.opacity(0.46))
+                        .appDynamicFont(size: scaled(17, pad: 20), weight: .semibold, design: .rounded)
+                        .foregroundStyle(Color.black.opacity(0.46))
                         .padding(.vertical, 18)
+                        .frame(minHeight: 44)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.plain)
@@ -143,6 +144,7 @@ struct ScheduledTaskReplacementDialogCard: View {
     let onClose: () -> Void
     let onReplace: () -> Void
     let onKeepCurrent: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(spacing: 0) {
@@ -150,11 +152,15 @@ struct ScheduledTaskReplacementDialogCard: View {
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.appSystem(size: scaled(18, pad: 20), weight: .semibold))
-                        .foregroundColor(Color.black.opacity(0.82))
-                        .frame(width: 32, height: 32)
+                        .appDynamicFont(size: scaled(18, pad: 20), weight: .semibold)
+                        .foregroundStyle(Color.black.opacity(0.82))
+                        .frame(
+                            width: dynamicTypeSize.isAccessibilitySize ? 48 : 32,
+                            height: dynamicTypeSize.isAccessibilitySize ? 48 : 32
+                        )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(L10n.tr("Close", zhHans: "关闭", zhHant: "關閉"))
             }
 
             Image("ClockTimeout")
@@ -164,28 +170,30 @@ struct ScheduledTaskReplacementDialogCard: View {
                 .padding(.top, -6)
 
             Text(headline)
-                .font(.appSystem(size: scaled(20, pad: 24), weight: .bold, design: .rounded))
-                .foregroundColor(Color(red: 0.20, green: 0.14, blue: 0.09))
+                .appDynamicFont(size: scaled(20, pad: 24), weight: .bold, design: .rounded)
+                .foregroundStyle(Color(red: 0.20, green: 0.14, blue: 0.09))
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
-                .minimumScaleFactor(0.75)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 8)
                 .padding(.horizontal, 14)
 
             Text(detail)
-                .font(.appSystem(size: scaled(15, pad: 17), weight: .medium, design: .rounded))
-                .foregroundColor(Color.black.opacity(0.62))
+                .appDynamicFont(size: scaled(15, pad: 17), weight: .medium, design: .rounded)
+                .foregroundStyle(Color.black.opacity(0.62))
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 10)
                 .padding(.horizontal, 14)
 
             Button(action: onReplace) {
                 Text(L10n.tr("Replace task", zhHans: "替换任务", zhHant: "替換任務"))
-                    .font(.appSystem(size: scaled(18, pad: 21), weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+                    .appDynamicFont(size: scaled(18, pad: 21), weight: .bold, design: .rounded)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .frame(height: scaled(56, pad: 62))
+                    .padding(.vertical, 12)
+                    .frame(minHeight: scaled(56, pad: 62))
                     .background(
                         Capsule(style: .continuous)
                             .fill(NeumorphicColors.modalAccent)
@@ -196,9 +204,10 @@ struct ScheduledTaskReplacementDialogCard: View {
 
             Button(action: onKeepCurrent) {
                 Text(L10n.tr("Keep current", zhHans: "保留当前", zhHant: "保留目前"))
-                    .font(.appSystem(size: scaled(18, pad: 21), weight: .semibold, design: .rounded))
-                    .foregroundColor(Color(red: 0.20, green: 0.14, blue: 0.09))
+                    .appDynamicFont(size: scaled(18, pad: 21), weight: .semibold, design: .rounded)
+                    .foregroundStyle(Color(red: 0.20, green: 0.14, blue: 0.09))
                     .padding(.vertical, 24)
+                    .frame(minHeight: 44)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
@@ -240,6 +249,7 @@ struct TimeoutDelayPickerOverlay: View {
     let isPadLayout: Bool
     let onDismiss: () -> Void
     let onApply: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -251,10 +261,10 @@ struct TimeoutDelayPickerOverlay: View {
                     Spacer()
                     Button(action: onApply) {
                         Text(L10n.tr("Apply", zhHans: "应用", zhHant: "套用"))
-                            .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
+                            .appDynamicFont(size: scaled(14, pad: 16), weight: .bold, design: .rounded)
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 14)
-                            .frame(height: 34)
+                            .frame(height: dynamicTypeSize.isAccessibilitySize ? 48 : 34)
                             .background(
                                 Capsule(style: .continuous)
                                     .fill(NeumorphicColors.modalAccent)
@@ -301,19 +311,19 @@ struct TimeoutDelayPickerOverlay: View {
     ) -> some View {
         VStack(spacing: 2) {
             Text(title)
-                .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                .foregroundColor(Color.black.opacity(0.66))
+                .appDynamicFont(size: scaled(14, pad: 16), weight: .semibold, design: .rounded)
+                .foregroundStyle(Color.black.opacity(0.66))
 
             Picker(title, selection: selection) {
                 ForEach(values, id: \.self) { value in
                     Text(formatter(value))
-                        .foregroundColor(.black)
+                        .foregroundStyle(.black)
                         .tag(value)
                 }
             }
             .labelsHidden()
             .pickerStyle(.wheel)
-            .frame(height: 90)
+            .frame(height: dynamicTypeSize.isAccessibilitySize ? 140 : 90)
             .clipped()
             .tint(Color(red: 0.20, green: 0.14, blue: 0.09))
         }

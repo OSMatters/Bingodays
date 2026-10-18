@@ -24,6 +24,7 @@ enum AppAudioSessionConfigurator {
     }
 }
 
+@MainActor
 final class PointsSoundPlayer {
     static let shared = PointsSoundPlayer()
 

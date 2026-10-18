@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 enum AppDebugFlags {
     /// Opt-in, same-bundle icon probe. Never available in a shipping build.
@@ -19,7 +20,7 @@ enum AppDebugFlags {
     }
 
 #if DEBUG
-    private static var hasConsumedLimitedOfferStateReset = false
+    private static let hasConsumedLimitedOfferStateReset = OSAllocatedUnfairLock(initialState: false)
 #endif
 
     static var forceUpdatePrompt: Bool {
@@ -135,9 +136,11 @@ enum AppDebugFlags {
     static func consumeLimitedOfferStateResetIfNeeded() -> Bool {
 #if DEBUG
         guard resetLimitedOfferState else { return false }
-        guard !hasConsumedLimitedOfferStateReset else { return false }
-        hasConsumedLimitedOfferStateReset = true
-        return true
+        return hasConsumedLimitedOfferStateReset.withLock { consumed in
+            guard !consumed else { return false }
+            consumed = true
+            return true
+        }
 #else
         return false
 #endif

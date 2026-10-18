@@ -195,6 +195,13 @@ struct LiveActivityBoardTests {
         }
     }
 
+    // Keep SDK reference objects within the cleanup operation; pass only their stable ID.
+    private nonisolated func endActivity(id: String) async {
+        if let activity = Activity<BingoBoardActivityAttributes>.activities.first(where: { $0.id == id }) {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+    }
+
     @Test
     func intentUpdatesLiveActivityAndSharedStores() async throws {
         try await withAsyncPersistence { now in
@@ -214,9 +221,9 @@ struct LiveActivityBoardTests {
                 #expect(PointsStore.loadTotalPoints() == 0)
                 #expect(activity.content.state.snapshot?.cells.first?.completed == false)
                 #expect(BingoBoardStore.loadBoard()?.cells[0][0].isCompleted == false)
-                await activity.end(nil, dismissalPolicy: .immediate)
+                await endActivity(id: activity.id)
             } catch {
-                await activity.end(nil, dismissalPolicy: .immediate)
+                await endActivity(id: activity.id)
                 throw error
             }
         }

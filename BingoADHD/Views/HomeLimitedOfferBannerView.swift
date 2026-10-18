@@ -34,6 +34,14 @@ private final class PAGLoopContainerView: UIView {
 
 private struct PAGLoopView: UIViewRepresentable {
     let resourceName: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+
+    final class Coordinator {
+        var playbackAllowed = false
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> PAGLoopContainerView {
         let container = PAGLoopContainerView()
@@ -47,14 +55,23 @@ private struct PAGLoopView: UIViewRepresentable {
         }
 
         imageView.setCurrentFrame(0)
-        imageView.play()
+        context.coordinator.playbackAllowed = !reduceMotion && scenePhase == .active
+        if context.coordinator.playbackAllowed { imageView.play() }
         return container
     }
 
     func updateUIView(_ uiView: PAGLoopContainerView, context: Context) {
+        let allowed = !reduceMotion && scenePhase == .active
+        if !allowed {
+            uiView.imageView.pause()
+            if reduceMotion { uiView.imageView.setCurrentFrame(0) }
+        } else if !context.coordinator.playbackAllowed {
+            uiView.imageView.play()
+        }
+        context.coordinator.playbackAllowed = allowed
     }
 
-    static func dismantleUIView(_ uiView: PAGLoopContainerView, coordinator: ()) {
+    static func dismantleUIView(_ uiView: PAGLoopContainerView, coordinator: Coordinator) {
         uiView.imageView.pause()
     }
 }
@@ -181,7 +198,7 @@ struct HomeLimitedOfferBannerView: View {
                 titleWithStar(fontSize: countdownTitleFontSize)
                 Text(countdownText(now: now))
                     .font(.appSystem(size: countdownFontSize, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -198,7 +215,7 @@ struct HomeLimitedOfferBannerView: View {
         HStack(spacing: isPadLayout ? 7 : 5) {
             Text(L10n.limitedOfferHomeTitle)
                 .font(.appSystem(size: fontSize, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.68)
 
@@ -206,7 +223,7 @@ struct HomeLimitedOfferBannerView: View {
                 .resizable()
                 .interpolation(.high)
                 .renderingMode(.template)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .frame(width: starSize, height: starSize)
         }
     }

@@ -19,6 +19,7 @@ private struct RewardEditorLayout {
     let cardHeight: CGFloat
     let cardScale: CGFloat
     let cardCenterY: CGFloat
+    let cardSkinPanelHeight: CGFloat
 }
 
 struct RewardEditorSheet: View {
@@ -47,6 +48,12 @@ struct RewardEditorSheet: View {
     @StateObject private var inputSession = RewardEditorInputSession()
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.blindBoxWindowSafeAreaInsets) private var windowSafeAreaInsets
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var usesAccessibilityType: Bool {
+        dynamicTypeSize.isAccessibilitySize
+    }
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -140,11 +147,7 @@ struct RewardEditorSheet: View {
     }
 
     private var skinPickerContentHeight: CGFloat {
-        scaled(220, pad: 288)
-    }
-
-    private var cardSkinPanelHeight: CGFloat {
-        scaled(350, pad: 430)
+        usesAccessibilityType ? scaled(260, pad: 320) : scaled(220, pad: 288)
     }
 
     private var cardSkinPanelBottomOffset: CGFloat {
@@ -197,11 +200,11 @@ struct RewardEditorSheet: View {
                     .zIndex(1)
 
                 if isPadDevice {
-                    cardSkinPanel
+                    cardSkinPanel(height: layout.cardSkinPanelHeight)
                         .allowsHitTesting(!isKeyboardVisible)
                         .zIndex(3)
                 } else if !isKeyboardVisible {
-                    cardSkinPanel
+                    cardSkinPanel(height: layout.cardSkinPanelHeight)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(3)
                 }
@@ -227,7 +230,6 @@ struct RewardEditorSheet: View {
             }
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        .dynamicTypeSize(.xSmall...DynamicTypeSize.xxxLarge)
         .alert(L10n.tr("Check reward details", zhHans: "请检查奖励信息", zhHant: "請檢查獎勵資料", ja: "報酬の内容を確認してください"), isPresented: Binding(
             get: { validationMessage != nil },
             set: { if !$0 { validationMessage = nil } }
@@ -272,6 +274,9 @@ struct RewardEditorSheet: View {
             : baseCardWidth
         let defaultCardHeight = baseCardHeight * (defaultCardWidth / baseCardWidth)
         let headerTopPadding = scaled(8, pad: 12)
+        let panelHeight = usesAccessibilityType
+            ? min(scaled(480, pad: 560), max(scaled(360, pad: 430), size.height * 0.58))
+            : scaled(350, pad: 430)
         let headerLeadingPadding = max(
             scaled(24, pad: 34),
             max(0, safeAreaInsets.leading) + scaled(12, pad: 16)
@@ -280,9 +285,9 @@ struct RewardEditorSheet: View {
             scaled(24, pad: 34),
             max(0, safeAreaInsets.trailing) + scaled(12, pad: 16)
         )
-        let headerHeight = scaled(56, pad: 66)
+        let headerHeight = usesAccessibilityType ? scaled(112, pad: 128) : scaled(56, pad: 66)
         let minimumCardTop = max(0, safeAreaInsets.top) + headerTopPadding + headerHeight + scaled(8, pad: 12)
-        let panelTop = size.height - cardSkinPanelHeight + cardSkinPanelBottomOffset
+        let panelTop = size.height - panelHeight + cardSkinPanelBottomOffset
         let cardBottom = panelTop - scaled(10, pad: 14)
         let availableCardHeight = max(scaled(148, pad: 190), cardBottom - minimumCardTop)
         let cardFitScale = min(1, max(0.62, availableCardHeight / defaultCardHeight))
@@ -298,7 +303,8 @@ struct RewardEditorSheet: View {
             cardScale: cardWidth / baseCardWidth,
             cardCenterY: usesExpandedPadPortraitLayout
                 ? (minimumCardTop + cardBottom) / 2
-                : cardBottom - cardHeight / 2
+                : cardBottom - cardHeight / 2,
+            cardSkinPanelHeight: panelHeight
         )
     }
 
@@ -314,57 +320,93 @@ struct RewardEditorSheet: View {
     }
 
     private var editorHeader: some View {
-        HStack {
-            Button {
-                cancelEditing()
-            } label: {
-                LiquidGlassIconBadge(
-                    systemName: "chevron.left",
-                    size: scaled(48, pad: 56),
-                    iconSize: scaled(18, pad: 22),
-                    foregroundColor: NeumorphicColors.text,
-                    glassInteractive: false
-                )
+        Group {
+            if usesAccessibilityType {
+                VStack(spacing: 4) {
+                    HStack {
+                        backButton
+                        Spacer(minLength: 12)
+                        saveButton
+                    }
+
+                    Text(L10n.rewardCard)
+                        .appDynamicFont(size: scaled(20, pad: 24), weight: .semibold, design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                HStack {
+                    backButton.offset(y: -10)
+
+                    Spacer()
+
+                    Text(L10n.rewardCard)
+                        .appDynamicFont(size: scaled(20, pad: 24), weight: .semibold, design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+
+                    Spacer()
+
+                    saveButton.offset(y: -10)
+                }
             }
-            .buttonStyle(.plain)
-            .offset(y: -30)
-
-            Spacer()
-
-            Text(L10n.rewardCard)
-                .font(.appSystem(size: scaled(20, pad: 24), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-
-            Spacer()
-
-            saveButton
-                .offset(y: -30)
         }
         .appGlassEffectContainer()
+    }
+
+    private var backButton: some View {
+        Button {
+            cancelEditing()
+        } label: {
+            LiquidGlassIconBadge(
+                systemName: "chevron.left",
+                size: scaled(48, pad: 56),
+                iconSize: scaled(18, pad: 22),
+                foregroundColor: NeumorphicColors.text,
+                glassInteractive: false
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.cancel)
     }
 
     private var saveButton: some View {
         Button(action: saveReward) {
             Group {
                 if isSaving {
-                    ProgressView().tint(NeumorphicColors.text)
+                    ProgressView()
+                        .tint(NeumorphicColors.text)
+                        .accessibilityLabel(L10n.tr("Saving reward", zhHans: "正在保存奖励", zhHant: "正在儲存獎勵", ja: "報酬を保存中"))
                 } else {
                     Text(L10n.save)
-                        .font(.appSystem(size: scaled(15, pad: 18), weight: .semibold, design: .rounded))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
+                        .appDynamicFont(size: scaled(15, pad: 18), weight: .semibold, design: .rounded)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .foregroundColor(NeumorphicColors.text)
-            .frame(width: scaled(54, pad: 64), height: scaled(48, pad: 56))
+            .foregroundStyle(NeumorphicColors.text)
+            .frame(
+                width: usesAccessibilityType ? nil : scaled(54, pad: 64),
+                height: usesAccessibilityType ? nil : scaled(48, pad: 56)
+            )
+            .frame(
+                minWidth: usesAccessibilityType ? scaled(88, pad: 104) : nil,
+                maxWidth: usesAccessibilityType ? scaled(148, pad: 168) : nil,
+                minHeight: usesAccessibilityType ? 56 : nil
+            )
             .appLiquidGlass(in: Capsule(style: .continuous), interactive: false)
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isSaving)
+        .accessibilityLabel(
+            isSaving
+                ? L10n.tr("Saving reward", zhHans: "正在保存奖励", zhHant: "正在儲存獎勵", ja: "報酬を保存中")
+                : L10n.save
+        )
         .accessibilityIdentifier("customReward.save")
     }
 
@@ -426,7 +468,7 @@ struct RewardEditorSheet: View {
     private func pointsEditor(scale: CGFloat, height: CGFloat) -> some View {
         HStack(spacing: scaled(4, pad: 6) * scale) {
             Text(L10n.rewardSetRedeem)
-                .foregroundColor(Color(red: 0.51, green: 0.51, blue: 0.51))
+                .foregroundStyle(Color(red: 0.51, green: 0.51, blue: 0.51))
 
             RewardInlineTextField(
                 text: $pointsText,
@@ -444,20 +486,20 @@ struct RewardEditorSheet: View {
                 .frame(width: max(scaled(64, pad: 80) * scale, scaled(44, pad: 54)))
 
             Text(L10n.pointsUnit)
-                .foregroundColor(NeumorphicColors.text)
+                .foregroundStyle(NeumorphicColors.text)
         }
-        .font(.appSystem(size: max(scaled(15, pad: 18) * scale, scaled(12, pad: 14)), weight: .medium, design: .rounded))
+        .appDynamicFont(size: max(scaled(15, pad: 18) * scale, scaled(12, pad: 14)), weight: .medium, design: .rounded)
         .lineLimit(1)
         .minimumScaleFactor(0.68)
         .frame(maxWidth: .infinity)
         .frame(height: height)
     }
 
-    private var cardSkinPanel: some View {
-        VStack(spacing: scaled(18, pad: 22)) {
+    private func cardSkinPanel(height: CGFloat) -> some View {
+        let panelContents = VStack(spacing: scaled(18, pad: 22)) {
             Text(L10n.cardSkin)
-                .font(.appSystem(size: scaled(16, pad: 20), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .appDynamicFont(size: scaled(16, pad: 20), weight: .semibold, design: .rounded)
+                .foregroundStyle(NeumorphicColors.text)
                 .padding(.top, scaled(23, pad: 28))
 
             HStack {
@@ -467,7 +509,6 @@ struct RewardEditorSheet: View {
 
                 cardSkinTabButton(title: L10n.rewardTheme, tab: .theme)
             }
-            .font(.appSystem(size: scaled(14, pad: 17), weight: .regular, design: .rounded))
             .padding(.horizontal, scaled(34, pad: 120))
 
             if selectedSkinTab == .emoji {
@@ -476,9 +517,19 @@ struct RewardEditorSheet: View {
                 themeSkinPicker
             }
         }
-        .frame(height: cardSkinPanelHeight, alignment: .top)
-        .animation(.spring(response: 0.24, dampingFraction: 0.9), value: selectedSkinTab)
-        .animation(.spring(response: 0.24, dampingFraction: 0.9), value: selectedThemeImageName)
+
+        return Group {
+            if usesAccessibilityType {
+                ScrollView(showsIndicators: false) {
+                    panelContents
+                }
+            } else {
+                panelContents
+            }
+        }
+        .frame(height: height, alignment: .top)
+        .animation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.9), value: selectedSkinTab)
+        .animation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.9), value: selectedThemeImageName)
         .frame(maxWidth: isPadLayout ? 620 : .infinity)
         .frame(maxWidth: .infinity)
         .background(
@@ -500,14 +551,19 @@ struct RewardEditorSheet: View {
             selectedSkinTab = tab
         } label: {
             Text(title)
-                .foregroundColor(isSelected ? .white : Color(red: 0.51, green: 0.51, blue: 0.51))
-                .frame(width: scaled(76, pad: 92), height: scaled(22, pad: 26))
+                .appDynamicFont(size: scaled(14, pad: 17), weight: .regular, design: .rounded)
+                .foregroundStyle(isSelected ? .white : Color(red: 0.51, green: 0.51, blue: 0.51))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: usesAccessibilityType ? scaled(112, pad: 132) : scaled(76, pad: 92))
+                .frame(minHeight: usesAccessibilityType ? 44 : scaled(22, pad: 26))
                 .background(
                     Capsule(style: .continuous)
                         .fill(isSelected ? Color(red: 0.82, green: 0.64, blue: 0.48) : .clear)
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var emojiSkinPicker: some View {
@@ -516,7 +572,10 @@ struct RewardEditorSheet: View {
                 emojiAddButton(showHint: true)
             } else {
                 LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: scaled(10, pad: 12)), count: 4),
+                    columns: Array(
+                        repeating: GridItem(.flexible(), spacing: scaled(10, pad: 12)),
+                        count: usesAccessibilityType ? 3 : 4
+                    ),
                     spacing: scaled(10, pad: 12)
                 ) {
                     emojiAddButton(showHint: false)
@@ -540,13 +599,14 @@ struct RewardEditorSheet: View {
                                 )
                         }
                         .buttonStyle(.plain)
+                        .accessibilityAddTraits(emoji == selectedEmoji ? .isSelected : [])
                     }
                 }
             }
         }
         .padding(.horizontal, scaled(32, pad: 44))
         .padding(.bottom, scaled(24, pad: 32))
-        .frame(height: skinPickerContentHeight, alignment: .top)
+        .frame(height: usesAccessibilityType ? nil : skinPickerContentHeight, alignment: .top)
     }
 
     @ViewBuilder
@@ -559,8 +619,8 @@ struct RewardEditorSheet: View {
                     emojiAddIcon
 
                     Text(L10n.rewardEmojiKeyboardHint)
-                        .font(.appSystem(size: scaled(14, pad: 17), weight: .semibold, design: .rounded))
-                        .foregroundColor(Color(red: 0.51, green: 0.51, blue: 0.51))
+                        .appDynamicFont(size: scaled(14, pad: 17), weight: .semibold, design: .rounded)
+                        .foregroundStyle(Color(red: 0.51, green: 0.51, blue: 0.51))
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -572,6 +632,8 @@ struct RewardEditorSheet: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(L10n.tr("Add an emoji", zhHans: "添加表情", zhHant: "新增表情", ja: "絵文字を追加"))
+        .accessibilityHint(L10n.rewardEmojiKeyboardHint)
     }
 
     @ViewBuilder
@@ -584,6 +646,7 @@ struct RewardEditorSheet: View {
         .buttonStyle(.plain)
         .contentShape(Rectangle())
         .accessibilityLabel(L10n.emoji)
+        .accessibilityValue(selectedEmoji)
         .accessibilityHint(L10n.rewardEmojiKeyboardHint)
     }
 
@@ -598,50 +661,80 @@ struct RewardEditorSheet: View {
     private var emojiAddIcon: some View {
         Image(systemName: "plus")
             .font(.appSystem(size: scaled(22, pad: 27), weight: .semibold))
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
             .frame(height: scaled(52, pad: 64))
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Color(red: 0.78, green: 0.76, blue: 0.73))
             )
+            .accessibilityHidden(true)
     }
 
     private var themeSkinPicker: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: scaled(10, pad: 14)), count: 3)
+        let columns = Array(
+            repeating: GridItem(.flexible(), spacing: scaled(10, pad: 14)),
+            count: usesAccessibilityType ? 2 : 3
+        )
 
-        return ScrollView(showsIndicators: false) {
-            LazyVGrid(columns: columns, spacing: scaled(10, pad: 14)) {
-                ForEach(RewardThemeSkin.all) { skin in
-                    Button {
-                        selectedThemeImageName = skin.imageName
-                        endInputSession()
-                        emojiInputBuffer = ""
-                    } label: {
-                        ZStack(alignment: .topTrailing) {
-                            Image(skin.imageName)
-                                .resizable()
-                                .interpolation(.high)
-                                .scaledToFit()
-                                .aspectRatio(CustomRewardThemeCardImage.aspectRatio, contentMode: .fit)
-                                .frame(maxWidth: .infinity)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        let themeGrid = LazyVGrid(columns: columns, spacing: scaled(10, pad: 14)) {
+            ForEach(RewardThemeSkin.all) { skin in
+                Button {
+                    selectedThemeImageName = skin.imageName
+                    endInputSession()
+                    emojiInputBuffer = ""
+                } label: {
+                    ZStack(alignment: .topTrailing) {
+                        Image(skin.imageName)
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFit()
+                            .aspectRatio(CustomRewardThemeCardImage.aspectRatio, contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-                            if selectedThemeImageName == skin.imageName {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.appSystem(size: scaled(22, pad: 26), weight: .bold))
-                                    .foregroundColor(.white)
-                                    .shadow(color: .black.opacity(0.22), radius: 3, x: 0, y: 1)
-                                    .padding(scaled(5, pad: 6))
-                            }
+                        if selectedThemeImageName == skin.imageName {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.appSystem(size: scaled(22, pad: 26), weight: .bold))
+                                .foregroundStyle(.white)
+                                .shadow(color: .black.opacity(0.22), radius: 3, x: 0, y: 1)
+                                .padding(scaled(5, pad: 6))
+                                .accessibilityHidden(true)
                         }
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    L10n.tr(
+                        "Reward theme \(skin.id)",
+                        zhHans: "奖励主题 \(skin.id)",
+                        zhHant: "獎勵主題 \(skin.id)",
+                        ja: "報酬テーマ \(skin.id)"
+                    )
+                )
+                .accessibilityAddTraits(selectedThemeImageName == skin.imageName ? .isSelected : [])
+                .accessibilityHint(
+                    L10n.tr(
+                        "Changes the reward card background.",
+                        zhHans: "更改奖励卡片背景。",
+                        zhHant: "更改獎勵卡片背景。",
+                        ja: "報酬カードの背景を変更します。"
+                    )
+                )
             }
         }
-        .frame(height: skinPickerContentHeight)
+
+        return Group {
+            if usesAccessibilityType {
+                themeGrid
+            } else {
+                ScrollView(showsIndicators: false) {
+                    themeGrid
+                }
+                .frame(height: skinPickerContentHeight)
+            }
+        }
         .padding(.horizontal, scaled(24, pad: 34))
         .padding(.bottom, 0)
     }
@@ -698,6 +791,7 @@ private struct RewardInlineTextField: UIViewRepresentable {
         textField.backgroundColor = .clear
         textField.keyboardType = keyboardType
         textField.returnKeyType = .done
+        textField.adjustsFontForContentSizeCategory = true
         textField.autocorrectionType = .no
         textField.spellCheckingType = .no
         textField.smartInsertDeleteType = .no
@@ -729,13 +823,39 @@ private struct RewardInlineTextField: UIViewRepresentable {
     }
 
     private func applyConfiguration(to textField: UITextField) {
-        textField.font = font
+        let scaledFont = UIFontMetrics(forTextStyle: .body).scaledFont(for: font)
+        textField.font = scaledFont
+        textField.minimumFontSize = max(scaledFont.pointSize * 0.72, 10)
         textField.textColor = textColor
         textField.textAlignment = textAlignment
         textField.attributedPlaceholder = NSAttributedString(
             string: placeholder,
             attributes: [.foregroundColor: placeholderColor]
         )
+        switch field {
+        case .title:
+            textField.accessibilityLabel = L10n.rewardTitle
+            textField.accessibilityHint = L10n.tr(
+                "Type a name for this reward.",
+                zhHans: "输入这个奖励的名称。",
+                zhHant: "輸入這個獎勵的名稱。",
+                ja: "この報酬の名前を入力します。"
+            )
+            textField.accessibilityIdentifier = "customReward.title"
+        case .points:
+            textField.accessibilityLabel = L10n.rewardPoints
+            textField.accessibilityHint = L10n.tr(
+                "Enter a number from 1 to 9999.",
+                zhHans: "请输入 1 到 9999 之间的数字。",
+                zhHant: "請輸入 1 到 9999 之間的數字。",
+                ja: "1〜9999の数字を入力してください。"
+            )
+            textField.accessibilityIdentifier = "customReward.points"
+        case .emoji:
+            textField.accessibilityLabel = L10n.emoji
+            textField.accessibilityHint = L10n.rewardEmojiKeyboardHint
+            textField.accessibilityIdentifier = "customReward.emoji"
+        }
     }
 
     final class Coordinator: NSObject, UITextFieldDelegate {
@@ -833,6 +953,9 @@ private struct EmojiKeyboardHost: UIViewRepresentable {
         textField.textColor = .clear
         textField.backgroundColor = .clear
         textField.returnKeyType = .done
+        textField.accessibilityLabel = L10n.emoji
+        textField.accessibilityHint = L10n.rewardEmojiKeyboardHint
+        textField.accessibilityIdentifier = "customReward.emoji"
         inputSession.register(textField, field: .emoji)
         return textField
     }

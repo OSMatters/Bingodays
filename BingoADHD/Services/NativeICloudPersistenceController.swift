@@ -194,7 +194,7 @@ final class NativeICloudPersistenceController {
         container.persistentStoreDescriptions = [description]
     }
 
-    func load() async throws {
+    func load(isolation: isolated (any Actor)? = #isolation) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             container.loadPersistentStores { [container] _, error in
                 if let error {
@@ -202,11 +202,16 @@ final class NativeICloudPersistenceController {
                     return
                 }
 
-                container.viewContext.automaticallyMergesChangesFromParent = true
-                container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-                container.viewContext.name = "BingodaysNativeCloudViewContext"
-                try? container.viewContext.setQueryGenerationFrom(.current)
-                continuation.resume(returning: ())
+                // Store loading may finish off-main. Configure the context on its own queue
+                // before allowing the runtime to use the loaded mirror.
+                let context = container.viewContext
+                context.perform {
+                    context.automaticallyMergesChangesFromParent = true
+                    context.mergePolicy = NSMergePolicy(merge: .mergeByPropertyObjectTrumpMergePolicyType)
+                    context.name = "BingodaysNativeCloudViewContext"
+                    try? context.setQueryGenerationFrom(.current)
+                    continuation.resume(returning: ())
+                }
             }
         }
     }

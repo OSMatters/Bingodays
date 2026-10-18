@@ -1396,6 +1396,7 @@ final class HomeBoardStateChangeTests: XCTestCase {
     }
 }
 
+@MainActor
 final class WidgetTaskToggleServiceTests: XCTestCase {
     func testRejectedWidgetMutationCannotReplayPoints() throws {
         let now = Date()
@@ -2843,6 +2844,7 @@ final class WidgetTaskEventMergeTests: XCTestCase {
 }
 
 
+@MainActor
 final class PointRedemptionReconcilerTests: XCTestCase {
     @MainActor
     func testRewardEditorSaveReadsVisibleTextInsteadOfStaleBindings() {
@@ -4029,6 +4031,7 @@ final class TaskRecurrenceRuleTests: XCTestCase {
     }
 }
 
+@MainActor
 final class TaskCountdownSettingViewModelTests: XCTestCase {
     func testTaskCountdownDisplayUsesHoursMinutesSecondsWithoutUnits() {
         let referenceDate = Date(timeIntervalSince1970: 1_000)
@@ -4438,6 +4441,7 @@ final class TaskCountdownSettingViewModelTests: XCTestCase {
     }
 }
 
+@MainActor
 final class RepeatingTaskTimingRuleTests: XCTestCase {
     func testAllRepeatingKindsDiscardStartEndReminderAndCountdownOnSave() {
         let now = makeDate(year: 2026, month: 7, day: 12, hour: 9)
@@ -4803,6 +4807,7 @@ final class RepeatingTaskTimingRuleTests: XCTestCase {
     }
 }
 
+@MainActor
 final class BoardTaskPointIntegrationTests: XCTestCase {
     func testSameBoardRefreshKeepsUnresolvedTaskTimeoutIdentity() throws {
         let now = Date()
@@ -6378,6 +6383,7 @@ private final class LockedTestCounter: @unchecked Sendable {
     }
 }
 
+@MainActor
 final class BingoViewModelPersistenceGuardrailTests: XCTestCase {
     func testInvalidPersistedGridSizeIsClampedDuringInitialization() {
         let now = makeDate(year: 2026, month: 7, day: 12, hour: 12)
@@ -7111,6 +7117,7 @@ final class QuickEditPreviewAppendTests: XCTestCase {
     }
 }
 
+@MainActor
 final class TaskRuleWriteProtectionTests: XCTestCase {
     func testGuardRejectsOnlyRetainedRepeatingCellDowngrades() {
         let now = Date()
@@ -7215,6 +7222,7 @@ final class TaskRuleWriteProtectionTests: XCTestCase {
     }
 }
 
+@MainActor
 final class QuickEditReselectionRuleTests: XCTestCase {
     func testNewInlineSingleIsExplicitAndRemainsUsableUntilCompleted() throws {
         let now = Date()
@@ -7951,6 +7959,7 @@ final class TaskHistoryStoreTests: XCTestCase {
     }
 }
 
+@MainActor
 final class BingoViewModelSideEffectCountTests: XCTestCase {
     func testTaskEditCommitsEachPersistenceSideEffectOnce() {
         let now = Date()
@@ -8928,6 +8937,7 @@ final class BingoViewModelSideEffectCountTests: XCTestCase {
     }
 }
 
+@MainActor
 final class BoardManagementStoreTests: XCTestCase {
     @MainActor
     func testSelectBoardReportsSelectionSideEffects() {
@@ -9966,6 +9976,7 @@ private func makeAppReviewPresentationState(
     )
 }
 
+@MainActor
 final class UserReportedDailyTaskLifecycleRegressionTests: XCTestCase {
     @MainActor
     func testTimeoutCannotOverwriteAnotherTaskEditedExternally() throws {
@@ -11810,6 +11821,7 @@ private final class InMemoryBingoPersistenceTransactionRepository: BingoPersiste
     }
 }
 
+@MainActor
 final class HomeEditingStabilityTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_780_000_000)
 
@@ -12023,6 +12035,7 @@ final class SubscriptionPriceDisplayTests: XCTestCase {
     }
 }
 
+@MainActor
 final class TaskCompletionHistoryRuleGuardrailTests: XCTestCase {
     func testCompletionHistoryBadgeDisplaysOnlyForRepeatedCompletions() {
         XCTAssertFalse(TaskCompletionHistoryRuleEngine.shouldDisplayCompletionHistoryBadge(count: -1))

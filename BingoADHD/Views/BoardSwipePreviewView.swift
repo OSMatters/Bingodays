@@ -2,71 +2,75 @@ import SwiftUI
 
 /// A non-interactive neighbor page used only while the pager follows a horizontal drag.
 /// It reads a persisted board snapshot and deliberately has no mutation callbacks.
-struct BoardSwipePreviewView: View {
-    let cells: [[BingoCell]]
-    let completedLines: Set<BingoLine>
-    let activeForcedCellIDs: Set<UUID>
-    let gridSize: Int
+struct BoardSwipePreviewView: View, Equatable {
+    let savedBoard: SavedBoard
     let currentTime: Date
     let sideLength: CGFloat
 
-    private let boardInnerPadding: CGFloat
-    private let cellSpacing: CGFloat
+    // No retained cache: changes to the snapshot, time, or size invalidate equality.
+    // Drag-only updates skip this body and therefore skip the board projection.
+    private struct Projection {
+        let cells: [[BingoCell]]
+        let completedLines: Set<BingoLine>
+        let activeForcedCellIDs: Set<UUID>
+        let gridSize: Int
 
-    init(
-        savedBoard: SavedBoard,
-        currentTime: Date,
-        sideLength: CGFloat
-    ) {
-        let normalizedGridSize = min(max(savedBoard.gridSize, 2), BoardEngine.maxGridSize)
-        let expandedCells = BoardEngine.expandedBoardCache(from: savedBoard)
-        let visibleCells = BoardEngine.projectVisibleCells(
-            from: expandedCells,
-            size: normalizedGridSize,
-            referenceDate: currentTime
-        )
+        let boardInnerPadding: CGFloat
+        let cellSpacing: CGFloat
 
-        cells = visibleCells
-        completedLines = BoardEngine.completedLines(in: visibleCells, size: normalizedGridSize)
-        activeForcedCellIDs = Set(
-            visibleCells
-                .flatMap(\.self)
-                .filter { cell in
-                    cell.isForced &&
-                        !cell.isCompleted &&
-                        !cell.isEmpty &&
-                        cell.isCurrentlyTappable(on: currentTime)
-                }
-                .map(\.id)
-        )
-        gridSize = normalizedGridSize
-        self.currentTime = currentTime
-        self.sideLength = sideLength
+        init(
+            savedBoard: SavedBoard,
+            currentTime: Date
+        ) {
+            let normalizedGridSize = min(max(savedBoard.gridSize, 2), BoardEngine.maxGridSize)
+            let expandedCells = BoardEngine.expandedBoardCache(from: savedBoard)
+            let visibleCells = BoardEngine.projectVisibleCells(
+                from: expandedCells,
+                size: normalizedGridSize,
+                referenceDate: currentTime
+            )
 
-        switch normalizedGridSize {
-        case ...3:
-            boardInnerPadding = 16
-            cellSpacing = 15
-        case 4:
-            boardInnerPadding = 13
-            cellSpacing = 10
-        default:
-            boardInnerPadding = 10
-            cellSpacing = 8
+            cells = visibleCells
+            completedLines = BoardEngine.completedLines(in: visibleCells, size: normalizedGridSize)
+            activeForcedCellIDs = Set(
+                visibleCells
+                    .flatMap(\.self)
+                    .filter { cell in
+                        cell.isForced &&
+                            !cell.isCompleted &&
+                            !cell.isEmpty &&
+                            cell.isCurrentlyTappable(on: currentTime)
+                    }
+                    .map(\.id)
+            )
+            gridSize = normalizedGridSize
+
+            switch normalizedGridSize {
+            case ...3:
+                boardInnerPadding = 16
+                cellSpacing = 15
+            case 4:
+                boardInnerPadding = 13
+                cellSpacing = 10
+            default:
+                boardInnerPadding = 10
+                cellSpacing = 8
+            }
         }
     }
 
     var body: some View {
-        VStack(spacing: cellSpacing) {
-            ForEach(0..<gridSize, id: \.self) { row in
-                HStack(spacing: cellSpacing) {
-                    ForEach(0..<gridSize, id: \.self) { column in
-                        previewCell(row: row, column: column)
+        let projection = Projection(savedBoard: savedBoard, currentTime: currentTime)
+        VStack(spacing: projection.cellSpacing) {
+            ForEach(0..<projection.gridSize, id: \.self) { row in
+                HStack(spacing: projection.cellSpacing) {
+                    ForEach(0..<projection.gridSize, id: \.self) { column in
+                        previewCell(row: row, column: column, projection: projection)
                     }
                 }
             }
         }
-        .padding(boardInnerPadding)
+        .padding(projection.boardInnerPadding)
         .frame(width: sideLength, height: sideLength)
         .background {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -76,17 +80,18 @@ struct BoardSwipePreviewView: View {
     }
 
     @ViewBuilder
-    private func previewCell(row: Int, column: Int) -> some View {
-        if row < cells.count, column < cells[row].count {
-            let cell = cells[row][column]
+    private func previewCell(row: Int, column: Int, projection: Projection) -> some View {
+        let cellSize = cellSize(for: projection)
+        if row < projection.cells.count, column < projection.cells[row].count {
+            let cell = projection.cells[row][column]
             BingoCellView(
                 cell: cell,
                 currentTime: currentTime,
                 isScheduledInactive: isScheduledInactive(cell),
                 scheduleStatusText: nil,
                 debugIdentifier: "board-swipe-preview-\(row)-\(column)",
-                isInBingoLine: isInCompletedLine(row: row, column: column),
-                isLocked: isLocked(cell),
+                isInBingoLine: isInCompletedLine(row: row, column: column, projection: projection),
+                isLocked: !projection.activeForcedCellIDs.isEmpty && !projection.activeForcedCellIDs.contains(cell.id),
                 cellSize: cellSize,
                 isFirstCell: row == 0 && column == 0,
                 isInteractive: false,
@@ -105,21 +110,17 @@ struct BoardSwipePreviewView: View {
         }
     }
 
-    private var cellSize: CGFloat {
-        let totalSpacing = cellSpacing * CGFloat(gridSize - 1)
-        return (sideLength - (boardInnerPadding * 2) - totalSpacing) / CGFloat(gridSize)
+    private func cellSize(for projection: Projection) -> CGFloat {
+        let totalSpacing = projection.cellSpacing * CGFloat(projection.gridSize - 1)
+        return (sideLength - (projection.boardInnerPadding * 2) - totalSpacing) / CGFloat(projection.gridSize)
     }
 
     private func isScheduledInactive(_ cell: BingoCell) -> Bool {
         (cell.isDisplayOnlyInactive || !cell.isCurrentlyTappable(on: currentTime)) && !cell.isCompleted
     }
 
-    private func isLocked(_ cell: BingoCell) -> Bool {
-        !activeForcedCellIDs.isEmpty && !activeForcedCellIDs.contains(cell.id)
-    }
-
-    private func isInCompletedLine(row: Int, column: Int) -> Bool {
-        completedLines.contains { line in
+    private func isInCompletedLine(row: Int, column: Int, projection: Projection) -> Bool {
+        projection.completedLines.contains { line in
             switch line {
             case .row(let lineRow):
                 lineRow == row
@@ -128,7 +129,7 @@ struct BoardSwipePreviewView: View {
             case .diagonalMain:
                 row == column
             case .diagonalAnti:
-                row + column == gridSize - 1
+                row + column == projection.gridSize - 1
             }
         }
     }

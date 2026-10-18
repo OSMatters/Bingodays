@@ -4,7 +4,9 @@ import CloudKit
 import BackgroundTasks
 import FirebaseCore
 import UserNotifications
+import os
 
+@MainActor
 enum AppFontRegistrar {
     private static var hasRegisteredFonts = false
 
@@ -86,7 +88,7 @@ enum TaskStartReminderService {
     static func requestAuthorizationIfNeeded() async -> Bool {
         let center = UNUserNotificationCenter.current()
         let settings = await notificationSettings(center: center)
-        switch settings.authorizationStatus {
+        switch settings {
         case .authorized, .provisional, .ephemeral:
             return true
         case .denied:
@@ -270,13 +272,34 @@ enum TaskStartReminderService {
         center.add(request)
     }
 
-    private static func pendingRequest(_ request: UNNotificationRequest, matches reminder: PendingReminder) -> Bool {
-        guard request.content.title == reminder.title,
-              request.content.body == reminder.body,
-              request.content.userInfo["type"] as? String == "task_start_reminder",
-              request.content.userInfo["board_id"] as? String == reminder.boardID.uuidString,
-              request.content.userInfo["cell_id"] as? String == reminder.cellID.uuidString,
-              let trigger = request.trigger as? UNCalendarNotificationTrigger else {
+    // Copy only the fields used for reconciliation before leaving the SDK callback.
+    private struct PendingRequestSnapshot: Sendable {
+        let identifier: String
+        let title: String
+        let body: String
+        let type: String?
+        let boardID: String?
+        let cellID: String?
+        let dateComponents: DateComponents?
+
+        init(_ request: UNNotificationRequest) {
+            identifier = request.identifier
+            title = request.content.title
+            body = request.content.body
+            type = request.content.userInfo["type"] as? String
+            boardID = request.content.userInfo["board_id"] as? String
+            cellID = request.content.userInfo["cell_id"] as? String
+            dateComponents = (request.trigger as? UNCalendarNotificationTrigger)?.dateComponents
+        }
+    }
+
+    private static func pendingRequest(_ request: PendingRequestSnapshot, matches reminder: PendingReminder) -> Bool {
+        guard request.title == reminder.title,
+              request.body == reminder.body,
+              request.type == "task_start_reminder",
+              request.boardID == reminder.boardID.uuidString,
+              request.cellID == reminder.cellID.uuidString,
+              let dateComponents = request.dateComponents else {
             return false
         }
 
@@ -284,17 +307,17 @@ enum TaskStartReminderService {
             [.year, .month, .day, .hour, .minute, .second],
             from: reminder.date
         )
-        return trigger.dateComponents.year == expectedDateComponents.year &&
-            trigger.dateComponents.month == expectedDateComponents.month &&
-            trigger.dateComponents.day == expectedDateComponents.day &&
-            trigger.dateComponents.hour == expectedDateComponents.hour &&
-            trigger.dateComponents.minute == expectedDateComponents.minute &&
-            trigger.dateComponents.second == expectedDateComponents.second
+        return dateComponents.year == expectedDateComponents.year &&
+            dateComponents.month == expectedDateComponents.month &&
+            dateComponents.day == expectedDateComponents.day &&
+            dateComponents.hour == expectedDateComponents.hour &&
+            dateComponents.minute == expectedDateComponents.minute &&
+            dateComponents.second == expectedDateComponents.second
     }
 
     private static func hasNotificationAuthorization(center: UNUserNotificationCenter) async -> Bool {
         let settings = await notificationSettings(center: center)
-        switch settings.authorizationStatus {
+        switch settings {
         case .authorized, .provisional, .ephemeral:
             return true
         case .denied, .notDetermined:
@@ -304,20 +327,20 @@ enum TaskStartReminderService {
         }
     }
 
-    private static func notificationSettings(center: UNUserNotificationCenter) async -> UNNotificationSettings {
+    private static func notificationSettings(center: UNUserNotificationCenter) async -> UNAuthorizationStatus {
         await withCheckedContinuation { continuation in
             center.getNotificationSettings { settings in
-                continuation.resume(returning: settings)
+                continuation.resume(returning: settings.authorizationStatus)
             }
         }
     }
 
     private static func pendingNotificationRequests(
         center: UNUserNotificationCenter
-    ) async -> [UNNotificationRequest] {
+    ) async -> [PendingRequestSnapshot] {
         await withCheckedContinuation { continuation in
             center.getPendingNotificationRequests { requests in
-                continuation.resume(returning: requests)
+                continuation.resume(returning: requests.map(PendingRequestSnapshot.init))
             }
         }
     }
@@ -331,7 +354,7 @@ enum TaskStartReminderService {
     }
 }
 
-protocol TaskStartReminderScheduling {
+protocol TaskStartReminderScheduling: Sendable {
     func syncReminders(
         namedBoards: [BingoBoardStore.NamedBoard],
         selectedBoardID: UUID?,
@@ -416,10 +439,40 @@ enum NativeICloudWidgetRefreshScheduler {
         }
     }
 
+    /// BGTask has no Sendable conformance. Keep the SDK object inside the lock;
+    /// only this value crosses into the async refresh, and no method returns the object.
+    private struct RefreshCompletion: Sendable {
+        private struct State {
+            let task: BGAppRefreshTask
+            var didComplete = false
+        }
+        private let state: OSAllocatedUnfairLock<State>
+
+        init(task: BGAppRefreshTask) {
+            state = OSAllocatedUnfairLock(uncheckedState: State(task: task))
+        }
+
+        func installExpirationHandler(_ handler: @escaping @Sendable () -> Void) {
+            state.withLock { state in
+                guard !state.didComplete else { return }
+                state.task.expirationHandler = handler
+            }
+        }
+
+        func finish(success: Bool) {
+            state.withLock { state in
+                guard !state.didComplete else { return }
+                state.didComplete = true
+                state.task.setTaskCompleted(success: success)
+            }
+        }
+    }
+
     private static func handle(_ task: BGAppRefreshTask) {
         scheduleFallback(after: 30 * 60)
         DiagnosticLogStore.recordStateChange("icloud.widget_refresh_fallback_started")
 
+        let completion = RefreshCompletion(task: task)
         let refresh = Task {
             do {
                 let imported = try await NativeICloudRuntime.shared
@@ -429,18 +482,18 @@ enum NativeICloudWidgetRefreshScheduler {
                         ? "icloud.widget_refresh_fallback_imported"
                         : "icloud.widget_refresh_fallback_no_data"
                 )
-                task.setTaskCompleted(success: true)
+                completion.finish(success: true)
             } catch is CancellationError {
-                task.setTaskCompleted(success: false)
+                completion.finish(success: false)
             } catch {
                 DiagnosticLogStore.recordWarning(
                     "icloud.widget_refresh_fallback_failed",
                     details: ["error": NativeICloudErrorFormatter.describe(error)]
                 )
-                task.setTaskCompleted(success: false)
+                completion.finish(success: false)
             }
         }
-        task.expirationHandler = {
+        completion.installExpirationHandler {
             refresh.cancel()
         }
     }
@@ -453,13 +506,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             let legacyIDs = requests
                 .map(\.identifier)
                 .filter { !TaskStartReminderService.isManagedNotificationID($0) }
-            center.removePendingNotificationRequests(withIdentifiers: legacyIDs)
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: legacyIDs)
         }
         center.getDeliveredNotifications { notifications in
             let legacyIDs = notifications
                 .map { $0.request.identifier }
                 .filter { !TaskStartReminderService.isManagedNotificationID($0) }
-            center.removeDeliveredNotifications(withIdentifiers: legacyIDs)
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: legacyIDs)
         }
         if #available(iOS 17.0, *) {
             center.setBadgeCount(0)
@@ -499,7 +552,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void

@@ -1,5 +1,6 @@
 import SwiftUI
 import StoreKit
+import UIKit
 
 struct PremiumPaywallView: View {
     private enum PaywallPlan: String, CaseIterable, Identifiable {
@@ -85,7 +86,11 @@ struct PremiumPaywallView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var paywallFontScale: CGFloat = 1
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
+    @AccessibilityFocusState private var membershipTitleFocused: Bool
     let entrySource: String
     private let onPurchaseCompleted: (String) -> Void
     @Binding private var limitedOfferState: LimitedOfferHomeState
@@ -413,7 +418,7 @@ struct PremiumPaywallView: View {
                     .ignoresSafeArea()
 
                 if isMemberCenter {
-                    memberCenterContent
+                    memberCenterContent(in: geo)
                 } else {
                     classicPaywallContent(in: geo)
                 }
@@ -483,6 +488,176 @@ struct PremiumPaywallView: View {
     }
 
     private func classicPaywallContent(in geo: GeometryProxy) -> some View {
+        Group {
+            if dynamicTypeSize >= .xLarge || geo.size.width < 360 || geo.size.height < 600 {
+                adaptiveClassicPaywallContent(in: geo)
+            } else {
+                fixedClassicPaywallContent(in: geo)
+            }
+        }
+    }
+
+    private func adaptiveClassicPaywallContent(in geo: GeometryProxy) -> some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(alignment: .top, spacing: 16) {
+                    backButton
+                    Spacer(minLength: 0)
+                    restoreSubscriptionButton(maxWidth: 148)
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(classicHeroTitle)
+                        .font(paywallFont(size: 30, weight: .bold))
+                        .foregroundStyle(.white)
+                        .accessibilityAddTraits(.isHeader)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(classicHeroSubtitle)
+                        .font(paywallFont(size: 18, weight: .semibold))
+                        .foregroundStyle(Color(hex: "C8BBB3"))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(classicPaywallPlanOrder) { plan in
+                        adaptivePlanCard(plan)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(L10n.paywallGetFullAccess)
+                        .font(paywallFont(size: 20, weight: .semibold))
+                        .foregroundStyle(Color(hex: "ECD5C2"))
+                        .accessibilityAddTraits(.isHeader)
+
+                    VStack(alignment: .leading, spacing: 18) {
+                        ForEach(paywallBenefits) { benefit in
+                            adaptiveBenefitRow(benefit)
+                        }
+                    }
+                }
+
+                Text(legalFooterAttributedText)
+                    .font(paywallFont(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: "AFA7A0"))
+                    .tint(Color(hex: "D3A375"))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, max(24, geo.safeAreaInsets.top + 12))
+            .padding(.bottom, 20)
+            .frame(maxWidth: 560, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            subscribeButton
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .frame(maxWidth: 600)
+                .frame(maxWidth: .infinity)
+                .background(Color(hex: "1D1002").opacity(0.94))
+        }
+        .frame(width: geo.size.width, height: geo.size.height)
+    }
+
+    private func adaptivePlanCard(_ plan: PaywallPlan) -> some View {
+        let isSelected = selectedPlan == plan
+        let isReadyToPurchase = subscriptionManager.isReadyToPurchase(productID: plan.productID)
+        let price = priceDisplay(for: plan)
+        let priceText = planCardPriceText(
+            fallback: price.displayPrice,
+            isReadyToPurchase: isReadyToPurchase
+        )
+        let subtitle = isReadyToPurchase ? classicPlanSubtitle(for: plan, price: price) : nil
+
+        return Button {
+            selectPlan(plan, animationDuration: 0.2)
+        } label: {
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(plan.title)
+                            .font(paywallFont(size: 19, weight: .semibold))
+                            .foregroundStyle(isSelected ? Color.black : Color.white)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        if let subtitle {
+                            Text(subtitle)
+                                .font(paywallFont(size: 14, weight: .medium))
+                                .foregroundStyle(isSelected ? Color.black.opacity(0.72) : Color.white.opacity(0.76))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Text(priceText)
+                            .font(paywallFont(size: 19, weight: .semibold))
+                            .foregroundStyle(isSelected ? Color.black : Color.white)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    HStack(alignment: .center, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(plan.title)
+                                .font(paywallFont(size: 19, weight: .semibold))
+                                .foregroundStyle(isSelected ? Color.black : Color.white)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            if let subtitle {
+                                Text(subtitle)
+                                    .font(paywallFont(size: 14, weight: .medium))
+                                    .foregroundStyle(isSelected ? Color.black.opacity(0.72) : Color.white.opacity(0.76))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+
+                        Spacer(minLength: 8)
+
+                        Text(priceText)
+                            .font(paywallFont(size: 19, weight: .semibold))
+                            .foregroundStyle(isSelected ? Color.black : Color.white)
+                            .multilineTextAlignment(.trailing)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(isSelected ? Color(hex: "F1D1B5") : Color(hex: "3D2610"))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(isSelected ? Color(hex: "D3A375") : Color.white.opacity(0.24), lineWidth: isSelected ? 2.5 : 1)
+                    }
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            planAccessibilityLabel(plan, priceText: priceText, subtitle: subtitle)
+        )
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .disabled(subscriptionManager.isPurchasing || !isReadyToPurchase)
+        .opacity(subscriptionManager.isPurchasing || !isReadyToPurchase ? 0.62 : 1)
+    }
+
+    private func adaptiveBenefitRow(_ benefit: PaywallBenefit) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(benefit.title)
+                .font(paywallFont(size: 17, weight: .medium))
+                .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(benefit.subtitle)
+                .font(paywallFont(size: 15, weight: .regular))
+                .foregroundStyle(Color(hex: "D0C7C0"))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func fixedClassicPaywallContent(in geo: GeometryProxy) -> some View {
         let scale = classicPaywallScale(for: geo.size)
         let contentWidth = designWidth * scale
         let pinnedTopInset = min(classicPlanCardsTop, (geo.safeAreaInsets.top + 60) / scale)
@@ -551,41 +726,70 @@ struct PremiumPaywallView: View {
         }
     }
 
-    private var memberCenterContent: some View {
-        VStack(spacing: 0) {
-            memberCenterHeader
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 18) {
-                    memberSummaryCard
-                    memberPlanSelectionSection
-                    memberActionsSection
-                    if selectedPlan == .lifetime && subscriptionManager.hasActiveAutoRenewable {
-                        memberNoticeCard(text: L10n.paywallLifetimeAutoRenewNote)
+    private func memberCenterContent(in geo: GeometryProxy) -> some View {
+        Group {
+            if dynamicTypeSize >= .xxLarge || geo.size.width < 360 || geo.size.height < 600 {
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 18) {
+                        memberCenterHeader(topSafeAreaInset: geo.safeAreaInsets.top)
+                        memberCenterDetails
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, max(28, geo.safeAreaInsets.bottom + 20))
+                    .frame(maxWidth: 640)
+                    .frame(maxWidth: .infinity)
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+            } else {
+                VStack(spacing: 0) {
+                    memberCenterHeader(topSafeAreaInset: geo.safeAreaInsets.top)
+                    ScrollView(showsIndicators: false) {
+                        memberCenterDetails
+                            .padding(.horizontal, 20)
+                            .padding(.top, 12)
+                            .padding(.bottom, max(28, geo.safeAreaInsets.bottom + 20))
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 28)
             }
         }
     }
 
-    private var memberCenterHeader: some View {
+    private var memberCenterDetails: some View {
+        VStack(spacing: 18) {
+            memberSummaryCard
+            memberPlanSelectionSection
+            memberActionsSection
+            if selectedPlan == .lifetime && subscriptionManager.hasActiveAutoRenewable {
+                memberNoticeCard(text: L10n.paywallLifetimeAutoRenewNote)
+            }
+        }
+    }
+
+    private func memberCenterHeader(topSafeAreaInset: CGFloat) -> some View {
         HStack(spacing: 12) {
             backButton
             VStack(alignment: .leading, spacing: 4) {
                 Text(L10n.paywallMembershipTitle)
                     .font(paywallFont(size: 28, weight: .bold))
-                    .foregroundColor(featureTitleColor)
+                    .foregroundStyle(featureTitleColor)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityFocused($membershipTitleFocused)
+                    .task {
+                        guard UIAccessibility.isVoiceOverRunning else { return }
+                        try? await Task.sleep(for: .milliseconds(300))
+                        guard !Task.isCancelled, UIAccessibility.isVoiceOverRunning else { return }
+                        membershipTitleFocused = true
+                    }
                 Text(L10n.paywallMembershipSubtitle)
                     .font(paywallFont(size: 14, weight: .medium))
-                    .foregroundColor(featureBodyColor.opacity(0.8))
+                    .foregroundStyle(featureBodyColor.opacity(0.8))
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20)
-        .padding(.top, 54)
+        .padding(.top, max(54, topSafeAreaInset + 12))
         .padding(.bottom, 14)
     }
 
@@ -593,15 +797,15 @@ struct PremiumPaywallView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(L10n.subscriptionCurrentPlan)
                 .font(paywallFont(size: 14, weight: .medium))
-                .foregroundColor(featureBodyColor.opacity(0.72))
+                .foregroundStyle(featureBodyColor.opacity(0.72))
 
             Text(currentPlanTitle)
                 .font(paywallFont(size: 26, weight: .bold))
-                .foregroundColor(featureTitleColor)
+                .foregroundStyle(featureTitleColor)
 
             Text(currentPlanDetailText)
                 .font(paywallFont(size: 14, weight: .medium))
-                .foregroundColor(featureBodyColor.opacity(0.82))
+                .foregroundStyle(featureBodyColor.opacity(0.82))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -625,37 +829,40 @@ struct PremiumPaywallView: View {
         return Button {
             selectPlan(plan, animationDuration: 0.18)
         } label: {
-            HStack(alignment: .center, spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text(plan.title)
-                            .font(paywallFont(size: 19, weight: .semibold))
-                            .foregroundColor(featureTitleColor)
-                        if isCurrent {
-                            Text(L10n.paywallCurrentPlanButton)
-                                .font(paywallFont(size: 11, weight: .semibold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(
-                                    Capsule(style: .continuous)
-                                        .fill(Color(hex: "3F270F").opacity(0.85))
-                                )
+            Group {
+                if dynamicTypeSize >= .xxLarge {
+                    VStack(alignment: .leading, spacing: 10) {
+                        memberPlanTitle(plan, isCurrent: isCurrent)
+                        if let subtitle = price.subtitle {
+                            Text(subtitle)
+                                .font(paywallFont(size: 15, weight: .medium))
+                                .foregroundStyle(featureBodyColor.opacity(0.72))
+                                .fixedSize(horizontal: false, vertical: true)
                         }
+                        Text(price.displayPrice)
+                            .font(paywallFont(size: 22, weight: .semibold))
+                            .foregroundStyle(featureTitleColor)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                } else {
+                    HStack(alignment: .center, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            memberPlanTitle(plan, isCurrent: isCurrent)
+                            if let subtitle = price.subtitle {
+                                Text(subtitle)
+                                    .font(paywallFont(size: 13, weight: .medium))
+                                    .foregroundStyle(featureBodyColor.opacity(0.72))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
 
-                    if let subtitle = price.subtitle {
-                        Text(subtitle)
-                            .font(paywallFont(size: 13, weight: .medium))
-                            .foregroundColor(featureBodyColor.opacity(0.72))
+                        Spacer(minLength: 12)
+
+                        Text(price.displayPrice)
+                            .font(paywallFont(size: 22, weight: .semibold))
+                            .foregroundStyle(featureTitleColor)
                     }
                 }
-
-                Spacer(minLength: 12)
-
-                Text(price.displayPrice)
-                    .font(paywallFont(size: 22, weight: .semibold))
-                    .foregroundColor(featureTitleColor)
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 18)
@@ -670,8 +877,52 @@ struct PremiumPaywallView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(
+            planAccessibilityLabel(
+                plan,
+                priceText: price.displayPrice,
+                subtitle: price.subtitle,
+                isCurrentPlan: isCurrent
+            )
+        )
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .disabled(subscriptionManager.isPurchasing || subscriptionManager.hasLifetimeAccess)
         .opacity(subscriptionManager.hasLifetimeAccess && plan != .lifetime ? 0.7 : 1)
+    }
+
+    private func memberPlanTitle(_ plan: PaywallPlan, isCurrent: Bool) -> some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    memberPlanName(plan)
+                    if isCurrent { currentPlanBadge }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    memberPlanName(plan)
+                    if isCurrent { currentPlanBadge }
+                }
+            }
+        }
+    }
+
+    private func memberPlanName(_ plan: PaywallPlan) -> some View {
+        Text(plan.title)
+            .font(paywallFont(size: 19, weight: .semibold))
+            .foregroundStyle(featureTitleColor)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var currentPlanBadge: some View {
+        Text(L10n.paywallCurrentPlanButton)
+            .font(paywallFont(size: 11, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color(hex: "3F270F").opacity(0.85))
+            )
     }
 
     private var memberActionsSection: some View {
@@ -679,45 +930,62 @@ struct PremiumPaywallView: View {
             Button {
                 handlePrimaryMembershipAction()
             } label: {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(actionButtonColor)
-                    .frame(height: 54)
-                    .overlay {
-                        Text(primaryMembershipActionTitle)
-                            .font(paywallFont(size: 18, weight: .semibold))
-                            .foregroundColor(actionButtonTextColor)
-                    }
+                Text(primaryMembershipActionTitle)
+                    .font(paywallFont(size: 18, weight: .semibold))
+                    .foregroundStyle(actionButtonTextColor)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .background(actionButtonColor, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(primaryMembershipAccessibilityLabel)
             .disabled(!canPerformPrimaryMembershipAction || subscriptionManager.isPurchasing)
             .opacity((!canPerformPrimaryMembershipAction || subscriptionManager.isPurchasing) ? 0.6 : 1)
 
-            HStack(spacing: 12) {
-                memberSecondaryActionButton(title: L10n.subscriptionRestoreSubscription) {
-                    Task {
-                        feedbackMessage = await subscriptionManager.restorePurchases()
+            if dynamicTypeSize >= .xxLarge {
+                VStack(spacing: 12) {
+                    restoreMemberSubscriptionButton
+                    if subscriptionManager.hasActiveAutoRenewable {
+                        manageSubscriptionButton
                     }
                 }
-
-                if subscriptionManager.hasActiveAutoRenewable {
-                    memberSecondaryActionButton(title: L10n.paywallManageSubscription) {
-                        openManageSubscriptionPage()
+            } else {
+                HStack(spacing: 12) {
+                    restoreMemberSubscriptionButton
+                    if subscriptionManager.hasActiveAutoRenewable {
+                        manageSubscriptionButton
                     }
                 }
             }
         }
     }
 
+    private var restoreMemberSubscriptionButton: some View {
+        memberSecondaryActionButton(title: L10n.subscriptionRestoreSubscription) {
+            Task {
+                feedbackMessage = await subscriptionManager.restorePurchases()
+            }
+        }
+    }
+
+    private var manageSubscriptionButton: some View {
+        memberSecondaryActionButton(title: L10n.paywallManageSubscription) {
+            openManageSubscriptionPage()
+        }
+    }
+
     private func memberSecondaryActionButton(title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.14))
-                .frame(height: 48)
-                .overlay {
-                    Text(title)
-                        .font(paywallFont(size: 15, weight: .semibold))
-                        .foregroundColor(featureTitleColor)
-                }
+            Text(title)
+                .font(paywallFont(size: 15, weight: .semibold))
+                .foregroundStyle(featureTitleColor)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(Color.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
@@ -726,7 +994,7 @@ struct PremiumPaywallView: View {
     private func memberNoticeCard(text: String) -> some View {
         Text(text)
             .font(paywallFont(size: 13, weight: .medium))
-            .foregroundColor(featureBodyColor.opacity(0.82))
+            .foregroundStyle(featureBodyColor.opacity(0.82))
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
@@ -777,6 +1045,22 @@ struct PremiumPaywallView: View {
         }
     }
 
+    private var primaryMembershipAccessibilityLabel: String {
+        var parts = [primaryMembershipActionTitle]
+        if subscriptionManager.isPurchasing {
+            parts.append(L10n.subscriptionPleaseWait)
+        } else if !subscriptionManager.hasLifetimeAccess,
+                  currentPlan != selectedPlan,
+                  !subscriptionManager.isReadyToPurchase(productID: selectedPlan.productID) {
+            parts.append(
+                subscriptionManager.priceCatalogState.isLoading
+                    ? L10n.subscriptionPriceLoading
+                    : L10n.paywallPlanUnavailable
+            )
+        }
+        return parts.joined(separator: L10n.tr(", ", zhHans: "，", zhHant: "，", ja: "、"))
+    }
+
     private var canPerformPrimaryMembershipAction: Bool {
         !subscriptionManager.hasLifetimeAccess
             && currentPlan != selectedPlan
@@ -792,7 +1076,7 @@ struct PremiumPaywallView: View {
     private func selectPlan(_ plan: PaywallPlan, animationDuration: Double) {
         guard selectedPlan != plan else { return }
         AppHaptics.control()
-        withAnimation(.easeInOut(duration: animationDuration)) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: animationDuration)) {
             selectedPlan = plan
         }
     }
@@ -919,13 +1203,14 @@ struct PremiumPaywallView: View {
             backButton
                 .offset(x: 20, y: 50)
 
-            restoreSubscriptionButton
+            restoreSubscriptionButton()
                 .offset(x: 319, y: 50)
 
             VStack(alignment: .leading, spacing: 12) {
                 Text(classicHeroTitle)
                     .font(paywallFont(size: 28, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
+                    .accessibilityAddTraits(.isHeader)
                     .lineSpacing(2)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -934,7 +1219,7 @@ struct PremiumPaywallView: View {
 
                 Text(classicHeroSubtitle)
                     .font(paywallFont(size: 16, weight: .semibold))
-                    .foregroundColor(Color(hex: "C8BBB3"))
+                    .foregroundStyle(Color(hex: "C8BBB3"))
                     .lineSpacing(2)
                     .lineLimit(isBlindBoxHero || isPremiumAppIconHero ? nil : 2)
                     .multilineTextAlignment(.leading)
@@ -964,10 +1249,11 @@ struct PremiumPaywallView: View {
                 .overlay {
                     Image(systemName: "chevron.left")
                         .font(.appSystem(size: 19, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                 }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(L10n.tr("Back", zhHans: "返回", zhHant: "返回", ja: "戻る"))
     }
 
     private var planCardsSection: some View {
@@ -1007,11 +1293,12 @@ struct PremiumPaywallView: View {
                         .renderingMode(.original)
                         .frame(width: badgeSize.width, height: badgeSize.height)
                         .offset(x: 200 - badgeSize.width, y: 0)
+                        .accessibilityHidden(true)
                 }
 
                 Text(plan.title)
                     .font(paywallFont(size: 16, weight: .bold))
-                    .foregroundColor(titleColor)
+                    .foregroundStyle(titleColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
                     .frame(width: 130, height: 20, alignment: .leading)
@@ -1028,7 +1315,7 @@ struct PremiumPaywallView: View {
                 if let subtitle {
                     Text(subtitle)
                         .font(paywallFont(size: 12, weight: .regular))
-                        .foregroundColor(Color(hex: "828282"))
+                        .foregroundStyle(Color(hex: "828282"))
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                         .frame(width: 168, height: 15, alignment: .leading)
@@ -1038,6 +1325,10 @@ struct PremiumPaywallView: View {
             .frame(width: 200, height: 144)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(
+            planAccessibilityLabel(plan, priceText: priceText, subtitle: subtitle)
+        )
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .disabled(
             subscriptionManager.isPurchasing
                 || !isReadyToPurchase
@@ -1063,6 +1354,23 @@ struct PremiumPaywallView: View {
         }
 
         return L10n.paywallPlanUnavailable
+    }
+
+    private func planAccessibilityLabel(
+        _ plan: PaywallPlan,
+        priceText: String,
+        subtitle: String?,
+        isCurrentPlan: Bool = false
+    ) -> String {
+        var parts = [plan.title]
+        if isCurrentPlan {
+            parts.append(L10n.paywallCurrentPlanButton)
+        }
+        if let subtitle, !subtitle.isEmpty {
+            parts.append(subtitle)
+        }
+        parts.append(priceText)
+        return parts.joined(separator: L10n.tr(", ", zhHans: "，", zhHant: "，", ja: "、"))
     }
 
     private func planCardBackground(isSelected: Bool) -> some View {
@@ -1126,6 +1434,7 @@ struct PremiumPaywallView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
                     .frame(width: 119, height: 23)
+                    .accessibilityAddTraits(.isHeader)
                 Rectangle()
                     .fill(Color(hex: "6A452B").opacity(0.62))
                     .frame(height: 1)
@@ -1155,18 +1464,19 @@ struct PremiumPaywallView: View {
                 .renderingMode(.original)
                 .frame(width: 32, height: 32)
                 .padding(.top, isLast ? 13 : 4)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 0) {
                 Text(benefit.title)
                     .font(paywallFont(size: 16, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
                     .frame(width: 306, height: 20, alignment: .leading)
 
                 Text(benefit.subtitle)
                     .font(paywallFont(size: 14, weight: .regular))
-                    .foregroundColor(Color(hex: "828282"))
+                    .foregroundStyle(Color(hex: "828282"))
                     .lineLimit(isBlindBox ? nil : (isLast ? 2 : 1))
                     .minimumScaleFactor(0.82)
                     .frame(width: 306, alignment: .topLeading)
@@ -1210,16 +1520,14 @@ struct PremiumPaywallView: View {
                 }
             }
         } label: {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color(hex: "D3A375"))
-                .frame(width: 350, height: 56)
-                .overlay {
-                    Text(subscriptionManager.isPurchasing ? L10n.subscriptionPleaseWait : primaryClassicPaywallActionTitle)
-                        .font(paywallFont(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.82)
-                }
+            Text(subscriptionManager.isPurchasing ? L10n.subscriptionPleaseWait : primaryClassicPaywallActionTitle)
+                .font(paywallFont(size: 20, weight: .semibold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
+                .frame(maxWidth: 350, minHeight: 56)
+                .background(Color(hex: "D3A375"), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(
@@ -1263,7 +1571,7 @@ struct PremiumPaywallView: View {
         }
     }
 
-    private var restoreSubscriptionButton: some View {
+    private func restoreSubscriptionButton(maxWidth: CGFloat = 58) -> some View {
         Button {
             Task {
                 let message = await subscriptionManager.restorePurchases()
@@ -1277,10 +1585,13 @@ struct PremiumPaywallView: View {
         } label: {
             Text(L10n.subscriptionRestore)
                 .font(paywallFont(size: 14, weight: .semibold))
-                .foregroundColor(.white.opacity(0.82))
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-                .frame(width: 58, height: 42, alignment: .center)
+                .foregroundStyle(.white.opacity(0.82))
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                .minimumScaleFactor(dynamicTypeSize.isAccessibilitySize ? 1 : 0.78)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: maxWidth, alignment: .center)
+                .frame(minHeight: 44)
         }
         .buttonStyle(.plain)
         .disabled(subscriptionManager.isPurchasing)
@@ -1290,7 +1601,7 @@ struct PremiumPaywallView: View {
     private var legalFooter: some View {
         Text(legalFooterAttributedText)
             .font(paywallFont(size: 11, weight: .medium))
-            .foregroundColor(Color(hex: "828282"))
+            .foregroundStyle(Color(hex: "828282"))
             .tint(Color(hex: "828282"))
             .lineLimit(1)
             .minimumScaleFactor(0.42)
@@ -1304,11 +1615,11 @@ struct PremiumPaywallView: View {
         var text = AttributedString(L10n.paywallLegalOneLine)
 
         if let termsRange = text.range(of: L10n.paywallTermsOfUse) {
-            text[termsRange].link = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")
+            text[termsRange][AttributeScopes.FoundationAttributes.LinkAttribute.self] = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")
         }
 
         if let privacyRange = text.range(of: L10n.paywallPrivacyPolicy) {
-            text[privacyRange].link = URL(string: "https://osmatters.github.io/bingoday-support/privacy")
+            text[privacyRange][AttributeScopes.FoundationAttributes.LinkAttribute.self] = URL(string: "https://osmatters.github.io/bingoday-support/privacy")
         }
 
         return text
@@ -1486,9 +1797,9 @@ struct PremiumPaywallView: View {
     private func paywallFont(size: CGFloat, weight: Font.Weight) -> Font {
         switch AppLanguage.current {
         case .english:
-            return .custom("Outfit", size: size).weight(weight)
+            return .custom("Outfit", size: size, relativeTo: .body).weight(weight)
         case .simplifiedChinese, .traditionalChinese, .japanese:
-            return .system(size: size, weight: weight, design: .default)
+            return .system(size: size * paywallFontScale, weight: weight, design: .default)
         }
     }
 

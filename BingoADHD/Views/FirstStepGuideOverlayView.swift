@@ -15,23 +15,51 @@ struct FirstStepGuideOverlayView: View {
     let presentation: FirstStepGuideStore.OverlayPresentation
     let onStart: () -> Void
     let onDismiss: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var usesReflowedType: Bool {
+        dynamicTypeSize == .xLarge ||
+            dynamicTypeSize == .xxLarge ||
+            dynamicTypeSize == .xxxLarge ||
+            dynamicTypeSize.isAccessibilitySize
+    }
 
     var body: some View {
-        ZStack {
+        GeometryReader { proxy in
             ZStack {
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .blur(radius: 10)
+                ZStack {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .blur(radius: 10)
 
-                Color.black.opacity(0.6)
-            }
-            .ignoresSafeArea()
+                    Color.black.opacity(0.6)
+                }
+                .ignoresSafeArea()
 
-            VStack(spacing: 22) {
-                overlayContent
+                Group {
+                    if usesReflowedType {
+                        ScrollView(showsIndicators: false) {
+                            VStack(spacing: 22) {
+                                overlayContent
+                            }
+                            .padding(.horizontal, isPadLayout ? 38 : 28)
+                            .padding(.vertical, 16)
+                            .frame(maxWidth: 560)
+                        }
+                        .frame(maxHeight: max(
+                            220,
+                            proxy.size.height - proxy.safeAreaInsets.top - proxy.safeAreaInsets.bottom - 32
+                        ))
+                    } else {
+                        VStack(spacing: 22) {
+                            overlayContent
+                        }
+                        .padding(.horizontal, isPadLayout ? 38 : 28)
+                        .frame(maxWidth: 560)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding(.horizontal, isPadLayout ? 38 : 28)
-            .frame(maxWidth: 560)
         }
     }
 
@@ -54,9 +82,10 @@ struct FirstStepGuideOverlayView: View {
     private var introContent: some View {
         VStack(spacing: 20) {
             Text(presentation.introTitle)
-                .font(.appSystem(size: scaled(23, pad: 31), weight: .heavy, design: .rounded))
-                .foregroundColor(.white)
+                .appDynamicFont(size: scaled(23, pad: 31), weight: .heavy, design: .rounded)
+                .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
 
             Image("StarterGuideArrow")
                 .resizable()
@@ -68,10 +97,11 @@ struct FirstStepGuideOverlayView: View {
             introBoardPreview
 
             Text(presentation.introDescription)
-                .font(.appSystem(size: scaled(19, pad: 23), weight: .semibold, design: .rounded))
-                .foregroundColor(.white.opacity(0.92))
+                .appDynamicFont(size: scaled(19, pad: 23), weight: .semibold, design: .rounded)
+                .foregroundStyle(.white.opacity(0.92))
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
 
             HStack {
                 Spacer()
@@ -83,6 +113,20 @@ struct FirstStepGuideOverlayView: View {
     }
 
     private var introBoardPreview: some View {
+        Group {
+            if usesReflowedType {
+                reflowedIntroBoardPreview
+            } else {
+                compactIntroBoardPreview
+            }
+        }
+        .frame(maxWidth: 480)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(boardPreviewAccessibilityLabel)
+        .accessibilityAddTraits(.isImage)
+    }
+
+    private var compactIntroBoardPreview: some View {
         let cardCorner: CGFloat = isPadLayout ? 34 : 28
         let cellCorner: CGFloat = isPadLayout ? 16 : 14
         let spacing: CGFloat = isPadLayout ? 14 : 10
@@ -101,25 +145,7 @@ struct FirstStepGuideOverlayView: View {
                 ForEach(presentation.previewRows.indices, id: \.self) { row in
                     HStack(spacing: spacing) {
                         ForEach(presentation.previewRows[row]) { cell in
-                            RoundedRectangle(cornerRadius: cellCorner, style: .continuous)
-                                .fill(NeumorphicColors.background)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: cellCorner, style: .continuous)
-                                        .stroke(Color(hex: "E2DAD0"), lineWidth: 1)
-                                )
-                                .overlay {
-                                    if !cell.text.isEmpty {
-                                        Text(cell.text)
-                                            .font(.appSystem(size: scaled(16, pad: 18), weight: .bold, design: .rounded))
-                                            .foregroundColor(NeumorphicColors.text)
-                                            .multilineTextAlignment(.center)
-                                            .lineLimit(2)
-                                            .minimumScaleFactor(0.85)
-                                            .padding(.horizontal, 4)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity)
-                                .aspectRatio(1, contentMode: .fit)
+                            previewCell(cell, cornerRadius: cellCorner, accessibilityLayout: false)
                         }
                     }
                 }
@@ -136,6 +162,91 @@ struct FirstStepGuideOverlayView: View {
         .aspectRatio(1, contentMode: .fit)
     }
 
+    private var reflowedIntroBoardPreview: some View {
+        VStack(spacing: 8) {
+            ForEach(presentation.previewRows.indices, id: \.self) { row in
+                HStack(spacing: 8) {
+                    ForEach(presentation.previewRows[row]) { cell in
+                        previewCell(cell, cornerRadius: 14, accessibilityLayout: true)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(NeumorphicColors.background)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(Color.white.opacity(0.36), lineWidth: 1)
+                )
+                .shadow(color: Color.white.opacity(0.3), radius: 10, x: -4, y: -4)
+                .shadow(color: Color.black.opacity(0.22), radius: 14, x: 5, y: 8)
+        )
+    }
+
+    @ViewBuilder
+    private func previewCell(
+        _ cell: FirstStepGuideStore.OverlayPresentation.PreviewCell,
+        cornerRadius: CGFloat,
+        accessibilityLayout: Bool
+    ) -> some View {
+        if accessibilityLayout {
+            ZStack {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(NeumorphicColors.background)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color(hex: "E2DAD0"), lineWidth: 1)
+                if !cell.text.isEmpty {
+                    Text(cell.text)
+                        .appDynamicFont(size: scaled(16, pad: 18), weight: .bold, design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 8)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 64)
+            .fixedSize(horizontal: false, vertical: true)
+        } else {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(NeumorphicColors.background)
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(Color(hex: "E2DAD0"), lineWidth: 1)
+                )
+                .overlay {
+                    if !cell.text.isEmpty {
+                        Text(cell.text)
+                            .font(.appSystem(size: scaled(16, pad: 18), weight: .bold, design: .rounded))
+                            .foregroundStyle(NeumorphicColors.text)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.85)
+                            .padding(.horizontal, 4)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .aspectRatio(1, contentMode: .fit)
+        }
+    }
+
+    private var boardPreviewAccessibilityLabel: String {
+        let exampleTasks = presentation.previewRows
+            .flatMap { $0 }
+            .map(\.text)
+            .filter { !$0.isEmpty }
+            .joined(separator: L10n.tr(", ", zhHans: "、", zhHant: "、", ja: "、"))
+
+        return L10n.tr(
+            "Example 3 by 3 Bingo board. Example tasks: \(exampleTasks)",
+            zhHans: "3×3宾果棋盘示例。示例任务：\(exampleTasks)",
+            zhHant: "3×3賓果棋盤範例。示例任務：\(exampleTasks)",
+            ja: "3×3のBingoボードの例。タスク例：\(exampleTasks)"
+        )
+    }
+
     private func milestoneContent(_ milestone: FirstStepGuideStore.OverlayPresentation.Milestone) -> some View {
         VStack(spacing: 20) {
             Image(milestone.imageName)
@@ -144,10 +255,11 @@ struct FirstStepGuideOverlayView: View {
                 .frame(width: isPadLayout ? 240 : 188)
 
             Text(milestone.message)
-                .font(.appSystem(size: scaled(21, pad: 29), weight: .heavy, design: .rounded))
-                .foregroundColor(.white)
+                .appDynamicFont(size: scaled(21, pad: 29), weight: .heavy, design: .rounded)
+                .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 6)
 
             guideButton(title: "OK", action: onDismiss, height: isPadLayout ? 60 : 52)
@@ -163,29 +275,19 @@ struct FirstStepGuideOverlayView: View {
                 .scaledToFit()
                 .frame(width: isPadLayout ? 210 : 150)
 
-            HStack(spacing: 10) {
-                ForEach(presentation.seedTasks, id: \.self) { task in
-                    VStack(spacing: 12) {
-                        Text(task)
-                            .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.7)
-                            .frame(maxWidth: .infinity)
-
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.appSystem(size: scaled(22, pad: 24), weight: .bold))
-                            .foregroundColor(.white.opacity(0.96))
+            Group {
+                if usesReflowedType {
+                    VStack(spacing: 10) {
+                        ForEach(presentation.seedTasks, id: \.self) { task in
+                            seedTaskCard(task, isAccessibilityLayout: true)
+                        }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: isPadLayout ? 128 : 106)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color(hex: "D3A375"))
-                    )
+                } else {
+                    HStack(spacing: 10) {
+                        ForEach(presentation.seedTasks, id: \.self) { task in
+                            seedTaskCard(task, isAccessibilityLayout: false)
+                        }
+                    }
                 }
             }
             .padding(10)
@@ -200,21 +302,22 @@ struct FirstStepGuideOverlayView: View {
             .overlay(alignment: .topTrailing) {
                 Image(systemName: "sparkles")
                     .font(.appSystem(size: scaled(18, pad: 20), weight: .bold))
-                    .foregroundColor(Color(hex: "F5C164"))
+                    .foregroundStyle(Color(hex: "F5C164"))
                     .offset(x: 10, y: -10)
             }
             .overlay(alignment: .bottomLeading) {
                 Image(systemName: "sparkles")
                     .font(.appSystem(size: scaled(16, pad: 18), weight: .bold))
-                    .foregroundColor(Color(hex: "F5C164"))
+                    .foregroundStyle(Color(hex: "F5C164"))
                     .offset(x: -10, y: 10)
             }
 
             Text(milestone.message)
-                .font(.appSystem(size: scaled(21, pad: 29), weight: .heavy, design: .rounded))
-                .foregroundColor(.white)
+                .appDynamicFont(size: scaled(21, pad: 29), weight: .heavy, design: .rounded)
+                .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
 
             guideButton(title: "OK", action: onDismiss, height: isPadLayout ? 60 : 52)
                 .padding(.top, 10)
@@ -225,10 +328,11 @@ struct FirstStepGuideOverlayView: View {
     private func guideButton(title: String, action: @escaping () -> Void, height: CGFloat) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.appSystem(size: scaled(14, pad: 18), weight: .bold, design: .rounded))
-                .foregroundColor(.white)
+                .appDynamicFont(size: scaled(14, pad: 18), weight: .bold, design: .rounded)
+                .foregroundStyle(.white)
                 .frame(width: isPadLayout ? 300 : 220)
-                .frame(height: height)
+                .padding(.vertical, usesReflowedType ? 10 : 0)
+                .frame(minHeight: height)
                 .background(
                     RoundedRectangle(cornerRadius: 26, style: .continuous)
                         .fill(Color.clear)
@@ -240,8 +344,43 @@ struct FirstStepGuideOverlayView: View {
                 .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         }
         .buttonStyle(.plain)
-        .frame(width: isPadLayout ? 300 : 220, height: height)
+        .frame(width: isPadLayout ? 300 : 220)
+        .frame(minHeight: height)
         .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+    }
+
+    private func seedTaskCard(_ task: String, isAccessibilityLayout: Bool) -> some View {
+        VStack(spacing: 12) {
+            Group {
+                if isAccessibilityLayout {
+                    Text(task)
+                        .appDynamicFont(size: scaled(15, pad: 17), weight: .bold, design: .rounded)
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(task)
+                        .appDynamicFont(size: scaled(15, pad: 17), weight: .bold, design: .rounded)
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.7)
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            Image(systemName: "checkmark.circle.fill")
+                .font(.appSystem(size: scaled(22, pad: 24), weight: .bold))
+                .foregroundStyle(.white.opacity(0.96))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: isAccessibilityLayout ? 64 : (isPadLayout ? 128 : 106))
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(hex: "D3A375"))
+        )
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {

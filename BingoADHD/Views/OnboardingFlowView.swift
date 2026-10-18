@@ -49,7 +49,7 @@ struct AppRootView: View {
 }
 
 struct OnboardingFlowView: View {
-    private enum Page: Int, CaseIterable {
+    private enum Page: Int, CaseIterable, Hashable {
         case intro
         case research
         case brand
@@ -67,17 +67,22 @@ struct OnboardingFlowView: View {
     private let pageSwipeThreshold: CGFloat = 44
     private let progressPages: [Page] = [.research, .brand, .grid, .pace]
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @AccessibilityFocusState private var accessibilityFocusedPage: Page?
     @State private var page: Page
-    @State private var introEyesWiggle = false
-    @State private var introBrainWiggle = false
     @State private var introEyesEntryOffset: CGFloat = -96
     @State private var introBrainEntryOffset: CGFloat = 96
     @State private var textEntranceVisible = false
-    @State private var researchLaptopWiggle = false
-    @State private var researchScribbleWiggle = false
-    @State private var rewardsFacesWiggle = false
 
     let onFinish: () -> Void
+
+    private var usesReflowedLayout: Bool {
+        dynamicTypeSize == .xLarge ||
+            dynamicTypeSize == .xxLarge ||
+            dynamicTypeSize == .xxxLarge ||
+            dynamicTypeSize.isAccessibilitySize
+    }
 
     init(onFinish: @escaping () -> Void) {
         self.onFinish = onFinish
@@ -87,11 +92,7 @@ struct OnboardingFlowView: View {
     var body: some View {
         GeometryReader { geometry in
             let scale = min(geometry.size.width / canvasSize.width, geometry.size.height / canvasSize.height)
-
-            ZStack {
-                backgroundColor
-                    .ignoresSafeArea()
-
+            let fixedCanvas = ZStack {
                 currentPage
                     .frame(width: canvasSize.width, height: canvasSize.height)
                     .scaleEffect(scale, anchor: .topLeading)
@@ -112,14 +113,33 @@ struct OnboardingFlowView: View {
                         )
                 }
             }
+
+            let canvas = ZStack {
+                backgroundColor
+                    .ignoresSafeArea()
+
+                if usesReflowedLayout {
+                    reflowedOnboardingLayout
+                } else {
+                    fixedCanvas
+                }
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
-            .gesture(pageSwipeGesture)
+
+            Group {
+                if usesReflowedLayout {
+                    canvas.simultaneousGesture(pageSwipeGesture)
+                } else {
+                    canvas.gesture(pageSwipeGesture)
+                }
+            }
         }
-        .statusBar(hidden: true)
+        .modifier(HiddenStatusBarModifier())
         .background(backgroundColor)
         .onAppear {
             triggerTextEntranceAnimation()
+            focusHeadingIfVoiceOverIsRunning(for: page)
         }
     }
 
@@ -141,6 +161,159 @@ struct OnboardingFlowView: View {
         }
     }
 
+    private var reflowedOnboardingLayout: some View {
+        VStack(spacing: 10) {
+            if progressPages.contains(page) {
+                reflowedStepsBar
+            }
+
+            ScrollView(showsIndicators: false) {
+                reflowedPageContent
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 24)
+                    .frame(maxWidth: 600)
+            }
+            .frame(maxHeight: .infinity)
+        }
+        .padding(.top, 12)
+        .frame(maxWidth: 640, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var reflowedPageContent: some View {
+        VStack(spacing: 24) {
+            switch page {
+            case .intro:
+                reflowedSupportingText(L10n.onboardingMadeForADHDBrains, size: 18)
+                reflowedHeading(L10n.onboardingIntroHeadline, size: 36)
+                Text("Bingo")
+                    .appDynamicFont(size: 54, weight: .heavy, design: .rounded)
+                    .foregroundStyle(LinearGradient(
+                        colors: [Color(hex: "E8BD95"), Color(hex: "D3A375")],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ))
+                primaryButton(title: L10n.onboardingGetStarted) {
+                    moveToNextPage()
+                }
+
+            case .research:
+                Image("Onboarding2Image27")
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(maxWidth: 260, maxHeight: 220)
+                    .accessibilityHidden(true)
+                reflowedHeading(L10n.onboardingResearchHeadline, size: 36)
+                reflowedSupportingText(L10n.onboardingResearchBody, size: 22)
+                primaryButton(title: L10n.onboardingNext) {
+                    moveToNextPage()
+                }
+
+            case .brand:
+                reflowedHeading(L10n.onboardingBrandHeadline, size: 36)
+                Text("Bingodays")
+                    .appDynamicFont(size: 46, weight: .heavy, design: .rounded)
+                    .foregroundStyle(LinearGradient(
+                        colors: [Color(hex: "E8BD95"), Color(hex: "D3A375")],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                primaryButton(title: L10n.onboardingNext) {
+                    moveToNextPage()
+                }
+
+            case .grid:
+                Image("Onboarding4Frame111")
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(maxWidth: 260, maxHeight: 220)
+                    .accessibilityHidden(true)
+                reflowedSupportingText(L10n.onboardingStressFree, size: 20)
+                reflowedSupportingText(L10n.onboardingSimplified, size: 20)
+                reflowedHeading(L10n.onboardingGridHeadline, size: 36)
+                primaryButton(title: L10n.onboardingNext) {
+                    moveToNextPage()
+                }
+
+            case .pace:
+                reflowedHeading(L10n.onboardingPaceHeadline, size: 36)
+                Image("Onboarding5Rectangle22")
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(maxWidth: 360, maxHeight: 280)
+                    .clipShape(RoundedRectangle(cornerRadius: 25, style: .continuous))
+                    .accessibilityHidden(true)
+                reflowedSupportingText(L10n.onboardingBestMode, size: 20)
+                reflowedSupportingText(L10n.onboardingPersonalized, size: 20)
+                primaryButton(title: L10n.onboardingNext) {
+                    moveToNextPage()
+                }
+
+            case .rewards:
+                Text("🎁")
+                    .font(.system(size: 80))
+                    .accessibilityHidden(true)
+                reflowedHeading(L10n.onboardingRewardsHeadline, size: 36)
+                reflowedSupportingText(L10n.onboardingRewardsSubtitle, size: 22)
+                primaryButton(title: L10n.onboardingLetsBingo) {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        onFinish()
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var reflowedStepsBar: some View {
+        HStack(spacing: 8) {
+            ForEach(Array(progressPages.enumerated()), id: \.offset) { index, step in
+                Button {
+                    jumpToPage(step)
+                } label: {
+                    Text("\(index + 1)")
+                        .appDynamicFont(size: 16, weight: .bold, design: .rounded)
+                        .foregroundStyle(primaryTextColor)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 48)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(onboardingStepColor.opacity(stepOpacity(for: index)))
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(stepAccessibilityLabel(index))
+                .accessibilityAddTraits(step == page ? .isSelected : [])
+            }
+        }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: 600)
+        .accessibilitySortPriority(1)
+    }
+
+    private func reflowedHeading(_ text: String, size: CGFloat) -> some View {
+        Text(text.replacingOccurrences(of: "\n", with: " "))
+            .appDynamicFont(size: size, weight: .heavy, design: .rounded)
+            .foregroundStyle(primaryTextColor)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityFocused($accessibilityFocusedPage, equals: page)
+    }
+
+    private func reflowedSupportingText(_ text: String, size: CGFloat) -> some View {
+        Text(text.replacingOccurrences(of: "\n", with: " "))
+            .appDynamicFont(size: size, weight: .medium, design: .rounded)
+            .foregroundStyle(secondaryTextColor)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     private var introPage: some View {
         ZStack(alignment: .topLeading) {
             backgroundColor
@@ -152,8 +325,9 @@ struct OnboardingFlowView: View {
                     .frame(width: 104.266, height: 104.266)
                     .rotationEffect(.degrees(-157.45))
                     .scaleEffect(x: 1, y: -1)
-                    .offset(x: introEyesEntryOffset + (introEyesWiggle ? 3 : -3))
-                    .animation(.easeInOut(duration: 1.7).repeatForever(autoreverses: true), value: introEyesWiggle)
+                    .offset(x: reduceMotion ? 0 : introEyesEntryOffset)
+                    .decorativeWiggle(amplitude: -3, duration: 1.7)
+                    .accessibilityHidden(true)
             }
             .figmaFrame(x: 14, y: 16, width: 136.283, height: 136.283)
 
@@ -161,9 +335,10 @@ struct OnboardingFlowView: View {
                 .resizable()
                 .interpolation(.high)
                 .frame(width: 186, height: 186)
-                .offset(x: introBrainEntryOffset + (introBrainWiggle ? -2.6 : 2.6))
-                .animation(.easeInOut(duration: 2.1).repeatForever(autoreverses: true), value: introBrainWiggle)
+                .offset(x: reduceMotion ? 0 : introBrainEntryOffset)
+                .decorativeWiggle(amplitude: 2.6, duration: 2.1)
                 .figmaFrame(x: 156, y: 67, width: 186, height: 186)
+                .accessibilityHidden(true)
 
             Image("Onboarding1Image14")
                 .resizable()
@@ -173,10 +348,12 @@ struct OnboardingFlowView: View {
                 .rotationEffect(Angle(degrees: 5.72))
                 .shadow(color: Color(hex: "AE2353").opacity(0.15), radius: 8, x: 0, y: 4)
                 .figmaFrame(x: 107.904, y: 206.908, width: 122.829, height: 51.281)
+                .accessibilityHidden(true)
 
             DoodleArrowView()
                 .stroke(Color(hex: "C9C9C9"), style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round))
                 .figmaFrame(x: 71.5, y: 263, width: 89, height: 48)
+                .accessibilityHidden(true)
 
             Text(L10n.onboardingMadeForADHDBrains)
                 .font(OnboardingFonts.schoolbell(size: 18))
@@ -210,10 +387,16 @@ struct OnboardingFlowView: View {
             .figmaFrame(x: 93, y: 657, width: 207, height: 52)
         }
         .onAppear {
+            guard !reduceMotion else {
+                introEyesEntryOffset = 0
+                introBrainEntryOffset = 0
+
+                return
+            }
+
             introEyesEntryOffset = -96
             introBrainEntryOffset = 96
-            introEyesWiggle = true
-            introBrainWiggle = true
+
 
             withAnimation(.spring(response: 0.55, dampingFraction: 0.86)) {
                 introEyesEntryOffset = 0
@@ -231,18 +414,18 @@ struct OnboardingFlowView: View {
                 .interpolation(.high)
                 .frame(width: 297, height: 297)
                 .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
-                .offset(x: researchLaptopWiggle ? 3 : -3)
-                .animation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true), value: researchLaptopWiggle)
+                .decorativeWiggle(amplitude: -3, duration: 2.0)
                 .figmaFrame(x: 41, y: 99, width: 297, height: 297)
+                .accessibilityHidden(true)
 
             Image("Onboarding2Image20")
                 .resizable()
                 .interpolation(.high)
                 .frame(width: 80, height: 80)
                 .opacity(0.9)
-                .offset(x: researchScribbleWiggle ? -2.4 : 2.4)
-                .animation(.easeInOut(duration: 1.65).repeatForever(autoreverses: true), value: researchScribbleWiggle)
+                .decorativeWiggle(amplitude: 2.4, duration: 1.65)
                 .figmaFrame(x: 239, y: 59, width: 80, height: 80)
+                .accessibilityHidden(true)
 
             headlineText(
                 L10n.onboardingResearchHeadline,
@@ -265,10 +448,6 @@ struct OnboardingFlowView: View {
                 moveToNextPage()
             }
             .figmaFrame(x: 93, y: 725, width: 207, height: 52)
-        }
-        .onAppear {
-            researchLaptopWiggle = true
-            researchScribbleWiggle = true
         }
     }
 
@@ -295,6 +474,7 @@ struct OnboardingFlowView: View {
                 .shadow(color: Color(hex: "B48B65").opacity(0.2), radius: 10, x: 0, y: 4)
                 .shadow(color: .white.opacity(0.25), radius: 4, x: -4, y: -4)
                 .figmaFrame(x: 28, y: 331, width: 341, height: 65)
+                .accessibilityLabel("Bingodays")
 
             gradientOutlinedWord(
                 "Bingodays",
@@ -307,6 +487,7 @@ struct OnboardingFlowView: View {
                 .shadow(color: Color(hex: "B48B65").opacity(0.2), radius: 10, x: 0, y: 4)
                 .shadow(color: .white.opacity(0.25), radius: 4, x: -4, y: -4)
                 .figmaFrame(x: 28, y: 415, width: 341, height: 65)
+                .accessibilityHidden(true)
 
             gradientOutlinedWord(
                 "Bingodays",
@@ -319,6 +500,7 @@ struct OnboardingFlowView: View {
                 .shadow(color: Color(hex: "B48B65").opacity(0.2), radius: 10, x: 0, y: 4)
                 .shadow(color: .white.opacity(0.25), radius: 4, x: -4, y: -4)
                 .figmaFrame(x: 28, y: 499, width: 341, height: 65)
+                .accessibilityHidden(true)
 
             gradientOutlinedWord(
                 "Bingodays",
@@ -331,6 +513,7 @@ struct OnboardingFlowView: View {
                 .shadow(color: Color(hex: "B48B65").opacity(0.2), radius: 10, x: 0, y: 4)
                 .shadow(color: .white.opacity(0.25), radius: 4, x: -4, y: -4)
                 .figmaFrame(x: 28, y: 583, width: 341, height: 65)
+                .accessibilityHidden(true)
 
             primaryButton(title: L10n.onboardingNext) {
                 moveToNextPage()
@@ -349,6 +532,7 @@ struct OnboardingFlowView: View {
                     .interpolation(.high)
                     .frame(width: 338, height: 338)
                     .figmaFrame(x: -72, y: 73, width: 338, height: 338)
+                    .accessibilityHidden(true)
 
                 emoji("🍚", size: 38.842)
                     .figmaFrame(x: 73, y: 107, width: 39.781, height: 51.716)
@@ -369,6 +553,7 @@ struct OnboardingFlowView: View {
                     .frame(width: 90.377, height: 90.377)
                     .rotationEffect(.degrees(13.72))
                     .figmaFrame(x: 26.737, y: 452.82, width: 90.377, height: 90.377)
+                    .accessibilityHidden(true)
 
                 RoundedRectangle(cornerRadius: 47, style: .continuous)
                     .fill(Color(hex: "D6B08A"))
@@ -395,6 +580,7 @@ struct OnboardingFlowView: View {
                 UnderlineHighlight()
                     .stroke(Color(hex: "FFA3DC"), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                     .figmaFrame(x: 280, y: 295.5, width: 91.5, height: 5.5)
+                    .accessibilityHidden(true)
 
                 headlineText(
                     L10n.onboardingGridHeadline,
@@ -431,6 +617,7 @@ struct OnboardingFlowView: View {
                 .frame(width: 324, height: 280)
                 .clipShape(RoundedRectangle(cornerRadius: 25, style: .continuous))
                 .figmaFrame(x: 28, y: 403, width: 324, height: 280)
+                .accessibilityHidden(true)
 
             outlinedWord(
                 L10n.onboardingBestMode,
@@ -444,6 +631,7 @@ struct OnboardingFlowView: View {
             UnderlineHighlight()
                 .stroke(Color(hex: "FFA3DC"), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                 .figmaFrame(x: 34, y: 537.5, width: 91.5, height: 5.5)
+                .accessibilityHidden(true)
 
             outlinedWord(
                 L10n.onboardingPersonalized,
@@ -470,46 +658,47 @@ struct OnboardingFlowView: View {
                 .interpolation(.high)
                 .frame(width: 170.217, height: 170.217)
                 .figmaFrame(x: -187, y: 276.199, width: 170.217, height: 170.217)
+                .accessibilityHidden(true)
 
             Image("Onboarding6WinkBear")
                 .resizable()
                 .interpolation(.high)
                 .frame(width: 178.352, height: 157)
-                .offset(x: rewardsFacesWiggle ? -2.8 : 2.8)
-                .animation(.easeInOut(duration: 1.85).repeatForever(autoreverses: true), value: rewardsFacesWiggle)
+                .decorativeWiggle(amplitude: 2.8, duration: 1.85)
                 .figmaFrame(x: -77, y: 111, width: 178.352, height: 157)
+                .accessibilityHidden(true)
 
             Image("Onboarding6Image31")
                 .resizable()
                 .interpolation(.high)
                 .frame(width: 170.816, height: 170.816)
-                .offset(x: rewardsFacesWiggle ? 2.4 : -2.4)
-                .animation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true), value: rewardsFacesWiggle)
+                .decorativeWiggle(amplitude: -2.4, duration: 2.0)
                 .figmaFrame(x: 116.209, y: 107, width: 170.816, height: 170.816)
+                .accessibilityHidden(true)
 
             Image("Onboarding6Image33")
                 .resizable()
                 .interpolation(.high)
                 .frame(width: 172, height: 172)
-                .offset(x: rewardsFacesWiggle ? -2.2 : 2.2)
-                .animation(.easeInOut(duration: 2.15).repeatForever(autoreverses: true), value: rewardsFacesWiggle)
+                .decorativeWiggle(amplitude: 2.2, duration: 2.15)
                 .figmaFrame(x: 282, y: 106, width: 172, height: 172)
+                .accessibilityHidden(true)
 
             Image("Onboarding6Image35")
                 .resizable()
                 .interpolation(.high)
                 .frame(width: 169, height: 171)
-                .offset(x: rewardsFacesWiggle ? 2.6 : -2.6)
-                .animation(.easeInOut(duration: 1.9).repeatForever(autoreverses: true), value: rewardsFacesWiggle)
+                .decorativeWiggle(amplitude: -2.6, duration: 1.9)
                 .figmaFrame(x: 13, y: 291, width: 169, height: 171)
+                .accessibilityHidden(true)
 
             Image("Onboarding6Image30")
                 .resizable()
                 .interpolation(.high)
                 .frame(width: 171.416, height: 171.416)
-                .offset(x: rewardsFacesWiggle ? -2.5 : 2.5)
-                .animation(.easeInOut(duration: 2.05).repeatForever(autoreverses: true), value: rewardsFacesWiggle)
+                .decorativeWiggle(amplitude: 2.5, duration: 2.05)
                 .figmaFrame(x: 196, y: 291, width: 171.416, height: 171.416)
+                .accessibilityHidden(true)
 
             headlineText(
                 L10n.onboardingRewardsHeadline,
@@ -535,9 +724,6 @@ struct OnboardingFlowView: View {
                 }
             }
             .figmaFrame(x: 93, y: 725, width: 207, height: 52)
-        }
-        .onAppear {
-            rewardsFacesWiggle = true
         }
     }
 
@@ -597,25 +783,42 @@ struct OnboardingFlowView: View {
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
                                 .stroke(onboardingStepColor.opacity(0.5), lineWidth: 0.8)
                         )
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(stepAccessibilityLabel(index))
+                .accessibilityAddTraits(step == page ? .isSelected : [])
             }
         }
         .padding(.horizontal, 12)
-        .frame(width: 353, height: 36)
-        .figmaFrame(x: 20, y: 30, width: 353, height: 36)
+        .frame(width: 353, height: 44)
+        .figmaFrame(x: 20, y: 26, width: 353, height: 44)
+        .accessibilitySortPriority(1)
+    }
+
+    private func stepAccessibilityLabel(_ index: Int) -> String {
+        L10n.tr(
+            "Step \(index + 1)",
+            zhHans: "第\(index + 1)步",
+            zhHant: "第\(index + 1)步",
+            ja: "ステップ\(index + 1)"
+        )
     }
 
     private func primaryButton(title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(OnboardingFonts.button(size: 20, weight: 600))
+                .appDynamicFont(size: 20, weight: .semibold, design: .rounded)
                 .foregroundStyle(.white)
                 .onboardingTextEntrance(textEntranceVisible)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, usesReflowedLayout ? 12 : 0)
+                .frame(minHeight: usesReflowedLayout ? 64 : 52)
                 .contentShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 30, style: .continuous)
                 .fill(buttonColor)
@@ -698,6 +901,8 @@ struct OnboardingFlowView: View {
             .minimumScaleFactor(0.62)
             .allowsTightening(true)
             .onboardingTextEntrance(textEntranceVisible)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityFocused($accessibilityFocusedPage, equals: page)
     }
 
     private func emoji(_ value: String, size: CGFloat) -> some View {
@@ -705,6 +910,7 @@ struct OnboardingFlowView: View {
             .font(.appSystem(size: size))
             .lineLimit(1)
             .minimumScaleFactor(0.8)
+            .accessibilityHidden(true)
     }
 
     private func eyeball() -> some View {
@@ -722,6 +928,7 @@ struct OnboardingFlowView: View {
                 .offset(x: -3.2)
         }
         .frame(width: 19, height: 31)
+        .accessibilityHidden(true)
     }
 
     private func progressBar(fill: Color) -> some View {
@@ -738,6 +945,7 @@ struct OnboardingFlowView: View {
             page = Page.allCases[nextIndex]
         }
         triggerTextEntranceAnimation()
+        focusHeadingIfVoiceOverIsRunning(for: Page.allCases[nextIndex])
     }
 
     private func moveToPreviousPage() {
@@ -749,6 +957,7 @@ struct OnboardingFlowView: View {
             page = Page.allCases[previousIndex]
         }
         triggerTextEntranceAnimation()
+        focusHeadingIfVoiceOverIsRunning(for: Page.allCases[previousIndex])
     }
 
     private var pageSwipeGesture: some Gesture {
@@ -771,6 +980,7 @@ struct OnboardingFlowView: View {
             page = targetPage
         }
         triggerTextEntranceAnimation()
+        focusHeadingIfVoiceOverIsRunning(for: targetPage)
     }
 
     private func stepOpacity(for index: Int) -> Double {
@@ -788,6 +998,15 @@ struct OnboardingFlowView: View {
             withAnimation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.4)) {
                 textEntranceVisible = true
             }
+        }
+    }
+
+    private func focusHeadingIfVoiceOverIsRunning(for targetPage: Page) {
+        guard UIAccessibility.isVoiceOverRunning else { return }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            guard page == targetPage else { return }
+            accessibilityFocusedPage = targetPage
         }
     }
 
@@ -824,13 +1043,28 @@ struct OnboardingFlowView: View {
 }
 
 private struct OnboardingTextEntranceModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let isVisible: Bool
 
     func body(content: Content) -> some View {
         content
             .opacity(isVisible ? 1 : 0)
-            .offset(y: isVisible ? 0 : 14)
-            .animation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.4), value: isVisible)
+            .offset(y: reduceMotion || isVisible ? 0 : 14)
+            .animation(
+                reduceMotion ? .easeInOut(duration: 0.16) : .timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.4),
+                value: isVisible
+            )
+    }
+}
+
+private struct HiddenStatusBarModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 27.0, *) {
+            content.toolbarVisibility(.hidden, for: .statusBar)
+        } else {
+            content.statusBar(hidden: true)
+        }
     }
 }
 

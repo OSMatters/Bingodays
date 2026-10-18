@@ -24,12 +24,14 @@ struct QuickEditGroupNameModal: View {
     let fieldStroke: Color
     let onDismiss: () -> Void
     let onCommit: () -> Void
+    @AccessibilityFocusState private var nameFieldAccessibilityFocused: Bool
 
     var body: some View {
         ZStack {
             Color.black.opacity(0.16)
                 .ignoresSafeArea()
                 .onTapGesture(perform: onDismiss)
+                .accessibilityHidden(true)
 
             VStack(spacing: 0) {
                 Spacer()
@@ -37,7 +39,8 @@ struct QuickEditGroupNameModal: View {
                 VStack(spacing: 0) {
                     Text(title)
                         .font(.appSystem(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
+                        .foregroundStyle(NeumorphicColors.text)
+                        .accessibilityAddTraits(.isHeader)
                         .padding(.top, 18)
                         .padding(.bottom, 16)
 
@@ -46,20 +49,22 @@ struct QuickEditGroupNameModal: View {
                             "",
                             text: $groupName,
                             prompt: Text(L10n.quickEditGroupNamePlaceholder)
-                                .foregroundColor(placeholderColor)
+                                .foregroundStyle(placeholderColor)
                         )
+                        .accessibilityLabel(L10n.quickEditGroupNamePlaceholder)
                         .textInputAutocapitalization(.sentences)
                         .submitLabel(.done)
                         .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
+                        .foregroundStyle(NeumorphicColors.text)
                         .quickEditModalTextFieldSurface(background: taskBackground, stroke: fieldStroke)
                         .focused(focusedField, equals: focusField)
+                        .accessibilityFocused($nameFieldAccessibilityFocused)
                         .onSubmit(onCommit)
 
                         HStack(spacing: 12) {
                             Button(L10n.cancel, action: onDismiss)
                                 .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text.opacity(0.9))
+                                .foregroundStyle(NeumorphicColors.text.opacity(0.9))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .frame(height: 44)
                                 .buttonStyle(.plain)
@@ -90,6 +95,11 @@ struct QuickEditGroupNameModal: View {
                 )
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .onAppear {
+            nameFieldAccessibilityFocused = true
+        }
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
@@ -104,6 +114,7 @@ struct QuickEditGroupActionsOverlayView: View {
     let onDelete: () -> Void
 
     private let backgroundColor = Color(hex: "FAF9F3")
+    @AccessibilityFocusState private var firstActionAccessibilityFocused: Bool
 
     var body: some View {
         GeometryReader { proxy in
@@ -111,6 +122,7 @@ struct QuickEditGroupActionsOverlayView: View {
                 Color.black.opacity(0.42)
                     .ignoresSafeArea()
                     .onTapGesture(perform: onDismiss)
+                    .accessibilityHidden(true)
 
                 VStack(spacing: 12) {
                     actionButton(
@@ -118,6 +130,7 @@ struct QuickEditGroupActionsOverlayView: View {
                         color: NeumorphicColors.text,
                         action: onEdit
                     )
+                    .accessibilityFocused($firstActionAccessibilityFocused)
                     actionButton(
                         title: L10n.quickEditDeleteGroup,
                         color: Color.red.opacity(0.84),
@@ -132,9 +145,15 @@ struct QuickEditGroupActionsOverlayView: View {
                     backgroundColor
                         .ignoresSafeArea(edges: .bottom)
                         .onTapGesture(perform: onDismiss)
+                        .accessibilityHidden(true)
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .onAppear {
+            firstActionAccessibilityFocused = true
         }
     }
 
@@ -142,7 +161,7 @@ struct QuickEditGroupActionsOverlayView: View {
         Button(action: action) {
             Text(title)
                 .font(.appSystem(size: scaled(16, pad: 18), weight: .semibold, design: .rounded))
-                .foregroundColor(color)
+                .foregroundStyle(color)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
                 .background(
@@ -172,6 +191,7 @@ struct QuickEditTaskEditorModal: View {
     let onDismiss: () -> Void
     let onClearStartDate: () -> Void
     let onSave: () -> Void
+    @AccessibilityFocusState private var taskNameAccessibilityFocused: Bool
 
     var body: some View {
         if isPresented {
@@ -179,20 +199,23 @@ struct QuickEditTaskEditorModal: View {
                 VStack(spacing: 14) {
                     Text(L10n.quickEditTaskEditorTitle)
                         .font(.appSystem(size: scaled(19, pad: 24), weight: .bold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
+                        .foregroundStyle(NeumorphicColors.text)
+                        .accessibilityAddTraits(.isHeader)
 
                     TextField(
                         "",
                         text: taskName,
                         prompt: Text(L10n.quickEditTaskNamePlaceholder)
-                            .foregroundColor(placeholderColor)
+                            .foregroundStyle(placeholderColor)
                     )
+                    .accessibilityLabel(L10n.quickEditTaskNamePlaceholder)
                     .textInputAutocapitalization(.sentences)
                     .submitLabel(.done)
                     .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
+                    .foregroundStyle(NeumorphicColors.text)
                     .quickEditModalTextFieldSurface(background: taskBackground, stroke: fieldStroke)
                     .focused(focusedField, equals: .taskEditorName)
+                    .accessibilityFocused($taskNameAccessibilityFocused)
 
                     startDateFields
 
@@ -208,6 +231,9 @@ struct QuickEditTaskEditorModal: View {
                     }
                 }
             }
+            .onAppear {
+                taskNameAccessibilityFocused = true
+            }
         }
     }
 
@@ -215,7 +241,7 @@ struct QuickEditTaskEditorModal: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(L10n.quickEditTaskStartDate)
                 .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.68))
+                .foregroundStyle(NeumorphicColors.text.opacity(0.68))
 
             HStack(spacing: 8) {
                 TextField(L10n.quickEditTaskStartMonth, text: startMonth)
@@ -237,7 +263,7 @@ struct QuickEditTaskEditorModal: View {
 
                 Text("/")
                     .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.6))
+                    .foregroundStyle(NeumorphicColors.text.opacity(0.6))
 
                 TextField(L10n.quickEditTaskStartDay, text: startDay)
                     .keyboardType(.numberPad)
@@ -259,7 +285,7 @@ struct QuickEditTaskEditorModal: View {
 
             Button(L10n.quickEditTaskNoStartDate, action: onClearStartDate)
                 .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.66))
+                .foregroundStyle(NeumorphicColors.text.opacity(0.66))
                 .buttonStyle(.plain)
         }
     }
@@ -301,6 +327,7 @@ private struct QuickEditModalShell<Content: View>: View {
             Color.black.opacity(0.16)
                 .ignoresSafeArea()
                 .onTapGesture(perform: onDismiss)
+                .accessibilityHidden(true)
 
             content()
                 .padding(20)
@@ -317,6 +344,8 @@ private struct QuickEditModalShell<Content: View>: View {
                 )
                 .padding(.horizontal, 28)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
     }
 }
 
@@ -329,7 +358,7 @@ private struct QuickEditModalPrimaryButton: View {
     var body: some View {
         Button(title, action: action)
             .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .frame(height: 44)
             .background(
@@ -355,7 +384,7 @@ private struct QuickEditModalSecondaryButton: View {
     var body: some View {
         Button(title, action: action)
             .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-            .foregroundColor(NeumorphicColors.text.opacity(0.78))
+            .foregroundStyle(NeumorphicColors.text.opacity(0.78))
             .frame(maxWidth: .infinity)
             .frame(height: 44)
             .background(Color.clear.neumorphicConvex(radius: 18))

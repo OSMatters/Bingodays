@@ -370,7 +370,7 @@ struct LiquidGlassIconBadge: View {
             } else if let systemName {
                 Image(systemName: systemName)
                     .font(.system(size: iconSize, weight: .semibold, design: .rounded))
-                    .foregroundColor(foregroundColor)
+                    .foregroundStyle(foregroundColor)
             }
         }
         .frame(width: size, height: size)

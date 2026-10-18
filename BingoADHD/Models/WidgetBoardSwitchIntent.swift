@@ -42,9 +42,9 @@ enum WidgetBoardSelectionService {
 }
 
 struct SwitchBoardIntent: AppIntent {
-    static var title: LocalizedStringResource = "Switch Board"
-    static var description = IntentDescription("Switches the current board shown in the large widget.")
-    static var openAppWhenRun = false
+    static let title: LocalizedStringResource = "Switch Board"
+    static let description = IntentDescription("Switches the current board shown in the large widget.")
+    static let openAppWhenRun = false
 
     @Parameter(title: "Step")
     var step: Int
@@ -89,9 +89,9 @@ struct SwitchBoardIntent: AppIntent {
 }
 
 struct ToggleWidgetTaskIntent: AppIntent {
-    static var title: LocalizedStringResource = "Toggle Task"
-    static var description = IntentDescription("Marks a widget task complete or incomplete.")
-    static var openAppWhenRun = false
+    static let title: LocalizedStringResource = "Toggle Task"
+    static let description = IntentDescription("Marks a widget task complete or incomplete.")
+    static let openAppWhenRun = false
 
     // On iOS 26 and later, keep the interaction in the containing app's background process.
     // The app stays off-screen while the shared local transaction completes.

@@ -99,18 +99,27 @@ private struct AppReviewPromptOverlayView: View {
     let onOpenFeedbackEmail: () -> Void
     let onReject: () -> Void
     let onClose: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var usesAccessibilityType: Bool {
+        dynamicTypeSize.isAccessibilitySize
+    }
 
     var body: some View {
         GeometryReader { proxy in
             let horizontalMargin = scaled(10, pad: 24)
-            let panelWidth = min(scaled(393, pad: 430), max(280, proxy.size.width - horizontalMargin * 2))
-            let panelHeight = min(scaled(516, pad: 540), max(proxy.size.height - proxy.safeAreaInsets.top - 56, scaled(430, pad: 500)))
+            let panelWidth = min(scaled(393, pad: 430), max(0, proxy.size.width - horizontalMargin * 2))
+            let defaultPanelHeight = min(scaled(516, pad: 540), max(0, proxy.size.height - proxy.safeAreaInsets.top - 56))
+            let accessibilityPanelHeight = max(0, proxy.size.height - proxy.safeAreaInsets.top - proxy.safeAreaInsets.bottom - (isPadLayout ? 32 : 56))
+            let panelHeight = usesAccessibilityType ? accessibilityPanelHeight : defaultPanelHeight
+            let closeButtonTop = min(proxy.safeAreaInsets.top + 128, max(proxy.safeAreaInsets.top, proxy.size.height - panelHeight - 56))
             let horizontalInset = max((proxy.size.width - panelWidth) / 2, 0)
-            let contentWidth = max(236, min(scaled(300, pad: 340), panelWidth - scaled(48, pad: 56)))
+            let contentWidth = max(0, min(scaled(300, pad: 340), panelWidth - scaled(48, pad: 56)))
 
             ZStack(alignment: .bottom) {
                 Color.black.opacity(0.78)
                     .ignoresSafeArea()
+                    .accessibilityHidden(true)
 
                 if isPadLayout {
                     panel(contentWidth: contentWidth)
@@ -129,7 +138,7 @@ private struct AppReviewPromptOverlayView: View {
                 } else {
                     closeButton
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                        .padding(.top, proxy.safeAreaInsets.top + scaled(128, pad: 96))
+                        .padding(.top, closeButtonTop)
                         .padding(.trailing, horizontalInset + scaled(32, pad: 34))
 
                     panel(contentWidth: contentWidth)
@@ -144,10 +153,20 @@ private struct AppReviewPromptOverlayView: View {
             }
         }
         .ignoresSafeArea()
-        .dynamicTypeSize(.xSmall...DynamicTypeSize.xxxLarge)
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape, onClose)
     }
 
     private func panel(contentWidth: CGFloat) -> some View {
+        ScrollView(showsIndicators: false) {
+            panelContent(contentWidth: contentWidth)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func panelContent(contentWidth: CGFloat) -> some View {
         let imageWidth = min(scaled(211, pad: 238), contentWidth * 0.72)
         let imageHeight = imageWidth * (145.0 / 211.0)
 
@@ -157,22 +176,21 @@ private struct AppReviewPromptOverlayView: View {
                 .scaledToFill()
                 .frame(width: imageWidth, height: imageHeight)
                 .clipped()
+                .accessibilityHidden(true)
                 .padding(.top, scaled(31, pad: 36))
 
             VStack(spacing: scaled(8, pad: 10)) {
                 Text(L10n.appReviewPromptTitle)
-                    .font(.appSystem(size: scaled(20, pad: 23), weight: .semibold, design: .rounded))
-                    .foregroundColor(Color(hex: "291E0A"))
+                    .appDynamicFont(size: scaled(20, pad: 23), weight: .semibold, design: .rounded)
+                    .foregroundStyle(Color(hex: "291E0A"))
                     .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.76)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Text(L10n.appReviewPromptSubtitle)
-                    .font(.appSystem(size: scaled(16, pad: 18), weight: .medium, design: .rounded))
-                    .foregroundColor(Color(hex: "828282"))
+                    .appDynamicFont(size: scaled(16, pad: 18), weight: .medium, design: .rounded)
+                    .foregroundStyle(Color(hex: "828282"))
                     .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.76)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(width: contentWidth)
 
@@ -203,15 +221,18 @@ private struct AppReviewPromptOverlayView: View {
             }
             .padding(.bottom, scaled(32, pad: 36))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 
     private var closeButton: some View {
         Button(action: onClose) {
             Image(systemName: "xmark")
-                .font(.appSystem(size: scaled(21, pad: 24), weight: .medium, design: .rounded))
-                .foregroundColor(Color(hex: "1F1A16"))
-                .frame(width: scaled(40, pad: 44), height: scaled(40, pad: 44))
+                .appDynamicFont(size: scaled(21, pad: 24), weight: .medium, design: .rounded)
+                .foregroundStyle(Color(hex: "1F1A16"))
+                .frame(
+                    width: usesAccessibilityType ? scaled(52, pad: 56) : scaled(44, pad: 44),
+                    height: usesAccessibilityType ? scaled(52, pad: 56) : scaled(44, pad: 44)
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -239,19 +260,20 @@ private struct AppReviewPromptButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.appSystem(size: scaled(16, pad: 18), weight: .medium, design: .rounded))
-                .foregroundColor(foregroundColor)
+                .appDynamicFont(size: scaled(16, pad: 18), weight: .medium, design: .rounded)
+                .foregroundStyle(foregroundColor)
                 .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .minimumScaleFactor(0.66)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
-                .frame(height: scaled(52, pad: 58))
+                .padding(.vertical, 10)
+                .frame(minHeight: scaled(52, pad: 58))
                 .background(background)
                 .overlay(border)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .frame(width: width, height: scaled(52, pad: 58))
+        .frame(width: width)
+        .frame(minHeight: scaled(52, pad: 58))
     }
 
     @ViewBuilder
@@ -351,13 +373,13 @@ private struct CustomResetDowngradeOverlay: View {
                         VStack(alignment: .leading, spacing: isPadLayout ? 28 : 22) {
                             Text(primaryMessage)
                                 .font(.appSystem(size: isPadLayout ? 18 : 15, weight: .medium, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text)
+                                .foregroundStyle(NeumorphicColors.text)
                                 .lineSpacing(4)
                                 .fixedSize(horizontal: false, vertical: true)
 
                             Text(restoreMessage)
                                 .font(.appSystem(size: isPadLayout ? 18 : 15, weight: .medium, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text)
+                                .foregroundStyle(NeumorphicColors.text)
                                 .lineSpacing(4)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -375,7 +397,7 @@ private struct CustomResetDowngradeOverlay: View {
                                 )
                             )
                             .font(.appSystem(size: isPadLayout ? 20 : 17, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: isPadLayout ? 58 : 48)
                             .background(
@@ -392,7 +414,7 @@ private struct CustomResetDowngradeOverlay: View {
                     Button(action: onClose) {
                         Image(systemName: "xmark")
                             .font(.system(size: isPadLayout ? 24 : 21, weight: .medium))
-                            .foregroundColor(Color(hex: "1F1A16"))
+                            .foregroundStyle(Color(hex: "1F1A16"))
                             .frame(width: isPadLayout ? 48 : 42, height: isPadLayout ? 48 : 42)
                             .contentShape(Rectangle())
                     }

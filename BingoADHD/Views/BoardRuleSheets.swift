@@ -73,6 +73,7 @@ struct BoardCountdownSheet: View {
     let onCancel: () -> Void
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isCountdownEnabled: Bool
     @State private var countdownDays: Int
     @State private var countdownHours: Int
@@ -81,6 +82,10 @@ struct BoardCountdownSheet: View {
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
+    }
+
+    private var usesAccessibilityType: Bool {
+        dynamicTypeSize.isAccessibilitySize
     }
 
     private var hasExistingCountdown: Bool {
@@ -110,99 +115,99 @@ struct BoardCountdownSheet: View {
             ZStack {
                 NeumorphicColors.background.ignoresSafeArea()
 
-                VStack(alignment: .leading, spacing: 20) {
-                    HStack {
-                        Button(L10n.cancel) {
-                            onCancel()
-                        }
-                        .buttonStyle(.plain)
-                        .font(.appSystem(size: scaled(17, pad: 19), weight: .regular, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.8))
-
-                        Spacer()
-
-                        Button(L10n.save) {
-                            onSave(resolvedTotalMinutes)
-                        }
-                        .buttonStyle(.plain)
-                        .font(.appSystem(size: scaled(17, pad: 19), weight: .semibold, design: .rounded))
-                        .foregroundColor(NeumorphicColors.modalAccent)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.top, 6)
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(L10n.boardCountdownTitle)
-                                    .font(.appSystem(size: scaled(17, pad: 20), weight: .bold, design: .rounded))
-                                    .foregroundColor(NeumorphicColors.text)
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 20) {
+                        HStack {
+                            Button(L10n.cancel) {
+                                onCancel()
                             }
+                            .buttonStyle(.plain)
+                            .appDynamicFont(size: scaled(17, pad: 19), weight: .regular, design: .rounded)
+                            .foregroundStyle(NeumorphicColors.text.opacity(0.8))
+                            .frame(minWidth: 44, minHeight: 44)
 
                             Spacer()
 
-                            Toggle("", isOn: $isCountdownEnabled)
-                                .labelsHidden()
-                                .toggleStyle(NeumorphicSwitchToggleStyle())
-                        }
-
-                        if isCountdownEnabled {
-                            HStack(spacing: 12) {
-                                countdownNumberField(
-                                    title: L10n.tr("Days", zhHans: "天", zhHant: "天"),
-                                    value: $countdownDays,
-                                    range: 0...30
-                                )
-
-                                countdownNumberField(
-                                    title: L10n.hours,
-                                    value: $countdownHours,
-                                    range: 0...23
-                                )
-
-                                countdownNumberField(
-                                    title: L10n.minutes,
-                                    value: $countdownMinutes,
-                                    range: 0...59
-                                )
-                            }
-
-                            Text(countdownSummaryText)
-                                .font(.appSystem(size: scaled(12, pad: 14), design: .rounded))
-                                .foregroundColor(NeumorphicColors.text.opacity(0.62))
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .multilineTextAlignment(.center)
-                        }
-
-                        if hasExistingCountdown {
-                            Button {
-                                isCancelCountdownConfirmationPresented = true
-                            } label: {
-                                Text(L10n.tr("Cancel countdown", zhHans: "取消倒计时", zhHant: "取消倒計時"))
-                                    .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                                    .foregroundColor(NeumorphicColors.text.opacity(0.82))
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: scaled(42, pad: 48))
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                            .fill(NeumorphicColors.background.opacity(0.94))
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                    .stroke(NeumorphicColors.modalAccent.opacity(0.58), lineWidth: 1)
-                                            )
-                                    )
+                            Button(L10n.save) {
+                                onSave(resolvedTotalMinutes)
                             }
                             .buttonStyle(.plain)
-                            .padding(.top, 4)
+                            .appDynamicFont(size: scaled(17, pad: 19), weight: .semibold, design: .rounded)
+                            .foregroundStyle(NeumorphicColors.modalAccent)
+                            .frame(minWidth: 44, minHeight: 44)
                         }
-                    }
+                        .padding(.horizontal, 8)
+                        .padding(.top, 6)
 
-                    Spacer()
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(spacing: 12) {
+                                Text(L10n.boardCountdownTitle)
+                                    .appDynamicFont(size: scaled(17, pad: 20), weight: .bold, design: .rounded)
+                                    .foregroundStyle(NeumorphicColors.text)
+
+                                Spacer()
+
+                                Toggle("", isOn: $isCountdownEnabled)
+                                    .labelsHidden()
+                                    .toggleStyle(NeumorphicSwitchToggleStyle())
+                                    .accessibilityLabel(L10n.boardCountdownTitle)
+                            }
+
+                            if isCountdownEnabled {
+                                Group {
+                                    if usesAccessibilityType {
+                                        VStack(spacing: 12) {
+                                            countdownNumberField(title: L10n.tr("Days", zhHans: "天", zhHant: "天"), value: $countdownDays, range: 0...30)
+                                            countdownNumberField(title: L10n.hours, value: $countdownHours, range: 0...23)
+                                            countdownNumberField(title: L10n.minutes, value: $countdownMinutes, range: 0...59)
+                                        }
+                                    } else {
+                                        HStack(spacing: 12) {
+                                            countdownNumberField(title: L10n.tr("Days", zhHans: "天", zhHant: "天"), value: $countdownDays, range: 0...30)
+                                            countdownNumberField(title: L10n.hours, value: $countdownHours, range: 0...23)
+                                            countdownNumberField(title: L10n.minutes, value: $countdownMinutes, range: 0...59)
+                                        }
+                                    }
+                                }
+
+                                Text(countdownSummaryText)
+                                    .appDynamicFont(size: scaled(12, pad: 14), design: .rounded)
+                                    .foregroundStyle(NeumorphicColors.text.opacity(0.62))
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .multilineTextAlignment(.center)
+                            }
+
+                            if hasExistingCountdown {
+                                Button {
+                                    isCancelCountdownConfirmationPresented = true
+                                } label: {
+                                    Text(L10n.tr("Cancel countdown", zhHans: "取消倒计时", zhHant: "取消倒計時"))
+                                        .appDynamicFont(size: scaled(14, pad: 16), weight: .semibold, design: .rounded)
+                                        .foregroundStyle(NeumorphicColors.text.opacity(0.82))
+                                        .frame(maxWidth: .infinity)
+                                        .frame(minHeight: 44)
+                                        .padding(.vertical, 8)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                .fill(NeumorphicColors.background.opacity(0.94))
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                        .stroke(NeumorphicColors.modalAccent.opacity(0.58), lineWidth: 1)
+                                                )
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.top, 4)
+                            }
+                        }
+
+                        Spacer(minLength: 8)
+                    }
+                    .frame(maxWidth: isPadLayout ? 560 : .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(24)
+                    .padding(.top, 14)
                 }
-                .frame(maxWidth: isPadLayout ? 560 : .infinity, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(24)
-                .padding(.top, 14)
             }
             .alert(
                 L10n.tr("Cancel countdown?", zhHans: "取消倒计时？", zhHant: "取消倒計時？"),
@@ -251,17 +256,18 @@ struct BoardCountdownSheet: View {
     ) -> some View {
         VStack(alignment: .center, spacing: 6) {
             Text(title)
-                .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .appDynamicFont(size: scaled(12, pad: 14), weight: .semibold, design: .rounded)
+                .foregroundStyle(NeumorphicColors.text)
                 .frame(maxWidth: .infinity, alignment: .center)
 
             TextField("0", value: value, formatter: Self.integerFormatter)
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.center)
-                .font(.appSystem(size: scaled(18, pad: 22), weight: .bold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .accessibilityLabel(title)
+                .appDynamicFont(size: scaled(18, pad: 22), weight: .bold, design: .rounded)
+                .foregroundStyle(NeumorphicColors.text)
                 .frame(maxWidth: .infinity)
-                .frame(height: scaled(48, pad: 56))
+                .frame(minHeight: 48)
                 .onChange(of: value.wrappedValue) { _, newValue in
                     value.wrappedValue = min(max(newValue, range.lowerBound), range.upperBound)
                 }
@@ -334,6 +340,7 @@ struct BoardRulesSheet: View {
     let onCancel: () -> Void
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isCountdownEnabled: Bool
     @State private var countdownDays: Int
     @State private var countdownHours: Int
@@ -344,6 +351,10 @@ struct BoardRulesSheet: View {
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
+    }
+
+    private var usesAccessibilityType: Bool {
+        dynamicTypeSize.isAccessibilitySize
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
@@ -446,34 +457,63 @@ struct BoardRulesSheet: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Button(L10n.cancel) {
-                onCancel()
-            }
-            .buttonStyle(.plain)
-            .font(.appSystem(size: scaled(16, pad: 18), weight: .regular, design: .rounded))
-            .foregroundColor(NeumorphicColors.text.opacity(0.86))
-            .frame(width: scaled(72, pad: 86), alignment: .leading)
+        Group {
+            if usesAccessibilityType {
+                VStack(spacing: 8) {
+                    HStack {
+                        cancelButton
+                        Spacer()
+                        saveButton
+                    }
 
-            Text(sheetTitle)
-                .font(.appSystem(size: scaled(18, pad: 20), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .frame(maxWidth: .infinity)
+                    Text(sheetTitle)
+                        .appDynamicFont(size: scaled(18, pad: 20), weight: .medium, design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                }
+            } else {
+                HStack(spacing: 12) {
+                    cancelButton
 
-            Button(L10n.save) {
-                onSave(resolvedTotalMinutes, selectedResetMode, resolvedCustomResetMinutes)
+                    Text(sheetTitle)
+                        .appDynamicFont(size: scaled(18, pad: 20), weight: .medium, design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .frame(maxWidth: .infinity)
+
+                    saveButton
+                }
             }
-            .buttonStyle(.plain)
-            .font(.appSystem(size: scaled(16, pad: 18), weight: .medium, design: .rounded))
-            .foregroundColor(NeumorphicColors.modalAccent)
-            .frame(width: scaled(72, pad: 86), alignment: .trailing)
         }
         .padding(.horizontal, scaled(22, pad: 30))
         .padding(.top, scaled(20, pad: 24))
         .padding(.bottom, scaled(30, pad: 34))
         .frame(maxWidth: isPadLayout ? 620 : .infinity)
+    }
+
+    private var cancelButton: some View {
+        Button(L10n.cancel, action: onCancel)
+            .buttonStyle(.plain)
+            .appDynamicFont(size: scaled(16, pad: 18), weight: .regular, design: .rounded)
+            .foregroundStyle(NeumorphicColors.text.opacity(0.86))
+            .frame(width: usesAccessibilityType ? nil : scaled(72, pad: 86), alignment: .leading)
+            .frame(minWidth: 44, minHeight: 44)
+            .fixedSize(horizontal: usesAccessibilityType, vertical: false)
+    }
+
+    private var saveButton: some View {
+        Button(L10n.save) {
+            onSave(resolvedTotalMinutes, selectedResetMode, resolvedCustomResetMinutes)
+        }
+        .buttonStyle(.plain)
+        .appDynamicFont(size: scaled(16, pad: 18), weight: .medium, design: .rounded)
+        .foregroundStyle(NeumorphicColors.modalAccent)
+        .frame(width: usesAccessibilityType ? nil : scaled(72, pad: 86), alignment: .trailing)
+        .frame(minWidth: 44, minHeight: 44)
+        .fixedSize(horizontal: usesAccessibilityType, vertical: false)
     }
 
     private var sheetTitle: String {
@@ -546,14 +586,22 @@ struct BoardRulesSheet: View {
                 } label: {
                     HStack(spacing: 12) {
                         Text(L10n.tr("Default every night 24:00", zhHans: "默认每晚 24:00", zhHant: "預設每晚 24:00", ja: "毎晩 24:00"))
-                            .font(rowTitleFont)
-                            .foregroundColor(NeumorphicColors.text)
+                            .appDynamicFont(size: scaled(16, pad: 18), design: .rounded)
+                            .foregroundStyle(NeumorphicColors.text)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         selectionCircle(isSelected: !isCustomResetTimeEnabled)
                     }
                 }
                 .buttonStyle(.plain)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+                .accessibilityAddTraits(!isCustomResetTimeEnabled ? .isSelected : [])
+                .accessibilityValue(
+                    isCustomResetTimeEnabled
+                        ? L10n.tr("Not selected", zhHans: "未选中", zhHant: "未選取", ja: "未選択")
+                        : L10n.tr("Selected", zhHans: "已选中", zhHant: "已選取", ja: "選択中")
+                )
 
                 Button {
                     withAnimation(.easeInOut(duration: 0.18)) {
@@ -562,19 +610,27 @@ struct BoardRulesSheet: View {
                 } label: {
                     HStack(spacing: 12) {
                         Text(L10n.tr("Custom time", zhHans: "自定义时间", zhHant: "自訂時間", ja: "カスタム時刻"))
-                            .font(rowTitleFont)
-                            .foregroundColor(NeumorphicColors.text)
+                            .appDynamicFont(size: scaled(16, pad: 18), design: .rounded)
+                            .foregroundStyle(NeumorphicColors.text)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         selectionCircle(isSelected: isCustomResetTimeEnabled)
                     }
                 }
                 .buttonStyle(.plain)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+                .accessibilityAddTraits(isCustomResetTimeEnabled ? .isSelected : [])
+                .accessibilityValue(
+                    isCustomResetTimeEnabled
+                        ? L10n.tr("Selected", zhHans: "已选中", zhHant: "已選取", ja: "選択中")
+                        : L10n.tr("Not selected", zhHans: "未选中", zhHant: "未選取", ja: "未選択")
+                )
 
                 if isCustomResetTimeEnabled {
                     Text(customResetDailySummaryText)
-                        .font(helperFont)
-                        .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                        .appDynamicFont(size: scaled(13, pad: 15), design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text.opacity(0.58))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .transition(.opacity)
 
@@ -588,7 +644,7 @@ struct BoardRulesSheet: View {
                     .environment(\.colorScheme, .light)
                     .tint(NeumorphicColors.text)
                     .frame(maxWidth: .infinity)
-                    .frame(height: scaled(148, pad: 166))
+                    .frame(height: usesAccessibilityType ? scaled(190, pad: 210) : scaled(148, pad: 166))
                     .clipped()
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
@@ -610,20 +666,22 @@ struct BoardRulesSheet: View {
                     .labelsHidden()
                     .toggleStyle(BoardRulesCountdownToggleStyle(onTint: NeumorphicColors.modalAccent))
                     .scaleEffect(scaled(0.92, pad: 1.0), anchor: .trailing)
+                    .accessibilityLabel(L10n.tr("Board countdown", zhHans: "面板倒计时", zhHant: "面板倒計時", ja: "ボードカウントダウン"))
+                    .frame(minWidth: 44, minHeight: 44)
             }
 
             if isCountdownEnabled {
                 countdownWheelPicker
 
                 Text(countdownSummaryText)
-                    .font(helperFont)
-                    .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                    .appDynamicFont(size: scaled(13, pad: 15), design: .rounded)
+                    .foregroundStyle(NeumorphicColors.text.opacity(0.58))
                     .multilineTextAlignment(.leading)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             } else {
                 Text(countdownDisabledHint)
-                    .font(helperFont)
-                    .foregroundColor(NeumorphicColors.text.opacity(0.52))
+                    .appDynamicFont(size: scaled(13, pad: 15), design: .rounded)
+                    .foregroundStyle(NeumorphicColors.text.opacity(0.52))
             }
         }
     }
@@ -661,7 +719,12 @@ private struct BoardRulesCountdownToggleStyle: ToggleStyle {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityValue(configuration.isOn ? "1" : "0")
+        .frame(minWidth: 44, minHeight: 44)
+        .accessibilityValue(
+            configuration.isOn
+                ? L10n.tr("On", zhHans: "开启", zhHant: "開啟", ja: "オン")
+                : L10n.tr("Off", zhHans: "关闭", zhHant: "關閉", ja: "オフ")
+        )
     }
 }
 
@@ -685,7 +748,7 @@ private struct BoardRulesCountdownToggleStyle: ToggleStyle {
                 range: 0...59
             )
         }
-        .frame(height: scaled(174, pad: 194))
+        .frame(height: usesAccessibilityType ? scaled(220, pad: 244) : scaled(174, pad: 194))
         .clipped()
     }
 
@@ -699,14 +762,14 @@ private struct BoardRulesCountdownToggleStyle: ToggleStyle {
             HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)
-                        .font(rowTitleFont)
-                        .foregroundColor(isSelected ? NeumorphicColors.modalAccent : NeumorphicColors.text)
+                        .appDynamicFont(size: scaled(16, pad: 18), design: .rounded)
+                        .foregroundStyle(isSelected ? NeumorphicColors.modalAccent : NeumorphicColors.text)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     if isSelected {
                         Text(hint)
-                            .font(helperFont)
-                            .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                            .appDynamicFont(size: scaled(13, pad: 15), design: .rounded)
+                            .foregroundStyle(NeumorphicColors.text.opacity(0.58))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -717,6 +780,14 @@ private struct BoardRulesCountdownToggleStyle: ToggleStyle {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityValue(
+            isSelected
+                ? L10n.tr("Selected", zhHans: "已选中", zhHant: "已選取", ja: "選択中")
+                : L10n.tr("Not selected", zhHans: "未选中", zhHant: "未選取", ja: "未選択")
+        )
     }
 
     private func countdownPickerColumn(
@@ -726,22 +797,22 @@ private struct BoardRulesCountdownToggleStyle: ToggleStyle {
     ) -> some View {
         VStack(spacing: 0) {
             Text(title)
-                .font(.appSystem(size: scaled(13, pad: 15), weight: .regular, design: .rounded))
-                .foregroundColor(NeumorphicColors.text.opacity(0.58))
-                .frame(height: scaled(24, pad: 28))
+                .appDynamicFont(size: scaled(13, pad: 15), design: .rounded)
+                .foregroundStyle(NeumorphicColors.text.opacity(0.58))
+                .frame(minHeight: usesAccessibilityType ? 44 : scaled(24, pad: 28))
 
             Picker(title, selection: value) {
                 ForEach(Array(range), id: \.self) { item in
                     Text("\(item)")
-                        .font(.appSystem(size: scaled(22, pad: 26), weight: .regular, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
+                        .appDynamicFont(size: scaled(22, pad: 26), design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text)
                         .tag(item)
                 }
             }
             .pickerStyle(.wheel)
             .labelsHidden()
             .frame(maxWidth: .infinity)
-            .frame(height: scaled(146, pad: 164))
+            .frame(height: usesAccessibilityType ? scaled(176, pad: 190) : scaled(146, pad: 164))
             .clipped()
         }
         .frame(maxWidth: .infinity)
@@ -750,21 +821,21 @@ private struct BoardRulesCountdownToggleStyle: ToggleStyle {
     @ViewBuilder
     private func selectionCircle(isSelected: Bool) -> some View {
         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-            .font(.appSystem(size: scaled(22, pad: 24), weight: .medium, design: .rounded))
-            .foregroundColor(isSelected ? NeumorphicColors.modalAccent : NeumorphicColors.text.opacity(0.24))
+            .appDynamicFont(size: scaled(22, pad: 24), weight: .medium, design: .rounded)
+            .foregroundStyle(isSelected ? NeumorphicColors.modalAccent : NeumorphicColors.text.opacity(0.24))
             .frame(width: scaled(26, pad: 30), height: scaled(26, pad: 30))
     }
 
     private func sectionTitle(_ title: String, systemImage: String) -> some View {
         HStack(spacing: scaled(7, pad: 8)) {
             Image(systemName: systemImage)
-                .font(.appSystem(size: scaled(15, pad: 18), weight: .medium, design: .rounded))
-                .foregroundColor(NeumorphicColors.modalAccent)
+                .appDynamicFont(size: scaled(15, pad: 18), weight: .medium, design: .rounded)
+                .foregroundStyle(NeumorphicColors.modalAccent)
                 .frame(width: scaled(19, pad: 22), alignment: .center)
 
             Text(title)
-                .font(sectionTitleFont)
-                .foregroundColor(NeumorphicColors.text)
+                .appDynamicFont(size: scaled(17, pad: 20), weight: .medium, design: .rounded)
+                .foregroundStyle(NeumorphicColors.text)
         }
     }
 
@@ -782,18 +853,6 @@ private struct BoardRulesCountdownToggleStyle: ToggleStyle {
                 proxy.scrollTo(Self.resetTimeSectionID, anchor: .center)
             }
         }
-    }
-
-    private var sectionTitleFont: Font {
-        .appSystem(size: scaled(17, pad: 20), weight: .medium, design: .rounded)
-    }
-
-    private var rowTitleFont: Font {
-        .appSystem(size: scaled(16, pad: 18), weight: .regular, design: .rounded)
-    }
-
-    private var helperFont: Font {
-        .appSystem(size: scaled(13, pad: 15), weight: .regular, design: .rounded)
     }
 
     private var countdownDisabledHint: String {

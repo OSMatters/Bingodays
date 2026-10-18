@@ -200,6 +200,7 @@ struct PointsFlowSheet: View {
             switch screen {
             case .details:
                 wrapDetails(AnyView(detailsContent))
+                    .accessibilityHidden(selectedStickerForDetail != nil || selectedRewardForDetail != nil)
             case .rewardEditor(let reward):
                 RewardEditorSheet(
                     reward: reward,
@@ -458,6 +459,7 @@ struct PointsFlowSheet: View {
             usedCounts: usedCounts,
             rewards: rewards,
             redemptionHistory: redemptionHistory,
+            isDetailOverlayPresented: selectedStickerForDetail != nil || selectedRewardForDetail != nil,
             onRedeem: onRedeemSticker,
             onAddToHome: onAddStickerToHome,
             onDeleteReward: onDeleteReward,
@@ -503,6 +505,11 @@ private enum PointsTab: String, CaseIterable, Identifiable {
 }
 
 private struct PointsDetailSheet: View {
+    private enum DetailFocusTarget: Hashable {
+        case sticker(String)
+        case reward(UUID)
+    }
+
     let points: Int
     let showsCloseButton: Bool
     let bottomContentPadding: CGFloat
@@ -510,6 +517,7 @@ private struct PointsDetailSheet: View {
     let usedCounts: [StickerKind: Int]
     let rewards: [CustomReward]
     let redemptionHistory: [PointRedemptionRecord]
+    let isDetailOverlayPresented: Bool
     let onRedeem: (StickerKind) -> Void
     let onAddToHome: (StickerKind) -> Void
     let onDeleteReward: (CustomReward) -> Void
@@ -522,11 +530,16 @@ private struct PointsDetailSheet: View {
     let onPresentationChange: (Bool) -> Void
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AccessibilityFocusState private var isHistoryButtonFocused: Bool
+    @AccessibilityFocusState private var detailAccessibilityFocus: DetailFocusTarget?
     @State private var selectedTab: PointsTab
     @State private var actionRewardID: UUID?
     @State private var pendingDeleteReward: CustomReward?
     @State private var isDeleteActionSheetPresented = false
     @State private var isHistoryPresented = false
+    @State private var detailFocusReturnTarget: DetailFocusTarget?
 
     init(
         initialTab: PointsTab,
@@ -537,6 +550,7 @@ private struct PointsDetailSheet: View {
         usedCounts: [StickerKind: Int],
         rewards: [CustomReward],
         redemptionHistory: [PointRedemptionRecord],
+        isDetailOverlayPresented: Bool,
         onRedeem: @escaping (StickerKind) -> Void,
         onAddToHome: @escaping (StickerKind) -> Void,
         onDeleteReward: @escaping (CustomReward) -> Void,
@@ -555,6 +569,7 @@ private struct PointsDetailSheet: View {
         self.usedCounts = usedCounts
         self.rewards = rewards
         self.redemptionHistory = redemptionHistory
+        self.isDetailOverlayPresented = isDetailOverlayPresented
         self.onRedeem = onRedeem
         self.onAddToHome = onAddToHome
         self.onDeleteReward = onDeleteReward
@@ -570,6 +585,28 @@ private struct PointsDetailSheet: View {
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
+    }
+
+    private var usesAccessibilityType: Bool {
+        dynamicTypeSize.isAccessibilitySize
+    }
+
+    private var deleteConfirmationMessage: String {
+        guard let rewardTitle = pendingDeleteReward?.title else {
+            return L10n.tr(
+                "This action cannot be undone.",
+                zhHans: "删除后无法恢复。",
+                zhHant: "刪除後無法復原。",
+                ja: "この操作は取り消せません。"
+            )
+        }
+
+        return L10n.tr(
+            "Delete \(rewardTitle)? This action cannot be undone.",
+            zhHans: "确定删除“\(rewardTitle)”吗？删除后无法恢复。",
+            zhHant: "確定刪除「\(rewardTitle)」嗎？刪除後無法復原。",
+            ja: "「\(rewardTitle)」を削除しますか？この操作は取り消せません。"
+        )
     }
 
     private var isPadDevice: Bool {
@@ -594,7 +631,7 @@ private struct PointsDetailSheet: View {
     }
 
     private var stickerGridColumns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: scaled(18, pad: 28)), count: 3)
+        Array(repeating: GridItem(.flexible(), spacing: scaled(18, pad: 28)), count: usesAccessibilityType ? 2 : 3)
     }
 
     private var rewardGridColumns: [GridItem] {
@@ -633,18 +670,20 @@ private struct PointsDetailSheet: View {
                         VStack(spacing: scaled(2, pad: 4)) {
                             HStack(alignment: .center, spacing: scaled(8, pad: 10)) {
                                 Text("\(points)")
-                                    .font(.appSystem(size: scaled(50, pad: 64), weight: .bold, design: .rounded))
-                                    .foregroundColor(NeumorphicColors.text)
+                                    .appDynamicFont(size: scaled(50, pad: 64), weight: .bold, design: .rounded)
+                                    .foregroundStyle(NeumorphicColors.text)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.6)
 
                                 Image(systemName: "star.fill")
                                     .font(.appSystem(size: scaled(21, pad: 26), weight: .bold))
-                                    .foregroundColor(themeColor)
+                                    .foregroundStyle(themeColor)
                                     .offset(y: scaled(3, pad: 4))
                             }
 
                             Text(L10n.myPoints)
-                                .font(.appSystem(size: scaled(16, pad: 19), weight: .semibold, design: .rounded))
-                                .foregroundColor(NeumorphicColors.text.opacity(0.52))
+                                .appDynamicFont(size: scaled(16, pad: 19), weight: .semibold, design: .rounded)
+                                .foregroundStyle(NeumorphicColors.text.opacity(0.52))
                         }
                         .padding(.top, scaled(-12, pad: -8))
 
@@ -660,16 +699,27 @@ private struct PointsDetailSheet: View {
                             .padding(.top, scaled(4, pad: 8))
                         } else if rewards.isEmpty {
                             emptyRewardsState
-                                .padding(.top, scaled(118, pad: 150))
+                                .padding(.top, usesAccessibilityType ? 48 : scaled(118, pad: 150))
                         } else {
-                            LazyVGrid(columns: rewardGridColumns, spacing: scaled(8, pad: 12)) {
-                                addRewardCard
+                            if usesAccessibilityType {
+                                LazyVStack(spacing: 12) {
+                                    addRewardListRow
 
-                                ForEach(rewards) { reward in
-                                    rewardCard(reward)
+                                    ForEach(rewards) { reward in
+                                        accessibilityRewardRow(reward)
+                                    }
                                 }
+                                .padding(.top, scaled(8, pad: 12))
+                            } else {
+                                LazyVGrid(columns: rewardGridColumns, spacing: scaled(8, pad: 12)) {
+                                    addRewardCard
+
+                                    ForEach(rewards) { reward in
+                                        rewardCard(reward)
+                                    }
+                                }
+                                .padding(.top, scaled(8, pad: 12))
                             }
-                            .padding(.top, scaled(8, pad: 12))
                         }
 
                         Spacer(minLength: 0)
@@ -694,11 +744,11 @@ private struct PointsDetailSheet: View {
                         }
                     }
                 }
-                .coordinateSpace(name: "rewardsScroll")
+                .coordinateSpace(.named("rewardsScroll"))
                 .simultaneousGesture(
                     TapGesture().onEnded {
                         if actionRewardID != nil {
-                            withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+                            withAnimation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.9)) {
                                 actionRewardID = nil
                             }
                         }
@@ -727,7 +777,7 @@ private struct PointsDetailSheet: View {
                     pendingDeleteReward = nil
                 }
             } message: {
-                Text(L10n.tr("This action cannot be undone.", zhHans: "删除后无法恢复。", zhHant: "刪除後無法復原。", ja: "この操作は取り消せません。"))
+                Text(deleteConfirmationMessage)
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -751,6 +801,21 @@ private struct PointsDetailSheet: View {
             .onChange(of: isHistoryPresented || isDeleteActionSheetPresented || actionRewardID != nil, initial: true) { _, isPresented in
                 onPresentationChange(isPresented)
             }
+            .onChange(of: isHistoryPresented) { wasPresented, isPresented in
+                guard wasPresented, !isPresented else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    isHistoryButtonFocused = true
+                }
+            }
+            .onChange(of: isDetailOverlayPresented) { wasPresented, isPresented in
+                guard wasPresented, !isPresented, let returnTarget = detailFocusReturnTarget else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    detailAccessibilityFocus = returnTarget
+                    detailFocusReturnTarget = nil
+                }
+            }
         }
     }
 
@@ -768,6 +833,7 @@ private struct PointsDetailSheet: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(L10n.tr("Back", zhHans: "返回", zhHant: "返回", ja: "戻る"))
             } else {
                 Color.clear
                     .frame(width: scaled(44, pad: 52), height: scaled(44, pad: 52))
@@ -803,6 +869,7 @@ private struct PointsDetailSheet: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(L10n.tr("Reward history", zhHans: "奖励历史", zhHant: "獎勵歷史", ja: "報酬履歴"))
+                .accessibilityFocused($isHistoryButtonFocused)
             }
         }
     }
@@ -814,7 +881,7 @@ private struct PointsDetailSheet: View {
             }
         }
         .padding(0)
-        .frame(height: scaled(36, pad: 44))
+        .frame(minHeight: usesAccessibilityType ? 56 : 44)
         .background(
             Capsule(style: .continuous)
                 .fill(themeColor.opacity(activeTheme == .concise ? 0.12 : 0.14))
@@ -825,21 +892,22 @@ private struct PointsDetailSheet: View {
         let isSelected = selectedTab == tab
 
         return Button {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+            withAnimation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.84)) {
                 selectedTab = tab
             }
         } label: {
                 Text(tab.title)
-                .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
-                .foregroundColor(isSelected ? .white : NeumorphicColors.text.opacity(0.5))
+                .appDynamicFont(size: scaled(14, pad: 16), weight: .semibold, design: .rounded)
+                .foregroundStyle(isSelected ? .white : NeumorphicColors.text.opacity(0.5))
                 .frame(maxWidth: .infinity)
-                .frame(height: scaled(36, pad: 44))
+                .frame(minHeight: usesAccessibilityType ? 56 : 44)
                 .background(tabBackground(isSelected: isSelected))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func tabBackground(isSelected: Bool) -> some View {
@@ -853,8 +921,8 @@ private struct PointsDetailSheet: View {
         let hasOwned = inventoryCount > 0
 
         return Button {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                onSelectSticker(sticker)
+            withAnimation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.86)) {
+                openStickerDetails(sticker)
             }
         } label: {
             ZStack {
@@ -865,12 +933,14 @@ private struct PointsDetailSheet: View {
                         .scaledToFit()
                         .frame(height: scaled(116, pad: 150))
                         .shadow(color: Color(red: 0.45, green: 0.29, blue: 0.13).opacity(0.18), radius: 6, x: 0, y: 5)
+                        .accessibilityHidden(true)
                 } else {
                     Image(sticker.lockedImageName)
                         .resizable()
                         .interpolation(.high)
                         .scaledToFit()
                         .frame(height: scaled(116, pad: 150))
+                        .accessibilityHidden(true)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -879,6 +949,48 @@ private struct PointsDetailSheet: View {
         }
         .buttonStyle(.plain)
         .opacity(0.8)
+        .accessibilityLabel(sticker.title)
+        .accessibilityValue(stickerAccessibilityValue(sticker, inventoryCount: inventoryCount))
+        .accessibilityHint(L10n.tr("Opens sticker details.", zhHans: "打开贴纸详情。", zhHant: "打開貼紙詳細資料。", ja: "ステッカーの詳細を開きます。"))
+        .accessibilityFocused($detailAccessibilityFocus, equals: .sticker(sticker.rawValue))
+    }
+
+    private func stickerAccessibilityValue(_ sticker: StickerKind, inventoryCount: Int) -> String {
+        if inventoryCount > 0 {
+            if (usedCounts[sticker] ?? 0) > 0 {
+                return L10n.tr("Placed on home", zhHans: "已放到首页", zhHant: "已放到首頁", ja: "ホームに配置済み")
+            }
+            return L10n.tr("Owned", zhHans: "已拥有", zhHant: "已擁有", ja: "所持済み")
+        }
+        if points >= sticker.requiredPoints {
+            return L10n.tr("Available to redeem", zhHans: "可兑换", zhHant: "可兌換", ja: "交換できます")
+        }
+        return L10n.tr("Requires \(sticker.requiredPoints) points", zhHans: "需要 \(sticker.requiredPoints) 积分", zhHant: "需要 \(sticker.requiredPoints) 積分", ja: "\(sticker.requiredPoints)ポイント必要")
+    }
+
+    private func openStickerDetails(_ sticker: StickerKind) {
+        detailFocusReturnTarget = .sticker(sticker.rawValue)
+        onSelectSticker(sticker)
+    }
+
+    private func openRewardDetails(_ reward: CustomReward) {
+        detailFocusReturnTarget = .reward(reward.id)
+        onSelectReward(reward)
+    }
+
+    private func rewardAccessibilityHint(canRedeem: Bool, isShowingActions: Bool) -> String {
+        if isShowingActions {
+            return L10n.tr("Choose edit or delete.", zhHans: "选择编辑或删除。", zhHant: "選擇編輯或刪除。", ja: "編集または削除を選択します。")
+        }
+        if canRedeem {
+            return L10n.tr("Opens reward details.", zhHans: "打开奖励详情。", zhHant: "打開獎勵詳細資料。", ja: "報酬の詳細を開きます。")
+        }
+        return L10n.tr(
+            "Not enough points to redeem. Use custom actions to edit or delete.",
+            zhHans: "积分不足，无法兑换。可通过操作菜单编辑或删除。",
+            zhHant: "積分不足，無法兌換。可透過操作選單編輯或刪除。",
+            ja: "ポイントが不足しているため交換できません。カスタムアクションから編集または削除できます。"
+        )
     }
 
     private var emptyRewardsState: some View {
@@ -888,10 +1000,11 @@ private struct PointsDetailSheet: View {
                 .interpolation(.high)
                 .scaledToFit()
                 .frame(width: scaled(185, pad: 240), height: scaled(142, pad: 184))
+                .accessibilityHidden(true)
 
             Text(L10n.emptyCustomRewardsMessage)
-                .font(.appSystem(size: scaled(16, pad: 19), weight: .semibold, design: .rounded))
-                .foregroundColor(NeumorphicColors.text)
+                .appDynamicFont(size: scaled(16, pad: 19), weight: .semibold, design: .rounded)
+                .foregroundStyle(NeumorphicColors.text)
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -901,9 +1014,14 @@ private struct PointsDetailSheet: View {
                 onRequestCreateReward()
             } label: {
                 Text(L10n.addRewards)
-                    .font(.appSystem(size: scaled(16, pad: 16), weight: .heavy, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-                    .frame(width: scaled(158, pad: 196), height: scaled(42, pad: 52))
+                    .appDynamicFont(size: scaled(16, pad: 16), weight: .heavy, design: .rounded)
+                    .foregroundStyle(NeumorphicColors.text)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: usesAccessibilityType ? nil : scaled(158, pad: 196))
+                    .frame(height: usesAccessibilityType ? nil : scaled(42, pad: 52))
+                    .frame(maxWidth: usesAccessibilityType ? 360 : nil, minHeight: usesAccessibilityType ? 56 : nil)
+                    .padding(.horizontal, usesAccessibilityType ? 20 : 0)
                     .appLiquidGlass(in: Capsule(style: .continuous), interactive: true)
                     .contentShape(Capsule(style: .continuous))
             }
@@ -937,7 +1055,7 @@ private struct PointsDetailSheet: View {
 
                 Text(reward.title)
                     .font(.appSystem(size: scaled(15, pad: 27), weight: .heavy, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
+                    .foregroundStyle(NeumorphicColors.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
                     .frame(maxWidth: .infinity)
@@ -946,7 +1064,7 @@ private struct PointsDetailSheet: View {
 
                 Text("\(reward.requiredPoints) pts")
                     .font(.appSystem(size: scaled(12, pad: 22), weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
+                    .foregroundStyle(NeumorphicColors.text)
                     .padding(.top, scaled(4, pad: 15))
                     .offset(y: scaled(-3, pad: 47))
 
@@ -957,7 +1075,7 @@ private struct PointsDetailSheet: View {
             if reward.redemptionCount > 0 {
                 Text("x\(reward.redemptionCount)")
                     .font(.appSystem(size: scaled(11, pad: 13), weight: .heavy, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.78))
+                    .foregroundStyle(NeumorphicColors.text.opacity(0.78))
                     .padding(.top, scaled(10, pad: 12))
             }
 
@@ -973,20 +1091,203 @@ private struct PointsDetailSheet: View {
         .contentShape(Rectangle())
         .onTapGesture {
             if isShowingActions {
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+                withAnimation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.9)) {
                     actionRewardID = nil
                 }
             } else if canRedeem {
-                onSelectReward(reward)
+                openRewardDetails(reward)
             }
         }
         .onLongPressGesture(minimumDuration: 0.35) {
             guard actionRewardID != reward.id else { return }
             AppHaptics.control()
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+            withAnimation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.86)) {
                 actionRewardID = reward.id
             }
         }
+        .accessibilityElement(children: isShowingActions ? .contain : .ignore)
+        .accessibilityLabel("\(reward.title), \(reward.requiredPoints) \(L10n.pointsUnit)")
+        .accessibilityValue(
+            isShowingActions
+                ? L10n.tr("Actions available", zhHans: "可用操作", zhHant: "可用操作", ja: "操作を利用できます")
+                : (canRedeem
+                    ? L10n.tr("Available to redeem", zhHans: "可兑换", zhHant: "可兌換", ja: "交換できます")
+                    : L10n.tr("Not enough points", zhHans: "积分不足", zhHant: "積分不足", ja: "ポイント不足"))
+        )
+        .accessibilityHint(rewardAccessibilityHint(canRedeem: canRedeem, isShowingActions: isShowingActions))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            if isShowingActions {
+                withAnimation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.9)) {
+                    actionRewardID = nil
+                }
+            } else if canRedeem {
+                openRewardDetails(reward)
+            }
+        }
+        .accessibilityAction(named: Text(L10n.editReward)) {
+            actionRewardID = nil
+            onRequestEditReward(reward)
+        }
+        .accessibilityAction(named: Text(L10n.deleteReward)) {
+            actionRewardID = nil
+            pendingDeleteReward = reward
+            isDeleteActionSheetPresented = true
+        }
+        .accessibilityFocused($detailAccessibilityFocus, equals: .reward(reward.id))
+    }
+
+    private var addRewardListRow: some View {
+        Button(action: onRequestCreateReward) {
+            HStack(spacing: 14) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(themeColor)
+                    .accessibilityHidden(true)
+
+                Text(L10n.addRewards)
+                    .appDynamicFont(size: 18, weight: .semibold, design: .rounded)
+                    .foregroundStyle(NeumorphicColors.text)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.82))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.addRewards)
+    }
+
+    private func accessibilityRewardRow(_ reward: CustomReward) -> some View {
+        let canRedeem = points >= reward.requiredPoints
+        let isShowingActions = actionRewardID == reward.id
+
+        return VStack(spacing: 8) {
+            HStack(spacing: 14) {
+                Group {
+                    if let imageName = reward.themeImageName {
+                        Image(imageName)
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFit()
+                    } else {
+                        Text(reward.displayEmoji)
+                            .font(.system(size: 34))
+                    }
+                }
+                .frame(width: 54, height: 64)
+                .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(reward.title)
+                        .appDynamicFont(size: 18, weight: .heavy, design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("\(reward.requiredPoints) \(L10n.pointsUnit)")
+                        .appDynamicFont(size: 15, weight: .semibold, design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text.opacity(0.68))
+
+                    Text(
+                        canRedeem
+                            ? L10n.tr("Redeem", zhHans: "兑换", zhHant: "兌換", ja: "交換")
+                            : L10n.tr("Locked", zhHans: "积分不足", zhHant: "積分不足", ja: "ポイント不足")
+                    )
+                    .appDynamicFont(size: 14, weight: .semibold, design: .rounded)
+                    .foregroundStyle(canRedeem ? themeColor : NeumorphicColors.text.opacity(0.5))
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.86))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(themeShadowColor.opacity(0.18), lineWidth: 1)
+                    }
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .onTapGesture {
+                if isShowingActions {
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.9)) {
+                        actionRewardID = nil
+                    }
+                } else if canRedeem {
+                    openRewardDetails(reward)
+                }
+            }
+            .onLongPressGesture(minimumDuration: 0.35) {
+                guard actionRewardID != reward.id else { return }
+                AppHaptics.control()
+                withAnimation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.86)) {
+                    actionRewardID = reward.id
+                }
+            }
+
+            if isShowingActions {
+                HStack(spacing: 12) {
+                    Button {
+                        actionRewardID = nil
+                        onRequestEditReward(reward)
+                    } label: {
+                        Text(L10n.editReward)
+                            .appDynamicFont(size: 16, weight: .semibold, design: .rounded)
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button {
+                        actionRewardID = nil
+                        pendingDeleteReward = reward
+                        isDeleteActionSheetPresented = true
+                    } label: {
+                        Text(L10n.deleteReward)
+                            .appDynamicFont(size: 16, weight: .semibold, design: .rounded)
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+        .accessibilityElement(children: isShowingActions ? .contain : .ignore)
+        .accessibilityLabel("\(reward.title), \(reward.requiredPoints) \(L10n.pointsUnit)")
+        .accessibilityValue(
+            canRedeem
+                ? L10n.tr("Available to redeem", zhHans: "可兑换", zhHant: "可兌換", ja: "交換できます")
+                : L10n.tr("Not enough points", zhHans: "积分不足", zhHant: "積分不足", ja: "ポイント不足")
+        )
+        .accessibilityHint(rewardAccessibilityHint(canRedeem: canRedeem, isShowingActions: isShowingActions))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            if isShowingActions {
+                withAnimation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.9)) {
+                    actionRewardID = nil
+                }
+            } else if canRedeem {
+                openRewardDetails(reward)
+            }
+        }
+        .accessibilityAction(named: Text(L10n.editReward)) {
+            actionRewardID = nil
+            onRequestEditReward(reward)
+        }
+        .accessibilityAction(named: Text(L10n.deleteReward)) {
+            actionRewardID = nil
+            pendingDeleteReward = reward
+            isDeleteActionSheetPresented = true
+        }
+        .accessibilityFocused($detailAccessibilityFocus, equals: .reward(reward.id))
     }
 
     private var addRewardCard: some View {
@@ -1012,7 +1313,7 @@ private struct PointsDetailSheet: View {
 
                     Text(L10n.addRewards)
                         .font(.appSystem(size: scaled(15, pad: 27), weight: .heavy, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.62))
+                        .foregroundStyle(NeumorphicColors.text.opacity(0.62))
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                         .frame(maxWidth: .infinity)
@@ -1078,9 +1379,9 @@ private struct PointsDetailSheet: View {
                 } label: {
                     Text(L10n.editReward)
                         .font(.appSystem(size: scaled(13, pad: 16), weight: .heavy, design: .rounded))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
-                        .frame(height: scaled(30, pad: 38))
+                        .frame(height: max(44, scaled(30, pad: 38)))
                         .background(
                             Capsule(style: .continuous)
                                 .fill(themeColor)
@@ -1097,9 +1398,9 @@ private struct PointsDetailSheet: View {
                 } label: {
                     Text(L10n.deleteReward)
                         .font(.appSystem(size: scaled(13, pad: 16), weight: .heavy, design: .rounded))
-                        .foregroundColor(Color(red: 0.66, green: 0.18, blue: 0.20))
+                        .foregroundStyle(Color(red: 0.66, green: 0.18, blue: 0.20))
                         .frame(maxWidth: .infinity)
-                        .frame(height: scaled(30, pad: 38))
+                        .frame(height: max(44, scaled(30, pad: 38)))
                         .background(
                             Capsule(style: .continuous)
                                 .fill(Color.white.opacity(0.95))
@@ -1155,6 +1456,7 @@ private struct RewardReorderListView: View {
     let onCancel: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var draftRewards: [CustomReward]
     @State private var draggingRewardID: UUID?
     @State private var dragStartIndex: Int?
@@ -1180,7 +1482,12 @@ private struct RewardReorderListView: View {
     }
 
     private var rowHeight: CGFloat {
-        isPadLayout ? 72 : 64
+        if dynamicTypeSize.isAccessibilitySize { return 380 }
+        return isPadLayout ? 72 : 64
+    }
+
+    private var usesAccessibilityType: Bool {
+        dynamicTypeSize.isAccessibilitySize
     }
 
     private var reorderAnimation: Animation? {
@@ -1192,8 +1499,8 @@ private struct RewardReorderListView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(L10n.rewardOrderHint)
-                        .font(.appSystem(size: isPadLayout ? 16 : 14, weight: .medium, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text.opacity(0.58))
+                        .appDynamicFont(size: isPadLayout ? 16 : 14, weight: .medium, design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text.opacity(0.58))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, isPadLayout ? 24 : 18)
                         .padding(.top, 12)
@@ -1212,21 +1519,23 @@ private struct RewardReorderListView: View {
                 PointsRewardBackground(theme: .concise)
                     .ignoresSafeArea()
             }
-            .coordinateSpace(name: "reward-order-list")
+            .coordinateSpace(.named("reward-order-list"))
             .navigationTitle(L10n.reorderRewards)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
+            .modifier(VisibleNavigationBarBackgroundModifier())
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(L10n.cancel, action: cancel)
-                        .font(.appSystem(size: isPadLayout ? 18 : 16, weight: .regular, design: .rounded))
-                        .foregroundColor(NeumorphicColors.text)
+                        .appDynamicFont(size: isPadLayout ? 18 : 16, weight: .regular, design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text)
+                        .frame(minHeight: 44)
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(L10n.done, action: save)
-                        .font(.appSystem(size: isPadLayout ? 18 : 16, weight: .semibold, design: .rounded))
-                        .foregroundColor(AppTheme.concise.color)
+                        .appDynamicFont(size: isPadLayout ? 18 : 16, weight: .semibold, design: .rounded)
+                        .foregroundStyle(AppTheme.concise.color)
+                        .frame(minHeight: 44)
                 }
             }
             .alert(
@@ -1248,32 +1557,52 @@ private struct RewardReorderListView: View {
     }
 
     private func rewardRow(_ reward: CustomReward, position: Int) -> some View {
-        HStack(spacing: 12) {
-            Text("\(position)")
-                .font(.appSystem(size: isPadLayout ? 16 : 14, weight: .heavy, design: .rounded))
-                .foregroundColor(AppTheme.concise.color)
-                .frame(width: isPadLayout ? 26 : 22)
+        let row = Group {
+            if usesAccessibilityType {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("\(position)")
+                            .appDynamicFont(size: isPadLayout ? 16 : 14, weight: .heavy, design: .rounded)
+                            .foregroundStyle(AppTheme.concise.color)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(reward.title)
-                    .font(.appSystem(size: isPadLayout ? 18 : 16, weight: .heavy, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text)
-                    .lineLimit(1)
+                        Spacer()
 
-                Text("\(reward.requiredPoints) pts")
-                    .font(.appSystem(size: isPadLayout ? 15 : 13, weight: .semibold, design: .rounded))
-                    .foregroundColor(NeumorphicColors.text.opacity(0.56))
+                        reorderHandle(for: reward.id)
+                    }
+
+                    Text(reward.title)
+                        .appDynamicFont(size: isPadLayout ? 18 : 16, weight: .heavy, design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("\(reward.requiredPoints) \(L10n.pointsUnit)")
+                        .appDynamicFont(size: isPadLayout ? 15 : 13, weight: .semibold, design: .rounded)
+                        .foregroundStyle(NeumorphicColors.text.opacity(0.56))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                HStack(spacing: 12) {
+                    Text("\(position)")
+                        .appDynamicFont(size: isPadLayout ? 16 : 14, weight: .heavy, design: .rounded)
+                        .foregroundStyle(AppTheme.concise.color)
+                        .frame(width: isPadLayout ? 26 : 22)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(reward.title)
+                            .appDynamicFont(size: isPadLayout ? 18 : 16, weight: .heavy, design: .rounded)
+                            .foregroundStyle(NeumorphicColors.text)
+                            .lineLimit(1)
+
+                        Text("\(reward.requiredPoints) \(L10n.pointsUnit)")
+                            .appDynamicFont(size: isPadLayout ? 15 : 13, weight: .semibold, design: .rounded)
+                            .foregroundStyle(NeumorphicColors.text.opacity(0.56))
+                    }
+
+                    Spacer(minLength: 8)
+
+                    reorderHandle(for: reward.id)
+                }
             }
-
-            Spacer(minLength: 8)
-
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: isPadLayout ? 20 : 18, weight: .medium))
-                .foregroundColor(AppTheme.concise.color)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-                .accessibilityLabel(L10n.dragToReorder)
-                .gesture(rewardReorderGesture(for: reward.id))
         }
         .padding(.horizontal, 14)
         .frame(height: rowHeight)
@@ -1286,24 +1615,66 @@ private struct RewardReorderListView: View {
                         .stroke(AppTheme.concise.bingoSurfaceShadowColor.opacity(0.16), lineWidth: 1)
                 }
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, usesAccessibilityType ? 0 : 5)
         .offset(y: verticalOffset(for: reward.id))
         .zIndex(draggingRewardID == reward.id ? 1 : 0)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(
+        .accessibilityLabel("\(reward.title), \(reward.requiredPoints) \(L10n.pointsUnit)")
+        .accessibilityValue(
             L10n.tr(
-                "Position \(position), \(reward.title), \(reward.requiredPoints) points",
-                zhHans: "第 \(position) 位，\(reward.title)，\(reward.requiredPoints) 积分",
-                zhHant: "第 \(position) 位，\(reward.title)，\(reward.requiredPoints) 積分",
-                ja: "\(position)番目、\(reward.title)、\(reward.requiredPoints)ポイント"
+                "Position \(position) of \(draftRewards.count)",
+                zhHans: "第 \(position) 项，共 \(draftRewards.count) 项",
+                zhHant: "第 \(position) 項，共 \(draftRewards.count) 項",
+                ja: "全\(draftRewards.count)件中\(position)番目"
             )
         )
-        .accessibilityHint(L10n.rewardOrderHint)
-        .accessibilityAction(named: Text(L10n.moveUp)) {
-            moveReward(reward.id, by: -1)
-        }
-        .accessibilityAction(named: Text(L10n.moveDown)) {
-            moveReward(reward.id, by: 1)
+        .accessibilityHint(
+            L10n.tr(
+                "Use Actions to move this reward up or down, or drag to reorder.",
+                zhHans: "可在操作菜单中上移或下移，也可以拖动排序。",
+                zhHant: "可在操作選單中上移或下移，也可以拖動排序。",
+                ja: "操作メニューで上下に移動するか、ドラッグして並べ替えます。"
+            )
+        )
+        .accessibilityAddTraits(draftRewards.count > 1 ? .isButton : [])
+
+        return rowWithReorderActions(row, rewardID: reward.id, position: position)
+    }
+
+    private func reorderHandle(for rewardID: UUID) -> some View {
+        Image(systemName: "line.3.horizontal")
+            .font(.system(size: isPadLayout ? 20 : 18, weight: .medium))
+            .foregroundStyle(AppTheme.concise.color)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+            .accessibilityLabel(L10n.dragToReorder)
+            .gesture(rewardReorderGesture(for: rewardID))
+    }
+
+    @ViewBuilder
+    private func rowWithReorderActions<Content: View>(
+        _ content: Content,
+        rewardID: UUID,
+        position: Int
+    ) -> some View {
+        if position == 1 && draftRewards.count > 1 {
+            content.accessibilityAction(named: Text(L10n.moveDown)) {
+                moveReward(rewardID, by: 1)
+            }
+        } else if position == draftRewards.count && position > 1 {
+            content.accessibilityAction(named: Text(L10n.moveUp)) {
+                moveReward(rewardID, by: -1)
+            }
+        } else if position > 1 && position < draftRewards.count {
+            content
+                .accessibilityAction(named: Text(L10n.moveUp)) {
+                    moveReward(rewardID, by: -1)
+                }
+                .accessibilityAction(named: Text(L10n.moveDown)) {
+                    moveReward(rewardID, by: 1)
+                }
+        } else {
+            content
         }
     }
 

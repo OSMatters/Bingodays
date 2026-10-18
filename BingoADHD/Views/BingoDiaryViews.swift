@@ -34,14 +34,12 @@ struct BingoDiaryScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @StateObject private var gravityMonitor = BingoDiaryGravityMonitor()
     @State private var isStatsListPresented = false
     @State private var selectedTaskDetail: BingoDiaryTaskCount?
     @State private var snapshot: DiarySnapshot = .empty
     @State private var bubbleLayoutCache: DiaryBubbleLayoutCache = .empty
     @State private var isLoadingSnapshot = true
     @State private var statsSectionHeight: CGFloat = 0
-    @State private var isBubbleCloudInteracting = false
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -133,7 +131,7 @@ struct BingoDiaryScreen: View {
                     )
                 }
             }
-            .navigationBarHidden(true)
+            .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top) {
                 headerBar
                     .background(NeumorphicColors.background.opacity(0.96))
@@ -150,15 +148,11 @@ struct BingoDiaryScreen: View {
                 statsSectionHeight = newHeight
             }
             .onAppear {
-                gravityMonitor.start()
                 // Defer heavier diary data aggregation until transition finishes,
                 // so entering this screen feels immediate.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     loadSnapshot()
                 }
-            }
-            .onDisappear {
-                gravityMonitor.stop()
             }
             .navigationDestination(item: $selectedTaskDetail) { item in
                 BingoDiaryTaskDetailView(task: item.task)
@@ -169,13 +163,14 @@ struct BingoDiaryScreen: View {
     private var headerBar: some View {
         ZStack {
             Text(diaryTitle)
-                .font(.appSystem(size: scaled(20, pad: 24), weight: .bold, design: .rounded))
-                .foregroundColor(Color(hex: "2B1A0D"))
+                .appDynamicFont(size: scaled(20, pad: 24), weight: .bold, design: .rounded)
+                .foregroundStyle(Color(hex: "2B1A0D"))
 
             HStack {
                 nativeGlassIconButton(
                     systemName: "chevron.left",
-                    size: scaled(40, pad: 44),
+                    accessibilityLabel: L10n.tr("Back", zhHans: "返回", zhHant: "返回", ja: "戻る"),
+                    size: max(scaled(40, pad: 44), 44),
                     iconSize: scaled(18, pad: 20),
                     action: { dismiss() }
                 )
@@ -184,7 +179,8 @@ struct BingoDiaryScreen: View {
 
                 nativeGlassIconButton(
                     systemName: "clock.arrow.circlepath",
-                    size: scaled(40, pad: 44),
+                    accessibilityLabel: L10n.tr("Task statistics", zhHans: "任务统计", zhHant: "任務統計", ja: "タスク統計"),
+                    size: max(scaled(40, pad: 44), 44),
                     iconSize: scaled(20, pad: 23),
                     action: { isStatsListPresented = true }
                 )
@@ -198,6 +194,7 @@ struct BingoDiaryScreen: View {
     @ViewBuilder
     private func nativeGlassIconButton(
         systemName: String,
+        accessibilityLabel: String,
         size: CGFloat,
         iconSize: CGFloat,
         action: @escaping () -> Void
@@ -212,6 +209,7 @@ struct BingoDiaryScreen: View {
                     .glassEffect(.regular.interactive(), in: Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(accessibilityLabel)
         } else {
             Button(action: action) {
                 Image(systemName: systemName)
@@ -229,6 +227,7 @@ struct BingoDiaryScreen: View {
                     }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(accessibilityLabel)
         }
     }
 
@@ -302,57 +301,29 @@ struct BingoDiaryScreen: View {
         )
     }
 
-    @ViewBuilder
     private func bubbleCloudSection(_ bubbleLayout: DiaryBubbleLayoutCache) -> some View {
-        let cloud = BingoDiaryBubbleCloud(
+        BingoDiaryBubbleCloudSection(
             bubbles: bubbleLayout.bubbles,
-            canvasWidth: bubbleLayout.width,
-            canvasHeight: bubbleLayout.height,
-            globalMotionOffset: gravityMonitor.offset,
-            isInteractionPaused: isBubbleCloudInteracting,
-            onBubbleTap: { bubble in
-                selectedTaskDetail = snapshot.completedTaskStats.first(where: { $0.id == bubble.id })
-                    ?? BingoDiaryTaskCount(task: bubble.task, count: bubble.count, firstCompletedAt: nil)
-            }
-        )
-
-        if bubbleLayout.isHorizontallyOverflowing {
-            ScrollView(.horizontal, showsIndicators: false) {
-                cloud
-            }
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 2)
-                    .onChanged { _ in
-                        if !isBubbleCloudInteracting {
-                            isBubbleCloudInteracting = true
-                        }
-                    }
-                    .onEnded { _ in
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            isBubbleCloudInteracting = false
-                        }
-                    }
-            )
-            .frame(height: bubbleLayout.height)
-            .clipped()
-        } else {
-            cloud
-                .frame(maxWidth: .infinity)
-                .frame(height: bubbleLayout.height)
+            width: bubbleLayout.width,
+            height: bubbleLayout.height,
+            isHorizontallyOverflowing: bubbleLayout.isHorizontallyOverflowing
+        ) { bubble in
+            selectedTaskDetail = snapshot.completedTaskStats.first(where: { $0.id == bubble.id })
+                ?? BingoDiaryTaskCount(task: bubble.task, count: bubble.count, firstCompletedAt: nil)
         }
     }
 
     private func diarySummaryCard(value: Int, title: String) -> some View {
         VStack(spacing: scaled(6, pad: 8)) {
             Text("\(value)")
-                .font(.appSystem(size: scaled(54, pad: 68), weight: .bold, design: .rounded))
-                .foregroundColor(Color(hex: "2B1A0D"))
+                .appDynamicFont(size: scaled(54, pad: 68), weight: .bold, design: .rounded)
+                .foregroundStyle(Color(hex: "2B1A0D"))
                 .lineLimit(1)
                 .minimumScaleFactor(0.55)
 
             Text(title)
-                .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                .foregroundColor(Color(hex: "8A8179"))
+                .appDynamicFont(size: scaled(13, pad: 15), weight: .semibold, design: .rounded)
+                .foregroundStyle(Color(hex: "8A8179"))
         }
         .frame(maxWidth: .infinity)
         .frame(height: scaled(132, pad: 150))
@@ -370,12 +341,12 @@ struct BingoDiaryScreen: View {
     private var emptyDiaryState: some View {
         VStack(alignment: .center, spacing: scaled(10, pad: 14)) {
             Text(L10n.noTaskCompletions)
-                .font(.appSystem(size: scaled(17, pad: 20), weight: .bold, design: .rounded))
-                .foregroundColor(Color(hex: "2B1A0D"))
+                .appDynamicFont(size: scaled(17, pad: 20), weight: .bold, design: .rounded)
+                .foregroundStyle(Color(hex: "2B1A0D"))
 
             Text(L10n.tr("Complete a few tasks and they will appear here.", zhHans: "完成一些任务后，它们会出现在这里。", zhHant: "完成一些任務後，它們會出現在這裡。"))
-                .font(.appSystem(size: scaled(13, pad: 15), weight: .medium, design: .rounded))
-                .foregroundColor(Color(hex: "8A8179"))
+                .appDynamicFont(size: scaled(13, pad: 15), weight: .medium, design: .rounded)
+                .foregroundStyle(Color(hex: "8A8179"))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
@@ -388,7 +359,7 @@ struct BingoDiaryScreen: View {
 }
 
 private struct BingoDiaryStatsHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())

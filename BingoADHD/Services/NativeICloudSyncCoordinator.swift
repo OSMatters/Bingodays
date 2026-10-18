@@ -77,7 +77,11 @@ final class NativeICloudSyncCoordinator: ObservableObject {
     @Published private(set) var pendingAccountChange: AccountChange?
 
     private let runtime: NativeICloudRuntime
-    private var notificationTokens: [NSObjectProtocol] = []
+    private final class RuntimeObservation {
+        var tokens: [NSObjectProtocol] = []
+        deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
+    }
+    private let runtimeObservation = RuntimeObservation()
     private var lastHandledSecondaryStamp: NativeICloudCommitStamp?
     private var startTask: Task<Void, Never>?
     private var foregroundRetryTask: Task<Void, Never>?
@@ -97,7 +101,6 @@ final class NativeICloudSyncCoordinator: ObservableObject {
     }
 
     deinit {
-        notificationTokens.forEach(NotificationCenter.default.removeObserver)
         startTask?.cancel()
         foregroundRetryTask?.cancel()
     }
@@ -495,7 +498,7 @@ final class NativeICloudSyncCoordinator: ObservableObject {
 
     private func observeRuntime() {
         let center = NotificationCenter.default
-        notificationTokens.append(
+        runtimeObservation.tokens.append(
             center.addObserver(
                 forName: .nativeICloudRuntimeEventDidChange,
                 object: nil,
@@ -514,7 +517,7 @@ final class NativeICloudSyncCoordinator: ObservableObject {
                 }
             }
         )
-        notificationTokens.append(
+        runtimeObservation.tokens.append(
             center.addObserver(
                 forName: .nativeICloudRuntimeDidImport,
                 object: nil,
@@ -537,7 +540,7 @@ final class NativeICloudSyncCoordinator: ObservableObject {
                 }
             }
         )
-        notificationTokens.append(
+        runtimeObservation.tokens.append(
             center.addObserver(
                 forName: .nativeICloudSecondaryLocalChange,
                 object: nil,
@@ -554,7 +557,7 @@ final class NativeICloudSyncCoordinator: ObservableObject {
                 }
             }
         )
-        notificationTokens.append(
+        runtimeObservation.tokens.append(
             center.addObserver(
                 forName: .CKAccountChanged,
                 object: nil,
@@ -569,7 +572,7 @@ final class NativeICloudSyncCoordinator: ObservableObject {
                 }
             }
         )
-        notificationTokens.append(
+        runtimeObservation.tokens.append(
             center.addObserver(
                 forName: .nativeICloudRuntimeDidFail,
                 object: nil,

@@ -690,7 +690,7 @@ enum L10n {
         )
     }
     static var dayStreak: String { tr("day streak", zhHans: "连胜天数", ja: "日連続") }
-    static var consecutiveOpenDays: String { tr("Consecutive Opens", zhHans: "连续开启", zhHant: "連續開啟", ja: "連続起動") }
+    static var consecutiveOpenDays: String { tr("Open Streak", zhHans: "连续开启", zhHant: "連續開啟", ja: "連続起動") }
     static var streakGoals: String { tr("Streak Goals", zhHans: "连胜目标", ja: "連続目標") }
     static var themeColor: String { tr("Theme Color", zhHans: "主题颜色", ja: "テーマカラー") }
     static var backgroundPattern: String { tr("Background image", zhHans: "背景图", zhHant: "背景圖", ja: "背景画像") }

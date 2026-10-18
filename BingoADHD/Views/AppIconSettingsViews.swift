@@ -17,7 +17,7 @@ struct AppIconSettingsSection: View {
         VStack(alignment: .leading, spacing: scaled(10, pad: 12)) {
             Text(L10n.tr("App Icon", zhHans: "应用图标", zhHant: "應用程式圖標", ja: "アプリアイコン"))
                 .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
-                .foregroundColor(AppIconPalette.mutedText)
+                .foregroundStyle(AppIconPalette.mutedText)
                 .padding(.horizontal, scaled(4, pad: 6))
 
             LazyVGrid(
@@ -152,13 +152,13 @@ struct AppIconSettingsSection: View {
             if isCurrent {
                 Image(systemName: "checkmark")
                     .font(.system(size: scaled(11, pad: 13), weight: .black))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: scaled(27, pad: 31), height: scaled(27, pad: 31))
                     .background(themeColor, in: Circle())
             } else if !isUnlocked {
                 Image(systemName: option == .premium ? "crown.fill" : "lock.fill")
                     .font(.system(size: scaled(10, pad: 12), weight: .bold))
-                    .foregroundColor(AppIconPalette.text.opacity(0.82))
+                    .foregroundStyle(AppIconPalette.text.opacity(0.82))
                     .frame(width: scaled(27, pad: 31), height: scaled(27, pad: 31))
                     .background(Color.white.opacity(0.94), in: Circle())
             }
@@ -201,7 +201,7 @@ private struct AppIconUnlockSheet: View {
                     VStack(spacing: 16) {
                         Text(option == .premium ? L10n.tr("Members-only app icon", zhHans: "会员专属应用图标", zhHant: "會員專屬應用程式圖標", ja: "会員限定アプリアイコン") : L10n.tr("Unlock this app icon", zhHans: "解锁这个应用图标", zhHant: "解鎖這個應用程式圖標", ja: "このアプリアイコンを解放"))
                             .font(.appSystem(size: 22, weight: .black, design: .rounded))
-                            .foregroundColor(.black)
+                            .foregroundStyle(.black)
                             .multilineTextAlignment(.center)
 
                         Text(option == .premium ? L10n.tr("Join Bingodays Pro to use this exclusive app icon", zhHans: "开通 Bingodays Pro 即可使用此专属图标", zhHant: "開通 Bingodays Pro 即可使用此專屬圖標", ja: "Bingodays Proに加入して限定アイコンを使おう") : L10n.tr(
@@ -211,7 +211,7 @@ private struct AppIconUnlockSheet: View {
                             ja: "Bingodaysを\(requiredDays)日連続で開く"
                         ))
                         .font(.appSystem(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(.black.opacity(0.68))
+                        .foregroundStyle(.black.opacity(0.68))
                         .multilineTextAlignment(.center)
 
                         if option != .premium { VStack(spacing: 5) {
@@ -219,7 +219,7 @@ private struct AppIconUnlockSheet: View {
 
                             Text(L10n.tr("Current consecutive days", zhHans: "当前连续开启天数", zhHant: "目前連續開啟天數", ja: "現在の連続起動日数"))
                                 .font(.appSystem(size: 12, weight: .medium, design: .rounded))
-                                .foregroundColor(.black.opacity(0.68))
+                                .foregroundStyle(.black.opacity(0.68))
                         } }
 
                         Button {
@@ -228,7 +228,7 @@ private struct AppIconUnlockSheet: View {
                         } label: {
                             Text(option == .premium ? L10n.tr("Unlock with Pro", zhHans: "开通会员", zhHant: "開通會員", ja: "Proに加入") : L10n.tr("Got it!", zhHans: "明白了！", zhHant: "明白了！", ja: "わかった！"))
                                 .font(.appSystem(size: 16, weight: .bold, design: .rounded))
-                                .foregroundColor(.white)
+                                .foregroundStyle(.white)
                                 .frame(width: min(proxy.size.width - 120, 220))
                                 .padding(.vertical, 13)
                                 .background(AppTheme.concise.color, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -273,14 +273,14 @@ private struct AppIconUnlockSheet: View {
                 Text(value)
                     .font(.custom("Schoolbell", size: 64))
                     .kerning(-2)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .offset(x: outlineOffsets[index].0, y: outlineOffsets[index].1)
             }
 
             Text(value)
                 .font(.custom("Schoolbell", size: 64))
                 .kerning(-2)
-                .foregroundColor(Color(hex: "734A37"))
+                .foregroundStyle(Color(hex: "734A37"))
         }
     }
 }
@@ -424,6 +424,7 @@ struct AppIconMilestoneSheet: View {
     @State private var iconErrorMessage: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var showsProgressOnly: Bool { milestones.isEmpty }
     private var option: AppIconOption {
         switch milestones.max() ?? 10 {
         case 30: .days30
@@ -432,29 +433,45 @@ struct AppIconMilestoneSheet: View {
         }
     }
 
+    @ViewBuilder
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .bottom) {
-                Color.black.opacity(0.35)
-                    .contentShape(Rectangle())
-                    .onTapGesture { if !iconManager.isChanging { dismiss() } }
-                    .accessibilityHidden(true)
-                popupContent
-                    .padding(.bottom, max(geometry.safeAreaInsets.bottom, 20))
-                    .frame(
-                        width: geometry.size.width,
-                        height: min(dynamicTypeSize.isAccessibilitySize ? 710 : 574, geometry.size.height - 48),
-                        alignment: .top
-                    )
-                    .background(Color(hex: "FBF6F2"))
-                    .clipShape(UnevenRoundedRectangle(topLeadingRadius: 16, topTrailingRadius: 16))
-                    .accessibilityAddTraits(.isModal)
+        if showsProgressOnly {
+            ViewThatFits(in: .vertical) {
+                progressContent
+                ScrollView { progressContent }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, 16)
+            .overlay(alignment: .topTrailing) { closeButton }
+            .presentationDetents([.height(dynamicTypeSize.isAccessibilitySize ? 710 : 430)])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(16)
+            .presentationBackground(Color(hex: "FBF6F2"))
+            .environment(\.colorScheme, .light)
+        } else {
+            GeometryReader { geometry in
+                ZStack(alignment: .bottom) {
+                    Color.black.opacity(0.35)
+                        .contentShape(Rectangle())
+                        .onTapGesture { if !iconManager.isChanging { dismiss() } }
+                        .accessibilityHidden(true)
+                    popupContent
+                        .padding(.bottom, max(geometry.safeAreaInsets.bottom, 20))
+                        .frame(
+                            width: geometry.size.width,
+                            height: min(dynamicTypeSize.isAccessibilitySize ? 710 : 574, geometry.size.height - 48),
+                            alignment: .top
+                        )
+                        .background(Color(hex: "FBF6F2"))
+                        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 16, topTrailingRadius: 16))
+                        .accessibilityAddTraits(.isModal)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .ignoresSafeArea()
+            .presentationBackground(.clear)
+            .environment(\.colorScheme, .light)
         }
-        .ignoresSafeArea()
-        .presentationBackground(.clear)
-        .environment(\.colorScheme, .light)
     }
 
     private var popupContent: some View {
@@ -472,26 +489,66 @@ struct AppIconMilestoneSheet: View {
             .padding(.horizontal, 16)
         }
         .frame(maxWidth: .infinity)
-        .overlay(alignment: .topTrailing) {
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(Color(hex: "171717"))
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .disabled(iconManager.isChanging)
-            .accessibilityLabel(L10n.tr("Close", zhHans: "关闭", zhHant: "關閉", ja: "閉じる"))
-            .padding(.top, 4)
-            .padding(.trailing, 4)
-        }
+        .overlay(alignment: .topTrailing) { closeButton }
         .environment(\.colorScheme, .light)
         .alert(L10n.tr("Couldn’t change app icon", zhHans: "无法更换应用图标", zhHant: "無法更換應用程式圖標", ja: "アプリアイコンを変更できません"), isPresented: Binding(get: { iconErrorMessage != nil }, set: { if !$0 { iconErrorMessage = nil } })) {
             Button(L10n.ok) { iconErrorMessage = nil }
         } message: { Text(iconErrorMessage ?? "") }
     }
 
+    private var closeButton: some View {
+        Button { dismiss() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Color(hex: "171717"))
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .disabled(iconManager.isChanging)
+        .accessibilityLabel(L10n.tr("Close", zhHans: "关闭", zhHant: "關閉", ja: "閉じる"))
+        .padding(.top, 4)
+        .padding(.trailing, 4)
+    }
+
+    @ViewBuilder
     private var sheetContent: some View {
+        if showsProgressOnly {
+            progressContent
+        } else {
+            milestoneContent
+        }
+    }
+
+    private var progressContent: some View {
+        VStack(spacing: 0) {
+            Text(L10n.tr("App icon unlock progress", zhHans: "桌面图标解锁进度", zhHant: "桌面圖標解鎖進度", ja: "アプリアイコンの解放進捗"))
+                .font(.appSystem(size: 20, weight: .bold))
+                .multilineTextAlignment(.center)
+                .padding(.top, 52)
+            Text(L10n.tr("Opened Bingodays for \(streakStore.currentStreak) consecutive days", zhHans: "已连续开启 Bingodays \(streakStore.currentStreak) 天", zhHant: "已連續開啟 Bingodays \(streakStore.currentStreak) 天", ja: "Bingodaysを\(streakStore.currentStreak)日連続で起動中"))
+                .font(.appSystem(size: 14, weight: .medium))
+                .multilineTextAlignment(.center)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
+            AppIconStreakProgress(
+                currentStreak: streakStore.currentStreak,
+                bestStreak: streakStore.bestStreak,
+                celebrationStyle: true
+            )
+            Button { dismiss() } label: {
+                Text(L10n.tr("Done", zhHans: "完成", zhHant: "完成", ja: "完了"))
+                    .font(.appSystem(size: 16, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: 300, minHeight: 52)
+                    .background(LinearGradient(colors: [Color(hex: "D2A57E"), Color(hex: "D3A375")], startPoint: .topLeading, endPoint: .bottomTrailing), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 20)
+        }
+        .foregroundStyle(Color(hex: "4A2F17"))
+    }
+
+    private var milestoneContent: some View {
         VStack(spacing: 0) {
             Image(option.previewAssetName).resizable().scaledToFill()
                 .frame(width: 120, height: 120)

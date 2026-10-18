@@ -3,6 +3,7 @@ import SwiftUI
 struct EditTaskSheet: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismissSheet
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State var text: String
     @State var isForcedTask: Bool
     @State var residentWeekdays: Set<Int>
@@ -336,7 +337,7 @@ struct EditTaskSheet: View {
             } label: {
                 Image(systemName: "trash")
                     .font(.appSystem(size: scaled(18, pad: 20), weight: .semibold))
-                    .foregroundColor(accentColor)
+                    .foregroundStyle(accentColor)
                     .frame(width: scaled(24, pad: 26), height: scaled(24, pad: 26))
             }
             .buttonStyle(.plain)
@@ -351,7 +352,7 @@ struct EditTaskSheet: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.appSystem(size: scaled(18, pad: 20), weight: .semibold))
-                    .foregroundColor(Color.white.opacity(0.88))
+                    .foregroundStyle(Color.white.opacity(0.88))
                     .frame(width: scaled(44, pad: 48), height: scaled(44, pad: 48))
                     .contentShape(Rectangle())
             }
@@ -377,7 +378,7 @@ struct EditTaskSheet: View {
                         Text(L10n.enterTaskForDay)
                             .font(bodyLRegularFont)
                             .kerning(bodyLLetterSpacing)
-                            .foregroundColor(secondaryTextColor)
+                            .foregroundStyle(secondaryTextColor)
                             .padding(.leading, 12)
                             .allowsHitTesting(false)
                     }
@@ -385,7 +386,7 @@ struct EditTaskSheet: View {
                     TextField("", text: $text)
                         .font(bodyLRegularFont)
                         .kerning(bodyLLetterSpacing)
-                        .foregroundColor(primaryTextColor)
+                        .foregroundStyle(primaryTextColor)
                         .submitLabel(.done)
                         .padding(.leading, 12)
                         .padding(.trailing, 12)
@@ -419,19 +420,20 @@ struct EditTaskSheet: View {
             if let taskCompletionHistoryPreviewCount {
                 Label(L10n.taskCompletionHistoryPreview(taskCompletionHistoryPreviewCount), systemImage: "clock.arrow.circlepath")
                     .font(bodySFont.weight(.medium))
-                    .foregroundColor(accentColor.opacity(0.92))
+                    .foregroundStyle(accentColor.opacity(0.92))
             }
 
             if speechRecognizer.isRecording {
                 HStack(spacing: 6) {
-                    Circle()
-                        .fill(accentColor)
-                        .frame(width: 8, height: 8)
-                        .scaleEffect(speechRecognizer.isRecording ? 1.2 : 0.8)
-                        .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: speechRecognizer.isRecording)
+                    DecorativeAnimationTimeline { time in
+                        Circle()
+                            .fill(accentColor)
+                            .frame(width: 8, height: 8)
+                            .scaleEffect(time.map { 1 - 0.2 * cos(.pi * $0 / 0.6) } ?? 1)
+                    }
                     Text(L10n.recording)
                         .font(bodySFont.weight(.medium))
-                        .foregroundColor(secondaryTextColor)
+                        .foregroundStyle(secondaryTextColor)
                 }
                 .padding(.top, 10)
             }
@@ -466,7 +468,7 @@ struct EditTaskSheet: View {
                         .minimumScaleFactor(0.82)
                 }
             }
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
             .frame(width: voiceInputButtonWidth, height: scaled(36, pad: 44))
             .background(
                 Capsule(style: .continuous)
@@ -528,7 +530,7 @@ struct EditTaskSheet: View {
                     )
                 )
                 .font(bodySFont.weight(.medium))
-                .foregroundColor(secondaryTextColor)
+                .foregroundStyle(secondaryTextColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -571,7 +573,7 @@ struct EditTaskSheet: View {
                 if let timeWindowSupportingText {
                     Text(timeWindowSupportingText)
                         .font(bodySFont.weight(.medium))
-                        .foregroundColor(secondaryTextColor)
+                        .foregroundStyle(secondaryTextColor)
                         .padding(.leading, fieldTitleLeadingInset)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -589,13 +591,14 @@ struct EditTaskSheet: View {
             HStack(spacing: 10) {
                 Image(systemName: startReminderEnabled ? "bell.fill" : "bell")
                     .font(.appSystem(size: scaled(17, pad: 19), weight: .semibold))
-                    .foregroundColor(Color.white.opacity(0.88))
+                    .foregroundStyle(Color.white.opacity(0.88))
                     .frame(width: 18)
+                    .accessibilityHidden(true)
 
                 Text(L10n.tr("Start reminder", zhHans: "开始前提醒", zhHant: "開始前提醒", ja: "開始前の通知"))
                     .font(bodySFont.weight(.medium))
                     .kerning(bodySLetterSpacing)
-                    .foregroundColor(Color.white.opacity(0.96))
+                    .foregroundStyle(Color.white.opacity(0.96))
 
                 Spacer(minLength: 0)
 
@@ -606,6 +609,7 @@ struct EditTaskSheet: View {
                         set: { handleStartReminderToggle($0) }
                     )
                 )
+                .accessibilityLabel(L10n.tr("Start reminder", zhHans: "开始前提醒", zhHant: "開始前提醒", ja: "開始前の通知"))
                 .labelsHidden()
                 .toggleStyle(DarkSheetToggleStyle(onTint: accentColor))
             }
@@ -620,7 +624,7 @@ struct EditTaskSheet: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .animation(.easeInOut(duration: 0.18), value: startReminderEnabled)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: startReminderEnabled)
     }
 
     private var forceCompletionSection: some View {
@@ -628,17 +632,19 @@ struct EditTaskSheet: View {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.circle")
                     .font(.appSystem(size: scaled(18, pad: 20), weight: .semibold))
-                    .foregroundColor(Color.white.opacity(0.88))
+                    .foregroundStyle(Color.white.opacity(0.88))
                     .frame(width: 16)
+                    .accessibilityHidden(true)
 
                 Text(L10n.forceCompletion)
                     .font(bodySFont.weight(.medium))
                     .kerning(bodySLetterSpacing)
-                    .foregroundColor(Color.white.opacity(0.96))
+                    .foregroundStyle(Color.white.opacity(0.96))
 
                 Spacer(minLength: 0)
 
                 Toggle("", isOn: $isForcedTask)
+                    .accessibilityLabel(L10n.forceCompletion)
                     .onChange(of: isForcedTask) { _, _ in
                         dismissKeyboard()
                     }
@@ -656,7 +662,7 @@ struct EditTaskSheet: View {
                     )
                 )
                 .font(bodySFont.weight(.medium))
-                .foregroundColor(secondaryTextColor)
+                .foregroundStyle(secondaryTextColor)
                 .padding(.leading, fieldTitleLeadingInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .transition(.opacity)
@@ -723,7 +729,7 @@ struct EditTaskSheet: View {
             if let repeatPreviewBelowRepeatRuleText {
                 Text(repeatPreviewBelowRepeatRuleText)
                     .font(bodySFont.weight(.medium))
-                    .foregroundColor(secondaryTextColor)
+                    .foregroundStyle(secondaryTextColor)
                     .padding(.leading, fieldTitleLeadingInset)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 2)
@@ -740,7 +746,7 @@ struct EditTaskSheet: View {
         } label: {
             Text(L10n.save)
                 .font(.appSystem(size: scaled(17, pad: 20), weight: .bold, design: .rounded))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .frame(height: saveButtonHeight)
                 .background(
@@ -948,11 +954,11 @@ struct EditTaskSheet: View {
 
     private func showBlockedSaveToast(_ message: String) {
         hideBlockedSaveToastWorkItem?.cancel()
-        withAnimation(.easeInOut(duration: 0.18)) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
             blockedSaveToastMessage = message
         }
         let workItem = DispatchWorkItem {
-            withAnimation(.easeInOut(duration: 0.18)) {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
                 blockedSaveToastMessage = nil
             }
         }
@@ -984,13 +990,13 @@ struct EditTaskSheet: View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.appSystem(size: scaled(16, pad: 18), weight: .medium))
-                .foregroundColor(Color.white.opacity(0.88))
+                .foregroundStyle(Color.white.opacity(0.88))
                 .frame(width: 16)
 
             Text(title)
                 .font(bodySFont.weight(.medium))
                 .kerning(bodySLetterSpacing)
-                .foregroundColor(Color.white.opacity(0.96))
+                .foregroundStyle(Color.white.opacity(0.96))
 
             if isRequired {
                 requiredBadge
@@ -1002,7 +1008,7 @@ struct EditTaskSheet: View {
     private var requiredBadge: some View {
         Text(L10n.tr("Required", zhHans: "必填", zhHant: "必填", ja: "必須"))
             .font(.appSystem(size: scaled(10, pad: 11), weight: .bold, design: .rounded))
-            .foregroundColor(accentColor)
+            .foregroundStyle(accentColor)
             .lineLimit(1)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
@@ -1023,14 +1029,14 @@ struct EditTaskSheet: View {
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.appSystem(size: scaled(16, pad: 18), weight: .medium))
-                    .foregroundColor(Color.white.opacity(0.88))
+                    .foregroundStyle(Color.white.opacity(0.88))
                     .frame(width: 16)
 
                 HStack(spacing: 8) {
                     Text(title)
                         .font(bodySFont.weight(.medium))
                         .kerning(bodySLetterSpacing)
-                        .foregroundColor(Color.white.opacity(0.96))
+                        .foregroundStyle(Color.white.opacity(0.96))
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
 
@@ -1043,7 +1049,7 @@ struct EditTaskSheet: View {
 
                 Image(systemName: isSelected ? "chevron.up" : "chevron.down")
                     .font(.appSystem(size: scaled(12, pad: 14), weight: .bold))
-                    .foregroundColor(secondaryTextColor)
+                    .foregroundStyle(secondaryTextColor)
             }
             .frame(minHeight: scaled(44, pad: 52), alignment: .center)
         }
@@ -1070,7 +1076,7 @@ struct EditTaskSheet: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                         .multilineTextAlignment(.leading)
-                        .foregroundColor(isConfigured ? Color.white : secondaryTextColor)
+                        .foregroundStyle(isConfigured ? Color.white : secondaryTextColor)
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 16)
@@ -1097,7 +1103,7 @@ struct EditTaskSheet: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
                     .multilineTextAlignment(.leading)
-                    .foregroundColor(isConfigured ? Color.white : secondaryTextColor)
+                    .foregroundStyle(isConfigured ? Color.white : secondaryTextColor)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 16)
@@ -1116,7 +1122,7 @@ struct EditTaskSheet: View {
         } label: {
             Text(TaskStartReminderService.offsetTitle(minutes: minutes))
                 .font(.appSystem(size: scaled(11, pad: 13), weight: .semibold, design: .rounded))
-                .foregroundColor(startReminderOffsetMinutes == minutes ? Color.white : Color.white.opacity(0.88))
+                .foregroundStyle(startReminderOffsetMinutes == minutes ? Color.white : Color.white.opacity(0.88))
                 .lineLimit(1)
                 .minimumScaleFactor(0.68)
                 .frame(maxWidth: .infinity)
@@ -1691,7 +1697,8 @@ struct EditTaskSheet: View {
                 HStack {
                     Text(datePickerTitle)
                     .font(.appSystem(size: 17, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white.opacity(0.92))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .accessibilityAddTraits(.isHeader)
 
                     Spacer()
                     Button(L10n.done) {
@@ -1717,7 +1724,7 @@ struct EditTaskSheet: View {
                     }
                     .buttonStyle(.plain)
                     .font(.appSystem(size: 17, weight: .semibold, design: .rounded))
-                    .foregroundColor(isPickerSelectionValid ? accentColor : secondaryTextColor)
+                    .foregroundStyle(isPickerSelectionValid ? accentColor : secondaryTextColor)
                     .disabled(!isPickerSelectionValid)
                 }
                 .padding(.horizontal, 16)
@@ -1731,12 +1738,14 @@ struct EditTaskSheet: View {
                             in: pickerMinimumDate...,
                             displayedComponents: datePickerDisplayedComponents
                         )
+                        .accessibilityLabel(datePickerTitle)
                     } else {
                         DatePicker(
                             "",
                             selection: $pickerSelectionDate,
                             displayedComponents: datePickerDisplayedComponents
                         )
+                        .accessibilityLabel(datePickerTitle)
                     }
                 }
                 .datePickerStyle(.wheel)
@@ -1769,7 +1778,7 @@ struct EditTaskSheet: View {
                         isDatePickerPresented = false
                     }
                     .font(.appSystem(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundColor(.red.opacity(0.8))
+                    .foregroundStyle(.red.opacity(0.8))
                     Spacer()
                 }
 
@@ -1792,7 +1801,8 @@ struct EditTaskSheet: View {
                 HStack {
                     Text(recurrencePickerTitle)
                         .font(.appSystem(size: 17, weight: .semibold, design: .rounded))
-                        .foregroundColor(.white.opacity(0.92))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .accessibilityAddTraits(.isHeader)
 
                     Spacer()
 
@@ -1801,7 +1811,7 @@ struct EditTaskSheet: View {
                     }
                     .buttonStyle(.plain)
                     .font(.appSystem(size: 17, weight: .semibold, design: .rounded))
-                    .foregroundColor(accentColor)
+                    .foregroundStyle(accentColor)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 23)
@@ -1815,6 +1825,7 @@ struct EditTaskSheet: View {
                                     .tag(day)
                             }
                         }
+                        .accessibilityLabel(recurrencePickerTitle)
                     case .everyNDays:
                         Picker("", selection: $recurrenceDayInterval) {
                             ForEach(2...TaskRecurrenceRule.maxDayInterval, id: \.self) { interval in
@@ -1822,6 +1833,7 @@ struct EditTaskSheet: View {
                                     .tag(interval)
                             }
                         }
+                        .accessibilityLabel(recurrencePickerTitle)
                     }
                 }
                 .pickerStyle(.wheel)
@@ -1947,10 +1959,10 @@ struct EditTaskSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.appSystem(size: scaled(11, pad: 13), weight: .medium, design: .rounded))
-                    .foregroundColor(secondaryTextColor)
+                    .foregroundStyle(secondaryTextColor)
                 Text(valueText)
                     .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                    .foregroundColor(primaryTextColor)
+                    .foregroundStyle(primaryTextColor)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1974,7 +1986,7 @@ struct EditTaskSheet: View {
             Text(title)
                 .font(bodySFont.weight(.medium))
                 .kerning(bodySLetterSpacing)
-                .foregroundColor(isSelected ? Color.white : primaryTextColor)
+                .foregroundStyle(isSelected ? Color.white : primaryTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
                 .frame(maxWidth: .infinity)
@@ -2024,7 +2036,7 @@ struct NeumorphicSwitchToggleStyle: ToggleStyle {
                     .overlay(
                         Image(systemName: configuration.isOn ? "exclamationmark" : "lock.open")
                             .font(.appSystem(size: 11, weight: .bold))
-                            .foregroundColor(configuration.isOn ? .white : NeumorphicColors.text.opacity(0.65))
+                            .foregroundStyle(configuration.isOn ? .white : NeumorphicColors.text.opacity(0.65))
                     )
                     .padding(3)
             }

@@ -6,12 +6,12 @@ final class PointsAnimationStore: ObservableObject {
     @Published var floatingDelta: Int?
     @Published var isFloatingDeltaVisible = false
 
-    private var hideFloatingDeltaWorkItem: DispatchWorkItem?
-    private var clearFloatingDeltaWorkItem: DispatchWorkItem?
+    private var hideFloatingDeltaTask: Task<Void, Never>?
+    private var clearFloatingDeltaTask: Task<Void, Never>?
 
     deinit {
-        hideFloatingDeltaWorkItem?.cancel()
-        clearFloatingDeltaWorkItem?.cancel()
+        hideFloatingDeltaTask?.cancel()
+        clearFloatingDeltaTask?.cancel()
     }
 
     func handleAvailablePointsChange(
@@ -22,8 +22,8 @@ final class PointsAnimationStore: ObservableObject {
         let delta = newValue - oldValue
         guard delta != 0 else { return }
 
-        hideFloatingDeltaWorkItem?.cancel()
-        clearFloatingDeltaWorkItem?.cancel()
+        hideFloatingDeltaTask?.cancel()
+        clearFloatingDeltaTask?.cancel()
 
         animationTrigger += 1
         floatingDelta = delta
@@ -36,19 +36,19 @@ final class PointsAnimationStore: ObservableObject {
             isFloatingDeltaVisible = true
         }
 
-        let hideWorkItem = DispatchWorkItem { [weak self] in
+        hideFloatingDeltaTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(0.72)) } catch { return }
+            guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.32)) {
                 self?.isFloatingDeltaVisible = false
             }
         }
-        hideFloatingDeltaWorkItem = hideWorkItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.72, execute: hideWorkItem)
 
-        let clearWorkItem = DispatchWorkItem { [weak self] in
+        clearFloatingDeltaTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(1.08)) } catch { return }
+            guard !Task.isCancelled else { return }
             guard self?.isFloatingDeltaVisible == false else { return }
             self?.floatingDelta = nil
         }
-        clearFloatingDeltaWorkItem = clearWorkItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.08, execute: clearWorkItem)
     }
 }

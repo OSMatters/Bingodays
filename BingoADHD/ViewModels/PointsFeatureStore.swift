@@ -27,7 +27,8 @@ final class PointsFeatureStore: ObservableObject {
             .publisher(for: PointRedemptionHistoryStore.didChange)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.loadPersistedStores()
+                // receive(on:) above guarantees synchronous main-actor delivery.
+                MainActor.assumeIsolated { self?.loadPersistedStores() }
             }
     }
 
