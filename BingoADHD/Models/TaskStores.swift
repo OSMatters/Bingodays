@@ -621,7 +621,7 @@ enum TaskCompletionHistoryStore {
     private static let migrationVersion = 3
 
     private static var sharedDefaults: UserDefaults {
-        UserDefaults(suiteName: BingoBoardStore.appGroupID) ?? .standard
+        BingoBoardStore.sharedDefaults
     }
 
     static func load() -> [TaskCompletionHistoryRecord] {

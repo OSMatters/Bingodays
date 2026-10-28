@@ -1,5 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#endif
 
 extension Color {
     init(hex: String) {
@@ -33,6 +35,7 @@ extension Color {
     }
 }
 
+#if canImport(UIKit)
 extension UIColor {
     convenience init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
@@ -63,3 +66,5 @@ extension UIColor {
         )
     }
 }
+
+#endif

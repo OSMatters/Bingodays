@@ -1,4 +1,7 @@
 import Foundation
+#if os(macOS)
+import Security
+#endif
 #if canImport(WidgetKit)
 import WidgetKit
 #endif
@@ -516,13 +519,14 @@ enum BingoBoardStore {
     }
 
     private static let defaultBoardNames: Set<String> = Set([
-        "Board 1", "Board1", "棋盘1", "棋盘 1", "棋盤1", "棋盤 1", "ボード1", "ボード 1"
+        "Board 1", "Board1", "棋盘1", "棋盘 1", "棋盤1", "棋盤 1", "ボード1", "ボード 1", "보드1", "보드 1"
     ].map(normalizedBoardName))
 
     private static let starterGuideTaskSets: [Set<String>] = [
         ["Drink a glass of water", "Stand for 1 minute", "Stretch your body"],
         ["喝一杯水", "站立1分钟", "拉伸身体"],
-        ["喝一杯水", "站立1分鐘", "拉伸身體"]
+        ["喝一杯水", "站立1分鐘", "拉伸身體"],
+        ["물 한 잔 마시기", "1분 동안 일어서기", "몸을 스트레칭하세요"]
     ].flatMap { tasks in
         // Keep legacy full text and the exact text installed under the task
         // editor's length limit. Never truncate the board's actual task keys:
@@ -963,9 +967,11 @@ enum BingoBoardStore {
             DiagnosticLogStore.recordWarning("board.snapshot_commit_failed", details: ["operation_id": operationID])
             return false
         }
+        #if os(iOS)
         DispatchQueue.main.async {
             BingoBoardLiveActivityController.scheduleRefresh()
         }
+        #endif
         recordSnapshotTransition(from: previous?.snapshot, to: sanitized, operationID: operationID, source: source)
         DiagnosticLogStore.recordStateChange("board.snapshot_committed", details: [
             "operation_id": operationID,
@@ -1117,9 +1123,11 @@ enum BingoBoardStore {
     }
 
     static func reloadWidgetTimelines() {
+        #if os(iOS)
         DispatchQueue.main.async {
             BingoBoardLiveActivityController.scheduleRefresh()
         }
+        #endif
         #if canImport(WidgetKit)
         WidgetCenter.shared.reloadAllTimelines()
         #endif
@@ -1129,9 +1137,11 @@ enum BingoBoardStore {
     /// Targeted reloads make the intended refresh observable and avoid relying
     /// on WidgetKit to infer which timeline changed.
     static func reloadICloudWidgetTimelines() {
+        #if os(iOS)
         DispatchQueue.main.async {
             BingoBoardLiveActivityController.scheduleRefresh()
         }
+        #endif
         #if canImport(WidgetKit)
         WidgetCenter.shared.reloadTimelines(ofKind: BingodaysWidgetKind.countdown)
         WidgetCenter.shared.reloadTimelines(ofKind: BingodaysWidgetKind.board)
@@ -1644,9 +1654,38 @@ enum BingoBoardStore {
     }
     #endif
 
-    private static var sharedDefaults: UserDefaults {
-        UserDefaults(suiteName: appGroupID) ?? .standard
+    static var sharedDefaults: UserDefaults {
+        #if os(macOS)
+        guard sharedContainerURL != nil else { return .standard }
+        #endif
+        return UserDefaults(suiteName: appGroupID) ?? .standard
     }
+
+    /// Unsigned desktop development builds keep local data in their own app
+    /// support directory, instead of attempting writes into a protected group.
+    static var sharedContainerURL: URL? {
+        #if os(macOS)
+        guard hasMacEntitlement("com.apple.security.application-groups", containing: appGroupID) else { return nil }
+        #endif
+        return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID)
+    }
+
+    #if os(macOS)
+    private static let macEntitlements: [String: Any] = {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return [:] }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return [:] }
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
+              let dictionary = information as? [String: Any] else { return [:] }
+        return dictionary[kSecCodeInfoEntitlementsDict as String] as? [String: Any] ?? [:]
+    }()
+
+    static func hasMacEntitlement(_ key: String, containing value: String) -> Bool {
+        (macEntitlements[key] as? [String])?.contains(value) == true
+    }
+    #endif
 
     private static var sharedFileURL: URL {
         sharedURL(for: sharedFileName)
@@ -1925,7 +1964,7 @@ enum BingoBoardStore {
     }
 
     private static func sharedURL(for fileName: String) -> URL {
-        if let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
+        if let containerURL = sharedContainerURL {
             let directory = containerURL.appendingPathComponent("Library/Application Support", isDirectory: true)
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             return directory.appendingPathComponent(fileName)
@@ -1936,8 +1975,11 @@ enum BingoBoardStore {
         try? FileManager.default.createDirectory(at: simulatorDirectory, withIntermediateDirectories: true)
         return simulatorDirectory.appendingPathComponent(fileName)
         #else
-        let fallbackDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        var fallbackDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
+        #if os(macOS)
+        fallbackDirectory.appendPathComponent(Bundle.main.bundleIdentifier ?? "BingodaysMac", isDirectory: true)
+        #endif
         try? FileManager.default.createDirectory(at: fallbackDirectory, withIntermediateDirectories: true)
         return fallbackDirectory.appendingPathComponent(fileName)
         #endif

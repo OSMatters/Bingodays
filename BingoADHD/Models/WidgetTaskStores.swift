@@ -10,7 +10,7 @@ enum WidgetPanelSelectionStore {
     static let selectedPanelKey = "widget_selected_panel_id_v1"
 
     private static var sharedDefaults: UserDefaults {
-        UserDefaults(suiteName: BingoBoardStore.appGroupID) ?? .standard
+        BingoBoardStore.sharedDefaults
     }
 
     static func loadSelectedPanelID() -> UUID? {
@@ -137,13 +137,11 @@ enum WidgetTaskSyncStore {
     }
 
     private static var sharedDefaults: UserDefaults {
-        UserDefaults(suiteName: BingoBoardStore.appGroupID) ?? .standard
+        BingoBoardStore.sharedDefaults
     }
 
     private static var eventFileURL: URL {
-        if let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: BingoBoardStore.appGroupID
-        ) {
+        if let containerURL = BingoBoardStore.sharedContainerURL {
             let directory = containerURL.appendingPathComponent(
                 "Library/Application Support",
                 isDirectory: true
@@ -166,10 +164,13 @@ enum WidgetTaskSyncStore {
         )
         return directory.appendingPathComponent(eventFileName)
         #else
-        let directory = FileManager.default.urls(
+        var directory = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first ?? FileManager.default.temporaryDirectory
+        #if os(macOS)
+        directory.appendPathComponent(Bundle.main.bundleIdentifier ?? "BingodaysMac", isDirectory: true)
+        #endif
         try? FileManager.default.createDirectory(
             at: directory,
             withIntermediateDirectories: true

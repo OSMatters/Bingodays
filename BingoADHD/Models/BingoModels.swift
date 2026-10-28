@@ -198,6 +198,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
     var isTaskHidden: Bool
     var isDisplayOnlyInactive: Bool
     var isCompleted: Bool
+    // For repeating tasks this is the saved setting; the lock applies only while
+    // the current occurrence is available and incomplete.
     var isForced: Bool
     var countdownEndsAt: Date?
     var countdownPausedRemainingSeconds: Int?
@@ -688,19 +690,22 @@ struct BingoDiaryEntry: Identifiable, Codable, Equatable {
     let board: SavedBoard
     let allTasksCompleted: Bool
     let completedTaskCounts: [String: Int]
+    let completedTaskCountsAreAuthoritative: Bool
 
     init(
         id: String,
         date: Date,
         board: SavedBoard,
         allTasksCompleted: Bool,
-        completedTaskCounts: [String: Int] = [:]
+        completedTaskCounts: [String: Int] = [:],
+        completedTaskCountsAreAuthoritative: Bool = true
     ) {
         self.id = id
         self.date = date
         self.board = board
         self.allTasksCompleted = allTasksCompleted
         self.completedTaskCounts = completedTaskCounts
+        self.completedTaskCountsAreAuthoritative = completedTaskCountsAreAuthoritative
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -709,6 +714,7 @@ struct BingoDiaryEntry: Identifiable, Codable, Equatable {
         case board
         case allTasksCompleted
         case completedTaskCounts
+        case completedTaskCountsAreAuthoritative
     }
 
     init(from decoder: Decoder) throws {
@@ -718,6 +724,10 @@ struct BingoDiaryEntry: Identifiable, Codable, Equatable {
         board = try container.decode(SavedBoard.self, forKey: .board)
         allTasksCompleted = try container.decode(Bool.self, forKey: .allTasksCompleted)
         completedTaskCounts = try container.decodeIfPresent([String: Int].self, forKey: .completedTaskCounts) ?? [:]
+        completedTaskCountsAreAuthoritative = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .completedTaskCountsAreAuthoritative
+        ) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -727,6 +737,7 @@ struct BingoDiaryEntry: Identifiable, Codable, Equatable {
         try container.encode(board, forKey: .board)
         try container.encode(allTasksCompleted, forKey: .allTasksCompleted)
         try container.encode(completedTaskCounts, forKey: .completedTaskCounts)
+        try container.encode(completedTaskCountsAreAuthoritative, forKey: .completedTaskCountsAreAuthoritative)
     }
 }
 
@@ -1509,6 +1520,7 @@ struct HomeStickerPlacement: Identifiable, Codable, Equatable {
 }
 
 enum AppSettings {
+    static let languageKey = "app_language_v1"
     static let hapticsEnabledKey = "haptics_enabled"
     static let soundEffectsEnabledKey = "sound_effects_enabled"
     static let themeKey = "theme_color"
@@ -1516,6 +1528,9 @@ enum AppSettings {
     static let meSkinKey = "me_skin_v1"
     static let homeSkinNewBadgeVersionKey = "home_skin_new_badge_version_v1"
     static let homeSkinNewBadgeTapCountKey = "home_skin_new_badge_tap_count_v1"
+    static let newBadgeExistingUserKey = "new_badge_existing_user_v1"
+    static let meSettingsNewBadgeTapCountKey = "me_settings_new_badge_tap_count_v1"
+    static let reminderNewBadgeTapCountKey = "reminder_new_badge_tap_count_v1"
     static let hasSeenOnboardingKey = "has_seen_onboarding_v2"
     static let commonTasksKey = "common_tasks"
     static let boardCountdownKey = "board_countdown_v1"
@@ -1541,6 +1556,7 @@ enum AppSettings {
     static let skippedUpdateVersionKey = "skipped_update_version_v1"
     static let cachedUpdateInfoKey = "cached_app_update_info_v1"
     static let hasRatedAppReviewPromptKey = "has_rated_app_review_prompt_v1"
+    static let hasDismissedSettingsReviewBannerKey = "has_dismissed_settings_review_banner_v1"
     static let appReviewPromptStageKey = "app_review_prompt_stage_v1"
     static let appReviewPromptCooldownUntilKey = "app_review_prompt_cooldown_until_v1"
     static let appReviewPromptLifetimeShownCountKey = "app_review_prompt_lifetime_shown_count_v1"

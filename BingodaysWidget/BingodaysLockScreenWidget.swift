@@ -5,6 +5,7 @@ struct BingodaysLockScreenWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: BingodaysWidgetKind.lockScreen, provider: BingodaysWidgetProvider()) { entry in
             BingodaysLockScreenWidgetView(entry: entry)
+                .environment(\.locale, AppLanguage.displayLocale)
                 .containerBackground(for: .widget) { Color.clear }
         }
         .configurationDisplayName(L10n.tr("Lock Screen Bingo", zhHans: "锁屏棋盘", zhHant: "鎖屏棋盤", ja: "ロック画面のビンゴ"))

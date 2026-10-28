@@ -46,6 +46,7 @@ struct BoardSwitcherControlsView: View {
     let selectedBoardID: UUID?
     let contentWidth: CGFloat
     let isPadLayout: Bool
+    let isDarkBackground: Bool
     let shouldShowBoardEditHint: Bool
     let shouldReserveBoardEditHintSpace: Bool
     let onSelectBoard: (UUID) -> Void
@@ -89,7 +90,7 @@ struct BoardSwitcherControlsView: View {
                                         .frame(height: isPadLayout ? 38 : 36)
                                         .background(
                                             Capsule(style: .continuous)
-                                                .fill(Color.white.opacity(0.6))
+                                                .fill(Color.white)
                                         )
                                         .overlay(
                                             Capsule(style: .continuous)
@@ -125,16 +126,13 @@ struct BoardSwitcherControlsView: View {
                 Button(action: onCreateBoard) {
                     Text(L10n.tr("+ add board", zhHans: "+ 添加棋盘", zhHant: "+ 新增棋盤"))
                         .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                        .foregroundStyle(NeumorphicColors.text)
+                        .foregroundStyle(isDarkBackground ? Color.white : NeumorphicColors.text)
                         .lineLimit(1)
                         .padding(.horizontal, 16)
                         .frame(height: isPadLayout ? 38 : 36)
-                        .background(
-                            RoundedRectangle(cornerRadius: isPadLayout ? 19 : 18, style: .continuous)
-                                .fill(Color.white.opacity(0.5))
-                        )
                 }
                 .buttonStyle(.plain)
+                .homeActionGlass(isDarkBackground: isDarkBackground)
                 .fixedSize(horizontal: true, vertical: false)
             }
         }
@@ -322,6 +320,7 @@ struct BoardBottomControlsView: View {
     let isEditActionsExpanded: Bool
     let surfaceShadowColor: Color
     let themeColor: Color
+    let isDarkBackground: Bool
     let onCountdown: () -> Void
     let onEditActionsToggle: () -> Void
     let onDismissEditActions: () -> Void
@@ -334,15 +333,7 @@ struct BoardBottomControlsView: View {
     var liveActivityBoardID: UUID? = nil
 
     var body: some View {
-        Group {
-            if #available(iOS 26.0, *) {
-                GlassEffectContainer(spacing: isPadLayout ? 24 : 20) {
-                    controlsRow
-                }
-            } else {
-                controlsRow
-            }
-        }
+        controlsRow
     }
 
     private var controlsRow: some View {
@@ -351,6 +342,7 @@ struct BoardBottomControlsView: View {
                 isExpanded: isEditActionsExpanded,
                 isPadLayout: isPadLayout,
                 themeColor: themeColor,
+                isDarkBackground: isDarkBackground,
                 onTap: onEditActionsToggle
             )
 
@@ -373,6 +365,7 @@ struct BoardBottomControlsView: View {
 
             BoardQuickEditTriggerView(
                 isPadLayout: isPadLayout,
+                isDarkBackground: isDarkBackground,
                 onTap: onQuickEdit
             )
         }
@@ -412,32 +405,47 @@ struct BoardBottomControlsView: View {
 }
 
 struct BoardMoreActionsTriggerView: View {
+    @AppStorage("lockScreenDiscovery.moreTapCount") private var discoveryTapCount = 0
     let isExpanded: Bool
     let isPadLayout: Bool
     let themeColor: Color
+    let isDarkBackground: Bool
     let onTap: () -> Void
 
     var body: some View {
-        let buttonSize: CGFloat = isPadLayout ? 44 : 38
+        let buttonSize: CGFloat = isPadLayout ? 43 : 39
         let touchTargetSize = max(buttonSize, 44)
 
-        Button(action: onTap) {
+        Button {
+            discoveryTapCount = min(discoveryTapCount + 1, 2)
+            onTap()
+        } label: {
             Image("HomeMore")
                 .resizable()
                 .interpolation(.high)
                 .renderingMode(.template)
-                .foregroundStyle(themeColor)
+                .foregroundStyle(isDarkBackground ? Color.white : themeColor)
                 .scaledToFit()
-                .frame(width: isPadLayout ? 25 : 21, height: isPadLayout ? 25 : 21)
+                .frame(width: isPadLayout ? 23 : 21, height: isPadLayout ? 23 : 21)
                 .frame(width: buttonSize, height: buttonSize)
-                .background(Circle().fill(Color.white.opacity(0.74)))
-                .appLiquidGlass(in: Circle(), interactive: true, tint: .white.opacity(0.72))
-                .environment(\.colorScheme, .light)
+                .background {
+                    if isDarkBackground { Circle().fill(Color.black.opacity(0.42)) }
+                }
+                .appLiquidGlass(in: Circle(), interactive: true)
+                .environment(\.colorScheme, isDarkBackground ? .dark : .light)
                 .frame(width: touchTargetSize, height: touchTargetSize)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .frame(width: touchTargetSize, height: touchTargetSize, alignment: .bottomTrailing)
+        .overlay(alignment: .topTrailing) {
+            if discoveryTapCount < 2 {
+                FeatureNewBadge()
+                    .scaleEffect(0.8, anchor: .bottomLeading)
+                    .offset(x: 15, y: -8)
+            }
+        }
+        .zIndex(1)
         .accessibilityLabel(L10n.tr("More board actions", zhHans: "更多棋盘操作", zhHant: "更多棋盤操作", ja: "その他のボード操作"))
         .accessibilityAddTraits(isExpanded ? .isSelected : [])
     }
@@ -445,20 +453,23 @@ struct BoardMoreActionsTriggerView: View {
 
 struct BoardQuickEditTriggerView: View {
     let isPadLayout: Bool
+    let isDarkBackground: Bool
     let onTap: () -> Void
 
     var body: some View {
-        let buttonSize: CGFloat = isPadLayout ? 44 : 38
+        let buttonSize: CGFloat = isPadLayout ? 43 : 39
         let touchTargetSize = max(buttonSize, 44)
 
         Button(action: onTap) {
             Image(systemName: "square.and.pencil")
-                .font(.appSystem(size: isPadLayout ? 20 : 18, weight: .bold))
-                .foregroundStyle(NeumorphicColors.accent)
+                .font(.appSystem(size: isPadLayout ? 21 : 19, weight: .bold))
+                .foregroundStyle(isDarkBackground ? Color.white : NeumorphicColors.accent)
                 .frame(width: buttonSize, height: buttonSize)
-                .background(Circle().fill(Color.white.opacity(0.74)))
-                .appLiquidGlass(in: Circle(), interactive: true, tint: .white.opacity(0.72))
-                .environment(\.colorScheme, .light)
+                .background {
+                    if isDarkBackground { Circle().fill(Color.black.opacity(0.42)) }
+                }
+                .appLiquidGlass(in: Circle(), interactive: true)
+                .environment(\.colorScheme, isDarkBackground ? .dark : .light)
                 .frame(width: touchTargetSize, height: touchTargetSize)
                 .contentShape(Circle())
         }
@@ -489,6 +500,7 @@ struct BoardMoreActionsSidePanel: View {
                 BoardLiveActivityMenuAction(boardID: boardID, isPadLayout: isPadLayout, onDismiss: onDismiss)
             }
         }
+        .font(.appSystem(size: scaled(14, pad: 16), weight: .regular, design: .rounded))
         .padding(.vertical, scaled(5, pad: 6))
         .frame(width: scaled(160, pad: 184), alignment: .center)
         .background(
@@ -510,10 +522,8 @@ struct BoardMoreActionsSidePanel: View {
             }
         } label: {
             Text(title)
-                .font(.appSystem(size: scaled(16, pad: 18), weight: .regular, design: .rounded))
                 .foregroundStyle(NeumorphicColors.text)
                 .lineLimit(1)
-                .minimumScaleFactor(0.86)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.horizontal, scaled(12, pad: 14))

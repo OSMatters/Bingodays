@@ -7,6 +7,7 @@ struct BingoBoardLiveActivity: Widget {
         ActivityConfiguration(for: BingoBoardActivityAttributes.self) { context in
             if let snapshot = context.state.snapshot {
                 BingoBoardLiveActivityContent(boardID: context.attributes.boardID, snapshot: snapshot)
+                    .environment(\.locale, AppLanguage.displayLocale)
                     .activityBackgroundTint(.clear)
                     .activitySystemActionForegroundColor(Color(hex: "291E0A"))
             }

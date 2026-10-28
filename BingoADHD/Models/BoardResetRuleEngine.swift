@@ -266,14 +266,16 @@ enum BoardResetRuleEngine {
     private static func normalizedBoardCellForNextDay(_ cell: BingoCell) -> BingoCell {
         var updated = cell
 
-        if updated.isForced, updated.isCompleted {
+        if updated.isForced, updated.isCompleted, !updated.hasRepeatingSchedule {
             updated.isForced = false
         }
         return updated
     }
 
     private static func clearDailyRuntimeState(_ cell: inout BingoCell) {
-        cell.isForced = false
+        if !cell.hasRepeatingSchedule {
+            cell.isForced = false
+        }
         cell.countdownEndsAt = nil
         cell.countdownPausedRemainingSeconds = nil
         cell.estimatedDurationMinutes = nil
@@ -282,7 +284,9 @@ enum BoardResetRuleEngine {
     private static func resetCurrentCycleState(_ cell: inout BingoCell) {
         cell.isCompleted = false
         cell.isTaskHidden = false
-        cell.isForced = false
+        if !cell.hasRepeatingSchedule {
+            cell.isForced = false
+        }
         cell.countdownEndsAt = nil
         cell.countdownPausedRemainingSeconds = nil
         cell.estimatedDurationMinutes = nil
@@ -299,7 +303,8 @@ enum BoardResetRuleEngine {
             for col in fullBoard[row].indices {
                 guard fullBoard[row][col].isForced else { continue }
 
-                if !fullBoard[row][col].hasStoredTask || fullBoard[row][col].isCompleted {
+                if !fullBoard[row][col].hasStoredTask ||
+                    (fullBoard[row][col].isCompleted && !fullBoard[row][col].hasRepeatingSchedule) {
                     fullBoard[row][col].isForced = false
                     continue
                 }

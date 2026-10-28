@@ -174,10 +174,12 @@ final class NativeICloudPersistenceController {
             // change cannot accidentally select a public/shared database.
             cloudKitOptions.databaseScope = .private
             description.cloudKitContainerOptions = cloudKitOptions
+            #if os(iOS)
             description.setOption(
                 FileProtectionType.completeUntilFirstUserAuthentication as NSObject,
                 forKey: NSPersistentStoreFileProtectionKey
             )
+            #endif
         case .inMemory:
             description = NSPersistentStoreDescription()
             description.type = NSInMemoryStoreType

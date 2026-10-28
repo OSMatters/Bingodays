@@ -1,0 +1,13 @@
+{
+  "images": [
+    {
+      "filename": "bg_11.png",
+      "idiom": "mac",
+      "scale": "2x"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

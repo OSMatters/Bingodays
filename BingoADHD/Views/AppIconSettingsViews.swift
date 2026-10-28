@@ -16,9 +16,9 @@ struct AppIconSettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: scaled(10, pad: 12)) {
             Text(L10n.tr("App Icon", zhHans: "应用图标", zhHant: "應用程式圖標", ja: "アプリアイコン"))
-                .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
-                .foregroundStyle(AppIconPalette.mutedText)
-                .padding(.horizontal, scaled(4, pad: 6))
+                .font(.appSystem(size: 16, weight: .semibold, design: .rounded))
+                .foregroundStyle(AppIconPalette.text)
+                .padding(.horizontal, scaled(6, pad: 8))
 
             LazyVGrid(
                 columns: Array(
@@ -37,9 +37,7 @@ struct AppIconSettingsSection: View {
                     .fill(Color.white.opacity(0.88))
             )
 
-#if DEBUG
-            debugStreakControls
-#endif
+            // The debug panel is temporarily hidden; its controls remain below for reuse.
         }
         .onAppear { iconManager.refresh() }
         .alert(

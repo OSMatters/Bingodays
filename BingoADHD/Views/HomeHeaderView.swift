@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HomeHeaderView: View {
     @ObservedObject var pointsAnimationStore: PointsAnimationStore
+    @State private var pointsCapsuleWidth: CGFloat = 0
 
     let isPadLayout: Bool
     let availablePoints: Int
@@ -9,6 +10,7 @@ struct HomeHeaderView: View {
     let limitedTimeOfferDuration: TimeInterval
     let limitedTimeOfferCampaignID: String
     let themeColor: Color
+    let isDarkBackground: Bool
     let showsSkinNewBadge: Bool
     let onOpenThemePicker: () -> Void
     let onOpenBoardShare: () -> Void
@@ -18,41 +20,41 @@ struct HomeHeaderView: View {
     var body: some View {
         ZStack {
             HStack(spacing: 2) {
-                ZStack(alignment: .topTrailing) {
+                HStack(spacing: headerButtonSpacing) {
                     Button(action: onOpenThemePicker) {
                         Image("HomeSkin")
                             .resizable()
                             .interpolation(.high)
                             .renderingMode(.template)
-                            .foregroundStyle(themeColor)
+                            .foregroundStyle(headerForeground)
                             .scaledToFit()
-                            .frame(width: scaled(24, pad: 28), height: scaled(24, pad: 28))
-                            .frame(width: headerIconSize, height: headerIconSize)
+                            .frame(width: scaled(20, pad: 22), height: scaled(20, pad: 22))
+                            .frame(width: headerSegmentWidth, height: headerCapsuleHeight)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.tr("Skin", zhHans: "皮肤", zhHant: "皮膚"))
 
+                    Button(action: onOpenBoardShare) {
+                        Image(systemName: "paperplane.fill")
+                            .font(.appSystem(size: scaled(17, pad: 19), weight: .semibold))
+                            .foregroundStyle(headerForeground)
+                            .frame(width: headerSegmentWidth, height: headerCapsuleHeight)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.tr("Share", zhHans: "分享", zhHant: "分享"))
+                }
+                .homeActionGlass(isDarkBackground: isDarkBackground)
+                .overlay(alignment: .topLeading) {
                     if showsSkinNewBadge {
-                        Text("NEW")
-                            .font(.appSystem(size: scaled(7, pad: 8), weight: .heavy, design: .rounded))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(Color(hex: "E56F5B"))
-                            )
-                            .offset(x: scaled(8, pad: 10), y: scaled(-7, pad: -9))
-                            .accessibilityHidden(true)
+                        FeatureNewBadge()
+                            .scaleEffect(0.8, anchor: .bottomLeading)
+                            .offset(x: headerSegmentWidth - 10, y: -9)
                     }
                 }
-                .frame(width: headerIconSize, height: headerIconSize)
+                .zIndex(1)
                 .offset(y: -20)
-
-                headerIconButton(
-                    systemImage: "paperplane.fill",
-                    action: onOpenBoardShare
-                )
 
                 Spacer()
 
@@ -60,34 +62,41 @@ struct HomeHeaderView: View {
                     Button {
                         onOpenPointsFlow()
                     } label: {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 6) {
                             Image(systemName: "star.fill")
-                                .font(.appSystem(size: scaled(20, pad: 22), weight: .semibold))
-                                .foregroundStyle(NeumorphicColors.accent)
+                                .font(.appSystem(size: scaled(17, pad: 19), weight: .semibold))
+                                .foregroundStyle(isDarkBackground ? Color.white : NeumorphicColors.accent)
                                 .symbolEffect(.bounce, value: pointsAnimationStore.animationTrigger)
 
                             Text("\(availablePoints)")
-                                .font(.appSystem(size: scaled(18, pad: 20), weight: .medium, design: .rounded))
-                                .foregroundStyle(NeumorphicColors.text)
+                                .font(.appSystem(size: scaled(16, pad: 18), weight: .medium, design: .rounded))
+                                .foregroundStyle(isDarkBackground ? Color.white : NeumorphicColors.text)
                                 .contentTransition(.numericText())
                                 .animation(.spring(response: 0.35, dampingFraction: 0.82), value: availablePoints)
                         }
-                        .padding(.horizontal, isPadLayout ? 22 : 20)
-                        .frame(height: isPadLayout ? 52 : 48)
+                        .padding(.horizontal, isPadLayout ? 16 : 14)
+                        .frame(minWidth: headerIconSize * 2 + headerButtonSpacing)
+                        .frame(height: headerCapsuleHeight)
                         .contentShape(Capsule(style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width
+                    } action: { width in
+                        pointsCapsuleWidth = width
+                    }
+                    .homeActionGlass(isDarkBackground: isDarkBackground)
                     .offset(y: -20)
 
                     if let floatingPointsDelta = pointsAnimationStore.floatingDelta {
                         Text(floatingPointsDelta > 0 ? "+\(floatingPointsDelta)" : "\(floatingPointsDelta)")
                             .font(.appSystem(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
-                            .foregroundStyle(floatingPointsDelta > 0 ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.72))
+                            .foregroundStyle(isDarkBackground ? Color.white : (floatingPointsDelta > 0 ? NeumorphicColors.accent : NeumorphicColors.text.opacity(0.72)))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(
                                 Capsule(style: .continuous)
-                                    .fill(NeumorphicColors.background.opacity(0.96))
+                                    .fill(isDarkBackground ? Color.black.opacity(0.72) : NeumorphicColors.background.opacity(0.96))
                                     .shadow(color: NeumorphicColors.darkShadow.opacity(0.16), radius: 5, x: 2, y: 2)
                                     .shadow(color: Color.white.opacity(0.72), radius: 4, x: -2, y: -2)
                             )
@@ -114,21 +123,22 @@ struct HomeHeaderView: View {
     }
 
     private var headerIconSize: CGFloat {
-        isPadLayout ? 44 : 40
+        isPadLayout ? 38 : 34
     }
 
-    private func headerIconButton(
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.appSystem(size: scaled(19, pad: 22), weight: .semibold))
-                .foregroundStyle(themeColor)
-                .frame(width: headerIconSize, height: headerIconSize)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .offset(y: -20)
+    private var headerCapsuleHeight: CGFloat {
+        isPadLayout ? 42 : 38
+    }
+
+    private var headerButtonSpacing: CGFloat { 16 }
+
+    private var headerSegmentWidth: CGFloat {
+        pointsCapsuleWidth > 0
+            ? (pointsCapsuleWidth - headerButtonSpacing) / 2
+            : headerIconSize
+    }
+
+    private var headerForeground: Color {
+        isDarkBackground ? .white : themeColor
     }
 }

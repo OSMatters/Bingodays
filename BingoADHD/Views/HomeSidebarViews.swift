@@ -1,5 +1,6 @@
 import SwiftUI
 import Lottie
+import UserNotifications
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -808,6 +809,7 @@ enum MeGreeting: Int, CaseIterable {
 }
 
 struct BingodaysMeScreen: View {
+    @AppStorage(AppSettings.meSettingsNewBadgeTapCountKey) private var settingsTapCount = 0
     let isPremiumMember: Bool
     let premiumPlanKind: PremiumPlanKind?
     let hasReviewedApp: Bool
@@ -1050,12 +1052,22 @@ struct BingodaysMeScreen: View {
             }
             .buttonStyle(.plain)
 
-            Button(action: onOpenSettings) {
+            Button {
+                settingsTapCount = min(settingsTapCount + 1, 2)
+                onOpenSettings()
+            } label: {
                 Text("\(L10n.tr("Preferences", zhHans: "个性设置", zhHant: "個性設定", ja: "個人設定")) ⚙️")
                     .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
                     .foregroundStyle(skin.actionColor)
             }
             .buttonStyle(.plain)
+            .overlay(alignment: .topTrailing) {
+                if settingsTapCount < 2 {
+                    FeatureNewBadge()
+                        .scaleEffect(0.8, anchor: .bottomLeading)
+                        .offset(x: 21, y: -9)
+                }
+            }
         }
         .offset(y: scaled(-4, pad: -5))
     }
@@ -1388,8 +1400,8 @@ private struct MeDiaryButton: View {
 
     var body: some View {
         MeOutlinedPillButton(
-            title: L10n.tr("Check My\nBingo Dairy", zhHans: "查看我的\nBingo 日记", zhHant: "查看我的\nBingo 日記", ja: "Bingo日記を\n見る"),
-            imageName: "MePopDairy",
+            title: L10n.tr("Check My\nBingo Diary", zhHans: "查看我的\nBingo 日记", zhHant: "查看我的\nBingo 日記", ja: "Bingo日記を\n見る"),
+            imageName: "MePopDiary",
             width: scaled(178, pad: 205),
             height: scaled(73, pad: 84),
             isPadLayout: isPadLayout,
@@ -1420,7 +1432,7 @@ private struct MeDiaryDeskButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(MeDiaryDeskButtonStyle())
-        .accessibilityLabel(L10n.tr("Check My Bingo Dairy", zhHans: "查看我的 Bingo 日记", zhHant: "查看我的 Bingo 日記", ja: "Bingo日記を見る"))
+        .accessibilityLabel(L10n.tr("Check My Bingo Diary", zhHans: "查看我的 Bingo 日记", zhHant: "查看我的 Bingo 日記", ja: "Bingo日記を見る"))
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
@@ -1507,6 +1519,9 @@ private struct MeOutlinedPillButton: View {
 }
 
 struct MeSettingsScreen: View {
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
+    @AppStorage(AppSettings.hasDismissedSettingsReviewBannerKey) private var hasDismissedReviewBanner = false
+    @State private var isFeedbackExpanded = false
     let hasPremiumAccess: Bool
     let onOpenPremiumIcon: () -> Void
     let isPadLayout: Bool
@@ -1517,8 +1532,9 @@ struct MeSettingsScreen: View {
     @Binding var isHapticsEnabled: Bool
     @Binding var isSoundEffectsEnabled: Bool
     @Binding var isWidgetGuideExpanded: Bool
+    @Binding var selectedLanguageCode: String
+    let onReminderSettingsChanged: () -> Void
     let onBack: () -> Void
-    let onOpenLanguage: () -> Void
     let onOpenICloud: () -> Void
     let onSetICloudEnabled: (Bool) -> Void
     let onOpenTerms: () -> Void
@@ -1527,16 +1543,57 @@ struct MeSettingsScreen: View {
     var body: some View {
         GeometryReader { geo in
             let contentWidth = min(geo.size.width - 32, isPadLayout ? 430 : 361)
-            let topContentPadding = max(0, max(geo.safeAreaInsets.top, 12) + 10 - 40)
 
             VStack(spacing: 0) {
                 settingsHeader
-                    .padding(.top, topContentPadding)
+                    .padding(.top, scaled(8, pad: 12))
                     .padding(.horizontal, 16)
 
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: scaled(14, pad: 18)) {
-                        VStack(spacing: 0) {
+                    VStack(spacing: scaled(20, pad: 24)) {
+                        if !hasDismissedReviewBanner {
+                            encourageUsBanner
+                        }
+
+                        VStack(alignment: .leading, spacing: scaled(8, pad: 10)) {
+                            settingsSectionTitle(L10n.tr("Preferences", zhHans: "使用偏好", zhHant: "使用偏好", ja: "設定", ko: "사용 환경 설정"))
+                            settingsGroup {
+                                feedbackDisclosureRow
+                                if isFeedbackExpanded {
+                                    settingsDivider
+                                    MeSettingsToggleRow(title: L10n.haptics, systemImage: nil, isOn: $isHapticsEnabled, isPadLayout: isPadLayout)
+                                    settingsDivider
+                                    MeSettingsToggleRow(title: L10n.soundEffects, systemImage: nil, isOn: $isSoundEffectsEnabled, isPadLayout: isPadLayout)
+                                }
+                                settingsDivider
+                                ReminderSettingsSection(onChanged: onReminderSettingsChanged)
+                                settingsDivider
+                                languageMenu
+                                settingsDivider
+                                MeSettingsActionRow(title: L10n.homeWidget, systemImage: "square.grid.2x2", isPadLayout: isPadLayout) {
+                                    withAnimation(.easeOut(duration: 0.2)) { isWidgetGuideExpanded.toggle() }
+                                }
+                                if isWidgetGuideExpanded {
+                                    Text(L10n.homeWidgetInstructions)
+                                        .font(.appSystem(size: 14, weight: .regular, design: .rounded))
+                                        .foregroundStyle(MeScreenPalette.mutedText)
+                                        .multilineTextAlignment(.leading)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, scaled(18, pad: 22))
+                                        .padding(.bottom, scaled(12, pad: 14))
+                                }
+                            }
+                        }
+
+                        AppIconSettingsSection(
+                            isPadLayout: isPadLayout,
+                            themeColor: themeColor,
+                            hasPremiumAccess: hasPremiumAccess,
+                            onOpenPremium: onOpenPremiumIcon
+                        )
+
+                        settingsGroup {
                             MeICloudSettingsEntry(
                                 state: iCloudState,
                                 isPadLayout: isPadLayout,
@@ -1545,91 +1602,175 @@ struct MeSettingsScreen: View {
                                 onSetEnabled: onSetICloudEnabled,
                                 action: onOpenICloud
                             )
-
-                            MeSettingsToggleRow(
-                                title: L10n.haptics,
-                                isOn: $isHapticsEnabled,
-                                isPadLayout: isPadLayout
-                            )
-
-                            MeSettingsToggleRow(
-                                title: L10n.soundEffects,
-                                isOn: $isSoundEffectsEnabled,
-                                isPadLayout: isPadLayout
-                            )
-
-                            MeSettingsActionRow(
-                                title: L10n.homeWidget,
-                                isPadLayout: isPadLayout
-                            ) {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                                    isWidgetGuideExpanded.toggle()
-                                }
-                            }
-
-                            if isWidgetGuideExpanded {
-                                Text(L10n.homeWidgetInstructions)
-                                    .font(.appSystem(size: scaled(12, pad: 14), weight: .medium, design: .rounded))
-                                    .foregroundStyle(MeScreenPalette.mutedText)
-                                    .multilineTextAlignment(.leading)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, scaled(18, pad: 22))
-                                    .padding(.bottom, scaled(12, pad: 14))
-                            }
-
-                            MeSettingsActionRow(
-                                title: L10n.language,
-                                isPadLayout: isPadLayout,
-                                action: onOpenLanguage
-                            )
-
-                            MeSettingsActionRow(
-                                title: L10n.encourageUs,
-                                isPadLayout: isPadLayout,
-                                action: onEncourageUs
-                            )
                         }
-                        .frame(width: contentWidth)
-                        .background(
-                            RoundedRectangle(cornerRadius: scaled(15, pad: 18), style: .continuous)
-                                .fill(Color.white.opacity(0.88))
-                        )
 
-                        AppIconSettingsSection(
-                            isPadLayout: isPadLayout,
-                            themeColor: themeColor,
-                            hasPremiumAccess: hasPremiumAccess,
-                            onOpenPremium: onOpenPremiumIcon
-                        )
-                        .frame(width: contentWidth)
+                        if hasDismissedReviewBanner {
+                            settingsGroup {
+                                MeSettingsActionRow(title: L10n.encourageUs, systemImage: "heart", isPadLayout: isPadLayout, action: onEncourageUs)
+                            }
+                        }
 
                         settingsLegalLinks
-                            .padding(.top, scaled(16, pad: 22))
+                            .padding(.top, scaled(4, pad: 6))
                             .padding(.bottom, scaled(16, pad: 20))
                     }
+                    .frame(width: contentWidth)
                     .frame(maxWidth: .infinity)
-                    .padding(.top, scaled(24, pad: 32))
+                    .padding(.top, scaled(16, pad: 20))
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .background(MeScreenPalette.background.ignoresSafeArea())
         }
+        .task {
+            await subscriptionManager.refreshStorefront()
+        }
     }
 
-    private var settingsToggleInactiveColor: Color {
-        Color(hex: "8F8F8F").opacity(0.62)
+    private var feedbackDisclosureRow: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.2)) { isFeedbackExpanded.toggle() }
+        } label: {
+            HStack(spacing: 12) {
+                MeSettingsRowIcon(systemName: "waveform")
+                Text(L10n.hapticsAndSound)
+                    .font(.appSystem(size: 14, weight: .regular, design: .rounded))
+                    .foregroundStyle(MeScreenPalette.text)
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold))
+                    .foregroundStyle(MeScreenPalette.mutedText.opacity(0.6))
+                    .rotationEffect(.degrees(isFeedbackExpanded ? 180 : 0))
+            }
+            .frame(height: scaled(56, pad: 64))
+            .padding(.horizontal, scaled(18, pad: 22))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(isFeedbackExpanded
+            ? L10n.tr("Expanded", zhHans: "已展开", zhHant: "已展開", ja: "展開中", ko: "펼쳐짐")
+            : L10n.tr("Collapsed", zhHans: "已收起", zhHant: "已收起", ja: "折りたたみ中", ko: "접힘"))
+    }
+
+    private var encourageUsBanner: some View {
+        Button(action: onEncourageUs) {
+            HStack(spacing: scaled(8, pad: 12)) {
+                Image("SettingsEncourageBannerArt")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: scaled(120, pad: 136), height: scaled(84, pad: 94))
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: scaled(6, pad: 8)) {
+                    Text(L10n.settingsReviewBannerTitle)
+                        .font(.appSystem(size: 14, weight: .medium, design: .rounded))
+                    Text(L10n.settingsReviewBannerSubtitle)
+                        .font(.appSystem(size: 14, weight: .regular, design: .rounded))
+                        .foregroundStyle(MeScreenPalette.mutedText)
+                }
+                .foregroundStyle(MeScreenPalette.text)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.trailing, scaled(12, pad: 14))
+            }
+            .padding(.horizontal, scaled(14, pad: 18))
+            .padding(.vertical, scaled(12, pad: 14))
+            .frame(maxWidth: .infinity)
+            .contentShape(RoundedRectangle(cornerRadius: scaled(28, pad: 32), style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.settingsReviewBannerTitle)
+        .accessibilityHint(L10n.settingsReviewBannerSubtitle)
+        .overlay(alignment: .topTrailing) {
+            Button {
+                hasDismissedReviewBanner = true
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.appSystem(size: scaled(11, pad: 13), weight: .semibold))
+                    .foregroundStyle(MeScreenPalette.mutedText)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L10n.tr("Close banner", zhHans: "关闭横幅", zhHant: "關閉橫幅", ja: "バナーを閉じる", ko: "배너 닫기"))
+        }
+    }
+
+    private func settingsGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0, content: content)
+            .frame(maxWidth: .infinity)
+            .background(Color.white.opacity(0.88), in: RoundedRectangle(cornerRadius: scaled(15, pad: 18), style: .continuous))
+    }
+
+    private func settingsSectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.appSystem(size: 16, weight: .semibold, design: .rounded))
+            .foregroundStyle(MeScreenPalette.text)
+            .padding(.leading, scaled(6, pad: 8))
+    }
+
+    private var settingsDivider: some View {
+        Rectangle()
+            .fill(MeScreenPalette.mutedText.opacity(0.12))
+            .frame(height: 1)
+            .padding(.leading, scaled(18, pad: 22))
+    }
+
+    private var languageMenu: some View {
+        Menu {
+            Button {
+                selectedLanguageCode = ""
+            } label: {
+                if selectedLanguageCode.isEmpty { Label(followSystemLanguageTitle, systemImage: "checkmark") }
+                else { Text(followSystemLanguageTitle) }
+            }
+            ForEach(AppLanguage.allCases, id: \.rawValue) { language in
+                Button {
+                    selectedLanguageCode = language.rawValue
+                } label: {
+                    if selectedLanguageCode == language.rawValue { Label(language.selectionTitle, systemImage: "checkmark") }
+                    else { Text(language.selectionTitle) }
+                }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                MeSettingsRowIcon(systemName: "globe")
+                Text(L10n.language)
+                    .font(.appSystem(size: 14, weight: .regular, design: .rounded))
+                    .foregroundStyle(MeScreenPalette.text)
+                Spacer()
+                Text(selectedLanguageTitle)
+                    .font(.appSystem(size: 14, weight: .regular, design: .rounded))
+                    .foregroundStyle(MeScreenPalette.mutedText)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.appSystem(size: scaled(10, pad: 12), weight: .semibold))
+                    .foregroundStyle(MeScreenPalette.mutedText.opacity(0.7))
+            }
+            .frame(height: scaled(56, pad: 64))
+            .padding(.horizontal, scaled(18, pad: 22))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var followSystemLanguageTitle: String {
+        L10n.tr("Follow System", zhHans: "跟随系统", zhHant: "跟隨系統", ja: "システムに従う", ko: "시스템 언어 사용")
+    }
+
+    private var selectedLanguageTitle: String {
+        AppLanguage(rawValue: selectedLanguageCode)?.selectionTitle ?? followSystemLanguageTitle
     }
 
     private var settingsHeader: some View {
         ZStack {
             Text(L10n.setting)
-                .font(.appSystem(size: scaled(18, pad: 21), weight: .bold, design: .rounded))
+                .font(.appSystem(size: 18, weight: .semibold, design: .rounded))
                 .foregroundStyle(MeScreenPalette.text)
 
             HStack {
                 Button(action: onBack) {
-                    Image(systemName: "chevron.left")
+                    Image(systemName: "xmark")
                         .font(.appSystem(size: scaled(17, pad: 19), weight: .bold))
                         .foregroundStyle(MeScreenPalette.text)
                         .frame(width: scaled(40, pad: 46), height: scaled(40, pad: 46))
@@ -1645,27 +1786,28 @@ struct MeSettingsScreen: View {
     }
 
     private var settingsLegalLinks: some View {
-        HStack(spacing: scaled(12, pad: 14)) {
-            Button(action: onOpenTerms) {
-                Text(L10n.paywallTermsOfUse)
+        VStack(spacing: scaled(7, pad: 9)) {
+            HStack(spacing: scaled(14, pad: 16)) {
+                Button(action: onOpenTerms) { Text(L10n.paywallTermsOfUse) }
+                    .buttonStyle(.plain)
+                Text("|")
+                Button(action: onOpenPrivacy) { Text(L10n.paywallPrivacyPolicy) }
+                    .buttonStyle(.plain)
+                Text("|")
+                Text("V \(appShortVersion)")
             }
-            .buttonStyle(.plain)
-
-            Text("|")
-
-            Button(action: onOpenPrivacy) {
-                Text(L10n.paywallPrivacyPolicy)
+            if subscriptionManager.storefrontCountryCode == "CHN",
+               let filingLookupURL = URL(string: "https://beian.miit.gov.cn") {
+                Link(destination: filingLookupURL) {
+                    Text("蜀ICP备2026026755号-1A")
+                        .font(.appSystem(size: 11, weight: .regular, design: .rounded))
+                        .foregroundStyle(MeScreenPalette.mutedText)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
             }
-            .buttonStyle(.plain)
-
-            Text("|")
-
-            Text("Version \(appShortVersion)")
         }
-        .font(.appSystem(size: scaled(12, pad: 14), weight: .semibold, design: .rounded))
-        .foregroundStyle(MeScreenPalette.mutedText.opacity(0.72))
-        .lineLimit(1)
-        .minimumScaleFactor(0.72)
+        .font(.appSystem(size: 12, weight: .regular, design: .rounded))
+        .foregroundStyle(MeScreenPalette.mutedText)
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
@@ -1683,15 +1825,16 @@ private struct MeICloudSettingsEntry: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            MeSettingsRowIcon(systemName: "icloud")
             Button(action: action) {
                 HStack(spacing: 5) {
                     Text(L10n.tr("iCloud Sync", zhHans: "iCloud 同步", zhHant: "iCloud 同步", ja: "iCloud同期"))
-                        .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
+                        .font(.appSystem(size: 14, weight: .regular, design: .rounded))
                         .foregroundStyle(MeScreenPalette.text)
 
                     if let statusText {
                         Text("(\(statusText))")
-                            .font(.appSystem(size: scaled(11, pad: 12.5), weight: .medium, design: .rounded))
+                            .font(.appSystem(size: 14, weight: .regular, design: .rounded))
                             .foregroundStyle(statusColor)
                             .lineLimit(1)
                             .minimumScaleFactor(0.78)
@@ -1705,14 +1848,10 @@ private struct MeICloudSettingsEntry: View {
 
             Toggle("", isOn: Binding(get: { isEnabled }, set: { onSetEnabled($0) }))
                 .labelsHidden()
-                .toggleStyle(
-                    SidebarGlassToggleStyle(
-                        accentColor: themeColor,
-                        inactiveColor: Color(hex: "8F8F8F").opacity(0.62)
-                    )
-                )
+                .toggleStyle(MeSettingsCompactToggleStyle(accentColor: themeColor))
+                .accessibilityLabel(L10n.tr("iCloud Sync", zhHans: "iCloud 同步", zhHant: "iCloud 同步", ja: "iCloud同期"))
         }
-        .frame(height: scaled(50, pad: 58))
+        .frame(height: scaled(56, pad: 64))
         .padding(.horizontal, scaled(18, pad: 22))
     }
 
@@ -1757,29 +1896,213 @@ private struct MeICloudSettingsEntry: View {
     }
 }
 
+private struct MeSettingsRowIcon: View {
+    let systemName: String
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: 18, weight: .regular))
+            .foregroundStyle(MeScreenPalette.accent)
+            .frame(width: 24, height: 24)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct MeSettingsCompactToggleStyle: ToggleStyle {
+    let accentColor: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.18)) { configuration.isOn.toggle() }
+        } label: {
+            Capsule()
+                .fill(configuration.isOn ? accentColor : Color(hex: "D9D3C9"))
+                .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 18, height: 18)
+                        .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+                        .padding(3)
+                }
+                .frame(width: 40, height: 24)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(configuration.isOn ? L10n.tr("On", zhHans: "开", zhHant: "開", ja: "オン", ko: "켬") : L10n.tr("Off", zhHans: "关", zhHant: "關", ja: "オフ", ko: "끔"))
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+private struct ReminderSettingsSection: View {
+    @AppStorage(AppSettings.reminderNewBadgeTapCountKey) private var reminderTapCount = 0
+    @AppStorage(ReminderPreferences.enabledKey) private var enabled = false
+    @AppStorage(ReminderPreferences.resetKey) private var resetEnabled = false
+    @AppStorage(ReminderPreferences.ticketKey) private var ticketEnabled = false
+    @AppStorage(ReminderPreferences.streakKey) private var streakEnabled = false
+    @State private var permissionDenied = false
+    let onChanged: () -> Void
+
+    private let ink = MeScreenPalette.text
+    private let muted = MeScreenPalette.mutedText
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Button { enabled.toggle() } label: {
+                    HStack(spacing: 12) {
+                        MeSettingsRowIcon(systemName: "bell")
+                        Text(L10n.tr("Reminders", zhHans: "提醒", zhHant: "提醒"))
+                            .font(.appSystem(size: 14, weight: .regular, design: .rounded))
+                            .foregroundStyle(ink)
+                            .overlay(alignment: .topTrailing) {
+                                if reminderTapCount < 2 {
+                                    FeatureNewBadge()
+                                        .scaleEffect(0.8, anchor: .bottomLeading)
+                                        .offset(x: 21, y: -9)
+                                }
+                            }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Toggle(L10n.tr("Reminders", zhHans: "提醒", zhHant: "提醒"), isOn: $enabled)
+                    .labelsHidden()
+                    .toggleStyle(MeSettingsCompactToggleStyle(accentColor: MeScreenPalette.accent))
+            }
+            .padding(.horizontal, 18)
+            .frame(height: 56)
+
+            if enabled {
+                if permissionDenied {
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(L10n.tr(
+                            "System notifications are off. Enable them in Settings to receive reminders.",
+                            zhHans: "系统通知尚未开启，请在系统设置中允许通知。",
+                            zhHant: "系統通知尚未開啟，請在系統設定中允許通知。"
+                        ))
+                        Button(L10n.tr("Open Settings", zhHans: "去系统设置", zhHant: "去系統設定")) {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        .fontWeight(.bold)
+                    }
+                    .font(.appSystem(size: 14, weight: .regular, design: .rounded))
+                    .foregroundStyle(ink)
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 12)
+                }
+
+                divider
+                choiceRow(
+                    title: L10n.tr("Remind 1 hour before the next task reset", zhHans: "最近一次任务重置前 1 小时提醒", zhHant: "最近一次任務重置前 1 小時提醒"),
+                    selected: $resetEnabled
+                )
+
+                divider
+                choiceRow(
+                    title: L10n.tr("Remind when new blind-box tickets are available", zhHans: "有新盲盒券时提醒", zhHant: "有新盲盒券時提醒"),
+                    selected: $ticketEnabled
+                )
+
+                divider
+                choiceRow(
+                    title: L10n.tr("Remind before the app-open streak breaks", zhHans: "连续打开快中断时提醒", zhHant: "連續打開快中斷時提醒"),
+                    selected: $streakEnabled
+                )
+            }
+        }
+        .onChange(of: enabled) { _, newValue in
+            reminderTapCount = min(reminderTapCount + 1, 2)
+            if newValue {
+                ReminderPreferences.selectAllChoices()
+                Task {
+                    permissionDenied = !(await TaskStartReminderService.requestAuthorizationIfNeeded())
+                    onChanged()
+                }
+            }
+            onChanged()
+        }
+        .onChange(of: resetEnabled) { _, _ in onChanged() }
+        .onChange(of: ticketEnabled) { _, _ in onChanged() }
+        .onChange(of: streakEnabled) { _, _ in onChanged() }
+        .task { await refreshPermission() }
+    }
+
+    private var divider: some View {
+        Rectangle().fill(muted.opacity(0.12)).frame(height: 1).padding(.leading, 18)
+    }
+
+    private func choiceRow(title: String, selected: Binding<Bool>) -> some View {
+        Button { selected.wrappedValue.toggle() } label: {
+            HStack(alignment: .center, spacing: 12) {
+                Text(title)
+                    .font(.appSystem(size: 14, weight: .regular, design: .rounded))
+                    .foregroundStyle(ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                choiceMarkContent(isSelected: selected.wrappedValue)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(minHeight: 56)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityValue(selected.wrappedValue ? L10n.tr("Selected", zhHans: "已勾选", zhHant: "已勾選") : L10n.tr("Not selected", zhHans: "未勾选", zhHant: "未勾選"))
+    }
+
+    private func choiceMarkContent(isSelected: Bool) -> some View {
+        ZStack {
+            Circle()
+                .strokeBorder(isSelected ? MeScreenPalette.accent : muted, lineWidth: 1.5)
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(MeScreenPalette.accent)
+            }
+        }
+        .frame(width: 26, height: 26)
+    }
+
+    private func refreshPermission() async {
+        let center = UNUserNotificationCenter.current()
+        permissionDenied = await withCheckedContinuation { continuation in
+            center.getNotificationSettings { continuation.resume(returning: $0.authorizationStatus == .denied) }
+        }
+    }
+
+}
+
 private struct MeSettingsToggleRow: View {
     let title: String
+    let systemImage: String?
     @Binding var isOn: Bool
     let isPadLayout: Bool
 
     var body: some View {
         HStack(spacing: 12) {
+            if let systemImage {
+                MeSettingsRowIcon(systemName: systemImage)
+            } else {
+                Color.clear.frame(width: 24, height: 24)
+                    .accessibilityHidden(true)
+            }
             Text(title)
-                .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
+                .font(.appSystem(size: 14, weight: .regular, design: .rounded))
                 .foregroundStyle(MeScreenPalette.text)
 
             Spacer()
 
             Toggle("", isOn: $isOn)
                 .labelsHidden()
-                .toggleStyle(
-                    SidebarGlassToggleStyle(
-                        accentColor: MeScreenPalette.accent,
-                        inactiveColor: Color(hex: "8F8F8F").opacity(0.62)
-                    )
-                )
+                .toggleStyle(MeSettingsCompactToggleStyle(accentColor: MeScreenPalette.accent))
+                .accessibilityLabel(title)
         }
-        .frame(height: scaled(50, pad: 58))
+        .frame(height: scaled(56, pad: 64))
         .padding(.horizontal, scaled(18, pad: 22))
     }
 
@@ -1790,14 +2113,16 @@ private struct MeSettingsToggleRow: View {
 
 private struct MeSettingsActionRow: View {
     let title: String
+    let systemImage: String
     let isPadLayout: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
+                MeSettingsRowIcon(systemName: systemImage)
                 Text(title)
-                    .font(.appSystem(size: scaled(15, pad: 17), weight: .bold, design: .rounded))
+                    .font(.appSystem(size: 14, weight: .regular, design: .rounded))
                     .foregroundStyle(MeScreenPalette.text)
 
                 Spacer()
@@ -1806,7 +2131,7 @@ private struct MeSettingsActionRow: View {
                     .font(.appSystem(size: scaled(12, pad: 14), weight: .bold))
                     .foregroundStyle(MeScreenPalette.mutedText.opacity(0.48))
             }
-            .frame(height: scaled(50, pad: 58))
+            .frame(height: scaled(56, pad: 64))
             .padding(.horizontal, scaled(18, pad: 22))
             .contentShape(Rectangle())
         }
@@ -1883,6 +2208,8 @@ struct SidebarPricingDebugInfoRow: View {
             return "zh-Hant"
         case .japanese:
             return "ja"
+        case .korean:
+            return "ko"
         }
     }
 

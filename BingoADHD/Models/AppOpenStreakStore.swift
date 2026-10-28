@@ -1,6 +1,10 @@
 import Foundation
 import Combine
 
+extension Notification.Name {
+    static let appOpenStreakDidChange = Notification.Name("appOpenStreakDidChange")
+}
+
 @MainActor
 final class AppOpenStreakStore: ObservableObject {
     static let shared = AppOpenStreakStore()
@@ -8,6 +12,7 @@ final class AppOpenStreakStore: ObservableObject {
     @Published private(set) var currentStreak = 0
     @Published private(set) var bestStreak = 0
     @Published private(set) var acknowledgedMilestones: Set<Int> = []
+    var lastOpenedDay: Date? { persistedState.lastOpenedDay }
 
     var pendingMilestones: [Int] {
         [10, 20, 30].filter { bestStreak >= $0 && !acknowledgedMilestones.contains($0) }
@@ -114,6 +119,7 @@ final class AppOpenStreakStore: ObservableObject {
             persistedState.currentStreak
         )
         publishAndSave()
+        NotificationCenter.default.post(name: .appOpenStreakDidChange, object: nil)
     }
 
     private func load() {

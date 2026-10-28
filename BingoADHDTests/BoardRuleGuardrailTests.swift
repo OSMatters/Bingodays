@@ -5,6 +5,92 @@ import Darwin
 @testable import Bingodays
 
 final class BoardResetRuleEngineTests: XCTestCase {
+    func testDailyForcedTaskRemainsConfiguredAcrossCompletionAndNextDayReset() throws {
+        let yesterday = makeDate(year: 2026, month: 5, day: 30, hour: 9)
+        let today = makeDate(year: 2026, month: 5, day: 31, hour: 9)
+        var cells = BoardEngine.createEmptyGrid(size: BoardEngine.maxGridSize)
+        cells[0][0] = BingoCell(
+            text: "Daily forced task",
+            residentTaskText: "Daily forced task",
+            recurrenceRule: TaskRecurrenceRule(kind: .daily, anchorDate: yesterday),
+            isCompleted: true,
+            isForced: true,
+            lastCompletedAt: yesterday
+        )
+        cells[0][1] = BingoCell(text: "Regular task")
+        let board = makeNamedBoard(
+            cells: cells,
+            mode: .resetStatusNextDay,
+            lastTaskResetAppliedAt: yesterday,
+            updatedAt: yesterday
+        )
+
+        let updated = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(
+            board,
+            now: today,
+            calendar: fixedCalendar
+        )
+        let restored = try XCTUnwrap(updated.board.fullBoardCells?[0][0])
+
+        XCTAssertFalse(restored.isCompleted)
+        XCTAssertTrue(restored.isForced)
+        XCTAssertTrue(updated.board.cells[0][0].isForced)
+        XCTAssertEqual(restored.recurrenceRule?.kind, .daily)
+        XCTAssertEqual(updated.board.fullBoardCells?[0][1].isForced, false)
+
+        let persisted = try JSONDecoder().decode(
+            SavedBoard.self,
+            from: JSONEncoder().encode(updated.board)
+        )
+        XCTAssertEqual(persisted.fullBoardCells?[0][0].isForced, true)
+
+        cells[0][0].isCompleted = false
+        cells[0][0].lastCompletedAt = nil
+        let unfinishedBoard = makeNamedBoard(
+            cells: cells,
+            mode: .resetStatusNextDay,
+            lastTaskResetAppliedAt: yesterday,
+            updatedAt: yesterday
+        )
+        let unfinishedReset = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(
+            unfinishedBoard,
+            now: today,
+            calendar: fixedCalendar
+        )
+        XCTAssertEqual(unfinishedReset.board.fullBoardCells?[0][0].isForced, true)
+    }
+
+    func testResetKeepsOnlyOneForcedRepeatingTaskAcrossFullBoardCache() {
+        let yesterday = makeDate(year: 2026, month: 5, day: 30, hour: 9)
+        let today = makeDate(year: 2026, month: 5, day: 31, hour: 9)
+        var cells = BoardEngine.createEmptyGrid(size: BoardEngine.maxGridSize)
+        cells[0][0] = BingoCell(
+            text: "Visible daily",
+            recurrenceRule: TaskRecurrenceRule(kind: .daily),
+            isForced: true
+        )
+        cells[4][4] = BingoCell(
+            text: "Cached daily",
+            recurrenceRule: TaskRecurrenceRule(kind: .daily),
+            isForced: true
+        )
+        let board = makeNamedBoard(
+            cells: cells,
+            mode: .resetStatusNextDay,
+            lastTaskResetAppliedAt: yesterday,
+            updatedAt: yesterday
+        )
+
+        let updated = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(
+            board,
+            now: today,
+            calendar: fixedCalendar
+        )
+
+        XCTAssertEqual(updated.board.fullBoardCells?[0][0].isForced, true)
+        XCTAssertEqual(updated.board.fullBoardCells?[4][4].isForced, false)
+    }
+
     func testAppliedResetRecordsAnonymousRuleActionSummary() throws {
         let yesterday = makeDate(year: 2026, month: 5, day: 30, hour: 3)
         let today = makeDate(year: 2026, month: 5, day: 31, hour: 3, minute: 1)
@@ -690,6 +776,184 @@ final class TaskStartReminderServiceTests: XCTestCase {
 
         XCTAssertFalse(initialSignature.isEmpty)
         XCTAssertEqual(initialSignature, laterSignature)
+    }
+}
+
+final class FeatureNewBadgeEligibilityTests: XCTestCase {
+    func testEligibilityIsCapturedBeforeAFirstTimeUserCompletesOnboarding() throws {
+        let suiteName = "new-badge-eligibility-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        FeatureNewBadgeEligibility.initializeIfNeeded(defaults: defaults)
+        XCTAssertFalse(defaults.bool(forKey: AppSettings.newBadgeExistingUserKey))
+
+        defaults.set(true, forKey: AppSettings.hasSeenOnboardingKey)
+        FeatureNewBadgeEligibility.initializeIfNeeded(defaults: defaults)
+        XCTAssertFalse(defaults.bool(forKey: AppSettings.newBadgeExistingUserKey))
+    }
+
+    func testCompletedOnboardingBeforeUpgradeIsEligible() throws {
+        let suiteName = "new-badge-upgrade-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: AppSettings.hasSeenOnboardingKey)
+        FeatureNewBadgeEligibility.initializeIfNeeded(defaults: defaults)
+        XCTAssertTrue(defaults.bool(forKey: AppSettings.newBadgeExistingUserKey))
+    }
+}
+
+final class DailyReminderServiceTests: XCTestCase {
+    func testEnablingSelectsAllChoices() {
+        let suiteName = "reminder-choices-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        ReminderPreferences.selectAllChoices(defaults)
+        XCTAssertTrue(defaults.bool(forKey: ReminderPreferences.resetKey))
+        XCTAssertTrue(defaults.bool(forKey: ReminderPreferences.ticketKey))
+        XCTAssertTrue(defaults.bool(forKey: ReminderPreferences.streakKey))
+
+        defaults.set(false, forKey: ReminderPreferences.ticketKey)
+        ReminderPreferences.selectAllChoices(defaults)
+        XCTAssertTrue(defaults.bool(forKey: ReminderPreferences.ticketKey))
+    }
+
+    func testReminderCopyVariantStaysTheSameThroughoutOneDay() {
+        let suiteName = "daily-reminder-tone-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let morning = makeDate(year: 2026, month: 6, day: 18, hour: 9)
+        let evening = makeDate(year: 2026, month: 6, day: 18, hour: 20)
+        let first = ReminderCopyVariant.forDate(morning, calendar: fixedCalendar, defaults: defaults)
+        XCTAssertEqual(first, ReminderCopyVariant.forDate(evening, calendar: fixedCalendar, defaults: defaults))
+    }
+
+    func testRemovingResetCopyKeepsFourResetOptionsAndFiveOtherOptions() throws {
+        let suiteName = "reminder-copy-count-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("1", forKey: "reminder_daily_tone_seed_v1")
+
+        let start = makeDate(year: 2026, month: 6, day: 18, hour: 9)
+        let variants = (0..<100).compactMap { offset -> ReminderCopyVariant? in
+            guard let date = fixedCalendar.date(byAdding: .day, value: offset, to: start) else { return nil }
+            return ReminderCopyVariant.forDate(date, calendar: fixedCalendar, defaults: defaults)
+        }
+        XCTAssertEqual(variants.count, 100)
+        XCTAssertEqual(Set(variants.map { $0.message(for: .boardReset).title }).count, 4)
+        XCTAssertEqual(Set(variants.map { $0.message(for: .ticket).title }).count, 5)
+        XCTAssertEqual(Set(variants.map { $0.message(for: .streak).title }).count, 5)
+        XCTAssertEqual(Set(variants.map { $0.taskStartMessage(taskText: "Task", offsetMinutes: 5).title }).count, 5)
+    }
+
+    @MainActor
+    func testTicketReminderIsScheduledOncePerDayAtTenAMAndNotReaddedAfterTen() {
+        let morning = makeDate(year: 2026, month: 6, day: 18, hour: 9)
+        let preferences = ReminderPreferences(
+            enabled: true, resetEnabled: false, ticketEnabled: true, streakEnabled: false
+        )
+
+        func ticketPlan(at now: Date) -> [DailyReminderService.PlannedReminder] {
+            DailyReminderService.plan(
+                boards: [], preferences: preferences, lastOpenedDay: nil,
+                ticketBalance: 1, now: now, calendar: fixedCalendar
+            )
+        }
+
+        let firstPlan = ticketPlan(at: morning)
+        let resyncedPlan = ticketPlan(at: morning.addingTimeInterval(5 * 60))
+        let afterTenPlan = ticketPlan(at: makeDate(year: 2026, month: 6, day: 18, hour: 10, minute: 1))
+
+        XCTAssertEqual(firstPlan.count, 7)
+        XCTAssertEqual(Set(firstPlan.map(\.id)).count, 7)
+        XCTAssertEqual(Set(firstPlan.map { fixedCalendar.startOfDay(for: $0.date) }).count, 7)
+        XCTAssertTrue(firstPlan.allSatisfy {
+            fixedCalendar.component(.hour, from: $0.date) == 10 &&
+            fixedCalendar.component(.minute, from: $0.date) == 0
+        })
+        XCTAssertEqual(firstPlan.map(\.id), resyncedPlan.map(\.id))
+        XCTAssertFalse(afterTenPlan.contains { fixedCalendar.isDate($0.date, inSameDayAs: morning) })
+    }
+
+    @MainActor
+    func testMultipleBoardsProduceOneGenericResetReminderPerDay() {
+        let now = makeDate(year: 2026, month: 6, day: 18, hour: 18)
+        var cells = BoardEngine.createEmptyGrid(size: BoardEngine.maxGridSize)
+        cells[0][0] = BingoCell(text: "One unfinished task")
+        let first = makeNamedBoard(cells: cells, updatedAt: now)
+        let second = makeNamedBoard(cells: cells, updatedAt: now)
+        let preferences = ReminderPreferences(
+            enabled: true, resetEnabled: true, ticketEnabled: false, streakEnabled: false
+        )
+
+        let planned = DailyReminderService.plan(
+            boards: [first, second], preferences: preferences, lastOpenedDay: nil,
+            ticketBalance: 0, now: now, calendar: fixedCalendar
+        )
+
+        let resetReminders = planned.filter { $0.id.contains(".reset.") }
+        XCTAssertEqual(resetReminders.count, 7)
+        XCTAssertEqual(Set(resetReminders.map(\.id)).count, 7)
+        XCTAssertEqual(resetReminders.first?.date, makeDate(year: 2026, month: 6, day: 18, hour: 23))
+        XCTAssertFalse(resetReminders.contains { $0.id.contains(first.id.uuidString) || $0.id.contains(second.id.uuidString) })
+    }
+
+    @MainActor
+    func testMultipleResetTimesUseTheNearestUpcomingBoard() {
+        let now = makeDate(year: 2026, month: 6, day: 18, hour: 9)
+        var cells = BoardEngine.createEmptyGrid(size: BoardEngine.maxGridSize)
+        cells[0][0] = BingoCell(text: "Unfinished task")
+        let later = makeNamedBoard(cells: cells, mode: .customResetStatusTime, customResetMinutes: 18 * 60, updatedAt: now)
+        let nearer = makeNamedBoard(cells: cells, mode: .customResetStatusTime, customResetMinutes: 14 * 60, updatedAt: now)
+        let preferences = ReminderPreferences(enabled: true, resetEnabled: true, ticketEnabled: false, streakEnabled: false)
+
+        let resetReminders = DailyReminderService.plan(
+            boards: [later, nearer], preferences: preferences, lastOpenedDay: nil,
+            ticketBalance: 0, now: now, calendar: fixedCalendar
+        ).filter { $0.id.contains(".reset.") }
+
+        XCTAssertEqual(resetReminders.first?.date, makeDate(year: 2026, month: 6, day: 18, hour: 13))
+        XCTAssertEqual(Set(resetReminders.map { fixedCalendar.startOfDay(for: $0.date) }).count, resetReminders.count)
+    }
+
+    @MainActor
+    func testStreakReminderOnlyFollowsYesterdayAndTicketsRespectCap() {
+        let today = makeDate(year: 2026, month: 6, day: 18, hour: 9)
+        let yesterday = makeDate(year: 2026, month: 6, day: 17, hour: 10)
+        let preferences = ReminderPreferences(
+            enabled: true, resetEnabled: false, ticketEnabled: true, streakEnabled: true
+        )
+        let planned = DailyReminderService.plan(
+            boards: [], preferences: preferences, lastOpenedDay: yesterday,
+            ticketBalance: BlindBoxRuleConfiguration.maximumTicketBalance,
+            now: today, calendar: fixedCalendar
+        )
+        XCTAssertEqual(planned.count, 1)
+        XCTAssertTrue(planned[0].id.contains(".streak."))
+        XCTAssertEqual(planned[0].date, makeDate(year: 2026, month: 6, day: 18, hour: 20))
+    }
+
+    @MainActor
+    func testMasterSwitchAndAlreadyGrantedTicketDay() {
+        let now = makeDate(year: 2026, month: 6, day: 18, hour: 9)
+        let preferences = ReminderPreferences(
+            enabled: true, resetEnabled: false, ticketEnabled: true, streakEnabled: false
+        )
+        let granted = DailyReminderService.plan(
+            boards: [], preferences: preferences, lastOpenedDay: nil, ticketBalance: 1,
+            lastTicketGrantDayIdentifier: "2026-06-18", now: now, calendar: fixedCalendar
+        )
+        XCTAssertFalse(granted.contains { fixedCalendar.isDate($0.date, inSameDayAs: now) })
+
+        let disabled = ReminderPreferences(
+            enabled: false, resetEnabled: true, ticketEnabled: true, streakEnabled: true
+        )
+        XCTAssertTrue(DailyReminderService.plan(
+            boards: [], preferences: disabled, lastOpenedDay: now, ticketBalance: 1,
+            now: now, calendar: fixedCalendar
+        ).isEmpty)
     }
 }
 
@@ -1936,8 +2200,40 @@ final class WidgetTaskToggleServiceTests: XCTestCase {
         XCTAssertNil(updated)
     }
 
+    func testWidgetCompletionReleasesDailyForceLockAndRestoresItNextDay() throws {
+        let today = makeDate(year: 2026, month: 5, day: 30, hour: 9)
+        let tomorrow = makeDate(year: 2026, month: 5, day: 31, hour: 9)
+        var cells = BoardEngine.createEmptyGrid(size: BoardEngine.maxGridSize)
+        cells[0][0] = BingoCell(
+            text: "Daily forced task",
+            recurrenceRule: TaskRecurrenceRule(kind: .daily, anchorDate: today),
+            isForced: true
+        )
+        cells[0][1] = BingoCell(text: "Regular task")
+        let board = makeNamedBoard(cells: cells, lastTaskResetAppliedAt: today, updatedAt: today)
+        XCTAssertNil(WidgetTaskToggleService.toggled(
+            board: board, row: 0, col: 1, now: today, commitSideEffects: false
+        ))
+
+        let completed = try XCTUnwrap(WidgetTaskToggleService.toggled(
+            board: board, row: 0, col: 0, now: today, commitSideEffects: false
+        ))
+        XCTAssertEqual(completed.board.fullBoardCells?[0][0].isForced, true)
+        XCTAssertNotNil(WidgetTaskToggleService.toggled(
+            board: completed, row: 0, col: 1, now: today, commitSideEffects: false
+        ))
+
+        let reset = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(completed, now: tomorrow)
+        XCTAssertEqual(reset.board.fullBoardCells?[0][0].isForced, true)
+        XCTAssertNil(WidgetTaskToggleService.toggled(
+            board: reset, row: 0, col: 1, now: tomorrow, commitSideEffects: false
+        ))
+    }
+
     func testToggleCanUndoCompletedTaskAfterEndTime() throws {
-        let now = Date()
+        // Keep the expired window on the same calendar day; a run just after
+        // midnight would otherwise project yesterday's task off the board.
+        let now = makeDate(year: 2026, month: 5, day: 31, hour: 12)
         var cells = BoardEngine.createEmptyGrid(size: BoardEngine.maxGridSize)
         cells[0][0] = BingoCell(
             text: "Focus block",
@@ -3807,7 +4103,7 @@ final class TaskRecurrenceRuleTests: XCTestCase {
         XCTAssertEqual(plannedCell?.recurrenceRule?.kind, .everyNDays)
         XCTAssertEqual(plannedCell?.isCompleted, false)
         XCTAssertEqual(plannedCell?.isTaskHidden, false)
-        XCTAssertEqual(plannedCell?.isForced, false)
+        XCTAssertEqual(plannedCell?.isForced, true)
         XCTAssertNil(plannedCell?.countdownEndsAt)
         XCTAssertNil(plannedCell?.countdownPausedRemainingSeconds)
         XCTAssertNil(plannedCell?.estimatedDurationMinutes)
@@ -7224,6 +7520,33 @@ final class TaskRuleWriteProtectionTests: XCTestCase {
 
 @MainActor
 final class QuickEditReselectionRuleTests: XCTestCase {
+    func testAllTasksHidesBoardHistoryCopyOfGroupedTask() {
+        let groupedTask = MyTaskItem(text: "  Read  ", recurrenceRule: TaskRecurrenceRule(kind: .daily))
+        let library = MyTasksLibrary(groups: [MyTaskGroup(name: "Daily", tasks: [groupedTask])])
+        let boardCopy = TaskHistoryRecord(
+            key: TaskHistoryStore.makeKey(for: groupedTask),
+            text: "read",
+            recurrenceRule: groupedTask.recurrenceRule
+        )
+        let separateHistory = TaskHistoryRecord(key: "other", text: "Walk")
+
+        let historyOnly = quickEditHistoryOnlyRecordsSorted(
+            records: [boardCopy, separateHistory], library: library
+        )
+        let items = quickEditFilteredTaskItems(
+            activeFilter: .all,
+            library: library,
+            historyBySourceTaskID: [:],
+            historyOnlyRecordsSorted: historyOnly,
+            isPremiumUser: true
+        )
+
+        XCTAssertEqual(Set(items.map { $0.task.trimmedText }), Set(["Read", "Walk"]))
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items.first { $0.task.trimmedText == "Read" }?.id, quickEditTaskKey(groupedTask))
+        XCTAssertEqual(historyOnly.map(\.key), ["other"])
+    }
+
     func testNewInlineSingleIsExplicitAndRemainsUsableUntilCompleted() throws {
         let now = Date()
         var library = MyTasksLibrary()
@@ -7961,6 +8284,38 @@ final class TaskHistoryStoreTests: XCTestCase {
 
 @MainActor
 final class BingoViewModelSideEffectCountTests: XCTestCase {
+    func testAppCompletionPersistsDailyForceSettingWithoutLockingOtherTasks() throws {
+        let now = Date()
+        var fullBoard = BoardEngine.createEmptyGrid(size: BoardEngine.maxGridSize)
+        fullBoard[0][0] = BingoCell(
+            text: "Daily force",
+            recurrenceRule: TaskRecurrenceRule(kind: .daily, anchorDate: now),
+            isForced: true
+        )
+        fullBoard[0][1] = BingoCell(text: "Other task")
+        let visible = BoardEngine.projectVisibleCells(from: fullBoard, size: 2, referenceDate: now)
+        let savedBoard = SavedBoard(
+            gridSize: 2,
+            cells: visible,
+            completedLines: [],
+            fullBoardCells: fullBoard
+        )
+        let harness = makeInMemoryViewModelHarness(savedBoard: savedBoard, savedAt: now)
+        let viewModel = BingoViewModel(persistenceDependencies: harness.dependencies)
+
+        XCTAssertFalse(viewModel.canToggleComplete(row: 0, col: 1, referenceDate: now))
+        viewModel.toggleComplete(row: 0, col: 0, referenceDate: now)
+
+        XCTAssertTrue(viewModel.cells[0][0].isCompleted)
+        XCTAssertTrue(viewModel.cells[0][0].isForced)
+        XCTAssertTrue(viewModel.canToggleComplete(row: 0, col: 1, referenceDate: now))
+        XCTAssertEqual(harness.boardRepository.loadBoard()?.fullBoardCells?[0][0].isForced, true)
+
+        let reloaded = BingoViewModel(persistenceDependencies: harness.dependencies)
+        XCTAssertTrue(reloaded.cells[0][0].isForced)
+        XCTAssertTrue(reloaded.canToggleComplete(row: 0, col: 1, referenceDate: now))
+    }
+
     func testTaskEditCommitsEachPersistenceSideEffectOnce() {
         let now = Date()
         let boardID = UUID()
@@ -9201,6 +9556,21 @@ final class BoardManagementStoreTests: XCTestCase {
             BingoBoardStore.isPristineStarterGuideBoard(namedBoard),
             "Installed starter tasks: \(namedBoard.board.cells.flatMap { $0 }.filter(\.hasStoredTask))"
         )
+    }
+
+    func testKoreanStarterGuideBoardIsRecognizedWithoutChangingDeviceLanguage() {
+        let cells = [[
+            BingoCell(text: "물 한 잔 마시기"),
+            BingoCell(text: "1분 동안 일어서기"),
+            BingoCell(text: "몸을 스트레칭하세요")
+        ]]
+        let board = BingoBoardStore.NamedBoard(
+            name: "보드 1",
+            board: SavedBoard(gridSize: 3, cells: cells, completedLines: [], fullBoardCells: cells),
+            origin: .starterGuide
+        )
+
+        XCTAssertTrue(BingoBoardStore.isPristineStarterGuideBoard(board))
     }
 
     @MainActor
@@ -11908,6 +12278,116 @@ final class HomeEditingStabilityTests: XCTestCase {
         XCTAssertEqual(result.values.first?.completedTaskCounts["Read"], 1)
     }
 
+    func testDiaryCorrectionReplacesTheStoredDailyCount() throws {
+        let completedCell = BingoCell(text: "Read", isCompleted: true)
+        let initialEntries = BingoDiaryStore.entriesBySaving(
+            board: board([completedCell]),
+            on: now,
+            entries: [:]
+        )
+
+        let correctedEntries = BingoDiaryStore.entriesBySettingTaskCompletionCount(
+            task: " Read ",
+            count: 3,
+            on: now,
+            entries: initialEntries
+        )
+        let correctedEntry = try XCTUnwrap(correctedEntries.values.first)
+
+        XCTAssertEqual(correctedEntry.completedTaskCounts["Read"], 3)
+        XCTAssertTrue(correctedEntry.completedTaskCountsAreAuthoritative)
+        XCTAssertEqual(correctedEntry.board, initialEntries.values.first?.board)
+    }
+
+    func testDeletingLegacyDiaryCountDoesNotFallBackToCompletedBoardSnapshot() throws {
+        let completedCell = BingoCell(text: "Read", isCompleted: true)
+        let completedBoard = board([completedCell])
+        let entryID = BingoDiaryStore.entriesBySaving(
+            board: completedBoard,
+            on: now,
+            entries: [:]
+        ).keys.first
+        let resolvedEntryID = try XCTUnwrap(entryID)
+        let legacyEntries = [
+            resolvedEntryID: BingoDiaryEntry(
+                id: resolvedEntryID,
+                date: now,
+                board: completedBoard,
+                allTasksCompleted: false,
+                completedTaskCounts: [:],
+                completedTaskCountsAreAuthoritative: false
+            )
+        ]
+
+        let correctedEntries = BingoDiaryStore.entriesBySettingTaskCompletionCount(
+            task: "Read",
+            count: 0,
+            on: now,
+            entries: legacyEntries
+        )
+        let correctedEntry = try XCTUnwrap(correctedEntries[resolvedEntryID])
+        XCTAssertTrue(correctedEntry.completedTaskCounts.isEmpty)
+        XCTAssertTrue(correctedEntry.completedTaskCountsAreAuthoritative)
+
+        let resavedEntries = BingoDiaryStore.entriesBySaving(
+            board: completedBoard,
+            on: now,
+            entries: correctedEntries
+        )
+        XCTAssertTrue(try XCTUnwrap(resavedEntries[resolvedEntryID]).completedTaskCounts.isEmpty)
+    }
+
+    func testLegacyDiaryEntryDecodesWithSnapshotFallbackEnabled() throws {
+        let entry = BingoDiaryEntry(
+            id: "legacy-entry",
+            date: now,
+            board: board([BingoCell(text: "Read", isCompleted: true)]),
+            allTasksCompleted: false,
+            completedTaskCounts: [:]
+        )
+        let encoded = try JSONEncoder().encode(entry)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object.removeValue(forKey: "completedTaskCountsAreAuthoritative")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(BingoDiaryEntry.self, from: legacyData)
+
+        XCTAssertFalse(decoded.completedTaskCountsAreAuthoritative)
+    }
+
+    func testARealCompletionAfterDeletingDiaryCountIsCountedAgain() throws {
+        let completedCell = BingoCell(text: "Read", isCompleted: true)
+        let completedBoard = board([completedCell])
+        let savedEntries = BingoDiaryStore.entriesBySaving(
+            board: completedBoard,
+            on: now,
+            entries: [:]
+        )
+        let correctedEntries = BingoDiaryStore.entriesBySettingTaskCompletionCount(
+            task: "Read",
+            count: 0,
+            on: now,
+            entries: savedEntries
+        )
+
+        var uncheckedCell = completedCell
+        uncheckedCell.isCompleted = false
+        let uncheckedEntries = BingoDiaryStore.entriesBySaving(
+            board: board([uncheckedCell]),
+            on: now,
+            entries: correctedEntries
+        )
+        let completedAgainEntries = BingoDiaryStore.entriesBySaving(
+            board: completedBoard,
+            on: now,
+            entries: uncheckedEntries
+        )
+
+        XCTAssertEqual(completedAgainEntries.values.first?.completedTaskCounts["Read"], 1)
+    }
+
     func testBatchHistoryRetainsLatestDraftAndOtherTasks() throws {
         let defaults = UserDefaults.standard
         let previousData = defaults.data(forKey: AppSettings.taskHistoryKey)
@@ -12398,5 +12878,132 @@ final class TaskCompletionHistoryRuleGuardrailTests: XCTestCase {
         XCTAssertFalse(restored.isForced)
         XCTAssertNil(restored.countdownEndsAt)
         XCTAssertNil(restored.estimatedDurationMinutes)
+    }
+}
+
+final class BingoDiaryGravityLayoutTests: XCTestCase {
+    func testAllBubblesFitOneViewportWithoutOverlapAtDifferentDensities() {
+        for count in [1, 20, 80, 150] {
+            let tasks = (0..<count).map {
+                BingoDiaryTaskCount(task: "Task \($0)", count: $0 % 11 + 1, firstCompletedAt: nil)
+            }
+            for size in [CGSize(width: 320, height: 280), CGSize(width: 768, height: 460)] {
+                let bubbles = BingoDiaryBubbleLayout.gravityLayout(
+                    taskCounts: tasks,
+                    width: size.width,
+                    height: size.height
+                )
+                XCTAssertEqual(bubbles.count, count)
+                for bubble in bubbles {
+                    let radius = bubble.diameter / 2
+                    XCTAssertGreaterThanOrEqual(bubble.position.x - radius, -0.001)
+                    XCTAssertGreaterThanOrEqual(bubble.position.y - radius, -0.001)
+                    XCTAssertLessThanOrEqual(bubble.position.x + radius, size.width + 0.001)
+                    XCTAssertLessThanOrEqual(bubble.position.y + radius, size.height + 0.001)
+                }
+                for first in bubbles.indices {
+                    for second in (first + 1)..<bubbles.count {
+                        let distance = hypot(
+                            bubbles[first].position.x - bubbles[second].position.x,
+                            bubbles[first].position.y - bubbles[second].position.y
+                        )
+                        XCTAssertGreaterThanOrEqual(
+                            distance + 0.001,
+                            (bubbles[first].diameter + bubbles[second].diameter) / 2
+                        )
+                    }
+                }
+                let sourceDiameters = Dictionary(uniqueKeysWithValues:
+                    BingoDiaryBubbleLayout.descriptors(for: tasks).map { ($0.taskCount.id, $0.diameter) }
+                )
+                let scales = bubbles.compactMap { bubble -> CGFloat? in
+                    guard let source = sourceDiameters[bubble.id] else { return nil }
+                    return bubble.diameter / source
+                }
+                if let first = scales.first {
+                    for scale in scales { XCTAssertEqual(scale, first, accuracy: 0.0001) }
+                }
+            }
+        }
+    }
+}
+
+@MainActor
+final class BingoDiaryGravityPhysicsTests: XCTestCase {
+    func testBottomPileSettlesWithoutOverlappingOrJumping() {
+        let canvas = CGSize(width: 320, height: 280)
+        for count in [20, 80] {
+            let tasks = (0..<count).map {
+                BingoDiaryTaskCount(task: "Task \($0)", count: $0 % 11 + 1, firstCompletedAt: nil)
+            }
+            let bubbles = BingoDiaryBubbleLayout.gravityLayout(
+                taskCounts: tasks,
+                width: canvas.width,
+                height: canvas.height
+            )
+            let simulator = BingoDiaryGravityPhysicsSimulator()
+            simulator.updateBubbles(bubbles, canvasSize: canvas)
+            simulator.updateGravity(CGSize(width: 0, height: 1))
+            for _ in 0..<240 { simulator.step(dt: 1.0 / 30.0) }
+
+            func centers() -> [CGPoint] {
+                bubbles.map { bubble in
+                    let offset = simulator.motionState(for: bubble.id).offset
+                    return CGPoint(x: bubble.position.x + offset.width, y: bubble.position.y + offset.height)
+                }
+            }
+
+            let settled = centers()
+            for first in bubbles.indices {
+                let radius = bubbles[first].diameter / 2
+                XCTAssertGreaterThanOrEqual(settled[first].x - radius, -0.01)
+                XCTAssertLessThanOrEqual(settled[first].x + radius, canvas.width + 0.01)
+                XCTAssertLessThanOrEqual(settled[first].y + radius, canvas.height + 0.01)
+                for second in (first + 1)..<bubbles.count {
+                    let distance = hypot(
+                        settled[first].x - settled[second].x,
+                        settled[first].y - settled[second].y
+                    )
+                    XCTAssertGreaterThanOrEqual(
+                        distance + 0.1,
+                        (bubbles[first].diameter + bubbles[second].diameter) / 2,
+                        "count=\(count), pair=\(first)/\(second), centers=\(settled[first])/\(settled[second])"
+                    )
+                }
+            }
+
+            for _ in 0..<30 { simulator.step(dt: 1.0 / 30.0) }
+            let later = centers()
+            for index in bubbles.indices {
+                XCTAssertLessThan(hypot(later[index].x - settled[index].x, later[index].y - settled[index].y), 0.5)
+            }
+        }
+    }
+}
+
+final class BingoDiaryGravityPeriodTests: XCTestCase {
+    func testCalendarPeriodAggregationUsesDailyCountsAndExclusiveEnd() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        calendar.firstWeekday = 2
+        func date(_ year: Int, _ month: Int, _ day: Int) -> Date {
+            calendar.date(from: DateComponents(year: year, month: month, day: day))!
+        }
+        let days = [
+            BingoDiaryCompletionDay(date: date(2026, 10, 25), taskCounts: ["Read": 2]),
+            BingoDiaryCompletionDay(date: date(2026, 10, 26), taskCounts: ["Read": 1, "Walk": 2]),
+            BingoDiaryCompletionDay(date: date(2026, 11, 1), taskCounts: ["Read": 3]),
+            BingoDiaryCompletionDay(date: date(2026, 11, 2), taskCounts: ["Walk": 4])
+        ]
+        let week = try XCTUnwrap(calendar.dateInterval(of: .weekOfYear, for: date(2026, 10, 28)))
+        let month = try XCTUnwrap(calendar.dateInterval(of: .month, for: date(2026, 10, 28)))
+        let year = try XCTUnwrap(calendar.dateInterval(of: .year, for: date(2026, 10, 28)))
+
+        let weekly = BingoDiaryStore.completedTaskStats(from: days, in: week)
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: weekly.map { ($0.task, $0.count) }), ["Read": 4, "Walk": 2])
+        let monthly = BingoDiaryStore.completedTaskStats(from: days, in: month)
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: monthly.map { ($0.task, $0.count) }), ["Read": 3, "Walk": 2])
+        let yearly = BingoDiaryStore.completedTaskStats(from: days, in: year)
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: yearly.map { ($0.task, $0.count) }), ["Read": 6, "Walk": 6])
     }
 }

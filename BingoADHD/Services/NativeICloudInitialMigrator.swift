@@ -19,24 +19,47 @@ enum NativeICloudInitialMigratorError: LocalizedError {
     }
 }
 
+protocol NativeICloudMigrationRuntime: Sendable {
+    func primarySessionID() async -> UUID
+    func values(for domain: NativeICloudDomain) async throws -> [NativeICloudEnvelopeValue]
+    func latestValue(for domain: NativeICloudDomain) async throws -> NativeICloudEnvelopeValue?
+    func exportPrimaryForInitialMigration(expectedSessionID: UUID?) async throws -> NativeICloudEnvelopeValue?
+    func applyPrimaryForInitialMigration(_ snapshot: NativeICloudPrimaryStateSnapshot, stamp: NativeICloudCommitStamp, schemaVersion: Int64, expectedSessionID: UUID?, isExplicitAccountReplacement: Bool) async throws -> Bool
+    func markPrimaryHandled(_ stamp: NativeICloudCommitStamp, schemaVersion: Int64, state: NativeICloudPrimaryStateSnapshot?) async
+    func saveLatest(domain: NativeICloudDomain, payload: Data, stamp: NativeICloudCommitStamp?, expectedSessionID: UUID?) async throws -> NativeICloudEnvelopeValue
+}
+
+extension NativeICloudRuntime: NativeICloudMigrationRuntime {}
+
 final class NativeICloudInitialMigrator {
-    private let runtime: NativeICloudRuntime
+    private let runtime: any NativeICloudMigrationRuntime
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let capturePrimary: @MainActor @Sendable () throws -> NativeICloudPrimaryStateSnapshot
 
     init(
-        runtime: NativeICloudRuntime = .shared,
+        runtime: any NativeICloudMigrationRuntime = NativeICloudRuntime.shared,
         encoder: JSONEncoder = JSONEncoder(),
-        decoder: JSONDecoder = JSONDecoder()
+        decoder: JSONDecoder = JSONDecoder(),
+        capturePrimary: @escaping @MainActor @Sendable () throws -> NativeICloudPrimaryStateSnapshot = {
+            guard let local = BingoBoardStore.withBoardPersistenceLock({
+                NativeICloudPrimaryStateSnapshot.captureLocal()
+            }) else { throw NativeICloudLocalProjectionError.primaryProjectionFailed }
+            return local
+        }
     ) {
         self.runtime = runtime
         self.encoder = encoder
         self.decoder = decoder
+        self.capturePrimary = capturePrimary
     }
 
     func migrate() async throws -> NativeICloudInitialMigrationResult {
+        let sessionID = await runtime.primarySessionID()
         let primaryDecision = try await migratePrimaryState()
+        guard await runtime.primarySessionID() == sessionID else { throw CancellationError() }
         let secondaryDecision = try await migrateSecondaryState()
+        guard await runtime.primarySessionID() == sessionID else { throw CancellationError() }
         return NativeICloudInitialMigrationResult(
             primaryDecision: primaryDecision,
             secondaryDecision: secondaryDecision
@@ -47,17 +70,16 @@ final class NativeICloudInitialMigrator {
     /// after the user explicitly chooses that account during an account switch;
     /// it must never fall back to a local upload.
     func applyRemoteStateOnly() async throws {
+        let sessionID = await runtime.primarySessionID()
         if let remote = try await resolvedPrimaryRemoteState() {
-            let snapshot = remote.snapshot
-            try await NativeICloudPrimaryLocalProjection.applyOnMainActor(snapshot)
-            await runtime.markPrimaryHandled(
-                remote.latestStamp,
-                schemaVersion: remote.latestSchemaVersion,
-                state: snapshot
+            _ = try await runtime.applyPrimaryForInitialMigration(
+                remote.snapshot, stamp: remote.latestStamp, schemaVersion: remote.latestSchemaVersion,
+                expectedSessionID: sessionID, isExplicitAccountReplacement: true
             )
         }
 
         if let remote = try await runtime.latestValue(for: .secondaryState) {
+            guard await runtime.primarySessionID() == sessionID else { throw CancellationError() }
             guard let snapshot = try? decoder.decode(
                 NativeICloudSecondaryStateSnapshot.self,
                 from: remote.payload
@@ -69,8 +91,10 @@ final class NativeICloudInitialMigrator {
     }
 
     private func migratePrimaryState() async throws -> NativeICloudInitialMigrationDecision {
-        let local = NativeICloudPrimaryStateSnapshot.captureLocal()
+        let sessionID = await runtime.primarySessionID()
         let remote = try await resolvedPrimaryRemoteState()
+        guard await runtime.primarySessionID() == sessionID else { throw CancellationError() }
+        let local = try await capturePrimary()
         let remoteSnapshot = remote?.snapshot
         let decision = NativeICloudInitialMigrationPlanner.decide(
             localHasMeaningfulData: local.hasMeaningfulUserData,
@@ -78,7 +102,9 @@ final class NativeICloudInitialMigrator {
             localModifiedAt: local.lastUserModifiedAt,
             remoteStamp: remote?.latestStamp,
             remoteHasMeaningfulData: remoteSnapshot?.hasMeaningfulUserData ?? false,
-            isAccountBindingConfirmed: NativeICloudPreferences.accountScopeIdentifier != nil
+            isAccountBindingConfirmed: NativeICloudPreferences.accountScopeIdentifier != nil,
+            remoteSchemaVersion: remote?.latestSchemaVersion ?? NativeICloudPrimaryEnvelopeSchema.legacyVersion,
+            hasPendingLocalMutation: NativeICloudPreferences.primaryPendingMutationGeneration != 0
         )
 
         guard let remote else {
@@ -100,27 +126,30 @@ final class NativeICloudInitialMigrator {
             // Sync is not marked enabled until the initial setup succeeds, so this
             // cannot go through exportPrimaryNow (which correctly refuses to run
             // before enablement). Store one exact initial local commit instead.
-            _ = try await runtime.saveLatest(
-                domain: .primaryState,
-                payload: try encoder.encode(local)
-            )
+            _ = try await runtime.exportPrimaryForInitialMigration(expectedSessionID: sessionID)
             return .uploadLocal
         }
         guard let remoteSnapshot else {
             throw NativeICloudInitialMigratorError.invalidPrimaryPayload
         }
 
-        let localHasNewerUserChange = NativeICloudPrimaryConflictResolver.localChangeIsNewer(
-            modifiedAt: local.lastUserModifiedAt,
-            than: remote.latestStamp
-        )
-        let migrationDetails = [
+        let localHasNewerUserChange: Bool
+        if remote.latestSchemaVersion >= NativeICloudPrimaryEnvelopeSchema.logicalCommitVersion {
+            localHasNewerUserChange = NativeICloudPreferences.primaryPendingMutationGeneration != 0
+        } else {
+            localHasNewerUserChange = NativeICloudPrimaryConflictResolver.localChangeIsNewer(
+                modifiedAt: local.lastUserModifiedAt, than: remote.latestStamp
+            )
+        }
+        let localModifiedText = local.lastUserModifiedAt.map { String($0.timeIntervalSince1970) } ?? "nil"
+        let migrationDetails: [String: String] = [
             "local_total": local.points.totalPoints.map { "\($0)" } ?? "nil",
             "remote_total": remoteSnapshot.points.totalPoints.map { "\($0)" } ?? "nil",
             "local_meaningful": "\(local.hasMeaningfulUserData)",
-            "local_modified": local.lastUserModifiedAt.map { "\($0.timeIntervalSince1970)" } ?? "nil",
+            "local_modified": localModifiedText,
             "remote_stamp": "\(remote.latestStamp.modifiedAt.timeIntervalSince1970)",
             "remote_commit_id": String(remote.latestStamp.commitID.uuidString.prefix(8)),
+            "remote_schema": String(remote.latestSchemaVersion),
             "local_newer": "\(localHasNewerUserChange)",
             "decision": "\(decision)"
         ]
@@ -133,10 +162,7 @@ final class NativeICloudInitialMigrator {
             )
             // The local action is newer than the newest cloud commit. Publish that
             // exact state; do not synthesize a hybrid snapshot during setup.
-            _ = try await runtime.saveLatest(
-                domain: .primaryState,
-                payload: try encoder.encode(local)
-            )
+            _ = try await runtime.exportPrimaryForInitialMigration(expectedSessionID: sessionID)
             return .uploadLocal
         case .applyRemote:
             if !local.hasSameUserState(as: remoteSnapshot) ||
@@ -145,7 +171,6 @@ final class NativeICloudInitialMigrator {
                     "points.icloud_migration_apply_remote",
                     details: migrationDetails
                 )
-                try await NativeICloudPrimaryLocalProjection.applyOnMainActor(remoteSnapshot)
             } else {
                 DiagnosticLogStore.recordStateChange(
                     "points.icloud_migration_same_state",
@@ -153,11 +178,14 @@ final class NativeICloudInitialMigrator {
                 )
             }
 
-            await runtime.markPrimaryHandled(
-                remote.latestStamp,
-                schemaVersion: remote.latestSchemaVersion,
-                state: remoteSnapshot
+            let accepted = try await runtime.applyPrimaryForInitialMigration(
+                remoteSnapshot, stamp: remote.latestStamp, schemaVersion: remote.latestSchemaVersion,
+                expectedSessionID: sessionID, isExplicitAccountReplacement: false
             )
+            if !accepted {
+                _ = try await runtime.exportPrimaryForInitialMigration(expectedSessionID: sessionID)
+                return .uploadLocal
+            }
             return .applyRemote
         case .deferUpload:
             return .deferUpload
@@ -188,8 +216,10 @@ final class NativeICloudInitialMigrator {
     }
 
     private func migrateSecondaryState() async throws -> NativeICloudInitialMigrationDecision {
-        let local = NativeICloudSecondaryStateSnapshot.captureLocal()
+        let sessionID = await runtime.primarySessionID()
         let remote = try await runtime.latestValue(for: .secondaryState)
+        guard await runtime.primarySessionID() == sessionID else { throw CancellationError() }
+        let local = NativeICloudSecondaryStateSnapshot.captureLocal()
         let remoteSnapshot: NativeICloudSecondaryStateSnapshot?
         if let remote {
             guard let snapshot = try? decoder.decode(
@@ -212,7 +242,7 @@ final class NativeICloudInitialMigrator {
         switch decision {
         case .uploadLocal:
             let payload = try encoder.encode(local)
-            _ = try await runtime.saveLatest(domain: .secondaryState, payload: payload)
+            _ = try await runtime.saveLatest(domain: .secondaryState, payload: payload, stamp: nil, expectedSessionID: sessionID)
         case .applyRemote:
             guard remote != nil, let snapshot = remoteSnapshot else {
                 throw NativeICloudInitialMigratorError.invalidSecondaryPayload

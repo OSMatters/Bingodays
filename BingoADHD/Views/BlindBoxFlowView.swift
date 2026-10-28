@@ -2890,7 +2890,13 @@ private struct BlindBoxOpenConfirmation: View {
             (1 - probabilityMode.hiddenStickerProbability) /
                 Double(max(theme.normalStickers.count, 1))
         )
-        return "Hidden: \(hiddenPerPosition) per position; \(hiddenPerBox) for one Hidden in this 9-position box. Each of the \(theme.normalStickers.count) normal stickers starts at \(normalPerPosition) per position."
+        return L10n.tr(
+            "Hidden: \(hiddenPerPosition) per position; \(hiddenPerBox) for one Hidden in this 9-position box. Each of the \(theme.normalStickers.count) normal stickers starts at \(normalPerPosition) per position.",
+            zhHans: "隐藏款：每个位置 \(hiddenPerPosition)；9 格盒中出现 1 个隐藏款的概率为 \(hiddenPerBox)。每款普通贴纸在单个位置的初始概率为 \(normalPerPosition)。",
+            zhHant: "隱藏款：每個位置 \(hiddenPerPosition)；9 格盒中出現 1 個隱藏款的機率為 \(hiddenPerBox)。每款普通貼紙在單個位置的初始機率為 \(normalPerPosition)。",
+            ja: "シークレット：各マスで \(hiddenPerPosition)、9マスの箱に1つ入る確率は \(hiddenPerBox)。通常ステッカーは各マスでそれぞれ \(normalPerPosition) から始まります。",
+            ko: "히든 스티커: 각 칸에서 \(hiddenPerPosition), 9칸 상자에 1개가 포함될 확률은 \(hiddenPerBox)예요. 일반 스티커는 종류별로 각 칸에서 \(normalPerPosition)의 확률로 시작해요."
+        )
     }
 
     var body: some View {
@@ -2899,11 +2905,13 @@ private struct BlindBoxOpenConfirmation: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 16) {
-                Text(isWholeBox ? "Open the whole box?" : "Open this blind box?")
+                Text(isWholeBox
+                     ? L10n.tr("Open the whole box?", zhHans: "打开整个盒子吗？", zhHant: "要打開整個盒子嗎？", ja: "箱を全部開けますか？", ko: "상자를 전부 열까요?")
+                     : L10n.tr("Open this blind box?", zhHans: "打开这个盲盒吗？", zhHant: "要打開這個盲盒嗎？", ja: "このブラインドボックスを開けますか？", ko: "이 블라인드 박스를 열까요?"))
                     .font(.appSystem(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(hex: "5A412C"))
 
-                Text("Use \(ticketCost) Blind Box ticket\(ticketCost == 1 ? "" : "s")")
+                Text(L10n.tr("Use \(ticketCost) Blind Box tickets", zhHans: "消耗 \(ticketCost) 张盲盒票", zhHant: "使用 \(ticketCost) 張盲盒票", ja: "ブラインドボックスチケットを\(ticketCost)枚使います", ko: "블라인드 박스 티켓 \(ticketCost)장을 사용해요"))
                     .font(.appSystem(size: 15, weight: .medium, design: .rounded))
                     .foregroundStyle(Color(hex: "8A6E59"))
 
@@ -2915,24 +2923,24 @@ private struct BlindBoxOpenConfirmation: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     if theme != nil, probabilityMode != nil {
-                        Button("View full odds") {
+                        Button(L10n.tr("View full odds", zhHans: "查看完整概率", zhHant: "查看完整機率", ja: "確率の詳細を見る", ko: "전체 확률 보기")) {
                             isShowingOdds = true
                         }
                         .font(.appSystem(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(Color(hex: "A46A45"))
                         .buttonStyle(.plain)
-                        .accessibilityHint("Reviews the published odds before spending tickets")
+                        .accessibilityHint(L10n.tr("Reviews the published odds before spending tickets", zhHans: "消耗票券前查看公示概率", zhHant: "使用票券前查看公開機率", ja: "チケットを使う前に公開された確率を確認", ko: "티켓을 사용하기 전에 공개된 확률을 확인합니다"))
                     }
                 }
 
                 HStack(spacing: 12) {
-                    Button("Cancel", action: onCancel)
+                    Button(L10n.cancel, action: onCancel)
                         .font(.appSystem(size: 16, weight: .bold, design: .rounded))
                         .foregroundStyle(Color(hex: "A46D4C"))
                         .frame(width: 118, height: 44)
                         .background(.white, in: Capsule())
 
-                    Button("Open", action: onConfirm)
+                    Button(L10n.tr("Open", zhHans: "打开", zhHant: "打開", ja: "開ける", ko: "열기"), action: onConfirm)
                         .font(.appSystem(size: 16, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .frame(width: 118, height: 44)
@@ -3671,7 +3679,7 @@ private struct BlindBoxMyBoxIcon: View {
                 .frame(width: 70, height: 26)
                 .overlay(Capsule().stroke(.white.opacity(0.9), lineWidth: 1.5))
                 .offset(x: 14)
-            Text("My box")
+            Text(L10n.tr("My box", zhHans: "我的盒子", zhHant: "我的盒子", ja: "マイボックス", ko: "내 상자"))
                 .font(.appSystem(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .frame(width: 44)

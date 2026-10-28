@@ -404,9 +404,7 @@ enum PointsStore {
     }
 
     private static var stateFileURL: URL {
-        if let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: BingoBoardStore.appGroupID
-        ) {
+        if let containerURL = BingoBoardStore.sharedContainerURL {
             let directory = containerURL.appendingPathComponent("Library/Application Support", isDirectory: true)
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             return directory.appendingPathComponent(stateFileName)
@@ -417,15 +415,18 @@ enum PointsStore {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent(stateFileName)
         #else
-        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        var directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
+        #if os(macOS)
+        directory.appendPathComponent(Bundle.main.bundleIdentifier ?? "BingodaysMac", isDirectory: true)
+        #endif
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent(stateFileName)
         #endif
     }
 
     private static var sharedDefaults: UserDefaults {
-        UserDefaults(suiteName: BingoBoardStore.appGroupID) ?? .standard
+        BingoBoardStore.sharedDefaults
     }
 }
 
@@ -518,7 +519,7 @@ enum RewardStore {
     }
 
     private static var sharedDefaults: UserDefaults {
-        UserDefaults(suiteName: BingoBoardStore.appGroupID) ?? .standard
+        BingoBoardStore.sharedDefaults
     }
 }
 
@@ -813,7 +814,7 @@ enum PointRedemptionHistoryStore {
     private static let maxRecordCount = 500
 
     private static var sharedDefaults: UserDefaults {
-        UserDefaults(suiteName: BingoBoardStore.appGroupID) ?? .standard
+        BingoBoardStore.sharedDefaults
     }
 
     static var isLedgerInitialized: Bool {

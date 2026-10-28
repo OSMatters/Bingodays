@@ -119,13 +119,13 @@ enum TaskCountdownDisplayRules {
 struct BingoCellView: View {
     private static let longPressDuration = 0.28
     private static let dragThreshold: CGFloat = 20
-    private static let scheduleDateFormatter: DateFormatter = {
+    private static var scheduleDateFormatter: DateFormatter {
         let formatter = DateFormatter()
-        formatter.locale = Locale.current
+        formatter.locale = AppLanguage.displayLocale
         formatter.calendar = Calendar.current
         formatter.dateFormat = "M/d HH:mm"
         return formatter
-    }()
+    }
 
     let cell: BingoCell
     let currentTime: Date

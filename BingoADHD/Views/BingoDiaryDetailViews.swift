@@ -116,6 +116,7 @@ struct BingoDiaryStatsListSheet: View {
 
 struct BingoDiaryTaskDetailView: View {
     let task: String
+    var onDiaryChanged: () -> Void = {}
 
     private struct TaskDetailSnapshot {
         var activityRows: [(date: Date, count: Int)]
@@ -133,6 +134,7 @@ struct BingoDiaryTaskDetailView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var snapshot: TaskDetailSnapshot = .empty
+    @State private var correctionDraft: BingoDiaryCorrectionDraft?
 
     private var isPadLayout: Bool {
         horizontalSizeClass == .regular
@@ -227,6 +229,11 @@ struct BingoDiaryTaskDetailView: View {
         .onChange(of: normalizedTask) { _, _ in
             loadSnapshot()
         }
+        .sheet(item: $correctionDraft, onDismiss: refreshAfterCorrection) { draft in
+            BingoDiaryCorrectionSheet(draft: draft) { correctedCount in
+                saveCorrection(draft: draft, correctedCount: correctedCount)
+            }
+        }
     }
 
     private func loadSnapshot() {
@@ -235,7 +242,7 @@ struct BingoDiaryTaskDetailView: View {
             let rows = BingoDiaryStore.taskDailyCompletions(task: task, limit: 30)
             let snapshot = TaskDetailSnapshot(
                 activityRows: rows,
-                totalCompletions: rows.reduce(0) { $0 + $1.count },
+                totalCompletions: BingoDiaryStore.totalCompletions(task: task),
                 thisWeekCompletions: BingoDiaryStore.taskCompletionsThisWeek(task: task)
             )
             DispatchQueue.main.async {
@@ -346,24 +353,59 @@ struct BingoDiaryTaskDetailView: View {
             RoundedRectangle(cornerRadius: scaled(18, pad: 22), style: .continuous)
                 .fill(Color.white.opacity(0.92))
         )
+        .contentShape(.rect)
+        .onLongPressGesture {
+            presentCorrection(date: date, count: count)
+        }
+        .accessibilityAction(
+            named: L10n.tr(
+                "Correct completion count",
+                zhHans: "更正完成次数",
+                zhHant: "更正完成次數",
+                ja: "完了回数を修正",
+                ko: "완료 횟수 수정"
+            )
+        ) {
+            presentCorrection(date: date, count: count)
+        }
     }
 
     private func activityDateText(from date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.locale = Locale.current
+        formatter.locale = AppLanguage.displayLocale
         formatter.setLocalizedDateFormatFromTemplate("EEE, MMM d")
         return formatter.string(from: date)
     }
 
     private func activityCountText(_ count: Int) -> String {
-        let lang = Locale.preferredLanguages.first?.lowercased() ?? "en"
-        if lang.hasPrefix("zh-hans") || lang.hasPrefix("zh-cn") || lang == "zh" {
-            return "完成 \(count) 次"
-        }
-        if lang.hasPrefix("zh-hant") || lang.hasPrefix("zh-tw") || lang.hasPrefix("zh-hk") {
-            return "完成 \(count) 次"
-        }
-        return count == 1 ? "Completed 1 time" : "Completed \(count) times"
+        return L10n.tr(
+            "Completed \(count) times",
+            zhHans: "完成 \(count) 次",
+            zhHant: "完成 \(count) 次",
+            ja: "\(count)回完了",
+            ko: "\(count)회 완료"
+        )
+    }
+
+    private func saveCorrection(draft: BingoDiaryCorrectionDraft, correctedCount: Int) -> Bool {
+        BingoDiaryStore.setTaskCompletionCount(
+            task: draft.task,
+            count: correctedCount,
+            on: draft.date
+        )
+    }
+
+    private func presentCorrection(date: Date, count: Int) {
+        correctionDraft = BingoDiaryCorrectionDraft(
+            task: normalizedTask,
+            date: date,
+            originalCount: count
+        )
+    }
+
+    private func refreshAfterCorrection() {
+        loadSnapshot()
+        onDiaryChanged()
     }
 }
 

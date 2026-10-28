@@ -351,7 +351,7 @@ struct LimitedTimeDiscountView: View {
             return 223
         case .simplifiedChinese, .traditionalChinese:
             return 150
-        case .japanese:
+        case .japanese, .korean:
             return 176
         }
     }
@@ -362,7 +362,7 @@ struct LimitedTimeDiscountView: View {
             return 8
         case .simplifiedChinese, .traditionalChinese:
             return 10
-        case .japanese:
+        case .japanese, .korean:
             return 9
         }
     }

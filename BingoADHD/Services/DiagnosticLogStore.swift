@@ -31,7 +31,7 @@ enum DiagnosticLogStore {
     private static let maxRuleEntries = 240
     static let processSource = Bundle.main.bundleURL.pathExtension == "appex" ? "widget" : "app"
     private static var sharedLogURL: URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: BingoBoardStore.appGroupID)?
+        BingoBoardStore.sharedContainerURL?
             .appendingPathComponent("diagnostic_\(processSource)_v2.json")
     }
     private static let persistenceQueue = DispatchQueue(
@@ -131,7 +131,15 @@ enum DiagnosticLogStore {
 
     static func isCritical(_ entry: Entry) -> Bool {
         isRuleTrace(entry) || entry.level != .info ||
+            isCompletionTrace(entry) ||
             entry.name.hasPrefix("board.snapshot_") || entry.name.hasPrefix("board_reset.")
+    }
+
+    static func isCompletionTrace(_ entry: Entry) -> Bool {
+        entry.name.hasPrefix("points.task_toggle_") ||
+            entry.name == "points.icloud_projection_task_changes" ||
+            entry.name == "points.icloud_export_begin" || entry.name == "points.icloud_export_saved" ||
+            entry.name == "points.icloud_import_applying"
     }
 
     static func isRuleTrace(_ entry: Entry) -> Bool {
@@ -180,13 +188,15 @@ enum DiagnosticLogStore {
             }
         }
         let budget = maxExportCharacters - 200
+        let completion = bounded(entries.filter(isCompletionTrace), budget: budget / 3)
+        let completionCharacters = completion.reduce(0) { $0 + line($1).count + 1 }
         let rules = bounded(entries.filter(isRuleTrace), budget: budget / 2)
         let ruleCharacters = rules.reduce(0) { $0 + line($1).count + 1 }
-        let critical = bounded(entries.filter { isCritical($0) && !isRuleTrace($0) }, budget: budget * 3 / 4 - ruleCharacters)
-        let used = ruleCharacters + critical.reduce(0) { $0 + line($1).count + 1 }
+        let critical = bounded(entries.filter { isCritical($0) && !isRuleTrace($0) && !isCompletionTrace($0) }, budget: max(0, budget * 9 / 10 - ruleCharacters - completionCharacters))
+        let used = completionCharacters + ruleCharacters + critical.reduce(0) { $0 + line($1).count + 1 }
         let recent = bounded(entries.filter { !isCritical($0) }, budget: budget - used)
-        let selected = (rules + critical + recent).sorted { $0.timestamp < $1.timestamp }
-        return "Diagnostic v3: selected=\(selected.count) available=\(entries.count); task-rule history reserved.\n" + selected.map(line).joined(separator: "\n")
+        let selected = (completion + rules + critical + recent).sorted { $0.timestamp < $1.timestamp }
+        return "Diagnostic v4: selected=\(selected.count) available=\(entries.count); completion and task-rule history reserved.\n" + selected.map(line).joined(separator: "\n")
     }
 
     static func snapshot() -> [Entry] {

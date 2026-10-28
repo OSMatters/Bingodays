@@ -1,0 +1,2 @@
+"NSMicrophoneUsageDescription" = "음성으로 할 일을 입력하기 위해 마이크를 사용합니다.";
+"NSSpeechRecognitionUsageDescription" = "말한 내용을 할 일 텍스트로 변환하기 위해 음성 인식을 사용합니다.";

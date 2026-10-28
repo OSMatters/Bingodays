@@ -4,6 +4,15 @@ import UIKit
 
 struct BingoDiaryBubbleView: View {
     let bubble: BingoDiaryBubble
+    var usesCompactLabel = false
+
+    private var showsInitial: Bool {
+        usesCompactLabel && bubble.diameter < 90
+    }
+
+    private var initial: String {
+        String(bubble.task.trimmingCharacters(in: .whitespacesAndNewlines).first ?? "•")
+    }
 
     private var labelWidth: CGFloat {
         bubble.diameter * (bubble.diameter <= 70 ? 0.72 : 0.78)
@@ -13,16 +22,24 @@ struct BingoDiaryBubbleView: View {
         bubble.diameter * 0.56
     }
 
+    private var contentScale: CGFloat {
+        usesCompactLabel ? max(bubble.contentScale, 0.0001) : 1
+    }
+
+    private var sourceDiameter: CGFloat {
+        bubble.diameter / contentScale
+    }
+
     private var backgroundNumberFontSize: CGFloat {
         // radius 40~140 -> font 40~150
-        let radius = bubble.diameter / 2
+        let radius = sourceDiameter / 2
         let normalized = max(0, min(1, (radius - 40) / 100))
-        return 40 + normalized * 110
+        return (40 + normalized * 110) * contentScale
     }
 
     private var taskFontSize: CGFloat {
         let baseSize: CGFloat
-        switch bubble.diameter {
+        switch sourceDiameter {
         case ..<90:
             baseSize = 13
         case ..<150:
@@ -33,7 +50,7 @@ struct BingoDiaryBubbleView: View {
             baseSize = 22
         }
         let lengthPenalty = CGFloat(max(0, bubble.task.count - 8)) * 0.22
-        return max(10, baseSize - lengthPenalty)
+        return max(10, baseSize - lengthPenalty) * contentScale
     }
 
     private var bubbleTextColor: Color {
@@ -105,19 +122,30 @@ struct BingoDiaryBubbleView: View {
                     )
                 )
 
-            Text("\(bubble.count)")
-                .appDynamicFont(size: backgroundNumberFontSize, weight: .bold, design: .rounded)
-                .foregroundStyle(.white.opacity(0.2))
-                .minimumScaleFactor(0.4)
+            if bubble.diameter >= 34 && !showsInitial {
+                Text("\(bubble.count)")
+                    .appDynamicFont(size: backgroundNumberFontSize, weight: .bold, design: .rounded)
+                    .foregroundStyle(.white.opacity(0.2))
+                    .minimumScaleFactor(0.4)
+            }
 
-            Text(bubble.task)
-                .appDynamicFont(size: taskFontSize, weight: .bold, design: .rounded)
-                .foregroundStyle(bubbleTextColor)
-                .frame(width: labelWidth, height: labelHeight, alignment: .center)
-                .lineLimit(nil)
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.55)
-                .allowsTightening(true)
+            if showsInitial {
+                Text(initial)
+                    .font(.system(size: max(3, taskFontSize * 1.35), weight: .bold, design: .rounded))
+                    .foregroundStyle(bubbleTextColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .frame(width: bubble.diameter * 0.82, height: bubble.diameter * 0.82)
+            } else {
+                Text(bubble.task)
+                    .appDynamicFont(size: taskFontSize, weight: .bold, design: .rounded)
+                    .foregroundStyle(bubbleTextColor)
+                    .frame(width: labelWidth, height: labelHeight, alignment: .center)
+                    .lineLimit(nil)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.55)
+                    .allowsTightening(true)
+            }
         }
         .frame(width: bubble.diameter, height: bubble.diameter)
         .clipShape(Circle())

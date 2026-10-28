@@ -1,5 +1,10 @@
 import Foundation
 
+struct BingoDiaryCompletionDay {
+    let date: Date
+    let taskCounts: [String: Int]
+}
+
 enum BingoDiaryStore {
     private static let key = "bingo_diary_v1"
 
@@ -95,6 +100,57 @@ enum BingoDiaryStore {
         return entries
     }
 
+    @discardableResult
+    static func setTaskCompletionCount(
+        task: String,
+        count: Int,
+        on date: Date
+    ) -> Bool {
+        let existingEntries = loadEntriesDictionary()
+        let updatedEntries = entriesBySettingTaskCompletionCount(
+            task: task,
+            count: count,
+            on: date,
+            entries: existingEntries
+        )
+        guard updatedEntries != existingEntries else { return true }
+        guard persist(updatedEntries) else { return false }
+        NativeICloudLocalChangeReporter.primaryStateDidChange()
+        return true
+    }
+
+    static func entriesBySettingTaskCompletionCount(
+        task: String,
+        count: Int,
+        on date: Date,
+        entries existingEntries: [String: BingoDiaryEntry]
+    ) -> [String: BingoDiaryEntry] {
+        let entryID = dateKey(for: date)
+        guard let existingEntry = existingEntries[entryID] else { return existingEntries }
+
+        let normalizedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTask.isEmpty else { return existingEntries }
+
+        var entries = existingEntries
+        var counts = existingTaskCounts(from: existingEntry)
+        let correctedCount = max(count, 0)
+        if correctedCount == 0 {
+            counts.removeValue(forKey: normalizedTask)
+        } else {
+            counts[normalizedTask] = correctedCount
+        }
+
+        entries[entryID] = BingoDiaryEntry(
+            id: existingEntry.id,
+            date: existingEntry.date,
+            board: existingEntry.board,
+            allTasksCompleted: existingEntry.allTasksCompleted,
+            completedTaskCounts: counts,
+            completedTaskCountsAreAuthoritative: true
+        )
+        return entries
+    }
+
     // Keep today's baseline board snapshot in sync even when diary counting is skipped.
     // This prevents stale snapshot diffs from causing large decrement/increment jumps later.
     static func syncBoardSnapshotWithoutCounting(board: SavedBoard, on date: Date = .now) {
@@ -119,7 +175,8 @@ enum BingoDiaryStore {
             date: existingEntry.date,
             board: board,
             allTasksCompleted: existingEntry.allTasksCompleted || boardHasAllTasksCompleted(board),
-            completedTaskCounts: existingEntry.completedTaskCounts
+            completedTaskCounts: existingEntry.completedTaskCounts,
+            completedTaskCountsAreAuthoritative: existingEntry.completedTaskCountsAreAuthoritative
         )
         entries[entryID] = updatedEntry
         return entries
@@ -187,24 +244,42 @@ enum BingoDiaryStore {
     }
 
     static func allTimeCompletedTaskStats() -> [(task: String, count: Int, firstCompletedAt: Date)] {
+        completedTaskStats(from: completionDays())
+    }
+
+    static func completionDays() -> [BingoDiaryCompletionDay] {
+        let calendar = Calendar.current
+        return loadEntriesDictionary().values.map { entry in
+            BingoDiaryCompletionDay(
+                date: calendar.startOfDay(for: entry.date),
+                taskCounts: existingTaskCounts(from: entry)
+            )
+        }
+    }
+
+    static func completedTaskStats(
+        from days: [BingoDiaryCompletionDay],
+        in interval: DateInterval? = nil
+    ) -> [(task: String, count: Int, firstCompletedAt: Date)] {
         struct TaskAggregate {
             var count: Int
             var firstCompletedAt: Date
         }
 
-        let entries = loadEntriesDictionary()
-
-        let stats = entries.values.reduce(into: [String: TaskAggregate]()) { partial, entry in
-            let day = Calendar.current.startOfDay(for: entry.date)
-            for (task, count) in existingTaskCounts(from: entry) {
+        let stats = days.reduce(into: [String: TaskAggregate]()) { partial, day in
+            // Calendar periods include their start and exclude the next period's start.
+            if let interval {
+                guard day.date >= interval.start, day.date < interval.end else { return }
+            }
+            for (task, count) in day.taskCounts {
                 guard !task.isEmpty, count > 0 else { continue }
                 if let existing = partial[task] {
                     partial[task] = TaskAggregate(
                         count: existing.count + count,
-                        firstCompletedAt: min(existing.firstCompletedAt, day)
+                        firstCompletedAt: min(existing.firstCompletedAt, day.date)
                     )
                 } else {
-                    partial[task] = TaskAggregate(count: count, firstCompletedAt: day)
+                    partial[task] = TaskAggregate(count: count, firstCompletedAt: day.date)
                 }
             }
         }
@@ -243,6 +318,19 @@ enum BingoDiaryStore {
 
         guard limit > 0 else { return rows }
         return Array(rows.prefix(limit))
+    }
+
+    static func totalCompletions(task: String, referenceDate: Date = .now) -> Int {
+        let normalizedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTask.isEmpty else { return 0 }
+
+        let calendar = Calendar.current
+        let endDate = calendar.startOfDay(for: referenceDate)
+        return loadEntriesDictionary().values.reduce(0) { partial, entry in
+            let day = calendar.startOfDay(for: entry.date)
+            guard day <= endDate else { return partial }
+            return partial + (existingTaskCounts(from: entry)[normalizedTask] ?? 0)
+        }
     }
 
     static func taskCompletionsThisWeek(
@@ -398,7 +486,7 @@ enum BingoDiaryStore {
     }
 
     private static var sharedDefaults: UserDefaults {
-        UserDefaults(suiteName: BingoBoardStore.appGroupID) ?? .standard
+        BingoBoardStore.sharedDefaults
     }
 
     private static func boardHasAllTasksCompleted(_ board: SavedBoard) -> Bool {
@@ -499,7 +587,7 @@ enum BingoDiaryStore {
 
     private static func existingTaskCounts(from entry: BingoDiaryEntry?) -> [String: Int] {
         guard let entry else { return [:] }
-        if !entry.completedTaskCounts.isEmpty {
+        if entry.completedTaskCountsAreAuthoritative || !entry.completedTaskCounts.isEmpty {
             return entry.completedTaskCounts
         }
         return completedTaskCounts(from: entry.board)

@@ -16,6 +16,7 @@ struct HomeBoardMainContent: View {
     let isEditActionsExpanded: Bool
     let surfaceShadowColor: Color
     let themeColor: Color
+    let isDarkBackground: Bool
     let allowsBoardSwipe: Bool
     let onSelectBoard: (UUID) -> Bool
     let onBoardLongPress: (UUID) -> Void
@@ -40,6 +41,7 @@ struct HomeBoardMainContent: View {
                 selectedBoardID: selectedBoardID,
                 contentWidth: contentWidth,
                 isPadLayout: isPadLayout,
+                isDarkBackground: isDarkBackground,
                 shouldShowBoardEditHint: shouldShowBoardEditHint,
                 shouldReserveBoardEditHintSpace: shouldReserveBoardEditHintSpace,
                 onSelectBoard: selectBoardFromControls,
@@ -69,6 +71,7 @@ struct HomeBoardMainContent: View {
                 isEditActionsExpanded: isEditActionsExpanded,
                 surfaceShadowColor: surfaceShadowColor,
                 themeColor: themeColor,
+                isDarkBackground: isDarkBackground,
                 onCountdown: onCountdown,
                 onEditActionsToggle: onEditActionsToggle,
                 onDismissEditActions: onDismissEditActions,

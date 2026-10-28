@@ -1035,14 +1035,7 @@ struct PremiumPaywallView: View {
             return L10n.paywallCurrentPlanButton
         }
 
-        switch selectedPlan {
-        case .monthly:
-            return L10n.paywallSwitchToMonthly
-        case .yearly:
-            return L10n.paywallSwitchToYearly
-        case .lifetime:
-            return L10n.paywallBuyLifetime
-        }
+        return L10n.paywallContinueToNextStep
     }
 
     private var primaryMembershipAccessibilityLabel: String {
@@ -1662,7 +1655,7 @@ struct PremiumPaywallView: View {
             return L10n.paywallPlanUnavailable
         }
 
-        return "\(selectedPlan.title) \(priceDisplay(for: selectedPlan).displayPrice)"
+        return L10n.paywallContinueToNextStep
     }
 
     private func classicPlanSubtitle(for plan: PaywallPlan, price: PlanPriceDisplay) -> String? {
@@ -1798,7 +1791,7 @@ struct PremiumPaywallView: View {
         switch AppLanguage.current {
         case .english:
             return .custom("Outfit", size: size, relativeTo: .body).weight(weight)
-        case .simplifiedChinese, .traditionalChinese, .japanese:
+        case .simplifiedChinese, .traditionalChinese, .japanese, .korean:
             return .system(size: size * paywallFontScale, weight: weight, design: .default)
         }
     }

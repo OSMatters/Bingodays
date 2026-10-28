@@ -106,19 +106,44 @@ enum NativeICloudPrimaryLocalProjection {
         latestSchemaVersion: Int64,
         hasHandledLatestCommit: Bool,
         resolvedStateWasAlreadyHandled: Bool,
-        reloadWidgets: Bool = true
+        reloadWidgets: Bool = true,
+        accountScope: String? = nil,
+        session: NativeICloudPrimarySession? = nil,
+        sessionID: UUID? = nil,
+        allowsDisabledSync: Bool = false,
+        isExplicitAccountReplacement: Bool = false
     ) throws -> NativeICloudPrimaryProjectionCommitResult {
         guard let outcome = BingoBoardStore.withBoardPersistenceLock({
             Result {
+                if let session, let sessionID {
+                    guard session.matches(sessionID),
+                          allowsDisabledSync || NativeICloudPreferences.isEnabled,
+                          NativeICloudPreferences.accountScopeIdentifier == accountScope ||
+                            (allowsDisabledSync && NativeICloudPreferences.accountScopeIdentifier == nil) ||
+                            isExplicitAccountReplacement else {
+                        throw CancellationError()
+                    }
+                }
                 let localSnapshot = NativeICloudPrimaryStateSnapshot.captureLocal()
-                let hasPendingLocalMutation = NativeICloudPreferences.primaryPendingMutationGeneration != 0
-                let localHasNewerUserChange = hasPendingLocalMutation || (
+                let checkpoint = accountScope.map { NativeICloudPreferences.primaryCheckpoint(for: $0) }
+                let version = NativeICloudPrimaryCommitVersion(stamp: latestStamp, schemaVersion: latestSchemaVersion)
+                if !isExplicitAccountReplacement, checkpoint?.shouldReject(version) == true {
+                    return NativeICloudPrimaryProjectionCommitResult(
+                        localSnapshot: localSnapshot,
+                        hasPendingLocalMutation: checkpoint?.hasPendingMutation ?? false,
+                        localHasNewerUserChange: false, needsProjection: false,
+                        didSkipHandledCommit: true, didApply: false
+                    )
+                }
+                let hasPendingLocalMutation = checkpoint?.hasPendingMutation ??
+                    (NativeICloudPreferences.primaryPendingMutationGeneration != 0)
+                let localHasNewerUserChange = !isExplicitAccountReplacement && (hasPendingLocalMutation || (
                     latestSchemaVersion < NativeICloudPrimaryEnvelopeSchema.logicalCommitVersion &&
                     NativeICloudPrimaryConflictResolver.localChangeIsNewer(
                         modifiedAt: NativeICloudPreferences.primaryLocalModifiedAt,
                         than: latestStamp
                     )
-                )
+                ))
                 let needsProjection = !localSnapshot.hasSameUserState(as: snapshot) ||
                     needsDailyRewardStateRepair(for: snapshot)
 
@@ -151,6 +176,14 @@ enum NativeICloudPrimaryLocalProjection {
 
                 if needsProjection {
                     try applyUnderPersistenceLock(snapshot, reloadWidgets: reloadWidgets)
+                }
+                if let accountScope {
+                    var accepted = NativeICloudPreferences.primaryCheckpoint(for: accountScope)
+                    if isExplicitAccountReplacement { accepted.acknowledge(accepted.localRevision) }
+                    accepted.accept(version)
+                    guard NativeICloudPreferences.savePrimaryCheckpoint(accepted, for: accountScope) else {
+                        throw NativeICloudLocalProjectionError.primaryProjectionFailed
+                    }
                 }
 
                 return NativeICloudPrimaryProjectionCommitResult(
@@ -200,6 +233,29 @@ enum NativeICloudPrimaryLocalProjection {
                 applyWithoutRollback(backup, preferredSelection: previousSelection)
             }
             throw NativeICloudLocalProjectionError.primaryProjectionFailed
+        }
+
+        let beforeBoards = Dictionary(backup.boards.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var completed = 0
+        var undone = 0
+        var changedIDs: [String] = []
+        for board in snapshot.boards {
+            guard let previous = beforeBoards[board.id] else { continue }
+            let beforeCells = Dictionary(
+                BoardEngine.expandedBoardCache(from: previous.board).flatMap { $0 }.map { ($0.id, $0.isCompleted) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            for cell in BoardEngine.expandedBoardCache(from: board.board).flatMap({ $0 }) {
+                guard let wasCompleted = beforeCells[cell.id], wasCompleted != cell.isCompleted else { continue }
+                if cell.isCompleted { completed += 1 } else { undone += 1 }
+                if changedIDs.count < 10 { changedIDs.append(String(cell.id.uuidString.prefix(8))) }
+            }
+        }
+        if completed + undone > 0 {
+            DiagnosticLogStore.recordStateChange("points.icloud_projection_task_changes", details: [
+                "completed": String(completed), "undone": String(undone),
+                "cell_ids": changedIDs.joined(separator: ",")
+            ])
         }
 
         if reloadWidgets {

@@ -329,9 +329,11 @@ class BingoViewModel: ObservableObject {
         let wasBoardFullyCompleted = isBoardFullyCompleted
         let isNowCompleted = !cells[row][col].isCompleted
         let toggledCellID = String(cells[row][col].id.uuidString.prefix(8))
+        let toggleOperationID = UUID().uuidString
         DiagnosticLogStore.recordUserAction(
             "points.task_toggle_begin",
             details: [
+                "operation_id": toggleOperationID,
                 "cell_id": toggledCellID,
                 "position": "\(row),\(col)",
                 "direction": isNowCompleted ? "complete" : "undo",
@@ -356,8 +358,11 @@ class BingoViewModel: ObservableObject {
         cells[row][col].isCompleted = isNowCompleted
         if isNowCompleted {
             registerCompletionIfNeeded(row: row, col: col, now: referenceDate)
-            // Force completion should only block until this task is completed once.
-            cells[row][col].isForced = false
+            // A repeating task's force setting applies again to its next occurrence.
+            // Completion itself releases the lock for the current occurrence.
+            if !cells[row][col].hasRepeatingSchedule {
+                cells[row][col].isForced = false
+            }
             cells[row][col].countdownEndsAt = nil
             cells[row][col].countdownPausedRemainingSeconds = nil
             cells[row][col].estimatedDurationMinutes = nil
@@ -412,6 +417,7 @@ class BingoViewModel: ObservableObject {
         DiagnosticLogStore.recordStateChange(
             "points.task_toggle_settled",
             details: [
+                "operation_id": toggleOperationID,
                 "cell_id": toggledCellID,
                 "direction": isNowCompleted ? "complete" : "undo",
                 "memory_total": "\(totalPoints)",
@@ -433,7 +439,12 @@ class BingoViewModel: ObservableObject {
         let persistedPointsAfterToggle = commitResult.savedPoints
             ? nil
             : persistenceDependencies.pointsRepository.loadPersistenceSnapshot()
-        let persistenceDetails = [
+        let localRevisionText = NativeICloudPreferences.accountScopeIdentifier.map {
+            String(NativeICloudPreferences.primaryCheckpoint(for: $0).localRevision)
+        } ?? "none"
+        let persistenceDetails: [String: String] = [
+            "operation_id": toggleOperationID,
+            "local_revision": localRevisionText,
             "cell_id": toggledCellID,
             "saved_board": "\(commitResult.savedBoard)",
             "saved_points": "\(commitResult.savedPoints)",
@@ -2374,7 +2385,8 @@ class BingoViewModel: ObservableObject {
             for col in cache[row].indices {
                 guard cache[row][col].isForced else { continue }
 
-                if !cache[row][col].hasStoredTask || cache[row][col].isCompleted {
+                if !cache[row][col].hasStoredTask ||
+                    (cache[row][col].isCompleted && !cache[row][col].hasRepeatingSchedule) {
                     cache[row][col].isForced = false
                     continue
                 }

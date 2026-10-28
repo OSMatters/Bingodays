@@ -4,6 +4,229 @@ import XCTest
 @testable import Bingodays
 
 final class NativeICloudPersistenceTests: XCTestCase {
+    @MainActor
+    func testCheckpointFilePreservesPendingMutationAcrossAStaleDefaultsReplica() throws {
+        let restore = useIsolatedSyncAccount()
+        defer { restore() }
+        let scope = try XCTUnwrap(NativeICloudPreferences.accountScopeIdentifier)
+        let revision = NativeICloudPreferences.markPrimaryMutationPending()
+        XCTAssertGreaterThan(revision, 0)
+        let file = try XCTUnwrap(NativeICloudPreferences.primaryCheckpointFileURL(for: scope))
+        let persisted = try JSONDecoder().decode(
+            NativeICloudPrimarySyncCheckpoint.self, from: Data(contentsOf: file)
+        )
+        XCTAssertEqual(persisted.localRevision, revision)
+        XCTAssertTrue(persisted.hasPendingMutation)
+        BingoBoardStore.sharedDefaults.set(
+            try JSONEncoder().encode(NativeICloudPrimarySyncCheckpoint()),
+            forKey: "native_icloud_primary_checkpoint_v3_\(scope)"
+        )
+        XCTAssertEqual(NativeICloudPreferences.primaryCheckpoint(for: scope).localRevision, revision)
+        XCTAssertTrue(NativeICloudPreferences.primaryCheckpoint(for: scope).hasPendingMutation)
+    }
+
+    @MainActor
+    func testPendingMutationIsAccountScopedAndRetainedWhenReturningToAnAccount() throws {
+        let restore = useIsolatedSyncAccount()
+        defer { restore() }
+        let first = try XCTUnwrap(NativeICloudPreferences.accountScopeIdentifier)
+        let revision = NativeICloudPreferences.markPrimaryMutationPending()
+        NativeICloudPreferences.accountScopeIdentifier = "other-test-account-\(UUID())"
+        XCTAssertEqual(NativeICloudPreferences.primaryPendingMutationGeneration, 0)
+        NativeICloudPreferences.accountScopeIdentifier = first
+        XCTAssertEqual(NativeICloudPreferences.primaryPendingMutationGeneration, revision)
+    }
+
+    @MainActor
+    func testCompletionDuringMigrationReadExportsTheLatestLocalBoard() async throws {
+        let restore = useIsolatedSyncAccount()
+        defer { restore() }
+        let boardID = UUID()
+        let cellID = UUID()
+        func snapshot(completed: Bool, points: Int) -> NativeICloudPrimaryStateSnapshot {
+            let cells = [[BingoCell(id: cellID, text: "Task", isCompleted: completed)]]
+            return NativeICloudPrimaryStateSnapshot(
+                boards: [.init(id: boardID, name: "Today", board: .init(gridSize: 1, cells: cells, completedLines: [], fullBoardCells: cells))],
+                points: .init(totalPoints: points, lifetimePoints: points, dailyRewardState: nil),
+                diaryEntries: [:], timeoutPayload: [:], customRewards: [], redemptionHistory: [],
+                stickerInventory: [:], stickerPlacements: []
+            )
+        }
+        let local = MigrationLocalState(snapshot: snapshot(completed: false, points: 339))
+        let completed = snapshot(completed: true, points: 345)
+        let runtime = MigrationRuntimeDouble(
+            remote: local.snapshot,
+            onRead: {
+                local.snapshot = completed
+                _ = NativeICloudPreferences.markPrimaryMutationPending()
+            },
+            capture: { local.snapshot }
+        )
+        let migrator = NativeICloudInitialMigrator(runtime: runtime, capturePrimary: { local.snapshot })
+        let result = try await migrator.migrate()
+        let saved = await runtime.savedPrimary
+        XCTAssertEqual(result.primaryDecision, .uploadLocal)
+        XCTAssertTrue(try XCTUnwrap(saved).boards[0].board.cells[0][0].isCompleted)
+        XCTAssertEqual(saved?.points.totalPoints, 345)
+    }
+
+    @MainActor
+    func testPendingCompletionSurvivesDisablingSyncAndAnOlderProjection() throws {
+        let restore = useIsolatedSyncAccount()
+        defer { restore() }
+        let scope = try XCTUnwrap(NativeICloudPreferences.accountScopeIdentifier)
+        NativeICloudPreferences.isEnabled = false
+        NativeICloudLocalChangeReporter.primaryStateDidChange(scheduleExport: false)
+        let pending = NativeICloudPreferences.primaryPendingMutationGeneration
+        XCTAssertGreaterThan(pending, 0)
+        let outcome = try NativeICloudPrimaryLocalProjection.applyIfCurrent(
+            primarySnapshot(totalPoints: 339, lifetimePoints: 1178),
+            latestStamp: .init(modifiedAt: Date(timeIntervalSinceReferenceDate: 19), commitID: UUID()),
+            latestSchemaVersion: 2, hasHandledLatestCommit: false,
+            resolvedStateWasAlreadyHandled: false, reloadWidgets: false, accountScope: scope
+        )
+        XCTAssertFalse(outcome.didApply)
+        XCTAssertTrue(outcome.localHasNewerUserChange)
+        XCTAssertEqual(NativeICloudPreferences.primaryPendingMutationGeneration, pending)
+    }
+
+    @MainActor
+    func testQueuedImportCannotReplaceANewerAcceptedCommit() throws {
+        let restore = useIsolatedSyncAccount()
+        defer { restore() }
+        let scope = try XCTUnwrap(NativeICloudPreferences.accountScopeIdentifier)
+        var checkpoint = NativeICloudPrimarySyncCheckpoint()
+        checkpoint.accept(.init(
+            stamp: .init(modifiedAt: Date(timeIntervalSinceReferenceDate: 20), commitID: UUID()), schemaVersion: 2
+        ))
+        NativeICloudPreferences.savePrimaryCheckpoint(checkpoint, for: scope)
+        // The booleans intentionally represent an earlier, stale actor decision.
+        let outcome = try NativeICloudPrimaryLocalProjection.applyIfCurrent(
+            primarySnapshot(totalPoints: 339, lifetimePoints: 1178),
+            latestStamp: .init(modifiedAt: Date(timeIntervalSinceReferenceDate: 19), commitID: UUID()),
+            latestSchemaVersion: 2, hasHandledLatestCommit: false,
+            resolvedStateWasAlreadyHandled: false, reloadWidgets: false, accountScope: scope
+        )
+        XCTAssertFalse(outcome.didApply)
+        XCTAssertTrue(outcome.didSkipHandledCommit)
+    }
+
+    @MainActor
+    func testRetiredMirrorCannotProjectIntoReplacementSession() throws {
+        let restore = useIsolatedSyncAccount()
+        defer { restore() }
+        let session = NativeICloudPrimarySession()
+        let oldSessionID = session.id
+        session.invalidate()
+        XCTAssertThrowsError(try NativeICloudPrimaryLocalProjection.applyIfCurrent(
+            primarySnapshot(totalPoints: 339, lifetimePoints: 1178),
+            latestStamp: .init(modifiedAt: .now, commitID: UUID()), latestSchemaVersion: 2,
+            hasHandledLatestCommit: false, resolvedStateWasAlreadyHandled: false,
+            reloadWidgets: false, accountScope: NativeICloudPreferences.accountScopeIdentifier,
+            session: session, sessionID: oldSessionID
+        )) { XCTAssertTrue($0 is CancellationError) }
+    }
+
+    func testCompletionDiagnosticsSurviveManyNewerUnrelatedWarnings() {
+        let toggle = DiagnosticLogStore.Entry(timestamp: .distantPast, level: .info,
+            category: "state_change", name: "points.task_toggle_persisted", details: ["cell_id": "12345678"])
+        let noise = (0..<500).map { index in
+            DiagnosticLogStore.Entry(timestamp: Date(timeIntervalSince1970: Double(index)), level: .warning,
+                category: "warning", name: "unrelated.warning", details: ["padding": String(repeating: "x", count: 120)])
+        }
+        XCTAssertTrue(DiagnosticLogStore.exportText(entries: [toggle] + noise).contains("points.task_toggle_persisted"))
+    }
+
+    @MainActor
+    private func useIsolatedSyncAccount() -> () -> Void {
+        let defaults = BingoBoardStore.sharedDefaults
+        let keys = ["native_icloud_sync_enabled_v2", "native_icloud_account_scope_v1",
+                    "native_icloud_primary_pending_mutation_v2", "native_icloud_primary_local_modified_at_v1"]
+        let backup = keys.map { defaults.object(forKey: $0) }
+        let scope = "sync-regression-\(UUID())"
+        NativeICloudPreferences.accountScopeIdentifier = scope
+        NativeICloudPreferences.isEnabled = false
+        return {
+            if let file = NativeICloudPreferences.primaryCheckpointFileURL(for: scope),
+               FileManager.default.fileExists(atPath: file.path) {
+                try? FileManager.default.removeItem(at: file)
+            }
+            defaults.removeObject(forKey: "native_icloud_primary_checkpoint_v3_\(scope)")
+            for (key, value) in zip(keys, backup) { defaults.set(value, forKey: key) }
+        }
+    }
+
+    func testLogicalMigrationDoesNotTreatWallClockAsANewerCloudCommit() {
+        let remote = NativeICloudCommitStamp(
+            modifiedAt: Date(timeIntervalSince1970: 978_309_219), commitID: UUID()
+        )
+        XCTAssertEqual(NativeICloudInitialMigrationPlanner.decide(
+            localHasMeaningfulData: true,
+            localModifiedAt: Date(timeIntervalSince1970: 1_793_160_728.687851),
+            remoteStamp: remote,
+            remoteSchemaVersion: NativeICloudPrimaryEnvelopeSchema.logicalCommitVersion,
+            hasPendingLocalMutation: false
+        ), .applyRemote)
+        XCTAssertEqual(NativeICloudInitialMigrationPlanner.decide(
+            localHasMeaningfulData: true,
+            localModifiedAt: nil,
+            remoteStamp: remote,
+            remoteSchemaVersion: NativeICloudPrimaryEnvelopeSchema.logicalCommitVersion,
+            hasPendingLocalMutation: true
+        ), .uploadLocal)
+    }
+
+    func testAnOldExportCannotAcknowledgeANewerCompletionOrReuseItsRevision() {
+        var checkpoint = NativeICloudPrimarySyncCheckpoint()
+        let first = checkpoint.markChanged()
+        let second = checkpoint.markChanged()
+        checkpoint.acknowledge(first)
+        XCTAssertTrue(checkpoint.hasPendingMutation)
+        XCTAssertEqual(checkpoint.localRevision, second)
+        checkpoint.acknowledge(second)
+        XCTAssertFalse(checkpoint.hasPendingMutation)
+        let third = checkpoint.markChanged()
+        checkpoint.acknowledge(first)
+        XCTAssertGreaterThan(third, second)
+        XCTAssertTrue(checkpoint.hasPendingMutation)
+    }
+
+    func testPrimaryCheckpointSurvivesRestartAndRejectsAnOlderCloudImport() throws {
+        var checkpoint = NativeICloudPrimarySyncCheckpoint()
+        let revision = checkpoint.markChanged()
+        let newer = NativeICloudPrimaryCommitVersion(
+            stamp: .init(modifiedAt: Date(timeIntervalSinceReferenceDate: 20), commitID: UUID()),
+            schemaVersion: NativeICloudPrimaryEnvelopeSchema.logicalCommitVersion
+        )
+        checkpoint.accept(newer)
+        checkpoint.acknowledge(revision)
+        let restored = try JSONDecoder().decode(
+            NativeICloudPrimarySyncCheckpoint.self, from: JSONEncoder().encode(checkpoint)
+        )
+        let older = NativeICloudPrimaryCommitVersion(
+            stamp: .init(modifiedAt: Date(timeIntervalSinceReferenceDate: 19), commitID: UUID()),
+            schemaVersion: NativeICloudPrimaryEnvelopeSchema.logicalCommitVersion
+        )
+        XCTAssertTrue(restored.shouldReject(older))
+        XCTAssertFalse(restored.shouldReject(newer))
+        XCTAssertFalse(restored.hasPendingMutation)
+    }
+
+    func testInitialMigrationRunsOncePerMirrorAndRetriesFailures() {
+        var progress = NativeICloudInitialMigrationProgress()
+        let firstMirror = UUID()
+        XCTAssertTrue(progress.begin(firstMirror))
+        XCTAssertFalse(progress.begin(firstMirror))
+        progress.finish(firstMirror, succeeded: false)
+        XCTAssertTrue(progress.begin(firstMirror))
+        progress.finish(firstMirror, succeeded: true)
+        XCTAssertFalse(progress.begin(firstMirror))
+        XCTAssertTrue(progress.begin(UUID()))
+        // A retired mirror must not finish a replacement mirror's setup.
+        progress.finish(firstMirror, succeeded: true)
+        XCTAssertNotEqual(progress.completedSessionID, firstMirror)
+    }
+
     func testPrimaryMergeUnionsPointRedemptionEvidenceAcrossDevices() {
         let stickerRecord = PointRedemptionRecord(
             id: UUID(uuidString: "00000000-0000-4000-8000-000000000101")!,
@@ -1550,5 +1773,49 @@ final class NativeICloudPersistenceTests: XCTestCase {
             stickerInventory: [:],
             stickerPlacements: []
         )
+    }
+}
+
+@MainActor
+private final class MigrationLocalState {
+    var snapshot: NativeICloudPrimaryStateSnapshot
+    init(snapshot: NativeICloudPrimaryStateSnapshot) { self.snapshot = snapshot }
+}
+
+private actor MigrationRuntimeDouble: NativeICloudMigrationRuntime {
+    let sessionID = UUID()
+    let remote: NativeICloudPrimaryStateSnapshot
+    let onRead: @MainActor @Sendable () -> Void
+    let capture: @MainActor @Sendable () -> NativeICloudPrimaryStateSnapshot
+    private(set) var savedPrimary: NativeICloudPrimaryStateSnapshot?
+
+    init(remote: NativeICloudPrimaryStateSnapshot,
+         onRead: @escaping @MainActor @Sendable () -> Void,
+         capture: @escaping @MainActor @Sendable () -> NativeICloudPrimaryStateSnapshot) {
+        self.remote = remote
+        self.onRead = onRead
+        self.capture = capture
+    }
+    func primarySessionID() -> UUID { sessionID }
+    func values(for domain: NativeICloudDomain) async throws -> [NativeICloudEnvelopeValue] {
+        await onRead()
+        return [.init(domain: .primaryState, payload: try JSONEncoder().encode(remote),
+                      stamp: .init(modifiedAt: Date(timeIntervalSince1970: 978_309_219), commitID: UUID()), schemaVersion: 2)]
+    }
+    func latestValue(for domain: NativeICloudDomain) -> NativeICloudEnvelopeValue? { nil }
+    func exportPrimaryForInitialMigration(expectedSessionID: UUID?) async throws -> NativeICloudEnvelopeValue? {
+        let state = await capture()
+        savedPrimary = state
+        return .init(domain: .primaryState, payload: try JSONEncoder().encode(state),
+                     stamp: .init(modifiedAt: .now, commitID: UUID()), schemaVersion: 2)
+    }
+    func applyPrimaryForInitialMigration(_ snapshot: NativeICloudPrimaryStateSnapshot,
+                                        stamp: NativeICloudCommitStamp, schemaVersion: Int64, expectedSessionID: UUID?,
+                                        isExplicitAccountReplacement: Bool) -> Bool { true }
+    func markPrimaryHandled(_ stamp: NativeICloudCommitStamp, schemaVersion: Int64,
+                            state: NativeICloudPrimaryStateSnapshot?) {}
+    func saveLatest(domain: NativeICloudDomain, payload: Data,
+                    stamp: NativeICloudCommitStamp?, expectedSessionID: UUID?) -> NativeICloudEnvelopeValue {
+        .init(domain: domain, payload: payload, stamp: stamp ?? .init(modifiedAt: .now, commitID: UUID()), schemaVersion: 1)
     }
 }

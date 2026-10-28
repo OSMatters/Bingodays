@@ -52,7 +52,7 @@ struct BoardSharePayload: Codable, Equatable, Sendable {
 
     init(
         board: BingoBoardStore.NamedBoard,
-        sourceLanguage: String? = Locale.current.language.languageCode?.identifier,
+        sourceLanguage: String? = AppLanguage.current.rawValue,
         createdAt: Date = .now,
         expiresAt: Date? = nil
     ) throws {

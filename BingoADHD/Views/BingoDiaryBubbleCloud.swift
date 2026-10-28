@@ -6,6 +6,7 @@ struct BingoDiaryBubbleCloud: View {
     let canvasWidth: CGFloat
     let canvasHeight: CGFloat
     let isInteractionPaused: Bool
+    let isActive: Bool
     var onBubbleTap: ((BingoDiaryBubble) -> Void)? = nil
     @StateObject private var simulator = BingoDiaryBubbleDynamicsSimulator()
     @StateObject private var gravityMonitor = BingoDiaryGravityMonitor()
@@ -59,10 +60,13 @@ struct BingoDiaryBubbleCloud: View {
         .onChange(of: scenePhase) { _, _ in
             configureMotion()
         }
+        .onChange(of: isActive) { _, _ in
+            configureMotion()
+        }
     }
 
     private func configureMotion() {
-        guard isVisible, !reduceMotion, scenePhase == .active else {
+        guard isVisible, isActive, !reduceMotion, scenePhase == .active else {
             simulator.stop()
             gravityMonitor.stop()
             return
@@ -123,6 +127,7 @@ struct BingoDiaryBubbleCloudSection: View {
     let width: CGFloat
     let height: CGFloat
     let isHorizontallyOverflowing: Bool
+    let isActive: Bool
     let onBubbleTap: (BingoDiaryBubble) -> Void
 
     @State private var isInteracting = false
@@ -133,6 +138,7 @@ struct BingoDiaryBubbleCloudSection: View {
             canvasWidth: width,
             canvasHeight: height,
             isInteractionPaused: isInteracting,
+            isActive: isActive,
             onBubbleTap: onBubbleTap
         )
 

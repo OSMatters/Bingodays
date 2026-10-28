@@ -276,6 +276,24 @@ struct NeumorphicConcaveModifier: ViewModifier {
 }
 
 extension View {
+    @ViewBuilder
+    func homeActionGlass(isDarkBackground: Bool) -> some View {
+        if #available(iOS 26.0, *) {
+            self
+                .glassEffect(.regular.interactive(), in: Capsule())
+                .environment(\.colorScheme, isDarkBackground ? .dark : .light)
+        } else {
+            self.background {
+                Capsule()
+                    .fill(isDarkBackground ? Color.black.opacity(0.58) : Color.white.opacity(0.72))
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay {
+                        Capsule().strokeBorder(Color.white.opacity(isDarkBackground ? 0.30 : 0.75))
+                    }
+            }
+        }
+    }
+
     func neumorphicConvex(radius: CGFloat = 16, isPressed: Bool = false) -> some View {
         self.modifier(NeumorphicConvexModifier(radius: radius, isPressed: isPressed))
     }

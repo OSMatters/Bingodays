@@ -1,12 +1,23 @@
 import Foundation
 
-enum AppLanguage {
-    case english
-    case simplifiedChinese
-    case traditionalChinese
-    case japanese
+enum AppLanguage: String, CaseIterable {
+    case english = "en"
+    case simplifiedChinese = "zh-Hans"
+    case traditionalChinese = "zh-Hant"
+    case japanese = "ja"
+    case korean = "ko"
 
     static var current: AppLanguage {
+        let selectedCode = UserDefaults.standard.string(forKey: AppSettings.languageKey)
+            ?? UserDefaults(suiteName: "group.com.bingoday.app")?.string(forKey: AppSettings.languageKey)
+            ?? ""
+        if let selected = AppLanguage(rawValue: selectedCode) {
+            return selected
+        }
+        return system
+    }
+
+    static var system: AppLanguage {
         for languageIdentifier in preferredLanguageIdentifiers {
             if let resolvedLanguage = language(from: languageIdentifier) {
                 return resolvedLanguage
@@ -51,6 +62,10 @@ enum AppLanguage {
             return .japanese
         }
 
+        if normalized.hasPrefix("ko") {
+            return .korean
+        }
+
         if normalized.hasPrefix("en") {
             return .english
         }
@@ -79,7 +94,11 @@ enum AppLanguage {
 
 
     static var displayLocale: Locale {
-        switch current {
+        current.locale
+    }
+
+    var locale: Locale {
+        switch self {
         case .english:
             return Locale(identifier: "en_US")
         case .simplifiedChinese:
@@ -88,6 +107,8 @@ enum AppLanguage {
             return Locale(identifier: "zh_Hant_TW")
         case .japanese:
             return Locale(identifier: "ja_JP")
+        case .korean:
+            return Locale(identifier: "ko_KR")
         }
     }
 
@@ -101,12 +122,76 @@ enum AppLanguage {
             return "zh-Hant"
         case .japanese:
             return "ja-JP"
+        case .korean:
+            return "ko-KR"
+        }
+    }
+
+    var selectionTitle: String {
+        switch self {
+        case .english: "English"
+        case .simplifiedChinese: "简体中文"
+        case .traditionalChinese: "繁體中文"
+        case .japanese: "日本語"
+        case .korean: "한국어"
         }
     }
 }
 
+private enum KoreanLocalization {
+    private struct Catalog: Decodable {
+        let exact: [String: String]
+        let patterns: [Pattern]
+    }
+
+    private struct Pattern: Decodable {
+        let source: String
+        let translation: String
+    }
+
+    private static let catalog: Catalog? = {
+        guard let url = Bundle.main.url(forResource: "Korean", withExtension: "json"),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(Catalog.self, from: data)
+    }()
+
+    private static let compiledPatterns: [(NSRegularExpression, String)] = {
+        guard let placeholderRegex = try? NSRegularExpression(pattern: #"\{\{\d+\}\}"#) else { return [] }
+        return catalog?.patterns.sorted(by: { $0.source.count > $1.source.count }).compactMap { pattern in
+            let source = pattern.source
+            let matches = placeholderRegex.matches(in: source, range: NSRange(source.startIndex..<source.endIndex, in: source))
+            guard !matches.isEmpty else { return nil }
+            var expression = "^"
+            var cursor = source.startIndex
+            for match in matches {
+                guard let range = Range(match.range, in: source) else { return nil }
+                expression += NSRegularExpression.escapedPattern(for: String(source[cursor..<range.lowerBound])) + "(.*?)"
+                cursor = range.upperBound
+            }
+            expression += NSRegularExpression.escapedPattern(for: String(source[cursor...])) + "$"
+            guard let regex = try? NSRegularExpression(pattern: expression, options: .dotMatchesLineSeparators) else { return nil }
+            return (regex, pattern.translation)
+        } ?? []
+    }()
+
+    static func translate(_ english: String) -> String? {
+        if let exact = catalog?.exact[english] { return exact }
+        let range = NSRange(english.startIndex..<english.endIndex, in: english)
+        for (regex, translation) in compiledPatterns {
+            guard let match = regex.firstMatch(in: english, range: range) else { continue }
+            var result = translation
+            for index in (1..<match.numberOfRanges).reversed() {
+                guard let captureRange = Range(match.range(at: index), in: english) else { continue }
+                result = result.replacingOccurrences(of: "{{\(index)}}", with: String(english[captureRange]))
+            }
+            return result
+        }
+        return nil
+    }
+}
+
 enum L10n {
-    static func tr(_ english: String, zhHans: String, zhHant: String? = nil, ja: String? = nil) -> String {
+    static func tr(_ english: String, zhHans: String, zhHant: String? = nil, ja: String? = nil, ko: String? = nil) -> String {
         switch AppLanguage.current {
         case .english:
             return english
@@ -119,6 +204,8 @@ enum L10n {
             return zhHans.applyingTransform(StringTransform("Hans-Hant"), reverse: false) ?? zhHans
         case .japanese:
             return ja ?? japaneseFallback(for: english) ?? english
+        case .korean:
+            return ko ?? KoreanLocalization.translate(english) ?? english
         }
     }
 
@@ -137,7 +224,7 @@ enum L10n {
         }
 
         switch english {
-        case "Bingo Dairy": return "Bingo日記"
+        case "Bingo Diary": return "Bingo日記"
         case "Tasks completed", "Completed tasks", "Completed Tasks": return "完了タスク"
         case "Expired tasks": return "期限切れタスク"
         case "Complete a few tasks and they will appear here.": return "タスクをいくつか完了すると、ここに表示されます。"
@@ -257,9 +344,27 @@ enum L10n {
     static var ok: String { tr("OK", zhHans: "好的", ja: "OK") }
     static var setBoardCountdown: String { tr("Countdown", zhHans: "倒计时", ja: "カウントダウン") }
     static var myTasks: String { tr("My Tasks", zhHans: "我的任务", ja: "マイタスク") }
-    static var bingoDiary: String { tr("Bingo Dairy", zhHans: "Bingo 日记", ja: "Bingo日記") }
+    static var bingoDiary: String { tr("Bingo Diary", zhHans: "Bingo 日记", ja: "Bingo日記") }
     static var setting: String { tr("Setting", zhHans: "设置", ja: "設定") }
     static var encourageUs: String { tr("Encourage Us", zhHans: "鼓励我们", zhHant: "鼓勵我們", ja: "応援する") }
+    static var settingsReviewBannerTitle: String {
+        tr(
+            "Enjoying Bingodays?",
+            zhHans: "喜欢 Bingodays 吗？",
+            zhHant: "喜歡 Bingodays 嗎？",
+            ja: "Bingodays は気に入りましたか？",
+            ko: "Bingodays가 마음에 드시나요?"
+        )
+    }
+    static var settingsReviewBannerSubtitle: String {
+        tr(
+            "Support us with five stars",
+            zhHans: "欢迎给我们五星鼓励～",
+            zhHant: "歡迎給我們五星鼓勵～",
+            ja: "星5つで応援してください",
+            ko: "별 다섯 개로 응원해 주세요"
+        )
+    }
     static var contactUs: String { tr("Contact Us", zhHans: "联系我们", zhHant: "聯絡我們", ja: "お問い合わせ") }
     static var contactUsTitle: String { tr("Contact Us", zhHans: "联系我们", zhHant: "聯絡我們", ja: "お問い合わせ") }
     static var contactUsEmail: String { tr("Evalong9820@gmail.com", zhHans: "Evalong9820@gmail.com", zhHant: "Evalong9820@gmail.com", ja: "Evalong9820@gmail.com") }
@@ -481,6 +586,7 @@ enum L10n {
     static var subscriptionNotFound: String { tr("No purchase found to restore.", zhHans: "未找到可恢复的购买。", zhHant: "未找到可恢復的購買。", ja: "復元できる購入が見つかりません。") }
     static var subscriptionRestoreFailed: String { tr("Restore failed. Please try again.", zhHans: "恢复购买失败，请稍后重试。", zhHant: "恢復購買失敗，請稍後重試。", ja: "復元に失敗しました。しばらくしてから再試行してください。") }
     static var subscriptionManageFailed: String { tr("Unable to open subscription settings.", zhHans: "暂时无法打开订阅管理。", zhHant: "暫時無法打開訂閱管理。", ja: "サブスクリプション設定を開けませんでした。") }
+    static var paywallContinueToNextStep: String { tr("Continue", zhHans: "继续", zhHant: "繼續", ja: "次へ進む") }
     static var paywallUnlockProFeatures: String { tr("Access to All Features", zhHans: "解锁全部功能", zhHant: "解鎖全部功能", ja: "すべての機能にアクセス") }
     static var paywallUnlimitedBoards: String { tr("Unlimited Bingo boards", zhHans: "无限创建 Bingo 棋盘", zhHant: "無限建立 Bingo 棋盤", ja: "Bingoボードを無制限に作成") }
     static var paywallUnlimitedQuickTasksAndGroups: String { tr("Unlimited quick tasks and groups", zhHans: "无限创建快捷任务和分组", zhHant: "無限建立快捷任務與分組", ja: "クイックタスクとグループを無制限に作成") }
@@ -682,6 +788,7 @@ enum L10n {
     static var paywallBenefitMoreFeaturesSubtitle: String { tr("We'll keep adding new features to make your Bingo experience even better.", zhHans: "我们会继续加入新功能，让 Bingo 体验更好。", zhHant: "我們會持續加入新功能，讓 Bingo 體驗更好。", ja: "Bingo体験をさらに良くする機能を追加していきます。") }
     static var haptics: String { tr("Haptics", zhHans: "震动反馈", ja: "触覚フィードバック") }
     static var soundEffects: String { tr("Sound Effects", zhHans: "音效", ja: "効果音") }
+    static var hapticsAndSound: String { tr("Haptics & Sound", zhHans: "震动与声音", zhHant: "震動與聲音", ja: "振動とサウンド", ko: "진동 및 소리") }
     static var homeWidget: String { tr("Home Widget", zhHans: "桌面小组件", ja: "ホームウィジェット") }
     static var homeWidgetInstructions: String {
         tr(

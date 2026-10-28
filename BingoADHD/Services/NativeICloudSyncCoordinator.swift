@@ -2,6 +2,29 @@ import CloudKit
 import Combine
 import Foundation
 
+struct NativeICloudInitialMigrationProgress {
+    private var sessionID: UUID?
+    private var isRunning = false
+    private(set) var completedSessionID: UUID?
+
+    mutating func begin(_ session: UUID) -> Bool {
+        if sessionID != session {
+            sessionID = session
+            isRunning = false
+            completedSessionID = nil
+        }
+        guard !isRunning, completedSessionID != session else { return false }
+        isRunning = true
+        return true
+    }
+
+    mutating func finish(_ session: UUID, succeeded: Bool) {
+        guard sessionID == session else { return }
+        isRunning = false
+        if succeeded { completedSessionID = session }
+    }
+}
+
 enum NativeICloudAccountChangePlanner {
     enum Resolution: Equatable {
         case keepLocalOnly
@@ -85,7 +108,10 @@ final class NativeICloudSyncCoordinator: ObservableObject {
     private var lastHandledSecondaryStamp: NativeICloudCommitStamp?
     private var startTask: Task<Void, Never>?
     private var foregroundRetryTask: Task<Void, Never>?
-    private var isInitialMigrationInFlight = false
+    private var initialMigrationProgress = NativeICloudInitialMigrationProgress()
+    private var initialMigrationTask: (sessionID: UUID, task: Task<NativeICloudInitialMigrationResult, Error>)?
+    private var initialMigrationAllowedSessionID: UUID?
+    private var syncRequestRevision: UInt = 0
 
     init(runtime: NativeICloudRuntime = .shared) {
         self.runtime = runtime
@@ -119,9 +145,12 @@ final class NativeICloudSyncCoordinator: ObservableObject {
     }
 
     func setEnabled(_ enabled: Bool) async {
+        syncRequestRevision &+= 1
+        let requestRevision = syncRequestRevision
         if enabled {
             do {
                 let accountScope = try await NativeICloudAccountScope.currentIdentifier()
+                guard requestRevision == syncRequestRevision else { return }
                 if let previousAccountScope = NativeICloudPreferences.accountScopeIdentifier,
                    previousAccountScope != accountScope {
                     await prepareAccountChange(
@@ -131,6 +160,7 @@ final class NativeICloudSyncCoordinator: ObservableObject {
                     return
                 }
             } catch {
+                guard requestRevision == syncRequestRevision else { return }
                 state = .failed(message: NativeICloudErrorFormatter.describe(error))
                 AnalyticsService.logICloudSyncResult(
                     operation: .enable,
@@ -140,9 +170,11 @@ final class NativeICloudSyncCoordinator: ObservableObject {
                 return
             }
             state = .preparing
-            await start(enableAfterSuccess: true)
+            await start(enableAfterSuccess: true, expectedRequestRevision: requestRevision)
         } else {
             foregroundRetryTask?.cancel()
+            initialMigrationAllowedSessionID = nil
+            initialMigrationTask?.task.cancel()
             NativeICloudPreferences.isEnabled = false
             await runtime.shutdown()
             lastHandledSecondaryStamp = nil
@@ -288,11 +320,14 @@ final class NativeICloudSyncCoordinator: ObservableObject {
         }
     }
 
-    private func start(enableAfterSuccess: Bool = false) async {
+    private func start(enableAfterSuccess: Bool = false, expectedRequestRevision: UInt? = nil) async {
+        let requestRevision = expectedRequestRevision ?? syncRequestRevision
+        guard enableAfterSuccess || NativeICloudPreferences.isEnabled else { return }
         do {
             let accountStatus = try await CKContainer(
                 identifier: NativeICloudConfiguration.containerIdentifier
             ).accountStatus()
+            guard requestRevision == syncRequestRevision else { throw CancellationError() }
             guard accountStatus == .available else {
                 if enableAfterSuccess {
                     NativeICloudPreferences.isEnabled = false
@@ -307,6 +342,7 @@ final class NativeICloudSyncCoordinator: ObservableObject {
             }
 
             let accountScope = try await NativeICloudAccountScope.currentIdentifier()
+            guard requestRevision == syncRequestRevision else { throw CancellationError() }
             if !enableAfterSuccess,
                NativeICloudPreferences.accountScopeIdentifier != accountScope {
                 if let previousAccountScope = NativeICloudPreferences.accountScopeIdentifier {
@@ -327,8 +363,14 @@ final class NativeICloudSyncCoordinator: ObservableObject {
                 allowsUnconfirmedAccountChange: enableAfterSuccess,
                 initializeDevelopmentSchema: Self.initializesDevelopmentSchema
             )
+            let sessionID = await runtime.primarySessionID()
+            guard requestRevision == syncRequestRevision else { throw CancellationError() }
+            initialMigrationAllowedSessionID = sessionID
             try await runtime.beginObservingRemoteChanges()
             let completedInitialImport = try await runtime.waitForInitialCloudImport()
+            guard requestRevision == syncRequestRevision,
+                  initialMigrationAllowedSessionID == sessionID,
+                  await runtime.primarySessionID() == sessionID else { throw CancellationError() }
             // A Core Data cache can contain an older local mirror before its first
             // CloudKit import completes. Do not migrate or export it yet; doing so
             // is how an offline iPad reset could overwrite today's iPhone tasks.
@@ -343,11 +385,16 @@ final class NativeICloudSyncCoordinator: ObservableObject {
                 return
             }
             _ = try await migrateInitialStateIfNeeded()
+            guard requestRevision == syncRequestRevision,
+                  initialMigrationAllowedSessionID == sessionID else { throw CancellationError() }
             if enableAfterSuccess {
                 NativeICloudPreferences.accountScopeIdentifier = accountScope
                 NativeICloudPreferences.isEnabled = true
                 AnalyticsService.logICloudSyncToggled(isEnabled: true)
                 AnalyticsService.logICloudSyncResult(operation: .enable, result: .success)
+            }
+            if NativeICloudPreferences.primaryPendingMutationGeneration != 0 {
+                await runtime.schedulePrimaryExport()
             }
             if completedInitialImport,
                let cloudEventDate = await runtime.latestSuccessfulCloudEventDate() {
@@ -355,7 +402,10 @@ final class NativeICloudSyncCoordinator: ObservableObject {
             } else {
                 state = .syncing
             }
+        } catch is CancellationError {
+            return
         } catch {
+            guard requestRevision == syncRequestRevision else { return }
             if enableAfterSuccess {
                 NativeICloudPreferences.isEnabled = false
                 AnalyticsService.logICloudSyncResult(
@@ -372,6 +422,7 @@ final class NativeICloudSyncCoordinator: ObservableObject {
         previousAccountScope: String,
         currentAccountScope: String
     ) async {
+        initialMigrationAllowedSessionID = nil
         NativeICloudPreferences.isEnabled = false
         await runtime.shutdown()
         state = .preparing
@@ -414,6 +465,7 @@ final class NativeICloudSyncCoordinator: ObservableObject {
     }
 
     private func useCurrentAccountCloud(_ change: AccountChange) async {
+        let requestRevision = syncRequestRevision
         state = .preparing
         do {
             try await runtime.prepare(
@@ -421,16 +473,22 @@ final class NativeICloudSyncCoordinator: ObservableObject {
                 allowsUnconfirmedAccountChange: true,
                 initializeDevelopmentSchema: Self.initializesDevelopmentSchema
             )
+            let sessionID = await runtime.primarySessionID()
             try await runtime.beginObservingRemoteChanges()
             guard try await runtime.waitForInitialCloudImport() else {
                 state = .waitingForCloud(lastCheckedAt: .now)
                 return
             }
             try await NativeICloudInitialMigrator(runtime: runtime).applyRemoteStateOnly()
+            guard requestRevision == syncRequestRevision,
+                  await runtime.primarySessionID() == sessionID else { throw CancellationError() }
             NativeICloudPreferences.accountScopeIdentifier = change.currentAccountScope
             NativeICloudPreferences.isEnabled = true
+            completeExplicitAccountSetup(sessionID: sessionID)
             pendingAccountChange = nil
             state = .ready(lastSyncAt: await runtime.latestSuccessfulCloudEventDate())
+        } catch is CancellationError {
+            return
         } catch {
             NativeICloudPreferences.isEnabled = false
             state = .failed(message: NativeICloudErrorFormatter.describe(error))
@@ -438,6 +496,7 @@ final class NativeICloudSyncCoordinator: ObservableObject {
     }
 
     private func copyLocalDataToEmptyCurrentAccount(_ change: AccountChange) async {
+        let requestRevision = syncRequestRevision
         let localPrimary = NativeICloudPrimaryStateSnapshot.captureLocal()
         let localSecondary = NativeICloudSecondaryStateSnapshot.captureLocal()
         guard localPrimary.hasMeaningfulUserData || localSecondary.hasMeaningfulUserData else {
@@ -452,6 +511,7 @@ final class NativeICloudSyncCoordinator: ObservableObject {
                 allowsUnconfirmedAccountChange: true,
                 initializeDevelopmentSchema: Self.initializesDevelopmentSchema
             )
+            let sessionID = await runtime.primarySessionID()
             try await runtime.beginObservingRemoteChanges()
             guard try await runtime.waitForInitialCloudImport() else {
                 state = .waitingForCloud(lastCheckedAt: .now)
@@ -465,22 +525,46 @@ final class NativeICloudSyncCoordinator: ObservableObject {
                 return
             }
 
+            guard requestRevision == syncRequestRevision else { throw CancellationError() }
+            let sourceScope = NativeICloudPreferences.accountScopeIdentifier
+            guard let captured = BingoBoardStore.withBoardPersistenceLock({
+                (NativeICloudPrimaryStateSnapshot.captureLocal(), NativeICloudSecondaryStateSnapshot.captureLocal(),
+                 sourceScope.map { NativeICloudPreferences.primaryCheckpoint(for: $0).localRevision } ?? 0)
+            }) else { throw NativeICloudLocalProjectionError.primaryProjectionFailed }
             _ = try await runtime.saveLatest(
                 domain: .primaryState,
-                payload: try JSONEncoder().encode(localPrimary)
+                payload: try JSONEncoder().encode(captured.0), expectedSessionID: sessionID
             )
             _ = try await runtime.saveLatest(
                 domain: .secondaryState,
-                payload: try JSONEncoder().encode(localSecondary)
+                payload: try JSONEncoder().encode(captured.1), expectedSessionID: sessionID
             )
+            guard requestRevision == syncRequestRevision,
+                  await runtime.primarySessionID() == sessionID else { throw CancellationError() }
+            let changedDuringCopy = sourceScope.map {
+                NativeICloudPreferences.primaryCheckpoint(for: $0).localRevision != captured.2
+            } ?? false
             NativeICloudPreferences.accountScopeIdentifier = change.currentAccountScope
             NativeICloudPreferences.isEnabled = true
+            completeExplicitAccountSetup(sessionID: sessionID)
+            if changedDuringCopy {
+                _ = NativeICloudPreferences.markPrimaryMutationPending()
+                await runtime.schedulePrimaryExport()
+            }
             pendingAccountChange = nil
             state = .ready(lastSyncAt: .now)
+        } catch is CancellationError {
+            return
         } catch {
             NativeICloudPreferences.isEnabled = false
             state = .failed(message: NativeICloudErrorFormatter.describe(error))
         }
+    }
+
+    private func completeExplicitAccountSetup(sessionID: UUID) {
+        initialMigrationAllowedSessionID = sessionID
+        _ = initialMigrationProgress.begin(sessionID)
+        initialMigrationProgress.finish(sessionID, succeeded: true)
     }
 
     private func accountChangeResolutionUnavailableMessage(
@@ -526,14 +610,22 @@ final class NativeICloudSyncCoordinator: ObservableObject {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     do {
+                        let sessionID = await self.runtime.primarySessionID()
+                        // Availability probes for a different account are read-only.
+                        // Only start() authorizes initial migration for its mirror.
+                        guard self.initialMigrationAllowedSessionID == sessionID else { return }
                         let completedInitialImport = try await self.runtime.waitForInitialCloudImport(
                             timeout: 0
                         )
                         if completedInitialImport {
                             _ = try await self.migrateInitialStateIfNeeded()
                         }
+                        guard self.initialMigrationAllowedSessionID == sessionID,
+                              await self.runtime.primarySessionID() == sessionID else { return }
                         try await self.importSecondaryIfNeeded()
                         self.state = .ready(lastSyncAt: .now)
+                    } catch is CancellationError {
+                        return
                     } catch {
                         self.state = .failed(message: NativeICloudErrorFormatter.describe(error))
                     }
@@ -593,12 +685,25 @@ final class NativeICloudSyncCoordinator: ObservableObject {
     /// otherwise a first-run snapshot can be committed twice before the account
     /// binding is finalized.
     private func migrateInitialStateIfNeeded() async throws -> Bool {
-        guard !isInitialMigrationInFlight else { return false }
-        isInitialMigrationInFlight = true
-        defer { isInitialMigrationInFlight = false }
-        let migration = NativeICloudInitialMigrator(runtime: runtime)
-        _ = try await migration.migrate()
-        return true
+        let sessionID = await runtime.primarySessionID()
+        if let running = initialMigrationTask, running.sessionID == sessionID {
+            _ = try await running.task.value
+            return true
+        }
+        guard initialMigrationProgress.begin(sessionID) else { return false }
+        let task = Task { try await NativeICloudInitialMigrator(runtime: runtime).migrate() }
+        initialMigrationTask = (sessionID, task)
+        do {
+            _ = try await task.value
+            guard await runtime.primarySessionID() == sessionID else { throw CancellationError() }
+            initialMigrationProgress.finish(sessionID, succeeded: true)
+            if initialMigrationTask?.sessionID == sessionID { initialMigrationTask = nil }
+            return true
+        } catch {
+            initialMigrationProgress.finish(sessionID, succeeded: false)
+            if initialMigrationTask?.sessionID == sessionID { initialMigrationTask = nil }
+            throw error
+        }
     }
 
     private func importSecondaryIfNeeded() async throws {

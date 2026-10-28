@@ -24,6 +24,10 @@ struct AppRootView: View {
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @State private var shouldShowOnboarding = OnboardingStateResolver.shouldPresentOnboarding()
 
+    init() {
+        FeatureNewBadgeEligibility.initializeIfNeeded()
+    }
+
     var body: some View {
         Group {
             if shouldShowOnboarding {
@@ -1078,7 +1082,7 @@ private extension View {
 enum OnboardingFonts {
     private static var usesLocalizedCJKFonts: Bool {
         switch AppLanguage.current {
-        case .simplifiedChinese, .traditionalChinese, .japanese:
+        case .simplifiedChinese, .traditionalChinese, .japanese, .korean:
             return true
         case .english:
             return false
@@ -1179,6 +1183,8 @@ enum OnboardingFonts {
         case .japanese:
             return UIFont(name: hiraginoSansName(for: weight), size: size)
                 ?? UIFont.systemFont(ofSize: size, weight: uiWeight)
+        case .korean:
+            return UIFont.systemFont(ofSize: size, weight: uiWeight)
         case .english:
             let baseFont = UIFont(name: "Outfit", size: size)
             if let descriptor = baseFont?.fontDescriptor.addingAttributes([

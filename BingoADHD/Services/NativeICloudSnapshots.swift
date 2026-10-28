@@ -637,7 +637,9 @@ enum NativeICloudInitialMigrationPlanner {
         localModifiedAt: Date?,
         remoteStamp: NativeICloudCommitStamp?,
         remoteHasMeaningfulData: Bool = true,
-        isAccountBindingConfirmed: Bool = true
+        isAccountBindingConfirmed: Bool = true,
+        remoteSchemaVersion: Int64 = NativeICloudPrimaryEnvelopeSchema.legacyVersion,
+        hasPendingLocalMutation: Bool = false
     ) -> NativeICloudInitialMigrationDecision {
         guard let remoteStamp else {
             return localHasMeaningfulData && !localIsSystemStarterGuideSeedData
@@ -654,6 +656,9 @@ enum NativeICloudInitialMigrationPlanner {
         // covers the order where a brand-new device enables iCloud first and an
         // older device with pre-iCloud user data joins later.
         guard remoteHasMeaningfulData else { return .uploadLocal }
+        if remoteSchemaVersion >= NativeICloudPrimaryEnvelopeSchema.logicalCommitVersion {
+            return hasPendingLocalMutation ? .uploadLocal : .applyRemote
+        }
         guard let localModifiedAt else { return .applyRemote }
         return localModifiedAt > remoteStamp.modifiedAt ? .uploadLocal : .applyRemote
     }

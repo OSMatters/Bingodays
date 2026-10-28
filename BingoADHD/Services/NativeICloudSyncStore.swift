@@ -35,6 +35,47 @@ enum NativeICloudPrimaryEnvelopeSchema {
     static let logicalCommitVersion: Int64 = 2
 }
 
+struct NativeICloudPrimaryCommitVersion: Codable, Equatable, Comparable, Sendable {
+    let stamp: NativeICloudCommitStamp
+    let schemaVersion: Int64
+
+    static func < (lhs: Self, rhs: Self) -> Bool {
+        if lhs.schemaVersion != rhs.schemaVersion {
+            return lhs.schemaVersion < rhs.schemaVersion
+        }
+        return lhs.stamp < rhs.stamp
+    }
+}
+
+/// Local revisions never reset after an export. Otherwise an old asynchronous
+/// completion can acknowledge a later tap which happens to reuse its number.
+struct NativeICloudPrimarySyncCheckpoint: Codable, Equatable {
+    var localRevision = 0
+    var exportedRevision = 0
+    private(set) var acceptedVersion: NativeICloudPrimaryCommitVersion?
+
+    var hasPendingMutation: Bool { localRevision > exportedRevision }
+
+    @discardableResult
+    mutating func markChanged() -> Int {
+        localRevision += 1
+        return localRevision
+    }
+
+    mutating func acknowledge(_ revision: Int) {
+        exportedRevision = max(exportedRevision, min(revision, localRevision))
+    }
+
+    mutating func accept(_ version: NativeICloudPrimaryCommitVersion) {
+        if let acceptedVersion, version <= acceptedVersion { return }
+        acceptedVersion = version
+    }
+
+    func shouldReject(_ version: NativeICloudPrimaryCommitVersion) -> Bool {
+        acceptedVersion.map { version < $0 } ?? false
+    }
+}
+
 enum NativeICloudSaveConflictResolver {
     static func submittedValueWasPersisted(
         payload: Data,

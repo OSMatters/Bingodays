@@ -1153,22 +1153,13 @@ struct EditTaskSheet: View {
             return
         }
 
-        Task {
-            let granted = await TaskStartReminderService.requestAuthorizationIfNeeded()
-            await MainActor.run {
-                if granted {
-                    startReminderEnabled = true
-                } else {
-                    startReminderEnabled = false
-                    showBlockedSaveToast(
-                        L10n.tr(
-                            "Notifications are disabled.",
-                            zhHans: "系统通知未开启，请在设置中允许通知。",
-                            zhHant: "系統通知未開啟，請在設定中允許通知。"
-                        )
-                    )
-                }
-            }
+        startReminderEnabled = true
+        if !ReminderPreferences.load().enabled {
+            showBlockedSaveToast(L10n.tr(
+                "Turn on reminders in Settings to receive this notification.",
+                zhHans: "记好了。去设置里打开提醒，才会收到通知。",
+                zhHant: "記好了。去設定裡打開提醒，才會收到通知。"
+            ))
         }
     }
 

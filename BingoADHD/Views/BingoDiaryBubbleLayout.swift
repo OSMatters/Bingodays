@@ -6,6 +6,7 @@ struct BingoDiaryBubble: Identifiable, Equatable {
     let task: String
     let count: Int
     let diameter: CGFloat
+    let contentScale: CGFloat
     let position: CGPoint
     let gradientStart: Color
     let gradientEnd: Color
@@ -73,7 +74,33 @@ enum BingoDiaryBubbleLayout {
         // This avoids first-entry transient vertical stacks caused by early narrow passes.
         guard usableWidth > 1 else { return ([], 0, 0, false) }
 
-        let sortedItems = visibleItems.sorted { lhs, rhs in
+        let descriptors = descriptors(for: visibleItems)
+
+        if descriptors.count == 1 {
+            let descriptor = descriptors[0]
+            let canvasHeight = max(360, descriptor.radius * 2 + 160) + bottomVisibilityReserve
+            let center = CGPoint(
+                x: usableWidth / 2,
+                y: canvasHeight / 2
+            )
+            let bubbles = [makeBubble(from: descriptor, at: center)]
+            return (
+                bubbles,
+                usableWidth,
+                canvasHeight,
+                false
+            )
+        }
+
+        return horizontalOverflowLayout(
+            descriptors: descriptors,
+            canvasWidth: usableWidth,
+            viewportHeight: viewportHeight
+        )
+    }
+
+    static func descriptors(for taskCounts: [BingoDiaryTaskCount]) -> [Descriptor] {
+        let sortedItems = taskCounts.sorted { lhs, rhs in
             if lhs.count == rhs.count {
                 switch (lhs.firstCompletedAt, rhs.firstCompletedAt) {
                 case let (l?, r?) where l != r:
@@ -119,7 +146,7 @@ enum BingoDiaryBubbleLayout {
             return 40 + normalized * 100
         }
 
-        let descriptors: [Descriptor] = sortedItems.enumerated().map { index, item in
+        let descriptors: [Descriptor] = sortedItems.map { item in
             let resolvedRadius = radius(for: item.count)
             let paletteItem = palette[colorIndex(for: item.task)]
             let normalizedRadius = max(0, min(1, (resolvedRadius - 40) / 100))
@@ -135,27 +162,7 @@ enum BingoDiaryBubbleLayout {
             )
         }
 
-        if descriptors.count == 1 {
-            let descriptor = descriptors[0]
-            let canvasHeight = max(360, descriptor.radius * 2 + 160) + bottomVisibilityReserve
-            let center = CGPoint(
-                x: usableWidth / 2,
-                y: canvasHeight / 2
-            )
-            let bubbles = [makeBubble(from: descriptor, at: center)]
-            return (
-                bubbles,
-                usableWidth,
-                canvasHeight,
-                false
-            )
-        }
-
-        return horizontalOverflowLayout(
-            descriptors: descriptors,
-            canvasWidth: usableWidth,
-            viewportHeight: viewportHeight
-        )
+        return descriptors
     }
 
     private static func adjacentTierStartIndex(maxCount: Int, requiredTierCount: Int) -> Int {

@@ -180,6 +180,7 @@ enum QuickEditDeleteTarget: Equatable {
 }
 
 extension QuickEditTaskLocation {
+    #if os(iOS)
     var focusedField: FocusedMyTaskField {
         switch self {
         case .standalone(let index):
@@ -188,6 +189,8 @@ extension QuickEditTaskLocation {
             return .groupTask(groupID, index)
         }
     }
+
+    #endif
 
     var placeholder: String {
         switch self {
@@ -547,10 +550,17 @@ func quickEditHistoryBySourceTaskID(records: [TaskHistoryRecord]) -> [UUID: Task
     return result
 }
 
-func quickEditHistoryOnlyRecordsSorted(records: [TaskHistoryRecord], libraryTaskIDs: Set<UUID>) -> [TaskHistoryRecord] {
-    records
+func quickEditHistoryOnlyRecordsSorted(records: [TaskHistoryRecord], library: MyTasksLibrary) -> [TaskHistoryRecord] {
+    let libraryTasks = library.tasks + library.groups.flatMap(\.tasks)
+    let libraryTaskIDs = quickEditLibraryTaskIDs(library: library)
+    let libraryTaskTexts = Set(libraryTasks.map { $0.trimmedText.lowercased() })
+
+    return records
         .filter { record in
             guard !record.trimmedText.isEmpty else { return false }
+            // A board selection is archived without the library task ID. Keep
+            // the editable library row instead of showing that history copy.
+            guard !libraryTaskTexts.contains(record.trimmedText.lowercased()) else { return false }
             guard let sourceTaskID = record.sourceTaskID else { return true }
             return !libraryTaskIDs.contains(sourceTaskID)
         }

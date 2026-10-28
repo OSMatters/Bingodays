@@ -55,6 +55,7 @@ struct ContentView: View {
     @State private var pendingPremiumThemeRawValue: String?
     @State private var pendingPremiumBackgroundRawValue: String?
     @State private var isMeSettingsPresented = false
+    @State private var presentPremiumIconPaywallAfterSettings = false
     @State private var isICloudSyncPresented = false
     @State private var isPointsFlowPresented = false
     @State private var isPointsTabSubpagePresented = false
@@ -102,8 +103,10 @@ struct ContentView: View {
     @State private var hasPresentedDebugAppReviewPromptThisLaunch = false
     @State private var limitedTimeOfferConfig = LimitedTimeOfferConfig.disabled
     @AppStorage(AppSettings.hapticsEnabledKey) private var isHapticsEnabled = true
+    @AppStorage(AppSettings.languageKey) private var selectedLanguageCode = ""
     @AppStorage(AppSettings.soundEffectsEnabledKey) private var isSoundEffectsEnabled = true
     @AppStorage(AppSettings.hasSeenBlindBoxNewBadgeKey) private var hasSeenBlindBoxNewBadge = false
+    @AppStorage(AppSettings.newBadgeExistingUserKey) private var isExistingUserForNewBadges = false
     @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
     @AppStorage(AppSettings.homeBackgroundKey) private var homeBackgroundRawValue = HomeBackgroundOption.none.rawValue
     @AppStorage(AppSettings.meSkinKey) private var meSkinRawValue = MeSkin.halloween.rawValue
@@ -284,7 +287,7 @@ struct ContentView: View {
     }
 
     private var shouldShowBlindBoxNewBadge: Bool {
-        isBlindBoxFeatureAvailable && !hasSeenBlindBoxNewBadge
+        isExistingUserForNewBadges && isBlindBoxFeatureAvailable && !hasSeenBlindBoxNewBadge
     }
 
     private var shouldShowHomeSkinNewBadge: Bool {
@@ -545,6 +548,7 @@ struct ContentView: View {
                 )
             )
         )
+        .environment(\.locale, AppLanguage(rawValue: selectedLanguageCode)?.locale ?? AppLanguage.system.locale)
         .modifier(BlindBoxSilentTicketRefresh())
         .fullScreenCover(isPresented: $isIconMilestonePresented, onDismiss: {
             iconStreakStore.acknowledgeMilestones(presentedIconMilestones)
@@ -605,18 +609,17 @@ struct ContentView: View {
             .presentationDetents([.height(450)])
             .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $isICloudSyncPresented) {
-            NativeICloudSettingsView(
-                isPadLayout: isPadLayout,
-                themeColor: NeumorphicColors.modalAccent
-            )
-                .environmentObject(iCloudSyncCoordinator)
-        }
         .onAppear {
+            UserDefaults(suiteName: BingoBoardStore.appGroupID)?.set(selectedLanguageCode, forKey: AppSettings.languageKey)
             viewModel.normalizeTotalPointsForCommittedSpend()
             resetLimitedOfferStateForDebugIfNeeded()
             clearLimitedOfferEntryIfPremium()
             enforcePremiumBackgroundAccessIfNeeded()
+        }
+        .onChange(of: selectedLanguageCode) { _, newCode in
+            UserDefaults(suiteName: BingoBoardStore.appGroupID)?.set(newCode, forKey: AppSettings.languageKey)
+            BingoBoardStore.reloadWidgetTimelines()
+            BingoBoardLiveActivityController.scheduleRefresh()
         }
         .onChange(of: pointsFeatureStore.committedSpendPoints) { _, _ in
             viewModel.normalizeTotalPointsForCommittedSpend()
@@ -645,6 +648,12 @@ struct ContentView: View {
             Task {
                 await refreshLimitedTimeOfferConfig()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .blindBoxAccountStateDidChange)) { _ in
+            syncDailyReminders()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .appOpenStreakDidChange)) { _ in
+            syncDailyReminders()
         }
         .onReceive(NotificationCenter.default.publisher(for: .externalBoardTaskDidChange)) { _ in
             pointsFeatureStore.reloadAfterExternalDataChange()
@@ -703,7 +712,7 @@ struct ContentView: View {
 
             tabRoot { pointsTabContent(bottomInset: 0) }
                 .tabItem { nativeTabLabel(.points) }
-                .badge(shouldShowBlindBoxNewBadge ? "New" : nil)
+                .badge(shouldShowBlindBoxNewBadge ? Text(verbatim: "NEW") : nil)
                 .tag(HomeMainTab.points)
 
             tabRoot { meTabContent(bottomInset: 0) }
@@ -812,6 +821,7 @@ struct ContentView: View {
                         limitedTimeOfferDuration: limitedTimeOfferConfig.offerDuration,
                         limitedTimeOfferCampaignID: limitedTimeOfferConfig.campaignID,
                         themeColor: activeThemeColor,
+                        isDarkBackground: activeHomeBackground.isDarkTone,
                         showsSkinNewBadge: shouldShowHomeSkinNewBadge,
                         onOpenThemePicker: {
                             markHomeSkinNewBadgeInteraction()
@@ -866,6 +876,7 @@ struct ContentView: View {
                         isEditActionsExpanded: isEditActionsExpanded,
                         surfaceShadowColor: activeTheme.bingoSurfaceShadowColor,
                         themeColor: activeThemeColor,
+                        isDarkBackground: activeHomeBackground.isDarkTone,
                         allowsBoardSwipe: allowsBoardSwipe,
                         onSelectBoard: selectBoard,
                         onBoardLongPress: beginBoardActions,
@@ -1073,11 +1084,12 @@ struct ContentView: View {
     }
 
     /// The system tab badge is intentionally retained so it follows the native
-    /// tab bar across devices. A compact font keeps the short "New" marker from
+    /// tab bar across devices. Its small text keeps the "NEW" marker from
     /// competing with the tab icon.
     private static func configureBlindBoxNewBadgeAppearance() {
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 8.5, weight: .bold)
+            .font: UIFont.systemFont(ofSize: 4, weight: .bold),
+            .kern: -0.3
         ]
         let appearance = UITabBarItem.appearance()
         appearance.setBadgeTextAttributes(attributes, for: .normal)
@@ -1106,12 +1118,63 @@ struct ContentView: View {
         )
     }
 
-    @ViewBuilder
     private func meTabContent(bottomInset: CGFloat) -> some View {
-        if isMeSettingsPresented {
+        BingodaysMeScreen(
+            isPremiumMember: subscriptionManager.hasPremiumAccess,
+            premiumPlanKind: subscriptionManager.currentPlanKind,
+            hasReviewedApp: hasRatedAppReviewPrompt,
+            streakDays: meConsecutiveOpenDays,
+            greetingText: MeGreeting.localizedText(at: meGreetingIndex),
+            skin: activeMeSkin,
+            isPadLayout: isPadLayout,
+            bottomInset: bottomInset,
+            onOpenContact: {
+                DiagnosticLogStore.recordUserAction(
+                    "me.contact",
+                    details: diagnosticHomeStateDetails(source: "me")
+                )
+                isContactUsPresented = true
+            },
+            onOpenSettings: {
+                DiagnosticLogStore.recordUserAction(
+                    "me.settings",
+                    details: diagnosticHomeStateDetails(source: "me")
+                )
+                isMeSettingsPresented = true
+            },
+            onLeaveReview: {
+                DiagnosticLogStore.recordUserAction(
+                    "me.encourage_us",
+                    details: diagnosticHomeStateDetails(source: "me")
+                )
+                requestAppStoreReviewFromMe(markEntryHidden: true)
+            },
+            onOpenDiary: {
+                DiagnosticLogStore.recordUserAction(
+                    "me.diary",
+                    details: diagnosticHomeStateDetails(source: "me")
+                )
+                isDiaryPresented = true
+            },
+            onOpenPremium: {
+                presentPremiumPaywall(source: "me_pro_entry")
+            },
+            onToggleSkin: {
+                meSkinRawValue = activeMeSkin == .halloween ? MeSkin.normal.rawValue : MeSkin.halloween.rawValue
+            }
+        )
+        .sheet(isPresented: $isMeSettingsPresented, onDismiss: {
+            if presentPremiumIconPaywallAfterSettings {
+                presentPremiumIconPaywallAfterSettings = false
+                presentPremiumPaywall(source: "premium_app_icon")
+            }
+        }) {
             MeSettingsScreen(
                 hasPremiumAccess: subscriptionManager.hasPremiumAccess,
-                onOpenPremiumIcon: { presentPremiumPaywall(source: "premium_app_icon") },
+                onOpenPremiumIcon: {
+                    presentPremiumIconPaywallAfterSettings = true
+                    isMeSettingsPresented = false
+                },
                 isPadLayout: isPadLayout,
                 appShortVersion: appShortVersion,
                 iCloudState: iCloudSyncCoordinator.state,
@@ -1120,19 +1183,12 @@ struct ContentView: View {
                 isHapticsEnabled: $isHapticsEnabled,
                 isSoundEffectsEnabled: $isSoundEffectsEnabled,
                 isWidgetGuideExpanded: $isWidgetGuideExpanded,
-                onBack: {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        isMeSettingsPresented = false
-                    }
-                },
-                onOpenLanguage: openAppSettings,
-                onOpenICloud: {
-                    isICloudSyncPresented = true
-                },
+                selectedLanguageCode: $selectedLanguageCode,
+                onReminderSettingsChanged: { syncTaskStartReminders() },
+                onBack: { isMeSettingsPresented = false },
+                onOpenICloud: { isICloudSyncPresented = true },
                 onSetICloudEnabled: { enabled in
-                    Task {
-                        await iCloudSyncCoordinator.setEnabled(enabled)
-                    }
+                    Task { await iCloudSyncCoordinator.setEnabled(enabled) }
                 },
                 onOpenTerms: {
                     openLegalURL("https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")
@@ -1148,55 +1204,16 @@ struct ContentView: View {
                     requestAppStoreReviewFromMe(markEntryHidden: false)
                 }
             )
-            .transition(.opacity)
-        } else {
-            BingodaysMeScreen(
-                isPremiumMember: subscriptionManager.hasPremiumAccess,
-                premiumPlanKind: subscriptionManager.currentPlanKind,
-                hasReviewedApp: hasRatedAppReviewPrompt,
-                streakDays: meConsecutiveOpenDays,
-                greetingText: MeGreeting.localizedText(at: meGreetingIndex),
-                skin: activeMeSkin,
-                isPadLayout: isPadLayout,
-                bottomInset: bottomInset,
-                onOpenContact: {
-                    DiagnosticLogStore.recordUserAction(
-                        "me.contact",
-                        details: diagnosticHomeStateDetails(source: "me")
-                    )
-                    isContactUsPresented = true
-                },
-                onOpenSettings: {
-                    DiagnosticLogStore.recordUserAction(
-                        "me.settings",
-                        details: diagnosticHomeStateDetails(source: "me")
-                    )
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        isMeSettingsPresented = true
-                    }
-                },
-                onLeaveReview: {
-                    DiagnosticLogStore.recordUserAction(
-                        "me.encourage_us",
-                        details: diagnosticHomeStateDetails(source: "me")
-                    )
-                    requestAppStoreReviewFromMe(markEntryHidden: true)
-                },
-                onOpenDiary: {
-                    DiagnosticLogStore.recordUserAction(
-                        "me.diary",
-                        details: diagnosticHomeStateDetails(source: "me")
-                    )
-                    isDiaryPresented = true
-                },
-                onOpenPremium: {
-                    presentPremiumPaywall(source: "me_pro_entry")
-                },
-                onToggleSkin: {
-                    meSkinRawValue = activeMeSkin == .halloween ? MeSkin.normal.rawValue : MeSkin.halloween.rawValue
-                }
-            )
-            .transition(.opacity)
+            .sheet(isPresented: $isICloudSyncPresented) {
+                NativeICloudSettingsView(
+                    isPadLayout: isPadLayout,
+                    themeColor: NeumorphicColors.modalAccent
+                )
+                .environmentObject(iCloudSyncCoordinator)
+            }
+            .presentationDetents([.fraction(0.9)])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(Color(hex: "F9F7F0"))
         }
     }
 
@@ -2011,11 +2028,6 @@ struct ContentView: View {
             hasRatedAppReviewPrompt = true
         }
         requestReview()
-    }
-
-    private func openAppSettings() {
-        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-        openURL(url)
     }
 
     private func openLegalURL(_ urlString: String) {
@@ -2930,6 +2942,14 @@ struct ContentView: View {
             selectedBoardID: selectedBoardID,
             activeBoard: viewModel.makeSavedBoardSnapshot()
         )
+        syncDailyReminders()
+    }
+
+    private func syncDailyReminders() {
+        let boards = namedBoards
+        let selected = selectedBoardID
+        let active = viewModel.makeSavedBoardSnapshot()
+        Task { await DailyReminderService.sync(namedBoards: boards, selectedBoardID: selected, activeBoard: active) }
     }
 
     private func processExpiredTimeoutsOnOtherBoards(now: Date) {

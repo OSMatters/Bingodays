@@ -1,5 +1,6 @@
 import CloudKit
 import CoreData
+import CryptoKit
 import Foundation
 import os
 
@@ -115,17 +116,19 @@ enum NativeICloudPreferences {
 
     static var isEnabled: Bool {
         get { sharedDefaults.bool(forKey: enabledKey) }
-        set {
-            sharedDefaults.set(newValue, forKey: enabledKey)
-            if !newValue {
-                sharedDefaults.removeObject(forKey: primaryPendingMutationGenerationKey)
-            }
-        }
+        set { sharedDefaults.set(newValue, forKey: enabledKey) }
     }
 
     static var accountScopeIdentifier: String? {
         get { sharedDefaults.string(forKey: accountScopeKey) }
-        set { sharedDefaults.set(newValue, forKey: accountScopeKey) }
+        set {
+            if newValue != accountScopeIdentifier {
+                // The legacy marker had no account scope. Never carry it into
+                // an explicitly selected different account.
+                sharedDefaults.removeObject(forKey: primaryPendingMutationGenerationKey)
+            }
+            sharedDefaults.set(newValue, forKey: accountScopeKey)
+        }
     }
 
     static var primaryLocalModifiedAt: Date? {
@@ -141,19 +144,87 @@ enum NativeICloudPreferences {
     }
 
     static var primaryPendingMutationGeneration: Int {
-        sharedDefaults.integer(forKey: primaryPendingMutationGenerationKey)
+        guard let scope = accountScopeIdentifier else { return 0 }
+        let checkpoint = primaryCheckpoint(for: scope)
+        return checkpoint.hasPendingMutation ? checkpoint.localRevision : 0
     }
 
     @discardableResult
     static func markPrimaryMutationPending() -> Int {
-        let next = primaryPendingMutationGeneration &+ 1
-        sharedDefaults.set(next, forKey: primaryPendingMutationGenerationKey)
-        return next
+        guard let scope = accountScopeIdentifier else { return 0 }
+        return BingoBoardStore.withBoardPersistenceLock {
+            var checkpoint = primaryCheckpoint(for: scope)
+            let revision = checkpoint.markChanged()
+            savePrimaryCheckpoint(checkpoint, for: scope)
+            return revision
+        } ?? 0
     }
 
-    static func clearPrimaryMutationPending(ifCurrent generation: Int) {
-        guard primaryPendingMutationGeneration == generation else { return }
-        sharedDefaults.removeObject(forKey: primaryPendingMutationGenerationKey)
+    static func primaryCheckpoint(for scope: String) -> NativeICloudPrimarySyncCheckpoint {
+        let fileData = primaryCheckpointFileURL(for: scope).flatMap { try? Data(contentsOf: $0) }
+        let candidates = [fileData, sharedDefaults.data(forKey: primaryCheckpointKey(for: scope))]
+            .compactMap { $0 }.compactMap { try? JSONDecoder().decode(NativeICloudPrimarySyncCheckpoint.self, from: $0) }
+        if !candidates.isEmpty {
+            var merged = NativeICloudPrimarySyncCheckpoint()
+            for candidate in candidates {
+                merged.localRevision = max(merged.localRevision, candidate.localRevision)
+                merged.exportedRevision = max(merged.exportedRevision, candidate.exportedRevision)
+                if let version = candidate.acceptedVersion { merged.accept(version) }
+            }
+            return merged
+        }
+        var checkpoint = NativeICloudPrimarySyncCheckpoint()
+        if accountScopeIdentifier == scope {
+            checkpoint.localRevision = max(0, sharedDefaults.integer(forKey: primaryPendingMutationGenerationKey))
+        }
+        return checkpoint
+    }
+
+    /// Call inside the board persistence coordination used for capture/projection.
+    @discardableResult
+    static func savePrimaryCheckpoint(_ checkpoint: NativeICloudPrimarySyncCheckpoint, for scope: String) -> Bool {
+        guard let data = try? JSONEncoder().encode(checkpoint) else { return false }
+        sharedDefaults.set(data, forKey: primaryCheckpointKey(for: scope))
+        if let file = primaryCheckpointFileURL(for: scope) {
+            do {
+                try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            } catch {
+                DiagnosticLogStore.recordWarning("points.icloud_checkpoint_write_failed")
+                return false
+            }
+        }
+        if accountScopeIdentifier == scope {
+            sharedDefaults.removeObject(forKey: primaryPendingMutationGenerationKey)
+        }
+        return true
+    }
+
+    static func primaryCheckpointFileURL(for scope: String) -> URL? {
+        let digest = SHA256.hash(data: Data(scope.utf8)).map { String(format: "%02x", $0) }.joined()
+        let fileName = "native_icloud_primary_checkpoint_v3_\(digest).json"
+        if let container = BingoBoardStore.sharedContainerURL {
+            return container.appendingPathComponent(fileName)
+        }
+        // Unsigned development builds have no App Group container. Keep the
+        // durable checkpoint in this app's sandbox instead of relying on defaults alone.
+        do {
+            let support = try FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true
+            )
+            let directory = support
+                .appendingPathComponent(Bundle.main.bundleIdentifier ?? "Bingodays", isDirectory: true)
+                .appendingPathComponent("NativeICloudCheckpoints", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            return directory.appendingPathComponent(fileName)
+        } catch {
+            DiagnosticLogStore.recordWarning("points.icloud_checkpoint_directory_failed")
+            return nil
+        }
+    }
+
+    private static func primaryCheckpointKey(for scope: String) -> String {
+        "native_icloud_primary_checkpoint_v3_\(scope)"
     }
 
     static var secondaryLocalModifiedAt: Date? {
@@ -185,7 +256,7 @@ enum NativeICloudPreferences {
     }
 
     private static var sharedDefaults: UserDefaults {
-        UserDefaults(suiteName: NativeICloudConfiguration.appGroupIdentifier) ?? .standard
+        BingoBoardStore.sharedDefaults
     }
 
     private static func date(forKey key: String) -> Date? {
@@ -224,6 +295,16 @@ enum NativeICloudInitialImportReadiness {
     }
 }
 
+/// A synchronous token check is also available inside the main-actor commit.
+/// Actor state checked before awaiting that actor can already be obsolete there.
+final class NativeICloudPrimarySession: Sendable {
+    private let identifier = OSAllocatedUnfairLock(initialState: UUID())
+
+    var id: UUID { identifier.withLock { $0 } }
+    func matches(_ candidate: UUID) -> Bool { identifier.withLock { $0 == candidate } }
+    func invalidate() { identifier.withLock { $0 = UUID() } }
+}
+
 actor NativeICloudRuntime {
     static let shared = NativeICloudRuntime()
 
@@ -250,6 +331,27 @@ actor NativeICloudRuntime {
     private var preparationWaiters: [CheckedContinuation<Void, Error>] = []
     private var lifecycleGeneration: UInt = 0
     private var activeStoreGeneration: UInt = 0
+    private let primarySession = NativeICloudPrimarySession()
+    private var isPrimaryOperationRunning = false
+    private var primaryOperationWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func primarySessionID() -> UUID { primarySession.id }
+
+    private func acquirePrimaryOperation() async {
+        if isPrimaryOperationRunning {
+            await withCheckedContinuation { primaryOperationWaiters.append($0) }
+        } else {
+            isPrimaryOperationRunning = true
+        }
+    }
+
+    private func releasePrimaryOperation() {
+        if primaryOperationWaiters.isEmpty {
+            isPrimaryOperationRunning = false
+        } else {
+            primaryOperationWaiters.removeFirst().resume()
+        }
+    }
 
     func prepare(
         accountScopeIdentifier: String? = nil,
@@ -344,9 +446,29 @@ actor NativeICloudRuntime {
     func saveLatest(
         domain: NativeICloudDomain,
         payload: Data,
-        stamp: NativeICloudCommitStamp? = nil
+        stamp: NativeICloudCommitStamp? = nil,
+        expectedSessionID: UUID? = nil
     ) async throws -> NativeICloudEnvelopeValue {
+        let sessionID = expectedSessionID ?? primarySession.id
+        if domain == .primaryState { await acquirePrimaryOperation() }
+        defer { if domain == .primaryState { releasePrimaryOperation() } }
+        guard primarySession.matches(sessionID) else { throw CancellationError() }
+        return try await saveLatestUnderPrimaryOperation(domain: domain, payload: payload, stamp: stamp, expectedSessionID: sessionID)
+    }
+
+    private func saveLatestUnderPrimaryOperation(
+        domain: NativeICloudDomain,
+        payload: Data,
+        stamp: NativeICloudCommitStamp? = nil,
+        localRevision: Int? = nil,
+        expectedSessionID: UUID
+    ) async throws -> NativeICloudEnvelopeValue {
+        let sessionID = expectedSessionID
+        guard primarySession.matches(sessionID) else { throw CancellationError() }
         let syncStore = try await readyStore()
+        guard primarySession.matches(sessionID) else { throw CancellationError() }
+        let session = primarySession
+        let scope = loadedAccountScopeIdentifier
         let schemaVersion: Int64
         let resolvedStamp: NativeICloudCommitStamp
         if domain == .primaryState {
@@ -360,24 +482,37 @@ actor NativeICloudRuntime {
             schemaVersion = NativeICloudPrimaryEnvelopeSchema.legacyVersion
             resolvedStamp = stamp ?? NativeICloudCommitStamp(modifiedAt: .now, commitID: UUID())
         }
+        guard session.matches(sessionID) else { throw CancellationError() }
         let saved = try await syncStore.saveLatest(
             domain: domain,
             payload: payload,
             stamp: resolvedStamp,
             schemaVersion: schemaVersion
         )
+        guard session.matches(sessionID) else { throw CancellationError() }
         if domain == .primaryState {
             // A primary record is an immutable, explicit local user commit. Never
             // merge an older cloud record into it and never manufacture a follow-up
             // "recovery" record here. That feedback loop made two devices publish
             // alternating whole-board snapshots, which changed points without a
             // corresponding user tap and could revert completed tasks.
-            rememberPrimaryHandled(stamp: saved.stamp, schemaVersion: saved.schemaVersion)
+            if let scope {
+                try await MainActor.run {
+                    guard session.matches(sessionID) else { throw CancellationError() }
+                    guard BingoBoardStore.withBoardPersistenceLock({
+                        var checkpoint = NativeICloudPreferences.primaryCheckpoint(for: scope)
+                        checkpoint.accept(.init(stamp: saved.stamp, schemaVersion: saved.schemaVersion))
+                        if let localRevision { checkpoint.acknowledge(localRevision) }
+                        return NativeICloudPreferences.savePrimaryCheckpoint(checkpoint, for: scope)
+                    }) == true else { throw NativeICloudLocalProjectionError.primaryProjectionFailed }
+                }
+            }
+            guard session.matches(sessionID) else { throw CancellationError() }
             if let submittedState = try? JSONDecoder().decode(
                 NativeICloudPrimaryStateSnapshot.self,
-                from: payload
+                from: saved.payload
             ) {
-                lastHandledPrimaryState = submittedState
+                rememberPrimaryHandled(stamp: saved.stamp, schemaVersion: saved.schemaVersion, state: submittedState)
             }
         }
         return saved
@@ -388,9 +523,10 @@ actor NativeICloudRuntime {
         schemaVersion: Int64 = NativeICloudPrimaryEnvelopeSchema.legacyVersion,
         state: NativeICloudPrimaryStateSnapshot? = nil
     ) {
-        rememberPrimaryHandled(stamp: stamp, schemaVersion: schemaVersion)
         if let state {
-            lastHandledPrimaryState = state
+            rememberPrimaryHandled(stamp: stamp, schemaVersion: schemaVersion, state: state)
+        } else {
+            rememberPrimaryHandled(stamp: stamp, schemaVersion: schemaVersion)
         }
     }
 
@@ -493,79 +629,111 @@ actor NativeICloudRuntime {
     func exportPrimaryNow(
         requestedAt: Date? = nil
     ) async throws -> NativeICloudEnvelopeValue? {
-        guard NativeICloudPreferences.isEnabled else { return nil }
+        try await commitCurrentPrimaryState(allowsDisabledSync: false)
+    }
+
+    /// Initial enablement has not set isEnabled yet, but must use exactly the
+    /// same serial capture-and-save path as subsequent user changes.
+    @discardableResult
+    func exportPrimaryForInitialMigration(expectedSessionID: UUID? = nil) async throws -> NativeICloudEnvelopeValue? {
+        try await commitCurrentPrimaryState(allowsDisabledSync: true, expectedSessionID: expectedSessionID)
+    }
+
+    private func commitCurrentPrimaryState(
+        allowsDisabledSync: Bool,
+        expectedSessionID: UUID? = nil
+    ) async throws -> NativeICloudEnvelopeValue? {
+        let sessionID = expectedSessionID ?? primarySession.id
+        await acquirePrimaryOperation()
+        defer { releasePrimaryOperation() }
+        let session = primarySession
+        guard session.matches(sessionID), allowsDisabledSync || NativeICloudPreferences.isEnabled else {
+            throw CancellationError()
+        }
         try await prepare()
-        // On a fresh device Core Data may still contain an old local mirror while
-        // CloudKit has not completed its first download. Do not let that cache
-        // publish a newer-looking whole snapshot over the real account data.
-        guard hasCompletedInitialCloudImport else { return nil }
-        let snapshot = NativeICloudPrimaryStateSnapshot.captureLocal()
-        let pendingMutationGeneration = NativeICloudPreferences.primaryPendingMutationGeneration
+        guard hasCompletedInitialCloudImport, let scope = loadedAccountScopeIdentifier else { return nil }
+        let current = try await latestValue(for: .primaryState)
+        let stamp = try await nextPrimaryLogicalStamp(after: current)
+        // All asynchronous cloud reads precede capture. Capture and its revision
+        // share the same coordination as app/widget business transactions.
+        let captured = try await MainActor.run {
+            guard session.matches(sessionID),
+                  allowsDisabledSync || NativeICloudPreferences.isEnabled,
+                  NativeICloudPreferences.accountScopeIdentifier == scope ||
+                    (allowsDisabledSync && NativeICloudPreferences.accountScopeIdentifier == nil) else {
+                throw CancellationError()
+            }
+            guard let captured = BingoBoardStore.withBoardPersistenceLock({
+                (NativeICloudPrimaryStateSnapshot.captureLocal(),
+                 NativeICloudPreferences.primaryCheckpoint(for: scope).localRevision)
+            }) else { throw NativeICloudLocalProjectionError.primaryProjectionFailed }
+            return captured
+        }
+        let (snapshot, revision) = captured
         guard !snapshot.isSystemStarterGuideSeedData else {
             DiagnosticLogStore.recordStateChange("icloud_export_skipped_starter_guide_seed")
             return nil
         }
-        if let current = try await latestValue(for: .primaryState),
-           let currentSnapshot = try? JSONDecoder().decode(
-               NativeICloudPrimaryStateSnapshot.self,
-               from: current.payload
-           ) {
-            if current.schemaVersion >= NativeICloudPrimaryEnvelopeSchema.logicalCommitVersion,
-               currentSnapshot.hasSameUserState(as: snapshot) {
-                DiagnosticLogStore.recordStateChange(
-                    "points.icloud_export_skipped_same_state",
-                    details: [
-                        "local_total": snapshot.points.totalPoints.map { "\($0)" } ?? "nil",
-                        "cloud_total": currentSnapshot.points.totalPoints.map { "\($0)" } ?? "nil",
-                        "cloud_stamp": "\(current.stamp.modifiedAt.timeIntervalSince1970)"
-                    ]
-                )
-                rememberPrimaryHandled(stamp: current.stamp, schemaVersion: current.schemaVersion)
-                lastHandledPrimaryState = snapshot
-                NativeICloudPreferences.clearPrimaryMutationPending(
-                    ifCurrent: pendingMutationGeneration
-                )
-                return current
-            }
-
-            if NativeICloudPrimaryExportGuard.blocksAutomaticUpload(
-                local: snapshot,
-                remote: currentSnapshot
-            ) {
-                DiagnosticLogStore.recordWarning(
-                    "points.icloud_export_blocked_empty_local_state",
-                    details: [
-                        "local_total": snapshot.points.totalPoints.map { "\($0)" } ?? "nil",
-                        "remote_total": currentSnapshot.points.totalPoints.map { "\($0)" } ?? "nil",
-                        "remote_stamp": "\(current.stamp.modifiedAt.timeIntervalSince1970)"
-                    ]
-                )
-                return nil
-            }
+        if let current,
+           let remote = try? JSONDecoder().decode(NativeICloudPrimaryStateSnapshot.self, from: current.payload),
+           NativeICloudPrimaryExportGuard.blocksAutomaticUpload(local: snapshot, remote: remote) {
+            DiagnosticLogStore.recordWarning("points.icloud_export_blocked_empty_local_state")
+            return nil
         }
-
-        let payload = try JSONEncoder().encode(snapshot)
-        let stamp = try await nextPrimaryLogicalStamp(after: try await latestValue(for: .primaryState))
-        DiagnosticLogStore.recordStateChange(
-            "points.icloud_export_begin",
-            details: [
-                "local_total": snapshot.points.totalPoints.map { "\($0)" } ?? "nil",
-                "local_lifetime": snapshot.points.lifetimePoints.map { "\($0)" } ?? "nil",
-                "logical_stamp": "\(stamp.modifiedAt.timeIntervalSinceReferenceDate)",
-                "commit_id": String(stamp.commitID.uuidString.prefix(8))
-            ]
+        guard session.matches(sessionID) else { throw CancellationError() }
+        DiagnosticLogStore.recordStateChange("points.icloud_export_begin", details: [
+            "local_total": snapshot.points.totalPoints.map(String.init) ?? "nil",
+            "local_lifetime": snapshot.points.lifetimePoints.map(String.init) ?? "nil",
+            "local_revision": String(revision),
+            "logical_stamp": String(stamp.modifiedAt.timeIntervalSinceReferenceDate),
+            "commit_id": String(stamp.commitID.uuidString.prefix(8))
+        ])
+        let saved = try await saveLatestUnderPrimaryOperation(
+            domain: .primaryState, payload: try JSONEncoder().encode(snapshot),
+            stamp: stamp, localRevision: revision, expectedSessionID: sessionID
         )
-        let saved = try await saveLatest(domain: .primaryState, payload: payload, stamp: stamp)
-        NativeICloudPreferences.clearPrimaryMutationPending(ifCurrent: pendingMutationGeneration)
-        DiagnosticLogStore.recordStateChange(
-            "points.icloud_export_saved",
-            details: [
-                "local_total": snapshot.points.totalPoints.map { "\($0)" } ?? "nil",
-                "saved_logical_stamp": "\(saved.stamp.modifiedAt.timeIntervalSinceReferenceDate)",
-                "commit_id": String(saved.stamp.commitID.uuidString.prefix(8))
-            ]
-        )
+        guard session.matches(sessionID) else { throw CancellationError() }
+        DiagnosticLogStore.recordStateChange("points.icloud_export_saved", details: [
+            "local_total": snapshot.points.totalPoints.map(String.init) ?? "nil",
+            "local_revision": String(revision),
+            "saved_logical_stamp": String(saved.stamp.modifiedAt.timeIntervalSinceReferenceDate),
+            "commit_id": String(saved.stamp.commitID.uuidString.prefix(8))
+        ])
+        if NativeICloudPreferences.isEnabled,
+           NativeICloudPreferences.primaryCheckpoint(for: scope).hasPendingMutation {
+            schedulePrimaryExport()
+        }
         return saved
+    }
+
+    /// Returns false when a user edited the local board while migration was
+    /// reading the mirror. The caller then exports a fresh local snapshot.
+    func applyPrimaryForInitialMigration(
+        _ snapshot: NativeICloudPrimaryStateSnapshot,
+        stamp: NativeICloudCommitStamp,
+        schemaVersion: Int64,
+        expectedSessionID: UUID? = nil,
+        isExplicitAccountReplacement: Bool = false
+    ) async throws -> Bool {
+        let sessionID = expectedSessionID ?? primarySession.id
+        await acquirePrimaryOperation()
+        defer { releasePrimaryOperation() }
+        guard primarySession.matches(sessionID), let scope = loadedAccountScopeIdentifier else {
+            throw CancellationError()
+        }
+        let session = primarySession
+        let projection = try await MainActor.run {
+            try NativeICloudPrimaryLocalProjection.applyIfCurrent(
+                snapshot, latestStamp: stamp, latestSchemaVersion: schemaVersion,
+                hasHandledLatestCommit: false, resolvedStateWasAlreadyHandled: false,
+                accountScope: scope, session: session, sessionID: sessionID,
+                allowsDisabledSync: true, isExplicitAccountReplacement: isExplicitAccountReplacement
+            )
+        }
+        guard session.matches(sessionID) else { throw CancellationError() }
+        guard !projection.localHasNewerUserChange else { return false }
+        rememberPrimaryHandled(stamp: stamp, schemaVersion: schemaVersion, state: snapshot)
+        return true
     }
 
     func rebasePrimaryHistoryIfNeeded(
@@ -598,7 +766,13 @@ actor NativeICloudRuntime {
     @discardableResult
     func importPrimaryIfNeeded(reloadWidgets: Bool = true) async throws -> Bool {
         guard NativeICloudPreferences.isEnabled else { return false }
+        let sessionID = primarySession.id
+        await acquirePrimaryOperation()
+        defer { releasePrimaryOperation() }
+        guard primarySession.matches(sessionID), NativeICloudPreferences.isEnabled else { throw CancellationError() }
         try await prepare()
+        guard let scope = loadedAccountScopeIdentifier else { throw CancellationError() }
+        let session = primarySession
         let primaryValues = try await readyStore().values(for: .primaryState)
         let decodedHistory = primaryValues.compactMap { value -> (NativeICloudEnvelopeValue, NativeICloudPrimaryStateSnapshot)? in
             guard let snapshot = try? JSONDecoder().decode(
@@ -635,9 +809,11 @@ actor NativeICloudRuntime {
                 latestSchemaVersion: latest.schemaVersion,
                 hasHandledLatestCommit: hasHandledLatestCommit,
                 resolvedStateWasAlreadyHandled: resolvedStateWasAlreadyHandled,
-                reloadWidgets: reloadWidgets
+                reloadWidgets: reloadWidgets,
+                accountScope: scope, session: session, sessionID: sessionID
             )
         }
+        guard session.matches(sessionID) else { throw CancellationError() }
         let localSnapshot = projection.localSnapshot
         let localTotal = localSnapshot.points.totalPoints.map(String.init) ?? "nil"
         let cloudTotal = snapshot.points.totalPoints.map(String.init) ?? "nil"
@@ -658,10 +834,12 @@ actor NativeICloudRuntime {
             "local_newer": String(projection.localHasNewerUserChange),
             "pending_local_mutation": String(projection.hasPendingLocalMutation),
             "cloud_schema": String(latest.schemaVersion),
+            "local_revision": String(NativeICloudPreferences.primaryCheckpoint(for: scope).localRevision),
             "history_count": String(decodedHistory.count),
             "history_repaired_latest": String(!snapshot.hasSameUserState(as: newestSnapshot))
         ]
         if projection.didSkipHandledCommit {
+            if projection.hasPendingLocalMutation { schedulePrimaryExport() }
             DiagnosticLogStore.recordStateChange(
                 "points.icloud_import_skipped_handled",
                 details: importDetails
@@ -739,9 +917,10 @@ actor NativeICloudRuntime {
     /// (or emits no import event when there is nothing new). That is not a sync
     /// failure and must not turn the user's enabled switch into an error state.
     func waitForInitialCloudImport(timeout: TimeInterval = 12) async throws -> Bool {
-        let storeAlreadyHadPrimarySnapshot = try await readyStore().latestValue(
-            for: .primaryState
-        ) != nil
+        let generation = lifecycleGeneration
+        let syncStore = try await readyStore()
+        let storeAlreadyHadPrimarySnapshot = try await syncStore.latestValue(for: .primaryState) != nil
+        guard generation == lifecycleGeneration else { throw CancellationError() }
         if NativeICloudInitialImportReadiness.isReady(
             storeHasPrimarySnapshot: storeAlreadyHadPrimarySnapshot,
             observedImportForCurrentStore: hasCompletedInitialCloudImport
@@ -751,11 +930,14 @@ actor NativeICloudRuntime {
         }
         let deadline = Date().addingTimeInterval(timeout)
         while !hasCompletedInitialCloudImport {
+            guard generation == lifecycleGeneration else { throw CancellationError() }
+            try Task.checkCancellation()
             if let latestCloudEventFailure {
                 throw latestCloudEventFailure
             }
-            if !storeAlreadyHadPrimarySnapshot,
-               try await readyStore().latestValue(for: .primaryState) != nil {
+            let receivedPrimary = try await syncStore.latestValue(for: .primaryState) != nil
+            guard generation == lifecycleGeneration else { throw CancellationError() }
+            if receivedPrimary {
                 hasCompletedInitialCloudImport = true
                 return true
             }
@@ -1026,6 +1208,7 @@ actor NativeICloudRuntime {
     /// contexts may still be saving. The store object remains strongly held by an
     /// in-flight operation and Core Data can release it after that operation ends.
     private func discardActiveStore() {
+        primarySession.invalidate()
         if let remoteChangeObserver {
             NotificationCenter.default.removeObserver(remoteChangeObserver)
         }
@@ -1072,6 +1255,7 @@ actor NativeICloudRuntime {
     }
 
     private func postFailure(_ error: Error) {
+        guard !(error is CancellationError) else { return }
         NotificationCenter.default.post(
             name: .nativeICloudRuntimeDidFail,
             object: nil,
@@ -1101,10 +1285,10 @@ enum NativeICloudLocalChangeReporter {
         // arrive during those 250 ms; without this dirty marker it can overwrite the
         // task the user has just tapped before its export starts.
         NativeICloudPreferences.primaryLocalModifiedAt = changeDate
+        _ = NativeICloudPreferences.markPrimaryMutationPending()
         guard NativeICloudPreferences.isEnabled else {
             return
         }
-        _ = NativeICloudPreferences.markPrimaryMutationPending()
         guard scheduleExport else { return }
         Task {
             await NativeICloudRuntime.shared.schedulePrimaryExport(requestedAt: changeDate)

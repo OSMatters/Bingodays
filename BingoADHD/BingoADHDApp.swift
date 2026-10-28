@@ -115,7 +115,8 @@ enum TaskStartReminderService {
             selectedBoardID: selectedBoardID,
             activeBoard: activeBoard
         )
-        let desiredReminders = desiredReminders(from: boards, now: now)
+        let desiredReminders = ReminderPreferences.load().enabled
+            ? desiredReminders(from: boards, now: now) : []
         let desiredIDs = Set(desiredReminders.map(\.identifier))
         let center = UNUserNotificationCenter.current()
         let pendingRequests = await pendingNotificationRequests(center: center)
@@ -164,7 +165,8 @@ enum TaskStartReminderService {
             selectedBoardID: selectedBoardID,
             activeBoard: activeBoard
         )
-        return desiredReminders(from: boards, now: now)
+        let preferences = ReminderPreferences.load()
+        return (preferences.enabled ? "on|" : "off|") + desiredReminders(from: boards, now: now)
             .map { reminder in
                 [
                     reminder.identifier,
@@ -220,28 +222,13 @@ enum TaskStartReminderService {
         }
 
         let offsetMinutes = normalizedOffsetMinutes(cell.startReminderOffsetMinutes)
-
-        let title = offsetMinutes == 0
-            ? L10n.tr("Task started", zhHans: "任务开始了", zhHant: "任務開始了", ja: "タスクが始まりました")
-            : L10n.tr("Task starts soon", zhHans: "任务即将开始", zhHant: "任務即將開始", ja: "タスクがまもなく始まります")
-        let body = offsetMinutes == 0
-            ? L10n.tr(
-                "\(taskText) is ready now.",
-                zhHans: "\(taskText) 现在可以开始了。",
-                zhHant: "\(taskText) 現在可以開始了。",
-                ja: "\(taskText) を始められます。"
-            )
-            : L10n.tr(
-                "\(taskText) starts in \(offsetMinutes) minutes.",
-                zhHans: "\(taskText) 将在 \(offsetMinutes) 分钟后开始。",
-                zhHant: "\(taskText) 將在 \(offsetMinutes) 分鐘後開始。",
-                ja: "\(taskText) は\(offsetMinutes)分後に始まります。"
-            )
+        let message = ReminderCopyVariant.forDate(reminderDate)
+            .taskStartMessage(taskText: taskText, offsetMinutes: offsetMinutes)
 
         return PendingReminder(
             identifier: notificationID(boardID: boardID, cellID: cell.id),
-            title: title,
-            body: "\(boardName): \(body)",
+            title: message.title,
+            body: "\(boardName): \(message.body)",
             date: reminderDate,
             boardID: boardID,
             cellID: cell.id
@@ -351,6 +338,267 @@ enum TaskStartReminderService {
                 continuation.resume(returning: notifications.map { $0.request.identifier })
             }
         }
+    }
+}
+
+struct ReminderCopyVariant: Equatable {
+    private let value: UInt64
+
+    // Keep the existing seed so a user's daily choice stays stable across app updates.
+    private static let seedKey = "reminder_daily_tone_seed_v1"
+
+    static func forDate(
+        _ date: Date,
+        calendar: Calendar = .current,
+        defaults: UserDefaults = .standard
+    ) -> Self {
+        let seed: UInt64
+        if let stored = defaults.string(forKey: seedKey), let value = UInt64(stored) {
+            seed = value
+        } else {
+            seed = UInt64.random(in: UInt64.min...UInt64.max)
+            defaults.set(String(seed), forKey: seedKey)
+        }
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        let day = UInt64((parts.year ?? 0) * 10_000 + (parts.month ?? 0) * 100 + (parts.day ?? 0))
+        var value = (seed ^ day) &+ 0x9E3779B97F4A7C15
+        value = (value ^ (value >> 30)) &* 0xBF58476D1CE4E5B9
+        value = (value ^ (value >> 27)) &* 0x94D049BB133111EB
+        value ^= value >> 31
+        return Self(value: value)
+    }
+
+    enum Kind { case boardReset, ticket, streak }
+
+    func message(for kind: Kind) -> (title: String, body: String) {
+        let copies: [(title: String, body: String)]
+        switch kind {
+        case .boardReset:
+            copies = [
+                (L10n.tr("Wait, how is there only an hour left?", zhHans: "不是，怎么就剩一小时了", zhHant: "不是，怎麼就剩一小時了"),
+                 L10n.tr("The board resets soon. I thought today was longer.", zhHans: "棋盘快重置了，我还以为今天很长呢。", zhHant: "棋盤快重置了，我還以為今天很長呢。")),
+                (L10n.tr("The board refreshes already?", zhHans: "棋盘待会儿就刷新？", zhHant: "棋盤待會兒就刷新？"),
+                 L10n.tr("One hour left. If there's anything you want to finish, there's still time.", zhHans: "还有 1 小时。想补点什么，现在还来得及。", zhHant: "還有 1 小時。想補點什麼，現在還來得及。")),
+                (L10n.tr("How did reset time get here so fast?", zhHans: "救命，重置时间这么快到", zhHant: "救命，重置時間這麼快到"),
+                 L10n.tr("The board refreshes in one hour. Don't say I didn't warn you.", zhHans: "再过 1 小时就刷新，别说我没提醒你。", zhHant: "再過 1 小時就刷新，別說我沒提醒你。")),
+                (L10n.tr("The reset countdown is on", zhHans: "重置倒计时开始了喂", zhHant: "重置倒數計時開始了喂"),
+                 L10n.tr("One hour left. If you want to wrap anything up, now's the time.", zhHans: "就剩 1 小时，要收尾的话趁现在。", zhHant: "就剩 1 小時，要收尾的話趁現在。"))
+            ]
+        case .ticket:
+            copies = [
+                (L10n.tr("Wait, more blind-box tickets?", zhHans: "不是，盲盒券又来了？", zhHant: "不是，盲盒券又來了？"),
+                 L10n.tr("Today's tickets refreshed. Are you tempted?", zhHans: "今天的券更新了，手痒了没。", zhHant: "今天的券更新了，手癢了沒。")),
+                (L10n.tr("Tickets updated. Just saying.", zhHans: "券更新啦，我先说", zhHant: "券更新啦，我先說"),
+                 L10n.tr("Whether you open a box or not, today's tickets are ready.", zhHans: "开不开盒先不管，今天的券可以看了。", zhHant: "開不開盒先不管，今天的券可以看了。")),
+                (L10n.tr("New tickets. Who could resist?", zhHans: "新券来了，这谁忍得住", zhHant: "新券來了，這誰忍得住"),
+                 L10n.tr("The blind boxes are back for today.", zhHans: "盲盒今天又开张了。", zhHant: "盲盒今天又開張了。")),
+                (L10n.tr("Tickets refreshed. For real.", zhHans: "盲盒券已刷新，真的", zhHant: "盲盒券已刷新，真的"),
+                 L10n.tr("See which box you can open today.", zhHans: "看看今天能开哪盒。", zhHant: "看看今天能開哪盒。")),
+                (L10n.tr("The tickets just showed up like that", zhHans: "这券怎么说来就来", zhHant: "這券怎麼說來就來"),
+                 L10n.tr("The new round is here. Go see.", zhHans: "新一期已经更新了，去看看。", zhHant: "新一期已經更新了，去看看。"))
+            ]
+        case .streak:
+            copies = [
+                (L10n.tr("Wait, you haven't opened today?", zhHans: "不是，今天还没打开？", zhHant: "不是，今天還沒打開？"),
+                 L10n.tr("Your streak hasn't been renewed yet. There's still time.", zhHans: "连续记录还没续上，今天还来得及。", zhHant: "連續紀錄還沒續上，今天還來得及。")),
+                (L10n.tr("I almost forgot to remind you", zhHans: "我差点忘了提醒你", zhHant: "我差點忘了提醒你"),
+                 L10n.tr("You haven't opened Bingodays today. Don't miss it tonight.", zhHans: "今天还没打开 Bingodays，晚上别错过。", zhHant: "今天還沒打開 Bingodays，晚上別錯過。")),
+                (L10n.tr("Your streak is waiting around", zhHans: "连续记录等你等到发呆", zhHant: "連續紀錄等你等到發呆"),
+                 L10n.tr("Open the app now and you're still in time.", zhHans: "现在打开还来得及。", zhHant: "現在打開還來得及。")),
+                (L10n.tr("Does today feel like it's missing something?", zhHans: "今天是不是少了点什么", zhHant: "今天是不是少了點什麼"),
+                 L10n.tr("Yep, you haven't opened Bingodays yet.", zhHans: "对，Bingodays 还没打开。", zhHant: "對，Bingodays 還沒打開。")),
+                (L10n.tr("Wait, your streak is slipping away", zhHans: "等等，连续记录要溜了", zhHant: "等等，連續紀錄要溜了"),
+                 L10n.tr("You haven't dropped by today. Come check in.", zhHans: "今天还没来，过来报个到。", zhHant: "今天還沒來，過來報個到。"))
+            ]
+        }
+        return copies[Int(value % UInt64(copies.count))]
+    }
+
+    func taskStartMessage(taskText: String, offsetMinutes: Int) -> (title: String, body: String) {
+        let copies: [(title: String, body: String)] = [
+            (L10n.tr("Wait, it's almost starting?", zhHans: "不是，这就快开始了？", zhHant: "不是，這就快開始了？"),
+             L10n.tr("\(taskText) is in \(offsetMinutes) minutes. I just realized too.", zhHans: "\(taskText) 还有 \(offsetMinutes) 分钟，我也刚反应过来。", zhHant: "\(taskText) 還有 \(offsetMinutes) 分鐘，我也剛反應過來。")),
+            (L10n.tr("Time runs faster than I do", zhHans: "时间跑得比我还快", zhHant: "時間跑得比我還快"),
+             L10n.tr("\(taskText) starts in \(offsetMinutes) minutes.", zhHans: "\(taskText) 还有 \(offsetMinutes) 分钟开始。", zhHant: "\(taskText) 還有 \(offsetMinutes) 分鐘開始。")),
+            (L10n.tr("How is it almost time already?", zhHans: "等下，怎么快到点了", zhHant: "等下，怎麼快到點了"),
+             L10n.tr("\(taskText) starts in \(offsetMinutes) minutes. Don't let time sneak up on you.", zhHans: "\(taskText) 再过 \(offsetMinutes) 分钟开始，别被时间偷袭。", zhHant: "\(taskText) 再過 \(offsetMinutes) 分鐘開始，別被時間偷襲。")),
+            (L10n.tr("Easy, it hasn't started yet", zhHans: "别慌，还没到点", zhHant: "別慌，還沒到點"),
+             L10n.tr("\(taskText) is in \(offsetMinutes) minutes. Want to get ready?", zhHans: "\(taskText) 还有 \(offsetMinutes) 分钟，准备一下？", zhHant: "\(taskText) 還有 \(offsetMinutes) 分鐘，準備一下？")),
+            (L10n.tr("It's time... wait, not yet", zhHans: "时间到了……啊还没", zhHant: "時間到了……啊還沒"),
+             L10n.tr("\(taskText) starts in \(offsetMinutes) minutes. That gave me a scare.", zhHans: "\(taskText) 还有 \(offsetMinutes) 分钟开始，吓我一跳。", zhHant: "\(taskText) 還有 \(offsetMinutes) 分鐘開始，嚇我一跳。"))
+        ]
+        return copies[Int(value % UInt64(copies.count))]
+    }
+
+}
+
+struct ReminderPreferences {
+    static let enabledKey = "reminder_master_enabled_v1"
+    static let resetKey = "reminder_board_reset_enabled_v1"
+    static let ticketKey = "reminder_ticket_enabled_v1"
+    static let streakKey = "reminder_streak_enabled_v1"
+    static let ticketTimeMinutes = 600
+    static let streakTimeMinutes = 1200
+
+    let enabled: Bool
+    let resetEnabled: Bool
+    let ticketEnabled: Bool
+    let streakEnabled: Bool
+
+    static func selectAllChoices(_ defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: resetKey)
+        defaults.set(true, forKey: ticketKey)
+        defaults.set(true, forKey: streakKey)
+    }
+
+    static func load(_ defaults: UserDefaults = .standard) -> Self {
+        return Self(
+            enabled: defaults.bool(forKey: enabledKey),
+            resetEnabled: defaults.bool(forKey: resetKey),
+            ticketEnabled: defaults.bool(forKey: ticketKey),
+            streakEnabled: defaults.bool(forKey: streakKey)
+        )
+    }
+}
+
+@MainActor
+enum DailyReminderService {
+    private static let prefix = "bingoday.reminder."
+    private static var syncGeneration = 0
+
+    struct PlannedReminder {
+        let id: String
+        let date: Date
+        let kind: ReminderCopyVariant.Kind
+    }
+
+    nonisolated static func isManagedNotificationID(_ id: String) -> Bool { id.hasPrefix("bingoday.reminder.") }
+
+    static func plan(
+        boards: [BingoBoardStore.NamedBoard],
+        preferences: ReminderPreferences,
+        lastOpenedDay: Date?,
+        ticketBalance: Int,
+        lastTicketGrantDayIdentifier: String? = nil,
+        now: Date,
+        calendar: Calendar = .current,
+        ticketGrantCalendar: Calendar? = nil
+    ) -> [PlannedReminder] {
+        guard preferences.enabled else { return [] }
+        var result: [PlannedReminder] = []
+
+        if preferences.resetEnabled {
+            // One generic reminder per calendar day, even if several boards reset.
+            var earliestByDay: [Date: Date] = [:]
+            for board in boards where board.taskResetMode != .keepTaskStatus {
+                let cells = (board.board.fullBoardCells ?? board.board.cells).flatMap { $0 }
+                guard cells.contains(where: { $0.hasStoredTask && !$0.isCompleted }) else { continue }
+                let horizon = board.taskResetMode == .clearTasksNextDay ? 1 : 7
+                for day in 0..<horizon {
+                    guard let anchor = calendar.date(byAdding: .day, value: day, to: now),
+                          let reset = BoardResetRuleEngine.nextScheduledResetTime(for: board, after: anchor, calendar: calendar) else { continue }
+                    let alert = reset.addingTimeInterval(-3_600)
+                    guard alert > now else { continue }
+                    let key = calendar.startOfDay(for: alert)
+                    earliestByDay[key] = min(earliestByDay[key] ?? alert, alert)
+                }
+            }
+            result += earliestByDay.map { day, date in
+                PlannedReminder(id: "\(prefix)reset.\(dayID(day, calendar: calendar))", date: date, kind: .boardReset)
+            }
+        }
+
+        if preferences.ticketEnabled && ticketBalance < BlindBoxRuleConfiguration.maximumTicketBalance {
+            for offset in 0..<7 {
+                guard let day = calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: now)),
+                      let date = calendar.date(byAdding: .minute, value: ReminderPreferences.ticketTimeMinutes, to: day),
+                      date > now,
+                      BlindBoxGrantDay.identifier(for: date, calendar: ticketGrantCalendar ?? calendar) != lastTicketGrantDayIdentifier else { continue }
+                result.append(PlannedReminder(id: "\(prefix)ticket.\(dayID(day, calendar: calendar))", date: date, kind: .ticket))
+            }
+        }
+
+        if preferences.streakEnabled, let lastOpenedDay {
+            let openedDay = calendar.startOfDay(for: lastOpenedDay)
+            if let nextDay = calendar.date(byAdding: .day, value: 1, to: openedDay),
+               let date = calendar.date(byAdding: .minute, value: ReminderPreferences.streakTimeMinutes, to: nextDay),
+               date > now {
+                result.append(PlannedReminder(id: "\(prefix)streak.\(dayID(nextDay, calendar: calendar))", date: date, kind: .streak))
+            }
+        }
+        return result.sorted { $0.date < $1.date }
+    }
+
+    static func sync(
+        namedBoards: [BingoBoardStore.NamedBoard],
+        selectedBoardID: UUID?,
+        activeBoard: SavedBoard?,
+        now: Date = .now
+    ) async {
+        var boards = namedBoards
+        if let selectedBoardID, let activeBoard,
+           let index = boards.firstIndex(where: { $0.id == selectedBoardID }) {
+            boards[index].board = activeBoard
+        }
+        let preferences = ReminderPreferences.load()
+        let ticketState = BlindBoxLocalStateStore.load()
+        let reminders = plan(
+            boards: boards,
+            preferences: preferences,
+            lastOpenedDay: AppOpenStreakStore.shared.lastOpenedDay,
+            ticketBalance: ticketState.ticketBalance,
+            lastTicketGrantDayIdentifier: ticketState.lastTicketGrantDayIdentifier,
+            now: now,
+            ticketGrantCalendar: BlindBoxGrantDay.calendar(for: ticketState, fallback: .current)
+        )
+        syncGeneration += 1
+        let generation = syncGeneration
+        let center = UNUserNotificationCenter.current()
+        let pending: [UNNotificationRequest] = await withCheckedContinuation { continuation in
+            center.getPendingNotificationRequests { continuation.resume(returning: $0) }
+        }
+        guard generation == syncGeneration else { return }
+        let desiredIDs = Set(reminders.map(\.id))
+        let managed = pending.filter { isManagedNotificationID($0.identifier) }
+        let existing = Dictionary(managed.map { ($0.identifier, $0) }, uniquingKeysWith: { first, _ in first })
+        let obsolete = managed.map(\.identifier).filter { !desiredIDs.contains($0) }
+        if !obsolete.isEmpty { center.removePendingNotificationRequests(withIdentifiers: obsolete) }
+        if !preferences.enabled {
+            let delivered: [UNNotification] = await withCheckedContinuation { continuation in
+                center.getDeliveredNotifications { continuation.resume(returning: $0) }
+            }
+            guard generation == syncGeneration else { return }
+            let deliveredIDs = delivered.map { $0.request.identifier }.filter(isManagedNotificationID)
+            if !deliveredIDs.isEmpty { center.removeDeliveredNotifications(withIdentifiers: deliveredIDs) }
+        }
+        guard preferences.enabled else { return }
+        let authorized: Bool = await withCheckedContinuation { continuation in
+            center.getNotificationSettings { settings in
+                continuation.resume(returning: [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus))
+            }
+        }
+        guard authorized, generation == syncGeneration else { return }
+        for reminder in reminders {
+            guard generation == syncGeneration else { return }
+            let message = ReminderCopyVariant.forDate(reminder.date).message(for: reminder.kind)
+            let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: reminder.date)
+            if let request = existing[reminder.id],
+               request.content.title == message.title,
+               request.content.body == message.body,
+               (request.trigger as? UNCalendarNotificationTrigger)?.dateComponents == components { continue }
+            if existing[reminder.id] != nil { center.removePendingNotificationRequests(withIdentifiers: [reminder.id]) }
+            let content = UNMutableNotificationContent()
+            content.title = message.title
+            content.body = message.body
+            content.sound = .default
+            let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+            try? await center.add(UNNotificationRequest(identifier: reminder.id, content: content, trigger: trigger))
+        }
+    }
+
+    private static func dayID(_ day: Date, calendar: Calendar) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: day)
+        return "\(parts.year ?? 0)-\(parts.month ?? 0)-\(parts.day ?? 0)"
     }
 }
 
@@ -505,13 +753,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         center.getPendingNotificationRequests { requests in
             let legacyIDs = requests
                 .map(\.identifier)
-                .filter { !TaskStartReminderService.isManagedNotificationID($0) }
+                .filter { !TaskStartReminderService.isManagedNotificationID($0) && !DailyReminderService.isManagedNotificationID($0) }
             UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: legacyIDs)
         }
         center.getDeliveredNotifications { notifications in
             let legacyIDs = notifications
                 .map { $0.request.identifier }
-                .filter { !TaskStartReminderService.isManagedNotificationID($0) }
+                .filter { !TaskStartReminderService.isManagedNotificationID($0) && !DailyReminderService.isManagedNotificationID($0) }
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: legacyIDs)
         }
         if #available(iOS 17.0, *) {
@@ -557,7 +805,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        if TaskStartReminderService.isManagedNotificationID(notification.request.identifier) {
+        if TaskStartReminderService.isManagedNotificationID(notification.request.identifier)
+            || DailyReminderService.isManagedNotificationID(notification.request.identifier) {
             completionHandler([.banner, .list, .sound])
         } else {
             completionHandler([])

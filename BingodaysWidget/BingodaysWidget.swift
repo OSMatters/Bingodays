@@ -209,6 +209,7 @@ struct BingodaysCountdownWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: BingodaysWidgetProvider()) { entry in
             BingodaysCountdownWidgetView(entry: entry)
+                .environment(\.locale, AppLanguage.displayLocale)
         }
         .configurationDisplayName(L10n.widgetCountdownName)
         .description(L10n.widgetCountdownDescription)
@@ -222,6 +223,7 @@ struct BingodaysLargeWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: BingodaysWidgetProvider()) { entry in
             BingodaysLargeWidgetView(entry: entry)
+                .environment(\.locale, AppLanguage.displayLocale)
         }
         .configurationDisplayName(L10n.widgetBoardName)
         .description(L10n.widgetBoardDescription)
@@ -808,13 +810,13 @@ private struct WidgetBingoCellView: View {
     let usesCompletionArtwork: Bool
     @Environment(\.widgetRenderingMode) private var renderingMode
 
-    private static let scheduleDateFormatter: DateFormatter = {
+    private static var scheduleDateFormatter: DateFormatter {
         let formatter = DateFormatter()
-        formatter.locale = Locale.current
+        formatter.locale = AppLanguage.displayLocale
         formatter.calendar = Calendar.current
         formatter.dateFormat = "M/d HH:mm"
         return formatter
-    }()
+    }
 
     private var activeTheme: AppTheme { AppTheme.current }
     private var isAccented: Bool { renderingMode == .accented }

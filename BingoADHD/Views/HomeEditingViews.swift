@@ -112,16 +112,12 @@ struct QuickEditView: View {
         quickEditMaxGridSizeForCurrentPlan(isPremiumUser: isPremiumUser)
     }
 
-    private var libraryTaskIDs: Set<UUID> {
-        quickEditLibraryTaskIDs(library: library)
-    }
-
     private var historyBySourceTaskID: [UUID: TaskHistoryRecord] {
         quickEditHistoryBySourceTaskID(records: taskHistoryRecords)
     }
 
     private var historyOnlyRecordsSorted: [TaskHistoryRecord] {
-        quickEditHistoryOnlyRecordsSorted(records: taskHistoryRecords, libraryTaskIDs: libraryTaskIDs)
+        quickEditHistoryOnlyRecordsSorted(records: taskHistoryRecords, library: library)
     }
 
     private var unlockedHistoryRecords: [TaskHistoryRecord] {

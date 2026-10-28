@@ -39,7 +39,7 @@ struct ContactUsSheet: View {
         .background(Color(hex: "F7F2EE"))
         .clipShape(RoundedRectangle(cornerRadius: scaled(16, pad: 20), style: .continuous))
         .presentationDetents(
-            usesReflowedLayout ? [.large] : [.height(isPadLayout ? 600 : 554)]
+            usesReflowedLayout ? [.large] : [.height(isPadLayout ? 626 : 580)]
         )
         .presentationDragIndicator(.hidden)
         .presentationBackground(Color(hex: "F7F2EE"))
@@ -57,7 +57,7 @@ struct ContactUsSheet: View {
                     .accessibilityAddTraits(.isHeader)
 
                 Text(L10n.contactUsMessage)
-                    .appDynamicFont(size: scaled(15, pad: 17), weight: .medium, design: .rounded)
+                    .appDynamicFont(size: scaled(18, pad: 20), weight: .regular, design: .rounded)
                     .foregroundStyle(Color(hex: "7E7E7E"))
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)

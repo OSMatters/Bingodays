@@ -69,7 +69,9 @@ enum WidgetTaskToggleService {
         fullBoard[row][col].isCompleted = isNowCompleted
         if isNowCompleted {
             registerCompletionIfNeeded(cell: &fullBoard[row][col], now: now)
-            fullBoard[row][col].isForced = false
+            if !fullBoard[row][col].hasRepeatingSchedule {
+                fullBoard[row][col].isForced = false
+            }
             fullBoard[row][col].countdownEndsAt = nil
             fullBoard[row][col].countdownPausedRemainingSeconds = nil
             fullBoard[row][col].estimatedDurationMinutes = nil

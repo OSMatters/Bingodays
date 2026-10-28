@@ -7,47 +7,124 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		000DAD4B00BC863222C33779 /* WidgetTaskToggleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394C10 /* WidgetTaskToggleService.swift */; };
 		007D47AD92E038CFF32C8BE2 /* BingodaysWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB77DB4D87E0770BB2F4B921 /* BingodaysWidget.swift */; };
-		00F15176A9504D6CA74F7273 /* BingoADHD/Models/ToggleLiveActivityTaskIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0134B7A9DBA4E1595BFDF02 /* BingoADHD/Models/ToggleLiveActivityTaskIntent.swift */; };
-		046CBDE1D9AE491D8C0E8E89 /* BingoADHD/Models/BingoBoardActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 545CBBDEECC046DDA828185C /* BingoADHD/Models/BingoBoardActivityAttributes.swift */; };
+		009EF8DE3BE52DDAEFC7F623 /* WidgetTaskToggleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394C10 /* WidgetTaskToggleService.swift */; };
+		00F15176A9504D6CA74F7273 /* ToggleLiveActivityTaskIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0134B7A9DBA4E1595BFDF02 /* ToggleLiveActivityTaskIntent.swift */; };
+		0112728560D4CC98B52F7174 /* BlindBoxCatalogBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1160000000000000000000A /* BlindBoxCatalogBundle.swift */; };
+		01269B1BD298BB33D45C6243 /* DiagnosticLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A900000000000000000002 /* DiagnosticLogStore.swift */; };
+		03469FD7E43FF65D0DD32790 /* MacReminderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC868436F8DFA3EA026C4B35 /* MacReminderService.swift */; };
+		046CBDE1D9AE491D8C0E8E89 /* BingoBoardActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 545CBBDEECC046DDA828185C /* BingoBoardActivityAttributes.swift */; };
+		0771EA6683C6E1653617FEDC /* NativeICloudSecondarySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D0000000000000000000C /* NativeICloudSecondarySnapshot.swift */; };
 		08C4A9D66F5B4CA1AA34B019 /* WidgetAssets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 08C4A9D66F5B4CA1AA34B01A /* WidgetAssets.xcassets */; };
-		09FBA64EE94645C9A39A0569 /* BingoADHD/Views/BoardLiveActivityMenuAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA5088FB4024F5981222DB7 /* BingoADHD/Views/BoardLiveActivityMenuAction.swift */; };
+		09FBA64EE94645C9A39A0569 /* BoardLiveActivityMenuAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA5088FB4024F5981222DB7 /* BoardLiveActivityMenuAction.swift */; };
+		0AA99BAB3D706604DF0AD745 /* BlindBoxCatalogBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1160000000000000000000A /* BlindBoxCatalogBundle.swift */; };
+		0B045EA98937246306134D7E /* DiagnosticLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A900000000000000000002 /* DiagnosticLogStore.swift */; };
+		0C0F5AF549F4C9DCBFC77AAA /* BingoBoardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */; };
 		0D97FFB2D91D5330540F77C0 /* BingoBoardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */; };
-		0F46E92E79F049D6B8B24CA1 /* BingodaysWidget/BingodaysLockScreenMiniBoard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CB15F6FB9CA4C2A9B86C93A /* BingodaysWidget/BingodaysLockScreenMiniBoard.swift */; };
-		19F7C12CD742431BB2E00C37 /* BingoADHD/Services/BingoBoardLiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477C1A6273ED49B0AA092C4A /* BingoADHD/Services/BingoBoardLiveActivityController.swift */; };
-		2947A7C13F3D4D3B83EBC203 /* BingodaysWidget/BingoBoardLiveActivityContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF15FA6BFEA046DFB567B04C /* BingodaysWidget/BingoBoardLiveActivityContent.swift */; };
+		0F46E92E79F049D6B8B24CA1 /* BingodaysLockScreenMiniBoard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CB15F6FB9CA4C2A9B86C93A /* BingodaysLockScreenMiniBoard.swift */; };
+		134CA0EED9613BDCF944ADC8 /* NativeICloudInitialMigrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000011 /* NativeICloudInitialMigrator.swift */; };
+		1516CF8BC82C745B5B9ABA84 /* BingoViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000004 /* BingoViewModel.swift */; };
+		19F7C12CD742431BB2E00C37 /* BingoBoardLiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477C1A6273ED49B0AA092C4A /* BingoBoardLiveActivityController.swift */; };
+		21359CF194E5195800055935 /* PointsStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000035 /* PointsStores.swift */; };
+		2172171D2ECC3E661E7D9CB6 /* MacTaskEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12B2E5543DE2A9CC836AE68 /* MacTaskEditor.swift */; };
+		2527918495086B43841DF3E8 /* MacWorkspaceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2837726BB0AE1D7745A885FF /* MacWorkspaceStore.swift */; };
+		27FD939EBC4E07DA45A572E7 /* NativeICloudSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000006 /* NativeICloudSyncStore.swift */; };
+		28CB2419ECC7247AE670F8B4 /* MacAnalyticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EAB68C76CDE9D9ECD13B5B6 /* MacAnalyticsService.swift */; };
+		28D6F26C3F96C671712E2B91 /* NeumorphicStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000010 /* NeumorphicStyles.swift */; };
+		2947A7C13F3D4D3B83EBC203 /* BingoBoardLiveActivityContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF15FA6BFEA046DFB567B04C /* BingoBoardLiveActivityContent.swift */; };
+		2A977D810DD8EF0E2D880797 /* BlindBoxLegacyMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1100000000000000000000A /* BlindBoxLegacyMigration.swift */; };
+		2D0CC881EAF654DA02A37AA8 /* MacAppearanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBD01ABF2F513E7F56183E76 /* MacAppearanceView.swift */; };
+		2D7E371A035FC0B3255C2157 /* MacTaskDragModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF3A393FBAF6B0369033E51 /* MacTaskDragModifier.swift */; };
+		2E7C41DB7B1220FE00B45C5C /* BoardManagementStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000001F /* BoardManagementStore.swift */; };
+		31858A94475E1A29780090B0 /* BingoRewardSettlement.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000037 /* BingoRewardSettlement.swift */; };
 		35971755A4E77F2BA6B9A4AE /* NeumorphicStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000010 /* NeumorphicStyles.swift */; };
+		37A6D1711E842E0DEB753359 /* BoardStateCommitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000004F /* BoardStateCommitter.swift */; };
 		3A5D51F35BB7426791BB51A0 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D58E37F336E4AC4BB47D5A8 /* SubscriptionManager.swift */; };
-		3CB7447D1B7A455BA0997960 /* BingodaysWidget/BingoBoardLiveActivityCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B96EF94BC87450EAD3D455B /* BingodaysWidget/BingoBoardLiveActivityCell.swift */; };
+		3AA018F990B623C600DB3C30 /* BlindBoxCloudKitRecordCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1130000000000000000000A /* BlindBoxCloudKitRecordCodec.swift */; };
+		3AD318C67B5CCF786FB0878E /* BoardStateCommitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000004F /* BoardStateCommitter.swift */; };
+		3CA4F734D81BD7CC70FBE3CA /* MemoryPersistenceRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51B094775A4EADA931F4CD1 /* MemoryPersistenceRepositories.swift */; };
+		3CB7447D1B7A455BA0997960 /* BingoBoardLiveActivityCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B96EF94BC87450EAD3D455B /* BingoBoardLiveActivityCell.swift */; };
 		3E8E2A4545074D50FD4FA89E /* BingodaysWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7A6AD22025CB29BE7FEB97A9 /* BingodaysWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		409DD7023B12464CB8FD2E47 /* AnalyticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC2258B11394074AC4D20D7 /* AnalyticsService.swift */; };
+		4100A60B14CFAC66D7CA754E /* NativeICloudSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000016 /* NativeICloudSyncCoordinator.swift */; };
 		41E9B92664D046B1A30DF945 /* AppDebugFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92C0A86195B344B18448B7F3 /* AppDebugFlags.swift */; };
-		43A7DE85B68A457B8B3FFAD9 /* BingodaysWidget/BingoDynamicIslandIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 740B524C2C2B4411B3F05E37 /* BingodaysWidget/BingoDynamicIslandIcon.swift */; };
+		42147C69C68D333C1C25BFE1 /* BingoTaskBoardHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000038 /* BingoTaskBoardHelpers.swift */; };
+		43A7DE85B68A457B8B3FFAD9 /* BingoDynamicIslandIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 740B524C2C2B4411B3F05E37 /* BingoDynamicIslandIcon.swift */; };
 		4425F299C81A4B25A9256940 /* FirstStepGuideStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7D6CE3F00A0498A917C384A /* FirstStepGuideStore.swift */; };
-		448226CAAE8C4B99823ED8F3 /* BingodaysWidget/BingoBoardTextFitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A2079DCB6874508888608F3 /* BingodaysWidget/BingoBoardTextFitter.swift */; };
-		4B198651C9EE4552BE3A07BB /* BingodaysWidget/BingodaysLockScreenWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C0BA9853F854FDFA7981B3E /* BingodaysWidget/BingodaysLockScreenWidget.swift */; };
+		445495DE92DC8ED5778A84C7 /* QuickEditTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000030 /* QuickEditTypes.swift */; };
+		448226CAAE8C4B99823ED8F3 /* BingoBoardTextFitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A2079DCB6874508888608F3 /* BingoBoardTextFitter.swift */; };
+		44AB05DCD548FF3A220E9E0C /* MacDesktopBoardSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B656379D82B5183F4DA70264 /* MacDesktopBoardSnapshot.swift */; };
+		45E67624009FA01A993C31AE /* MacBoardGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE40446ED31E454BBE69F600 /* MacBoardGrid.swift */; };
+		4623B8F243C7AB576E8356A7 /* MacSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7CBE717EFEF02D8512A6F9B /* MacSettingsView.swift */; };
+		4753E93200887A13934191C4 /* AppDebugFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92C0A86195B344B18448B7F3 /* AppDebugFlags.swift */; };
+		47D2724D7A6D0B69A4BFAEB9 /* BingoTaskBoardHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000038 /* BingoTaskBoardHelpers.swift */; };
+		4A52D35877C9F5FDA028227D /* TaskStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000036 /* TaskStores.swift */; };
+		4B198651C9EE4552BE3A07BB /* BingodaysLockScreenWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C0BA9853F854FDFA7981B3E /* BingodaysLockScreenWidget.swift */; };
+		4B4604690FCA84890C628C18 /* BingoViewModelPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000039 /* BingoViewModelPersistence.swift */; };
+		4B7360A97E7BB5338AAEC08D /* MacBingoLineOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B3B3F88874863664F48AD94 /* MacBingoLineOverlay.swift */; };
 		4B879B57CB684CE0B9046291 /* TimeoutDelayPickerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4FD4267FD4245D696BC64DE /* TimeoutDelayPickerStore.swift */; };
 		4B8C0D1E2F30415263748596 /* PointsStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000035 /* PointsStores.swift */; };
 		4B8C0D1E2F30415263748597 /* BingoRewardSettlement.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000037 /* BingoRewardSettlement.swift */; };
-		59B6336F47FE48EF9B1DE484 /* BingoADHD/Models/ExternalBoardTaskMutationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1552E35A46047088F293282 /* BingoADHD/Models/ExternalBoardTaskMutationService.swift */; };
+		4F03884D75BBD8431E6ACDCE /* MacBoardCompatibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B1EBB1EB6CC11783AD9B5FE /* MacBoardCompatibilityTests.swift */; };
+		50952DE7729BEB0897553570 /* MacDesktopBoardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7084A29187296E528FB7D0F7 /* MacDesktopBoardView.swift */; };
+		512D41D64B9DBA580B628240 /* BoardManagementStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000001F /* BoardManagementStore.swift */; };
+		546A2C6BE5507833C82EF0EC /* MacAnalyticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EAB68C76CDE9D9ECD13B5B6 /* MacAnalyticsService.swift */; };
+		56CA3E175EAA578B054383AB /* BlindBoxRuleEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10B0000000000000000000A /* BlindBoxRuleEngine.swift */; };
+		59B6336F47FE48EF9B1DE484 /* ExternalBoardTaskMutationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1552E35A46047088F293282 /* ExternalBoardTaskMutationService.swift */; };
 		5A4D74F885E44A32B1A4E678 /* AppFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46D7F0F4C2A4CD09F3D6CF6 /* AppFont.swift */; };
+		5AC8F52A7C8F5ACB3CEF2F14 /* NeumorphicStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000010 /* NeumorphicStyles.swift */; };
 		5E2D6F7AB9C34140A13ED6C8 /* WidgetBoardSwitchIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F4B53D9C8E4A58B9027D11 /* WidgetBoardSwitchIntent.swift */; };
 		5E2D6F7AB9C34140A13ED6C9 /* BoardStateCommitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000004F /* BoardStateCommitter.swift */; };
-		64331AC750BE48559D50B62A /* BingodaysWidget/BingoBoardLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF42E216DB4F4A74BA786FEE /* BingodaysWidget/BingoBoardLiveActivity.swift */; };
+		63C43FA24DAD146128A344BC /* BingoViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000004 /* BingoViewModel.swift */; };
+		64331AC750BE48559D50B62A /* BingoBoardLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF42E216DB4F4A74BA786FEE /* BingoBoardLiveActivity.swift */; };
+		68D7006D2DF258B088B25322 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 31BC9733C9C212BE03FC9CA0 /* Assets.xcassets */; };
+		6A7781CBEE5F7AFF0056B373 /* BingoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000003 /* BingoModels.swift */; };
+		6D79D10153F58A7D7C36B0F0 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000034 /* Localization.swift */; };
 		6D91CE48D5C54FC092F7E92A /* AppUpdatePromptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83E489D141D5489D85E424C9 /* AppUpdatePromptStore.swift */; };
+		6F1DFCCF719F60A3E9A53F6D /* MacCompletionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0EB2A11567C05FE168F92C8 /* MacCompletionPersistenceTests.swift */; };
+		6F94284F2E52A02F5246F441 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 31BC9733C9C212BE03FC9CA0 /* Assets.xcassets */; };
 		72020CAB0109FCCA58480539 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = C5F91D46E6B33A1CCCE05E7E /* FirebaseAnalytics */; };
-		787EE70647AC46CF94D67B47 /* BingodaysWidget/BingodaysLockScreenWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A3EEA2F8BA1455A89714700 /* BingodaysWidget/BingodaysLockScreenWidgetView.swift */; };
-		792053262AEA488F8ACEF293 /* BingoADHD/Models/BingoBoardActivitySnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B89D70AC87B40C1A8332CA5 /* BingoADHD/Models/BingoBoardActivitySnapshotBuilder.swift */; };
+		73F6B74025133F87CDB81DF1 /* BoardEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394B50 /* BoardEngine.swift */; };
+		787EE70647AC46CF94D67B47 /* BingodaysLockScreenWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A3EEA2F8BA1455A89714700 /* BingodaysLockScreenWidgetView.swift */; };
+		78F685BFB093D050074E4FFC /* Resources in Resources */ = {isa = PBXBuildFile; fileRef = A609DFF6D3B6557F833EF4D8 /* Resources */; };
+		792053262AEA488F8ACEF293 /* BingoBoardActivitySnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B89D70AC87B40C1A8332CA5 /* BingoBoardActivitySnapshotBuilder.swift */; };
+		7AE64C7BBB03561FE963CC85 /* MacDesktopBoardProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = D771010A51421AF5FDCA96B8 /* MacDesktopBoardProvider.swift */; };
+		7B365A3E667950CF1ABF338C /* MacDesktopBoardPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C37209A2886F42CC53ED4D2 /* MacDesktopBoardPublisher.swift */; };
+		7CC78D19AA242078B6492861 /* BingodaysMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B29AA36A29BE5E1288FB389 /* BingodaysMacApp.swift */; };
+		7E01664A46B7397A71B81465 /* BingodaysMacWidget.appex in Embed Mac Widgets */ = {isa = PBXBuildFile; fileRef = 3DDDC118F69E02F4FA4A84AE /* BingodaysMacWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		7F31A70E33D24DB0A7BB84F6 /* HomeToastStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEC27A1F93734E4A8802CD30 /* HomeToastStore.swift */; };
 		82597C47732173B65D2B6793 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 0369CE2F651445ED297D64A7 /* GoogleService-Info.plist */; };
-		8A9312A6113245DEBEBD4E99 /* BingoADHD/Models/ExternalBoardTaskMutationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1552E35A46047088F293282 /* BingoADHD/Models/ExternalBoardTaskMutationService.swift */; };
+		82E59B615D674D06AB3C46F1 /* MacDesktopBoardSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B656379D82B5183F4DA70264 /* MacDesktopBoardSnapshot.swift */; };
+		86AFD2AC3FB904F307F783D5 /* PointsStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000035 /* PointsStores.swift */; };
+		8A89A9EF2C22C66712175BDA /* ColorHex.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEBABD257330F177F05EF511 /* ColorHex.swift */; };
+		8A9312A6113245DEBEBD4E99 /* ExternalBoardTaskMutationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1552E35A46047088F293282 /* ExternalBoardTaskMutationService.swift */; };
 		8E907B19D8A77ED5CA3F12E0 /* ColorHex.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEBABD257330F177F05EF511 /* ColorHex.swift */; };
+		9245549DD8109379880F31A6 /* NativeICloudPersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000003 /* NativeICloudPersistenceController.swift */; };
+		92B199C05F482A61E646FE19 /* NativeICloudLocalProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D0000000000000000000E /* NativeICloudLocalProjection.swift */; };
 		9386D85872CC4A859178446B /* PointsAnimationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD90FB57756C4FB6849FC680 /* PointsAnimationStore.swift */; };
+		956D4FC87CC7C0B4F24BB902 /* BingoDiaryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394B70 /* BingoDiaryStore.swift */; };
+		98536150373DBE1379E1A580 /* BingoViewModelPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000039 /* BingoViewModelPersistence.swift */; };
 		98B9C2BE0D7D4AE0BDFDE99E /* AppFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46D7F0F4C2A4CD09F3D6CF6 /* AppFont.swift */; };
-		9A7CC21D4E4F463092A7CA8F /* BingoADHD/Models/BingoBoardActivitySnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B89D70AC87B40C1A8332CA5 /* BingoADHD/Models/BingoBoardActivitySnapshotBuilder.swift */; };
-		9D0F86B39D2D424C87B2137D /* BingoADHD/Models/BingoBoardActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 545CBBDEECC046DDA828185C /* BingoADHD/Models/BingoBoardActivityAttributes.swift */; };
+		98DDDABBBE53B01409380B4C /* NativeICloudSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000006 /* NativeICloudSyncStore.swift */; };
+		9A7CC21D4E4F463092A7CA8F /* BingoBoardActivitySnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B89D70AC87B40C1A8332CA5 /* BingoBoardActivitySnapshotBuilder.swift */; };
+		9BC307ADB5769BF6C3A06AC6 /* AppFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46D7F0F4C2A4CD09F3D6CF6 /* AppFont.swift */; };
+		9BE2F95C4022E0E721F90CD9 /* BoardEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394B50 /* BoardEngine.swift */; };
+		9CB1EDF7BC94E712F6ACE382 /* MacDesktopGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 869B2F35F2AA4C592445F863 /* MacDesktopGuideView.swift */; };
+		9D0F86B39D2D424C87B2137D /* BingoBoardActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 545CBBDEECC046DDA828185C /* BingoBoardActivityAttributes.swift */; };
+		9D8BB61DC9FFA7391CA01F1C /* AppFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46D7F0F4C2A4CD09F3D6CF6 /* AppFont.swift */; };
+		9E199D4F8689600FDA6E11AB /* MacMobileFeaturesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46828EC9124F2994DD73CE23 /* MacMobileFeaturesView.swift */; };
+		9EA4A66CB7C987274D0D1634 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 44B07563208AC39FA1D5E98F /* Cocoa.framework */; };
+		A12178DEDF882C84596AEED0 /* NativeICloudInitialMigrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000011 /* NativeICloudInitialMigrator.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* FirebaseRemoteConfig in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60718293A4B5D /* FirebaseRemoteConfig */; };
 		A3B2D43C60A64AB9A58E27D7 /* BoardActionPresentationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCDA35D8D6954D5CBFB90922 /* BoardActionPresentationStore.swift */; };
+		A41C2C0C82CF53E04ECD8D1A /* BingoRewardSettlement.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000037 /* BingoRewardSettlement.swift */; };
+		A42F1E8DC5ED14F09B0C9505 /* BingoDiaryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394B70 /* BingoDiaryStore.swift */; };
+		A450DA5C48B096B96F8018B2 /* BoardResetRuleEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394B60 /* BoardResetRuleEngine.swift */; };
+		A660DFFCE27BE14AFF89EBA8 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 44B07563208AC39FA1D5E98F /* Cocoa.framework */; };
+		A712A6CE063785BC93E13920 /* TaskStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000036 /* TaskStores.swift */; };
+		A86EFC8AAE91E7D16E94AF47 /* NativeICloudSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000009 /* NativeICloudSnapshots.swift */; };
+		AA104A104A104A104A104A10 /* FeatureNewBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA104A104A104A104A104A11 /* FeatureNewBadge.swift */; };
 		AA30000000000000000001 /* BingoADHDApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000001 /* BingoADHDApp.swift */; };
 		AA30000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000002 /* ContentView.swift */; };
 		AA30000000000000000003 /* BingoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000003 /* BingoModels.swift */; };
@@ -120,9 +197,8 @@
 		AA3000000000000000004F /* BoardStateCommitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000004F /* BoardStateCommitter.swift */; };
 		AA30000000000000000050 /* BoardSwipePagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000050 /* BoardSwipePagerView.swift */; };
 		AA30000000000000000051 /* BoardSwipePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000051 /* BoardSwipePreviewView.swift */; };
-		C013B0000000000000000011 /* BoardSwipePageWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C013B0000000000000000001 /* BoardSwipePageWindow.swift */; };
-		C013C0000000000000000011 /* DecorativeAnimationTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C013C0000000000000000001 /* DecorativeAnimationTimeline.swift */; };
-		AB9810000000000000000001 /* BingodaysWidget/LockScreenCellOutline.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB9810000000000000000002 /* BingodaysWidget/LockScreenCellOutline.swift */; };
+		AB4BF9B94A70964CFDF6D5F6 /* NativeICloudSecondarySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D0000000000000000000C /* NativeICloudSecondarySnapshot.swift */; };
+		AB9810000000000000000001 /* LockScreenCellOutline.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB9810000000000000000002 /* LockScreenCellOutline.swift */; };
 		AB9810000000000000000003 /* Outfit-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000030 /* Outfit-wght.ttf */; };
 		B0A1D2E3F4A5061728394B51 /* BoardEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394B50 /* BoardEngine.swift */; };
 		B0A1D2E3F4A5061728394B52 /* BoardEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394B50 /* BoardEngine.swift */; };
@@ -138,12 +214,11 @@
 		B0A1D2E3F4A5061728394C11 /* WidgetTaskToggleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394C10 /* WidgetTaskToggleService.swift */; };
 		B0A1D2E3F4A5061728394C12 /* WidgetTaskToggleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394C10 /* WidgetTaskToggleService.swift */; };
 		B0A1D2E3F4A5061728394D01 /* BoardRuleGuardrailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394D00 /* BoardRuleGuardrailTests.swift */; };
-		C013B0000000000000000012 /* BoardSwipePagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C013B0000000000000000002 /* BoardSwipePagerTests.swift */; };
-		C013C0000000000000000012 /* DecorativeAnimationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C013C0000000000000000002 /* DecorativeAnimationTests.swift */; };
 		B0A1D2E3F4A5061728394E01 /* TaskStartReminderSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394E00 /* TaskStartReminderSyncStore.swift */; };
 		B0A1D2E3F4A5061728394F01 /* HomeBoardSnapshotSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394F00 /* HomeBoardSnapshotSyncStore.swift */; };
 		B0A1D2E3F4A5061728395001 /* HomeLifecycleWorkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728395000 /* HomeLifecycleWorkStore.swift */; };
 		B0A1D2E3F4A5061728395101 /* HomeTimeoutWorkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728395100 /* HomeTimeoutWorkStore.swift */; };
+		B0B58ABB0D3DDF27DF932BAE /* MacWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AA7BAF5B651E9B88019731E /* MacWorkspaceView.swift */; };
 		B10B0000000000000000000B /* BlindBoxRuleEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10B0000000000000000000A /* BlindBoxRuleEngine.swift */; };
 		B10C0000000000000000000B /* BlindBoxRuleEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10C0000000000000000000A /* BlindBoxRuleEngineTests.swift */; };
 		B10C0000000000000000000D /* BlindBoxCanvasLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10C0000000000000000000C /* BlindBoxCanvasLayoutTests.swift */; };
@@ -160,15 +235,25 @@
 		B1170000000000000000000B /* BlindBoxCatalogBundleCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1170000000000000000000A /* BlindBoxCatalogBundleCache.swift */; };
 		B1180000000000000000000B /* BlindBoxCatalogArtworkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1180000000000000000000A /* BlindBoxCatalogArtworkStore.swift */; };
 		B1190000000000000000000B /* BlindBoxCloudKitCatalogRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1190000000000000000000A /* BlindBoxCloudKitCatalogRepository.swift */; };
+		B3E1602DE27E280B14E04FFC /* BlindBoxCloudKitRecordCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1130000000000000000000A /* BlindBoxCloudKitRecordCodec.swift */; };
+		B3F1A03C0FDA91827D19E3F0 /* BingodaysMacWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F633F52685636BC684BB60B7 /* BingodaysMacWidget.swift */; };
 		B51000000000000000000011 /* BoardShareService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B51000000000000000000001 /* BoardShareService.swift */; };
 		B51000000000000000000012 /* BoardSharePresentationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B51000000000000000000002 /* BoardSharePresentationStore.swift */; };
 		B51000000000000000000013 /* BoardShareFlowSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B51000000000000000000003 /* BoardShareFlowSheet.swift */; };
 		B51000000000000000000014 /* BoardShareTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B51000000000000000000004 /* BoardShareTests.swift */; };
 		B84119F662CF44A389ECCC23 /* LiveActivityBoardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEB43482CDF146E49409C99E /* LiveActivityBoardTests.swift */; };
+		BA1F7361A09020ACF9227BD6 /* NativeICloudLocalProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D0000000000000000000E /* NativeICloudLocalProjection.swift */; };
 		BC1300000000000000000001 /* BlindBoxPullPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1300000000000000000002 /* BlindBoxPullPortal.swift */; };
 		BC1300000000000000000003 /* BlindBoxMotion in Resources */ = {isa = PBXBuildFile; fileRef = BC1300000000000000000004 /* BlindBoxMotion */; };
 		BC1300000000000000000005 /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = BC1300000000000000000006 /* Lottie */; };
-		BD9C0CED650D4C3AA3109C96 /* BingodaysWidget/BingoBoardTextFitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A2079DCB6874508888608F3 /* BingodaysWidget/BingoBoardTextFitter.swift */; };
+		BC1D2D66B47762F222D91C9A /* BlindBoxStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10D0000000000000000000A /* BlindBoxStateMachine.swift */; };
+		BD26EB28A0463AF4A9F7C627 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000034 /* Localization.swift */; };
+		BD9C0CED650D4C3AA3109C96 /* BingoBoardTextFitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A2079DCB6874508888608F3 /* BingoBoardTextFitter.swift */; };
+		C013B0000000000000000011 /* BoardSwipePageWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C013B0000000000000000001 /* BoardSwipePageWindow.swift */; };
+		C013B0000000000000000012 /* BoardSwipePagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C013B0000000000000000002 /* BoardSwipePagerTests.swift */; };
+		C013C0000000000000000011 /* DecorativeAnimationTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C013C0000000000000000001 /* DecorativeAnimationTimeline.swift */; };
+		C013C0000000000000000012 /* DecorativeAnimationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C013C0000000000000000002 /* DecorativeAnimationTests.swift */; };
+		C0D300000000000000000002 /* BingoDiaryGravityBubbleCloud.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D300000000000000000001 /* BingoDiaryGravityBubbleCloud.swift */; };
 		C10D00000000000000000001 /* NativeICloudPersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000003 /* NativeICloudPersistenceController.swift */; };
 		C10D00000000000000000002 /* NativeICloudPersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000003 /* NativeICloudPersistenceController.swift */; };
 		C10D00000000000000000005 /* NativeICloudPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000004 /* NativeICloudPersistenceTests.swift */; };
@@ -187,7 +272,7 @@
 		C3DA38C1D37F02D4B7DDAB7A /* BingoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000003 /* BingoModels.swift */; };
 		C4B1897E20AF4DE5A744C921 /* WidgetBoardSwitchIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F4B53D9C8E4A58B9027D11 /* WidgetBoardSwitchIntent.swift */; };
 		C4D5E6F708192A3B4C5D6E7F /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = C4D5E6F708192A3B4C5D6E80 /* RevenueCat */; };
-		C50D54C3ADA242278DA07848 /* BingoADHD/Services/BingoBoardLiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477C1A6273ED49B0AA092C4A /* BingoADHD/Services/BingoBoardLiveActivityController.swift */; };
+		C50D54C3ADA242278DA07848 /* BingoBoardLiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477C1A6273ED49B0AA092C4A /* BingoBoardLiveActivityController.swift */; };
 		C60000000000000000000002 /* AppHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60000000000000000000001 /* AppHaptics.swift */; };
 		C60000000000000000000004 /* SpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60000000000000000000003 /* SpeechRecognizer.swift */; };
 		C72E1586D1F54E1CB54C99B2 /* TileGestureDebugLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = E214B84E64464AE09A25C1B8 /* TileGestureDebugLogger.swift */; };
@@ -198,49 +283,70 @@
 		C8D4A2E6B7F2416C92A50107 /* LimitedTimeDiscountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D4A2E6B7F2416C92A50106 /* LimitedTimeDiscountView.swift */; };
 		CD0610000000000000000001 /* RewardEditorInputSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0610000000000000000002 /* RewardEditorInputSession.swift */; };
 		CD0810000000000000000001 /* RewardEmojiTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0810000000000000000002 /* RewardEmojiTextField.swift */; };
+		CF415CFEEFD5D15F11B9C0F8 /* BingoBoardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */; };
 		D1A900000000000000000001 /* DiagnosticLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A900000000000000000002 /* DiagnosticLogStore.swift */; };
 		D1A900000000000000000003 /* DiagnosticLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A900000000000000000002 /* DiagnosticLogStore.swift */; };
+		D1AE00000000000000000002 /* BingoDiaryCorrectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1AE00000000000000000001 /* BingoDiaryCorrectionSheet.swift */; };
+		D484AEF1DDAC55CC8D7DAF20 /* BoardResetCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000001E /* BoardResetCoordinator.swift */; };
 		D6129FE6ECD4D6C2E0B7B3E6 /* ColorHex.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEBABD257330F177F05EF511 /* ColorHex.swift */; };
+		D644E2E0845EC808BA630F91 /* BingodaysMac.icns in Resources */ = {isa = PBXBuildFile; fileRef = DF2E496E2706FC196B61FC48 /* BingodaysMac.icns */; };
 		D70000000000000000000001 /* AppIconOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70000000000000000000011 /* AppIconOption.swift */; };
 		D70000000000000000000002 /* AppOpenStreakStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70000000000000000000012 /* AppOpenStreakStore.swift */; };
 		D70000000000000000000003 /* AppIconManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70000000000000000000013 /* AppIconManager.swift */; };
 		D70000000000000000000004 /* AppIconSettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70000000000000000000014 /* AppIconSettingsViews.swift */; };
-		D81100000000000000000001 /* BingoADHD/AlternateAppIcons/AppIcon60x60@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000001 /* BingoADHD/AlternateAppIcons/AppIcon60x60@2x.png */; };
-		D81100000000000000000002 /* BingoADHD/AlternateAppIcons/AppIcon60x60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000002 /* BingoADHD/AlternateAppIcons/AppIcon60x60@3x.png */; };
-		D81100000000000000000003 /* BingoADHD/AlternateAppIcons/AppIcon76x76.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000003 /* BingoADHD/AlternateAppIcons/AppIcon76x76.png */; };
-		D81100000000000000000004 /* BingoADHD/AlternateAppIcons/AppIcon76x76@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000004 /* BingoADHD/AlternateAppIcons/AppIcon76x76@2x.png */; };
-		D81100000000000000000005 /* BingoADHD/AlternateAppIcons/AppIcon83.5x83.5@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000005 /* BingoADHD/AlternateAppIcons/AppIcon83.5x83.5@2x.png */; };
-		D81100000000000000000006 /* BingoADHD/AlternateAppIcons/AppIcon10Days60x60@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000006 /* BingoADHD/AlternateAppIcons/AppIcon10Days60x60@2x.png */; };
-		D81100000000000000000007 /* BingoADHD/AlternateAppIcons/AppIcon10Days60x60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000007 /* BingoADHD/AlternateAppIcons/AppIcon10Days60x60@3x.png */; };
-		D81100000000000000000008 /* BingoADHD/AlternateAppIcons/AppIcon10Days76x76.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000008 /* BingoADHD/AlternateAppIcons/AppIcon10Days76x76.png */; };
-		D81100000000000000000009 /* BingoADHD/AlternateAppIcons/AppIcon10Days76x76@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000009 /* BingoADHD/AlternateAppIcons/AppIcon10Days76x76@2x.png */; };
-		D8110000000000000000000a /* BingoADHD/AlternateAppIcons/AppIcon10Days83.5x83.5@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D8100000000000000000000a /* BingoADHD/AlternateAppIcons/AppIcon10Days83.5x83.5@2x.png */; };
-		D8110000000000000000000b /* BingoADHD/AlternateAppIcons/AppIcon20Days60x60@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D8100000000000000000000b /* BingoADHD/AlternateAppIcons/AppIcon20Days60x60@2x.png */; };
-		D8110000000000000000000c /* BingoADHD/AlternateAppIcons/AppIcon20Days60x60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = D8100000000000000000000c /* BingoADHD/AlternateAppIcons/AppIcon20Days60x60@3x.png */; };
-		D8110000000000000000000d /* BingoADHD/AlternateAppIcons/AppIcon20Days76x76.png in Resources */ = {isa = PBXBuildFile; fileRef = D8100000000000000000000d /* BingoADHD/AlternateAppIcons/AppIcon20Days76x76.png */; };
-		D8110000000000000000000e /* BingoADHD/AlternateAppIcons/AppIcon20Days76x76@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D8100000000000000000000e /* BingoADHD/AlternateAppIcons/AppIcon20Days76x76@2x.png */; };
-		D8110000000000000000000f /* BingoADHD/AlternateAppIcons/AppIcon20Days83.5x83.5@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D8100000000000000000000f /* BingoADHD/AlternateAppIcons/AppIcon20Days83.5x83.5@2x.png */; };
-		D81100000000000000000010 /* BingoADHD/AlternateAppIcons/AppIcon30Days60x60@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000010 /* BingoADHD/AlternateAppIcons/AppIcon30Days60x60@2x.png */; };
-		D81100000000000000000011 /* BingoADHD/AlternateAppIcons/AppIcon30Days60x60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000011 /* BingoADHD/AlternateAppIcons/AppIcon30Days60x60@3x.png */; };
-		D81100000000000000000012 /* BingoADHD/AlternateAppIcons/AppIcon30Days76x76.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000012 /* BingoADHD/AlternateAppIcons/AppIcon30Days76x76.png */; };
-		D81100000000000000000013 /* BingoADHD/AlternateAppIcons/AppIcon30Days76x76@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000013 /* BingoADHD/AlternateAppIcons/AppIcon30Days76x76@2x.png */; };
-		D81100000000000000000014 /* BingoADHD/AlternateAppIcons/AppIcon30Days83.5x83.5@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000014 /* BingoADHD/AlternateAppIcons/AppIcon30Days83.5x83.5@2x.png */; };
-		D81100000000000000000015 /* BingoADHD/AlternateAppIcons/AppIconPremium60x60@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000015 /* BingoADHD/AlternateAppIcons/AppIconPremium60x60@2x.png */; };
-		D81100000000000000000016 /* BingoADHD/AlternateAppIcons/AppIconPremium60x60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000016 /* BingoADHD/AlternateAppIcons/AppIconPremium60x60@3x.png */; };
-		D81100000000000000000017 /* BingoADHD/AlternateAppIcons/AppIconPremium76x76.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000017 /* BingoADHD/AlternateAppIcons/AppIconPremium76x76.png */; };
-		D81100000000000000000018 /* BingoADHD/AlternateAppIcons/AppIconPremium76x76@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000018 /* BingoADHD/AlternateAppIcons/AppIconPremium76x76@2x.png */; };
-		D81100000000000000000019 /* BingoADHD/AlternateAppIcons/AppIconPremium83.5x83.5@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000019 /* BingoADHD/AlternateAppIcons/AppIconPremium83.5x83.5@2x.png */; };
+		D789BA93F84D2EC86078F808 /* QuickEditTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000030 /* QuickEditTypes.swift */; };
+		D81100000000000000000001 /* AppIcon60x60@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000001 /* AppIcon60x60@2x.png */; };
+		D81100000000000000000002 /* AppIcon60x60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000002 /* AppIcon60x60@3x.png */; };
+		D81100000000000000000003 /* AppIcon76x76.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000003 /* AppIcon76x76.png */; };
+		D81100000000000000000004 /* AppIcon76x76@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000004 /* AppIcon76x76@2x.png */; };
+		D81100000000000000000005 /* AppIcon83.5x83.5@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000005 /* AppIcon83.5x83.5@2x.png */; };
+		D81100000000000000000006 /* AppIcon10Days60x60@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000006 /* AppIcon10Days60x60@2x.png */; };
+		D81100000000000000000007 /* AppIcon10Days60x60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000007 /* AppIcon10Days60x60@3x.png */; };
+		D81100000000000000000008 /* AppIcon10Days76x76.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000008 /* AppIcon10Days76x76.png */; };
+		D81100000000000000000009 /* AppIcon10Days76x76@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000009 /* AppIcon10Days76x76@2x.png */; };
+		D8110000000000000000000a /* AppIcon10Days83.5x83.5@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D8100000000000000000000a /* AppIcon10Days83.5x83.5@2x.png */; };
+		D8110000000000000000000b /* AppIcon20Days60x60@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D8100000000000000000000b /* AppIcon20Days60x60@2x.png */; };
+		D8110000000000000000000c /* AppIcon20Days60x60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = D8100000000000000000000c /* AppIcon20Days60x60@3x.png */; };
+		D8110000000000000000000d /* AppIcon20Days76x76.png in Resources */ = {isa = PBXBuildFile; fileRef = D8100000000000000000000d /* AppIcon20Days76x76.png */; };
+		D8110000000000000000000e /* AppIcon20Days76x76@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D8100000000000000000000e /* AppIcon20Days76x76@2x.png */; };
+		D8110000000000000000000f /* AppIcon20Days83.5x83.5@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D8100000000000000000000f /* AppIcon20Days83.5x83.5@2x.png */; };
+		D81100000000000000000010 /* AppIcon30Days60x60@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000010 /* AppIcon30Days60x60@2x.png */; };
+		D81100000000000000000011 /* AppIcon30Days60x60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000011 /* AppIcon30Days60x60@3x.png */; };
+		D81100000000000000000012 /* AppIcon30Days76x76.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000012 /* AppIcon30Days76x76.png */; };
+		D81100000000000000000013 /* AppIcon30Days76x76@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000013 /* AppIcon30Days76x76@2x.png */; };
+		D81100000000000000000014 /* AppIcon30Days83.5x83.5@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000014 /* AppIcon30Days83.5x83.5@2x.png */; };
+		D81100000000000000000015 /* AppIconPremium60x60@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000015 /* AppIconPremium60x60@2x.png */; };
+		D81100000000000000000016 /* AppIconPremium60x60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000016 /* AppIconPremium60x60@3x.png */; };
+		D81100000000000000000017 /* AppIconPremium76x76.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000017 /* AppIconPremium76x76.png */; };
+		D81100000000000000000018 /* AppIconPremium76x76@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000018 /* AppIconPremium76x76@2x.png */; };
+		D81100000000000000000019 /* AppIconPremium83.5x83.5@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = D81000000000000000000019 /* AppIconPremium83.5x83.5@2x.png */; };
+		D844E8F075949227F662694F /* NativeICloudSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000016 /* NativeICloudSyncCoordinator.swift */; };
+		D894E8A51C87FF0EC0E7D0FA /* BoardResetRuleEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394B60 /* BoardResetRuleEngine.swift */; };
 		D90100000000000000000002 /* AppIconManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90100000000000000000001 /* AppIconManagerTests.swift */; };
 		D90200000000000000000002 /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90200000000000000000001 /* AppServices.swift */; };
 		D90200000000000000000004 /* BingodaysProductionRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90200000000000000000003 /* BingodaysProductionRoot.swift */; };
 		D90300000000000000000001 /* ProbeIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90300000000000000000011 /* ProbeIcon.swift */; };
 		D90300000000000000000002 /* IconProbeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90300000000000000000012 /* IconProbeModel.swift */; };
 		D90300000000000000000003 /* IconProbeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90300000000000000000013 /* IconProbeView.swift */; };
+		D9913F851A9C0FF94BF247B3 /* NativeICloudRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000013 /* NativeICloudRuntime.swift */; };
+		D9D175A8F3DB1FA9080F727E /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 44B07563208AC39FA1D5E98F /* Cocoa.framework */; };
+		D9DBE2E86F1933312DF269B1 /* MacTaskCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F75565618BB4172D486E0A /* MacTaskCell.swift */; };
+		DA44FFC15693639DB7CE0B76 /* BingoTimeoutStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394B80 /* BingoTimeoutStore.swift */; };
+		DD1D19354FDA07552D744CDF /* MacTaskPromptModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96F06F73D07DBE3520A2B97 /* MacTaskPromptModifier.swift */; };
+		DDB16E92CFFCBACE38D2987B /* MacDesktopBoardSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92CF228FCBCE18DF4A5E5258 /* MacDesktopBoardSnapshotTests.swift */; };
+		DDF3C445B3E0BC9086F12B44 /* WidgetTaskStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394C00 /* WidgetTaskStores.swift */; };
+		DDF79BC9A41451CEACE5AA36 /* BingoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000003 /* BingoModels.swift */; };
 		DEE0056F533BED09AA349A7E /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = DB82D96A52DC3B33C6260262 /* FirebaseCore */; };
-		E16521D5DA234BBB8C8367ED /* BingoADHD/Resources/LiveActivity.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 46402F66A5CB4A1B91B950D5 /* BingoADHD/Resources/LiveActivity.xcstrings */; };
+		DF43B87AE0A7DF24D53C9707 /* BoardResetCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000001E /* BoardResetCoordinator.swift */; };
+		E16521D5DA234BBB8C8367ED /* LiveActivity.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 46402F66A5CB4A1B91B950D5 /* LiveActivity.xcstrings */; };
 		E429411D3FC401AAAC0853FA /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E86BC385C075D17C9B0197CC /* Foundation.framework */; };
-		F1A000000000000000000001 /* Vendor/libpag.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000013 /* Vendor/libpag.xcframework */; };
-		F1A000000000000000000002 /* Vendor/libpag.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000013 /* Vendor/libpag.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E496BFAFB27FE5265EABD67C /* MacDesktopBoardSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B656379D82B5183F4DA70264 /* MacDesktopBoardSnapshot.swift */; };
+		E7160545026D299D5B4F72B2 /* BlindBoxRuleEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10B0000000000000000000A /* BlindBoxRuleEngine.swift */; };
+		E865521A9F6AC6495EEBF813 /* WidgetTaskStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394C00 /* WidgetTaskStores.swift */; };
+		EB6BFEF4AEA99D4337CE9C00 /* AppDebugFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92C0A86195B344B18448B7F3 /* AppDebugFlags.swift */; };
+		EDB18286EB8A3532E6994A43 /* NativeICloudSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000009 /* NativeICloudSnapshots.swift */; };
+		F1A000000000000000000001 /* libpag.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000013 /* libpag.xcframework */; };
+		F1A000000000000000000002 /* libpag.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000013 /* libpag.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		F1A000000000000000000003 /* cat_bmp.pag in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000012 /* cat_bmp.pag */; };
 		F1A000000000000000000004 /* PAGCompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000011 /* PAGCompletionView.swift */; };
 		F1A000000000000000000026 /* bingo.aiff in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000025 /* bingo.aiff */; };
@@ -259,9 +365,19 @@
 		F1A000000000000000000057 /* complete_bingo_background.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000056 /* complete_bingo_background.mp3 */; };
 		F2C100000000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F2C100000000000000000003 /* PrivacyInfo.xcprivacy */; };
 		F2C100000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F2C100000000000000000004 /* PrivacyInfo.xcprivacy */; };
-		F816875AB9B84F498550F8C0 /* BingoADHD/Models/ToggleLiveActivityTaskIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0134B7A9DBA4E1595BFDF02 /* BingoADHD/Models/ToggleLiveActivityTaskIntent.swift */; };
-		FCB8AA162F5C49C18AEC2788 /* BingodaysWidget/BingoBoardLiveActivityProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAF964886CAB423C88CAB8E6 /* BingodaysWidget/BingoBoardLiveActivityProgress.swift */; };
-		FE9249A2CFBD4169BF337018 /* BingoADHD/Resources/LiveActivity.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 46402F66A5CB4A1B91B950D5 /* BingoADHD/Resources/LiveActivity.xcstrings */; };
+		F332ED4F1DAED9AE4FF25255 /* NativeICloudPersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000003 /* NativeICloudPersistenceController.swift */; };
+		F3A000000000000000000001 /* Korean.json in Resources */ = {isa = PBXBuildFile; fileRef = F3A000000000000000000003 /* Korean.json */; };
+		F3A000000000000000000002 /* Korean.json in Resources */ = {isa = PBXBuildFile; fileRef = F3A000000000000000000003 /* Korean.json */; };
+		F3A000000000000000000004 /* ko.lproj in Resources */ = {isa = PBXBuildFile; fileRef = F3A000000000000000000005 /* ko.lproj */; };
+		F3DC1455AEDBC0EF33D0D2F8 /* ColorHex.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEBABD257330F177F05EF511 /* ColorHex.swift */; };
+		F69233EB7DF977BE18C27CBC /* BlindBoxLegacyMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1100000000000000000000A /* BlindBoxLegacyMigration.swift */; };
+		F816875AB9B84F498550F8C0 /* ToggleLiveActivityTaskIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0134B7A9DBA4E1595BFDF02 /* ToggleLiveActivityTaskIntent.swift */; };
+		FB7EEB34ECA29521CB9C15F5 /* BingoTimeoutStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394B80 /* BingoTimeoutStore.swift */; };
+		FBC9BA94E64ADB7B6764FE12 /* BlindBoxStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10D0000000000000000000A /* BlindBoxStateMachine.swift */; };
+		FC12740E027EFAC07A087923 /* NativeICloudRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000013 /* NativeICloudRuntime.swift */; };
+		FCB8AA162F5C49C18AEC2788 /* BingoBoardLiveActivityProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAF964886CAB423C88CAB8E6 /* BingoBoardLiveActivityProgress.swift */; };
+		FE9249A2CFBD4169BF337018 /* LiveActivity.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 46402F66A5CB4A1B91B950D5 /* LiveActivity.xcstrings */; };
+		FFDB1282FF4C0D1FB3BD3986 /* get1point.aiff in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000027 /* get1point.aiff */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -279,9 +395,27 @@
 			remoteGlobalIDString = AA50000000000000000001;
 			remoteInfo = BingoADHD;
 		};
+		BE555201379AE4B018E79098 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA10000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EE57685E7B3828D2462E62AF;
+			remoteInfo = BingodaysMacWidget;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		065D9FDE3504D254E2CAA80A /* Embed Mac Widgets */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				7E01664A46B7397A71B81465 /* BingodaysMacWidget.appex in Embed Mac Widgets */,
+			);
+			name = "Embed Mac Widgets";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		6C56EA99BD549FA2614AA524 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -299,7 +433,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				F1A000000000000000000002 /* Vendor/libpag.xcframework in Embed Frameworks */,
+				F1A000000000000000000002 /* libpag.xcframework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -307,28 +441,48 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		01F75565618BB4172D486E0A /* MacTaskCell.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacTaskCell.swift; sourceTree = "<group>"; };
 		0369CE2F651445ED297D64A7 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "../GoogleService-Info.plist"; sourceTree = "<group>"; };
 		08C4A9D66F5B4CA1AA34B01A /* WidgetAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = WidgetAssets.xcassets; sourceTree = "<group>"; };
-		1A3EEA2F8BA1455A89714700 /* BingodaysWidget/BingodaysLockScreenWidgetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingodaysLockScreenWidgetView.swift; sourceTree = SOURCE_ROOT; };
-		1B96EF94BC87450EAD3D455B /* BingodaysWidget/BingoBoardLiveActivityCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingoBoardLiveActivityCell.swift; sourceTree = SOURCE_ROOT; };
-		3C0BA9853F854FDFA7981B3E /* BingodaysWidget/BingodaysLockScreenWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingodaysLockScreenWidget.swift; sourceTree = SOURCE_ROOT; };
+		0C37209A2886F42CC53ED4D2 /* MacDesktopBoardPublisher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopBoardPublisher.swift; sourceTree = "<group>"; };
+		1A3EEA2F8BA1455A89714700 /* BingodaysLockScreenWidgetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingodaysLockScreenWidgetView.swift; sourceTree = SOURCE_ROOT; };
+		1B1EBB1EB6CC11783AD9B5FE /* MacBoardCompatibilityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacBoardCompatibilityTests.swift; sourceTree = "<group>"; };
+		1B96EF94BC87450EAD3D455B /* BingoBoardLiveActivityCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingoBoardLiveActivityCell.swift; sourceTree = SOURCE_ROOT; };
+		26B4DEFE97C337180DA67FAB /* BingodaysMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BingodaysMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2837726BB0AE1D7745A885FF /* MacWorkspaceStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacWorkspaceStore.swift; sourceTree = "<group>"; };
+		2AFB5B7D3C55B2C02631E82B /* BingodaysMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BingodaysMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		31BC9733C9C212BE03FC9CA0 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3C0BA9853F854FDFA7981B3E /* BingodaysLockScreenWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingodaysLockScreenWidget.swift; sourceTree = SOURCE_ROOT; };
+		3CF3A393FBAF6B0369033E51 /* MacTaskDragModifier.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacTaskDragModifier.swift; sourceTree = "<group>"; };
+		3DDDC118F69E02F4FA4A84AE /* BingodaysMacWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BingodaysMacWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		42E7AD5FF00A0B3CB1427832 /* BingoADHD.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BingoADHD.entitlements; sourceTree = "<group>"; };
-		46402F66A5CB4A1B91B950D5 /* BingoADHD/Resources/LiveActivity.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = BingoADHD/Resources/LiveActivity.xcstrings; sourceTree = SOURCE_ROOT; };
-		477C1A6273ED49B0AA092C4A /* BingoADHD/Services/BingoBoardLiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Services/BingoBoardLiveActivityController.swift; sourceTree = SOURCE_ROOT; };
-		4B89D70AC87B40C1A8332CA5 /* BingoADHD/Models/BingoBoardActivitySnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Models/BingoBoardActivitySnapshotBuilder.swift; sourceTree = SOURCE_ROOT; };
-		545CBBDEECC046DDA828185C /* BingoADHD/Models/BingoBoardActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Models/BingoBoardActivityAttributes.swift; sourceTree = SOURCE_ROOT; };
+		44B07563208AC39FA1D5E98F /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		46402F66A5CB4A1B91B950D5 /* LiveActivity.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = BingoADHD/Resources/LiveActivity.xcstrings; sourceTree = SOURCE_ROOT; };
+		46828EC9124F2994DD73CE23 /* MacMobileFeaturesView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacMobileFeaturesView.swift; sourceTree = "<group>"; };
+		477C1A6273ED49B0AA092C4A /* BingoBoardLiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Services/BingoBoardLiveActivityController.swift; sourceTree = SOURCE_ROOT; };
+		4B29AA36A29BE5E1288FB389 /* BingodaysMacApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BingodaysMacApp.swift; sourceTree = "<group>"; };
+		4B89D70AC87B40C1A8332CA5 /* BingoBoardActivitySnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Models/BingoBoardActivitySnapshotBuilder.swift; sourceTree = SOURCE_ROOT; };
+		545CBBDEECC046DDA828185C /* BingoBoardActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Models/BingoBoardActivityAttributes.swift; sourceTree = SOURCE_ROOT; };
 		5BD5B8B93106F3408E370AA2 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		6D458C72F635FA749D5A7ECE /* BingoBoardStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BingoBoardStore.swift; sourceTree = "<group>"; };
-		740B524C2C2B4411B3F05E37 /* BingodaysWidget/BingoDynamicIslandIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingoDynamicIslandIcon.swift; sourceTree = SOURCE_ROOT; };
+		7084A29187296E528FB7D0F7 /* MacDesktopBoardView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopBoardView.swift; sourceTree = "<group>"; };
+		740B524C2C2B4411B3F05E37 /* BingoDynamicIslandIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingoDynamicIslandIcon.swift; sourceTree = SOURCE_ROOT; };
 		7A6AD22025CB29BE7FEB97A9 /* BingodaysWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BingodaysWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		7CB15F6FB9CA4C2A9B86C93A /* BingodaysWidget/BingodaysLockScreenMiniBoard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingodaysLockScreenMiniBoard.swift; sourceTree = SOURCE_ROOT; };
+		7AA7BAF5B651E9B88019731E /* MacWorkspaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacWorkspaceView.swift; sourceTree = "<group>"; };
+		7B3B3F88874863664F48AD94 /* MacBingoLineOverlay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacBingoLineOverlay.swift; sourceTree = "<group>"; };
+		7CB15F6FB9CA4C2A9B86C93A /* BingodaysLockScreenMiniBoard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingodaysLockScreenMiniBoard.swift; sourceTree = SOURCE_ROOT; };
+		7EAB68C76CDE9D9ECD13B5B6 /* MacAnalyticsService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacAnalyticsService.swift; sourceTree = "<group>"; };
 		83E489D141D5489D85E424C9 /* AppUpdatePromptStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppUpdatePromptStore.swift; sourceTree = "<group>"; };
+		869B2F35F2AA4C592445F863 /* MacDesktopGuideView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopGuideView.swift; sourceTree = "<group>"; };
 		8AC2258B11394074AC4D20D7 /* AnalyticsService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnalyticsService.swift; sourceTree = "<group>"; };
 		8D58E37F336E4AC4BB47D5A8 /* SubscriptionManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
 		92C0A86195B344B18448B7F3 /* AppDebugFlags.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppDebugFlags.swift; sourceTree = "<group>"; };
-		9A2079DCB6874508888608F3 /* BingodaysWidget/BingoBoardTextFitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingoBoardTextFitter.swift; sourceTree = SOURCE_ROOT; };
-		A0134B7A9DBA4E1595BFDF02 /* BingoADHD/Models/ToggleLiveActivityTaskIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Models/ToggleLiveActivityTaskIntent.swift; sourceTree = SOURCE_ROOT; };
+		92CF228FCBCE18DF4A5E5258 /* MacDesktopBoardSnapshotTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopBoardSnapshotTests.swift; sourceTree = "<group>"; };
+		9A2079DCB6874508888608F3 /* BingoBoardTextFitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingoBoardTextFitter.swift; sourceTree = SOURCE_ROOT; };
+		A0134B7A9DBA4E1595BFDF02 /* ToggleLiveActivityTaskIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Models/ToggleLiveActivityTaskIntent.swift; sourceTree = SOURCE_ROOT; };
+		A609DFF6D3B6557F833EF4D8 /* Resources */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; name = Resources; path = BingoADHD/Resources; sourceTree = "<group>"; };
 		A7F4B53D9C8E4A58B9027D11 /* WidgetBoardSwitchIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetBoardSwitchIntent.swift; sourceTree = "<group>"; };
+		AA104A104A104A104A104A11 /* FeatureNewBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Views/FeatureNewBadge.swift; sourceTree = SOURCE_ROOT; };
 		AA20000000000000000001 /* BingoADHDApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHDApp.swift; sourceTree = "<group>"; };
 		AA20000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AA20000000000000000003 /* BingoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoModels.swift; sourceTree = "<group>"; };
@@ -401,10 +555,8 @@
 		AA2000000000000000004F /* BoardStateCommitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardStateCommitter.swift; sourceTree = "<group>"; };
 		AA20000000000000000050 /* BoardSwipePagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardSwipePagerView.swift; sourceTree = "<group>"; };
 		AA20000000000000000051 /* BoardSwipePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardSwipePreviewView.swift; sourceTree = "<group>"; };
-		C013B0000000000000000001 /* BoardSwipePageWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardSwipePageWindow.swift; sourceTree = "<group>"; };
-		C013C0000000000000000001 /* DecorativeAnimationTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecorativeAnimationTimeline.swift; sourceTree = "<group>"; };
-		AB9810000000000000000002 /* BingodaysWidget/LockScreenCellOutline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/LockScreenCellOutline.swift; sourceTree = SOURCE_ROOT; };
-		AF42E216DB4F4A74BA786FEE /* BingodaysWidget/BingoBoardLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingoBoardLiveActivity.swift; sourceTree = SOURCE_ROOT; };
+		AB9810000000000000000002 /* LockScreenCellOutline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/LockScreenCellOutline.swift; sourceTree = SOURCE_ROOT; };
+		AF42E216DB4F4A74BA786FEE /* BingoBoardLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingoBoardLiveActivity.swift; sourceTree = SOURCE_ROOT; };
 		B0A1D2E3F4A5061728394B50 /* BoardEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardEngine.swift; sourceTree = "<group>"; };
 		B0A1D2E3F4A5061728394B60 /* BoardResetRuleEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardResetRuleEngine.swift; sourceTree = "<group>"; };
 		B0A1D2E3F4A5061728394B70 /* BingoDiaryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoDiaryStore.swift; sourceTree = "<group>"; };
@@ -412,8 +564,6 @@
 		B0A1D2E3F4A5061728394C00 /* WidgetTaskStores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetTaskStores.swift; sourceTree = "<group>"; };
 		B0A1D2E3F4A5061728394C10 /* WidgetTaskToggleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetTaskToggleService.swift; sourceTree = "<group>"; };
 		B0A1D2E3F4A5061728394D00 /* BoardRuleGuardrailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardRuleGuardrailTests.swift; sourceTree = "<group>"; };
-		C013B0000000000000000002 /* BoardSwipePagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardSwipePagerTests.swift; sourceTree = "<group>"; };
-		C013C0000000000000000002 /* DecorativeAnimationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecorativeAnimationTests.swift; sourceTree = "<group>"; };
 		B0A1D2E3F4A5061728394D02 /* BingoADHDTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BingoADHDTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B0A1D2E3F4A5061728394E00 /* TaskStartReminderSyncStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskStartReminderSyncStore.swift; sourceTree = "<group>"; };
 		B0A1D2E3F4A5061728394F00 /* HomeBoardSnapshotSyncStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeBoardSnapshotSyncStore.swift; sourceTree = "<group>"; };
@@ -440,9 +590,16 @@
 		B51000000000000000000002 /* BoardSharePresentationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardSharePresentationStore.swift; sourceTree = "<group>"; };
 		B51000000000000000000003 /* BoardShareFlowSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardShareFlowSheet.swift; sourceTree = "<group>"; };
 		B51000000000000000000004 /* BoardShareTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardShareTests.swift; sourceTree = "<group>"; };
+		B656379D82B5183F4DA70264 /* MacDesktopBoardSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopBoardSnapshot.swift; sourceTree = "<group>"; };
 		B7D6CE3F00A0498A917C384A /* FirstStepGuideStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FirstStepGuideStore.swift; sourceTree = "<group>"; };
 		BC1300000000000000000002 /* BlindBoxPullPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlindBoxPullPortal.swift; sourceTree = "<group>"; };
 		BC1300000000000000000004 /* BlindBoxMotion */ = {isa = PBXFileReference; lastKnownFileType = folder; name = BlindBoxMotion; path = BingoADHD/Resources/BlindBoxMotion; sourceTree = SOURCE_ROOT; };
+		BC868436F8DFA3EA026C4B35 /* MacReminderService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacReminderService.swift; sourceTree = "<group>"; };
+		C013B0000000000000000001 /* BoardSwipePageWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardSwipePageWindow.swift; sourceTree = "<group>"; };
+		C013B0000000000000000002 /* BoardSwipePagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardSwipePagerTests.swift; sourceTree = "<group>"; };
+		C013C0000000000000000001 /* DecorativeAnimationTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecorativeAnimationTimeline.swift; sourceTree = "<group>"; };
+		C013C0000000000000000002 /* DecorativeAnimationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecorativeAnimationTests.swift; sourceTree = "<group>"; };
+		C0D300000000000000000001 /* BingoDiaryGravityBubbleCloud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoDiaryGravityBubbleCloud.swift; sourceTree = "<group>"; };
 		C10D00000000000000000003 /* NativeICloudPersistenceController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeICloudPersistenceController.swift; sourceTree = "<group>"; };
 		C10D00000000000000000004 /* NativeICloudPersistenceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeICloudPersistenceTests.swift; sourceTree = "<group>"; };
 		C10D00000000000000000006 /* NativeICloudSyncStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeICloudSyncStore.swift; sourceTree = "<group>"; };
@@ -453,64 +610,73 @@
 		C10D00000000000000000013 /* NativeICloudRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeICloudRuntime.swift; sourceTree = "<group>"; };
 		C10D00000000000000000016 /* NativeICloudSyncCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeICloudSyncCoordinator.swift; sourceTree = "<group>"; };
 		C10D00000000000000000018 /* NativeICloudSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeICloudSettingsView.swift; sourceTree = "<group>"; };
+		C12B2E5543DE2A9CC836AE68 /* MacTaskEditor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacTaskEditor.swift; sourceTree = "<group>"; };
 		C60000000000000000000001 /* AppHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppHaptics.swift; sourceTree = "<group>"; };
 		C60000000000000000000003 /* SpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizer.swift; sourceTree = "<group>"; };
 		C8D4A2E6B7F2416C92A50100 /* HomeLimitedOfferBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeLimitedOfferBannerView.swift; sourceTree = "<group>"; };
 		C8D4A2E6B7F2416C92A50102 /* limited_home_bmp.pag */ = {isa = PBXFileReference; lastKnownFileType = file; path = limited_home_bmp.pag; sourceTree = "<group>"; };
 		C8D4A2E6B7F2416C92A50104 /* LimitedTime_bmp.pag */ = {isa = PBXFileReference; lastKnownFileType = file; path = LimitedTime_bmp.pag; sourceTree = "<group>"; };
 		C8D4A2E6B7F2416C92A50106 /* LimitedTimeDiscountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LimitedTimeDiscountView.swift; sourceTree = "<group>"; };
-		CAF964886CAB423C88CAB8E6 /* BingodaysWidget/BingoBoardLiveActivityProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingoBoardLiveActivityProgress.swift; sourceTree = SOURCE_ROOT; };
+		CAF964886CAB423C88CAB8E6 /* BingoBoardLiveActivityProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingoBoardLiveActivityProgress.swift; sourceTree = SOURCE_ROOT; };
+		CBD01ABF2F513E7F56183E76 /* MacAppearanceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacAppearanceView.swift; sourceTree = "<group>"; };
 		CCDA35D8D6954D5CBFB90922 /* BoardActionPresentationStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BoardActionPresentationStore.swift; sourceTree = "<group>"; };
 		CD0610000000000000000002 /* RewardEditorInputSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewardEditorInputSession.swift; sourceTree = "<group>"; };
 		CD0810000000000000000002 /* RewardEmojiTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewardEmojiTextField.swift; sourceTree = "<group>"; };
+		CE40446ED31E454BBE69F600 /* MacBoardGrid.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacBoardGrid.swift; sourceTree = "<group>"; };
 		CEBABD257330F177F05EF511 /* ColorHex.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ColorHex.swift; sourceTree = "<group>"; };
-		D1552E35A46047088F293282 /* BingoADHD/Models/ExternalBoardTaskMutationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Models/ExternalBoardTaskMutationService.swift; sourceTree = SOURCE_ROOT; };
+		D0EB2A11567C05FE168F92C8 /* MacCompletionPersistenceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacCompletionPersistenceTests.swift; sourceTree = "<group>"; };
+		D1552E35A46047088F293282 /* ExternalBoardTaskMutationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Models/ExternalBoardTaskMutationService.swift; sourceTree = SOURCE_ROOT; };
 		D1A900000000000000000002 /* DiagnosticLogStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DiagnosticLogStore.swift; sourceTree = "<group>"; };
+		D1AE00000000000000000001 /* BingoDiaryCorrectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoDiaryCorrectionSheet.swift; sourceTree = "<group>"; };
 		D70000000000000000000011 /* AppIconOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconOption.swift; sourceTree = "<group>"; };
 		D70000000000000000000012 /* AppOpenStreakStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOpenStreakStore.swift; sourceTree = "<group>"; };
 		D70000000000000000000013 /* AppIconManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconManager.swift; sourceTree = "<group>"; };
 		D70000000000000000000014 /* AppIconSettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconSettingsViews.swift; sourceTree = "<group>"; };
-		D81000000000000000000001 /* BingoADHD/AlternateAppIcons/AppIcon60x60@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon60x60@2x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000002 /* BingoADHD/AlternateAppIcons/AppIcon60x60@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon60x60@3x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000003 /* BingoADHD/AlternateAppIcons/AppIcon76x76.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BingoADHD/AlternateAppIcons/AppIcon76x76.png; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000004 /* BingoADHD/AlternateAppIcons/AppIcon76x76@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon76x76@2x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000005 /* BingoADHD/AlternateAppIcons/AppIcon83.5x83.5@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon83.5x83.5@2x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000006 /* BingoADHD/AlternateAppIcons/AppIcon10Days60x60@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon10Days60x60@2x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000007 /* BingoADHD/AlternateAppIcons/AppIcon10Days60x60@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon10Days60x60@3x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000008 /* BingoADHD/AlternateAppIcons/AppIcon10Days76x76.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BingoADHD/AlternateAppIcons/AppIcon10Days76x76.png; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000009 /* BingoADHD/AlternateAppIcons/AppIcon10Days76x76@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon10Days76x76@2x.png"; sourceTree = SOURCE_ROOT; };
-		D8100000000000000000000a /* BingoADHD/AlternateAppIcons/AppIcon10Days83.5x83.5@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon10Days83.5x83.5@2x.png"; sourceTree = SOURCE_ROOT; };
-		D8100000000000000000000b /* BingoADHD/AlternateAppIcons/AppIcon20Days60x60@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon20Days60x60@2x.png"; sourceTree = SOURCE_ROOT; };
-		D8100000000000000000000c /* BingoADHD/AlternateAppIcons/AppIcon20Days60x60@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon20Days60x60@3x.png"; sourceTree = SOURCE_ROOT; };
-		D8100000000000000000000d /* BingoADHD/AlternateAppIcons/AppIcon20Days76x76.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BingoADHD/AlternateAppIcons/AppIcon20Days76x76.png; sourceTree = SOURCE_ROOT; };
-		D8100000000000000000000e /* BingoADHD/AlternateAppIcons/AppIcon20Days76x76@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon20Days76x76@2x.png"; sourceTree = SOURCE_ROOT; };
-		D8100000000000000000000f /* BingoADHD/AlternateAppIcons/AppIcon20Days83.5x83.5@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon20Days83.5x83.5@2x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000010 /* BingoADHD/AlternateAppIcons/AppIcon30Days60x60@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon30Days60x60@2x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000011 /* BingoADHD/AlternateAppIcons/AppIcon30Days60x60@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon30Days60x60@3x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000012 /* BingoADHD/AlternateAppIcons/AppIcon30Days76x76.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BingoADHD/AlternateAppIcons/AppIcon30Days76x76.png; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000013 /* BingoADHD/AlternateAppIcons/AppIcon30Days76x76@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon30Days76x76@2x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000014 /* BingoADHD/AlternateAppIcons/AppIcon30Days83.5x83.5@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon30Days83.5x83.5@2x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000015 /* BingoADHD/AlternateAppIcons/AppIconPremium60x60@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIconPremium60x60@2x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000016 /* BingoADHD/AlternateAppIcons/AppIconPremium60x60@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIconPremium60x60@3x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000017 /* BingoADHD/AlternateAppIcons/AppIconPremium76x76.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BingoADHD/AlternateAppIcons/AppIconPremium76x76.png; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000018 /* BingoADHD/AlternateAppIcons/AppIconPremium76x76@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIconPremium76x76@2x.png"; sourceTree = SOURCE_ROOT; };
-		D81000000000000000000019 /* BingoADHD/AlternateAppIcons/AppIconPremium83.5x83.5@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIconPremium83.5x83.5@2x.png"; sourceTree = SOURCE_ROOT; };
+		D771010A51421AF5FDCA96B8 /* MacDesktopBoardProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopBoardProvider.swift; sourceTree = "<group>"; };
+		D81000000000000000000001 /* AppIcon60x60@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon60x60@2x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000002 /* AppIcon60x60@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon60x60@3x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000003 /* AppIcon76x76.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BingoADHD/AlternateAppIcons/AppIcon76x76.png; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000004 /* AppIcon76x76@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon76x76@2x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000005 /* AppIcon83.5x83.5@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon83.5x83.5@2x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000006 /* AppIcon10Days60x60@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon10Days60x60@2x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000007 /* AppIcon10Days60x60@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon10Days60x60@3x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000008 /* AppIcon10Days76x76.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BingoADHD/AlternateAppIcons/AppIcon10Days76x76.png; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000009 /* AppIcon10Days76x76@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon10Days76x76@2x.png"; sourceTree = SOURCE_ROOT; };
+		D8100000000000000000000a /* AppIcon10Days83.5x83.5@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon10Days83.5x83.5@2x.png"; sourceTree = SOURCE_ROOT; };
+		D8100000000000000000000b /* AppIcon20Days60x60@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon20Days60x60@2x.png"; sourceTree = SOURCE_ROOT; };
+		D8100000000000000000000c /* AppIcon20Days60x60@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon20Days60x60@3x.png"; sourceTree = SOURCE_ROOT; };
+		D8100000000000000000000d /* AppIcon20Days76x76.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BingoADHD/AlternateAppIcons/AppIcon20Days76x76.png; sourceTree = SOURCE_ROOT; };
+		D8100000000000000000000e /* AppIcon20Days76x76@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon20Days76x76@2x.png"; sourceTree = SOURCE_ROOT; };
+		D8100000000000000000000f /* AppIcon20Days83.5x83.5@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon20Days83.5x83.5@2x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000010 /* AppIcon30Days60x60@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon30Days60x60@2x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000011 /* AppIcon30Days60x60@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon30Days60x60@3x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000012 /* AppIcon30Days76x76.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BingoADHD/AlternateAppIcons/AppIcon30Days76x76.png; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000013 /* AppIcon30Days76x76@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon30Days76x76@2x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000014 /* AppIcon30Days83.5x83.5@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIcon30Days83.5x83.5@2x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000015 /* AppIconPremium60x60@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIconPremium60x60@2x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000016 /* AppIconPremium60x60@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIconPremium60x60@3x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000017 /* AppIconPremium76x76.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BingoADHD/AlternateAppIcons/AppIconPremium76x76.png; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000018 /* AppIconPremium76x76@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIconPremium76x76@2x.png"; sourceTree = SOURCE_ROOT; };
+		D81000000000000000000019 /* AppIconPremium83.5x83.5@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "BingoADHD/AlternateAppIcons/AppIconPremium83.5x83.5@2x.png"; sourceTree = SOURCE_ROOT; };
 		D90100000000000000000001 /* AppIconManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconManagerTests.swift; sourceTree = "<group>"; };
 		D90200000000000000000001 /* AppServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
 		D90200000000000000000003 /* BingodaysProductionRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysProductionRoot.swift; sourceTree = "<group>"; };
 		D90300000000000000000011 /* ProbeIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProbeIcon.swift; sourceTree = "<group>"; };
 		D90300000000000000000012 /* IconProbeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IconProbeModel.swift; sourceTree = "<group>"; };
 		D90300000000000000000013 /* IconProbeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IconProbeView.swift; sourceTree = "<group>"; };
+		D96F06F73D07DBE3520A2B97 /* MacTaskPromptModifier.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacTaskPromptModifier.swift; sourceTree = "<group>"; };
 		DB77DB4D87E0770BB2F4B921 /* BingodaysWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BingodaysWidget.swift; sourceTree = "<group>"; };
 		DD90FB57756C4FB6849FC680 /* PointsAnimationStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PointsAnimationStore.swift; sourceTree = "<group>"; };
 		DE212D5093D3B8D5B841BB8E /* BingodaysWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BingodaysWidget.entitlements; sourceTree = "<group>"; };
 		DEB43482CDF146E49409C99E /* LiveActivityBoardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityBoardTests.swift; sourceTree = "<group>"; };
+		DF2E496E2706FC196B61FC48 /* BingodaysMac.icns */ = {isa = PBXFileReference; includeInIndex = 1; name = BingodaysMac.icns; path = BingodaysMac/BingodaysMac.icns; sourceTree = "<group>"; };
 		E214B84E64464AE09A25C1B8 /* TileGestureDebugLogger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TileGestureDebugLogger.swift; sourceTree = "<group>"; };
 		E4FD4267FD4245D696BC64DE /* TimeoutDelayPickerStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimeoutDelayPickerStore.swift; sourceTree = "<group>"; };
+		E7CBE717EFEF02D8512A6F9B /* MacSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacSettingsView.swift; sourceTree = "<group>"; };
 		E86BC385C075D17C9B0197CC /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		F1A000000000000000000011 /* PAGCompletionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PAGCompletionView.swift; sourceTree = "<group>"; };
 		F1A000000000000000000012 /* cat_bmp.pag */ = {isa = PBXFileReference; lastKnownFileType = file; path = cat_bmp.pag; sourceTree = "<group>"; };
-		F1A000000000000000000013 /* Vendor/libpag.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Vendor/libpag.xcframework; sourceTree = "<group>"; };
+		F1A000000000000000000013 /* libpag.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Vendor/libpag.xcframework; sourceTree = "<group>"; };
 		F1A000000000000000000025 /* bingo.aiff */ = {isa = PBXFileReference; lastKnownFileType = audio.aiff; path = bingo.aiff; sourceTree = "<group>"; };
 		F1A000000000000000000027 /* get1point.aiff */ = {isa = PBXFileReference; lastKnownFileType = audio.aiff; path = get1point.aiff; sourceTree = "<group>"; };
 		F1A000000000000000000029 /* ArchivoBlack-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ArchivoBlack-Regular.ttf"; sourceTree = "<group>"; };
@@ -527,12 +693,32 @@
 		F1A000000000000000000056 /* complete_bingo_background.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = complete_bingo_background.mp3; sourceTree = "<group>"; };
 		F2C100000000000000000003 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		F2C100000000000000000004 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		F3A000000000000000000003 /* Korean.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Resources/Korean.json; sourceTree = "<group>"; };
+		F3A000000000000000000005 /* ko.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources/ko.lproj; sourceTree = "<group>"; };
+		F51B094775A4EADA931F4CD1 /* MemoryPersistenceRepositories.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryPersistenceRepositories.swift; sourceTree = "<group>"; };
+		F633F52685636BC684BB60B7 /* BingodaysMacWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BingodaysMacWidget.swift; sourceTree = "<group>"; };
 		FEC27A1F93734E4A8802CD30 /* HomeToastStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HomeToastStore.swift; sourceTree = "<group>"; };
-		FF15FA6BFEA046DFB567B04C /* BingodaysWidget/BingoBoardLiveActivityContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingoBoardLiveActivityContent.swift; sourceTree = SOURCE_ROOT; };
-		FFA5088FB4024F5981222DB7 /* BingoADHD/Views/BoardLiveActivityMenuAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Views/BoardLiveActivityMenuAction.swift; sourceTree = SOURCE_ROOT; };
+		FF15FA6BFEA046DFB567B04C /* BingoBoardLiveActivityContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingoBoardLiveActivityContent.swift; sourceTree = SOURCE_ROOT; };
+		FFA5088FB4024F5981222DB7 /* BoardLiveActivityMenuAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Views/BoardLiveActivityMenuAction.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		45B1FBF3C75F1F6C2523B57F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A660DFFCE27BE14AFF89EBA8 /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4A75E08F6F5565EBB531456D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9EA4A66CB7C987274D0D1634 /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		6A570278ABDBC032FB08C307 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -541,11 +727,19 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		8E893448F275CD811ACC753B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D9D175A8F3DB1FA9080F727E /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		AA40000000000000000002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F1A000000000000000000001 /* Vendor/libpag.xcframework in Frameworks */,
+				F1A000000000000000000001 /* libpag.xcframework in Frameworks */,
 				BC1300000000000000000005 /* Lottie in Frameworks */,
 				72020CAB0109FCCA58480539 /* FirebaseAnalytics in Frameworks */,
 				DEE0056F533BED09AA349A7E /* FirebaseCore in Frameworks */,
@@ -564,10 +758,23 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		15DAB9D96B4D54DF75EFDF07 /* BingodaysMacTests */ = {
+			isa = PBXGroup;
+			children = (
+				1B1EBB1EB6CC11783AD9B5FE /* MacBoardCompatibilityTests.swift */,
+				F51B094775A4EADA931F4CD1 /* MemoryPersistenceRepositories.swift */,
+				D0EB2A11567C05FE168F92C8 /* MacCompletionPersistenceTests.swift */,
+				92CF228FCBCE18DF4A5E5258 /* MacDesktopBoardSnapshotTests.swift */,
+			);
+			name = BingodaysMacTests;
+			path = BingodaysMacTests;
+			sourceTree = "<group>";
+		};
 		16168FDF0022FE2A4D6F465F /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
 				96D0124AEEE2C00E1F03D8F8 /* iOS */,
+				797E7D7E381842048CC153C0 /* OS X */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -611,13 +818,57 @@
 			path = Services;
 			sourceTree = "<group>";
 		};
+		6D86EE5D4F7847DD08EA26AF /* BingodaysMacWidget */ = {
+			isa = PBXGroup;
+			children = (
+				D771010A51421AF5FDCA96B8 /* MacDesktopBoardProvider.swift */,
+				7084A29187296E528FB7D0F7 /* MacDesktopBoardView.swift */,
+				F633F52685636BC684BB60B7 /* BingodaysMacWidget.swift */,
+			);
+			name = BingodaysMacWidget;
+			path = BingodaysMacWidget;
+			sourceTree = "<group>";
+		};
+		797E7D7E381842048CC153C0 /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				44B07563208AC39FA1D5E98F /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
 		96D0124AEEE2C00E1F03D8F8 /* iOS */ = {
 			isa = PBXGroup;
 			children = (
 				E86BC385C075D17C9B0197CC /* Foundation.framework */,
-				F1A000000000000000000013 /* Vendor/libpag.xcframework */,
+				F1A000000000000000000013 /* libpag.xcframework */,
 			);
 			name = iOS;
+			sourceTree = "<group>";
+		};
+		9E42F62257D18D3B57C98A2D /* BingodaysMac */ = {
+			isa = PBXGroup;
+			children = (
+				7AA7BAF5B651E9B88019731E /* MacWorkspaceView.swift */,
+				4B29AA36A29BE5E1288FB389 /* BingodaysMacApp.swift */,
+				E7CBE717EFEF02D8512A6F9B /* MacSettingsView.swift */,
+				2837726BB0AE1D7745A885FF /* MacWorkspaceStore.swift */,
+				7EAB68C76CDE9D9ECD13B5B6 /* MacAnalyticsService.swift */,
+				46828EC9124F2994DD73CE23 /* MacMobileFeaturesView.swift */,
+				CBD01ABF2F513E7F56183E76 /* MacAppearanceView.swift */,
+				CE40446ED31E454BBE69F600 /* MacBoardGrid.swift */,
+				01F75565618BB4172D486E0A /* MacTaskCell.swift */,
+				C12B2E5543DE2A9CC836AE68 /* MacTaskEditor.swift */,
+				D96F06F73D07DBE3520A2B97 /* MacTaskPromptModifier.swift */,
+				BC868436F8DFA3EA026C4B35 /* MacReminderService.swift */,
+				7B3B3F88874863664F48AD94 /* MacBingoLineOverlay.swift */,
+				3CF3A393FBAF6B0369033E51 /* MacTaskDragModifier.swift */,
+				31BC9733C9C212BE03FC9CA0 /* Assets.xcassets */,
+				B656379D82B5183F4DA70264 /* MacDesktopBoardSnapshot.swift */,
+				0C37209A2886F42CC53ED4D2 /* MacDesktopBoardPublisher.swift */,
+				869B2F35F2AA4C592445F863 /* MacDesktopGuideView.swift */,
+			);
+			path = BingodaysMac;
 			sourceTree = "<group>";
 		};
 		AA10000000000000000002 = {
@@ -631,6 +882,11 @@
 				B0A1D2E3F4A5061728394D04 /* BingoADHDTests */,
 				16168FDF0022FE2A4D6F465F /* Frameworks */,
 				BB3091D6307B0D5C004FA7EE /* Recovered References */,
+				9E42F62257D18D3B57C98A2D /* BingodaysMac */,
+				A609DFF6D3B6557F833EF4D8 /* Resources */,
+				15DAB9D96B4D54DF75EFDF07 /* BingodaysMacTests */,
+				DF2E496E2706FC196B61FC48 /* BingodaysMac.icns */,
+				6D86EE5D4F7847DD08EA26AF /* BingodaysMacWidget */,
 			);
 			sourceTree = "<group>";
 		};
@@ -640,6 +896,9 @@
 				AA2000000000000000000A /* Bingodays.app */,
 				7A6AD22025CB29BE7FEB97A9 /* BingodaysWidgetExtension.appex */,
 				B0A1D2E3F4A5061728394D02 /* BingoADHDTests.xctest */,
+				26B4DEFE97C337180DA67FAB /* BingodaysMac.app */,
+				2AFB5B7D3C55B2C02631E82B /* BingodaysMacTests.xctest */,
+				3DDDC118F69E02F4FA4A84AE /* BingodaysMacWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -647,31 +906,31 @@
 		AA10000000000000000004 /* BingoADHD */ = {
 			isa = PBXGroup;
 			children = (
-				D81000000000000000000001 /* BingoADHD/AlternateAppIcons/AppIcon60x60@2x.png */,
-				D81000000000000000000002 /* BingoADHD/AlternateAppIcons/AppIcon60x60@3x.png */,
-				D81000000000000000000003 /* BingoADHD/AlternateAppIcons/AppIcon76x76.png */,
-				D81000000000000000000004 /* BingoADHD/AlternateAppIcons/AppIcon76x76@2x.png */,
-				D81000000000000000000005 /* BingoADHD/AlternateAppIcons/AppIcon83.5x83.5@2x.png */,
-				D81000000000000000000006 /* BingoADHD/AlternateAppIcons/AppIcon10Days60x60@2x.png */,
-				D81000000000000000000007 /* BingoADHD/AlternateAppIcons/AppIcon10Days60x60@3x.png */,
-				D81000000000000000000008 /* BingoADHD/AlternateAppIcons/AppIcon10Days76x76.png */,
-				D81000000000000000000009 /* BingoADHD/AlternateAppIcons/AppIcon10Days76x76@2x.png */,
-				D8100000000000000000000a /* BingoADHD/AlternateAppIcons/AppIcon10Days83.5x83.5@2x.png */,
-				D8100000000000000000000b /* BingoADHD/AlternateAppIcons/AppIcon20Days60x60@2x.png */,
-				D8100000000000000000000c /* BingoADHD/AlternateAppIcons/AppIcon20Days60x60@3x.png */,
-				D8100000000000000000000d /* BingoADHD/AlternateAppIcons/AppIcon20Days76x76.png */,
-				D8100000000000000000000e /* BingoADHD/AlternateAppIcons/AppIcon20Days76x76@2x.png */,
-				D8100000000000000000000f /* BingoADHD/AlternateAppIcons/AppIcon20Days83.5x83.5@2x.png */,
-				D81000000000000000000010 /* BingoADHD/AlternateAppIcons/AppIcon30Days60x60@2x.png */,
-				D81000000000000000000011 /* BingoADHD/AlternateAppIcons/AppIcon30Days60x60@3x.png */,
-				D81000000000000000000012 /* BingoADHD/AlternateAppIcons/AppIcon30Days76x76.png */,
-				D81000000000000000000013 /* BingoADHD/AlternateAppIcons/AppIcon30Days76x76@2x.png */,
-				D81000000000000000000014 /* BingoADHD/AlternateAppIcons/AppIcon30Days83.5x83.5@2x.png */,
-				D81000000000000000000015 /* BingoADHD/AlternateAppIcons/AppIconPremium60x60@2x.png */,
-				D81000000000000000000016 /* BingoADHD/AlternateAppIcons/AppIconPremium60x60@3x.png */,
-				D81000000000000000000017 /* BingoADHD/AlternateAppIcons/AppIconPremium76x76.png */,
-				D81000000000000000000018 /* BingoADHD/AlternateAppIcons/AppIconPremium76x76@2x.png */,
-				D81000000000000000000019 /* BingoADHD/AlternateAppIcons/AppIconPremium83.5x83.5@2x.png */,
+				D81000000000000000000001 /* AppIcon60x60@2x.png */,
+				D81000000000000000000002 /* AppIcon60x60@3x.png */,
+				D81000000000000000000003 /* AppIcon76x76.png */,
+				D81000000000000000000004 /* AppIcon76x76@2x.png */,
+				D81000000000000000000005 /* AppIcon83.5x83.5@2x.png */,
+				D81000000000000000000006 /* AppIcon10Days60x60@2x.png */,
+				D81000000000000000000007 /* AppIcon10Days60x60@3x.png */,
+				D81000000000000000000008 /* AppIcon10Days76x76.png */,
+				D81000000000000000000009 /* AppIcon10Days76x76@2x.png */,
+				D8100000000000000000000a /* AppIcon10Days83.5x83.5@2x.png */,
+				D8100000000000000000000b /* AppIcon20Days60x60@2x.png */,
+				D8100000000000000000000c /* AppIcon20Days60x60@3x.png */,
+				D8100000000000000000000d /* AppIcon20Days76x76.png */,
+				D8100000000000000000000e /* AppIcon20Days76x76@2x.png */,
+				D8100000000000000000000f /* AppIcon20Days83.5x83.5@2x.png */,
+				D81000000000000000000010 /* AppIcon30Days60x60@2x.png */,
+				D81000000000000000000011 /* AppIcon30Days60x60@3x.png */,
+				D81000000000000000000012 /* AppIcon30Days76x76.png */,
+				D81000000000000000000013 /* AppIcon30Days76x76@2x.png */,
+				D81000000000000000000014 /* AppIcon30Days83.5x83.5@2x.png */,
+				D81000000000000000000015 /* AppIconPremium60x60@2x.png */,
+				D81000000000000000000016 /* AppIconPremium60x60@3x.png */,
+				D81000000000000000000017 /* AppIconPremium76x76.png */,
+				D81000000000000000000018 /* AppIconPremium76x76@2x.png */,
+				D81000000000000000000019 /* AppIconPremium83.5x83.5@2x.png */,
 				F2C100000000000000000003 /* PrivacyInfo.xcprivacy */,
 				AA20000000000000000001 /* BingoADHDApp.swift */,
 				AA20000000000000000002 /* ContentView.swift */,
@@ -683,6 +942,8 @@
 				F1A000000000000000000027 /* get1point.aiff */,
 				F1A000000000000000000036 /* CatReward.aiff */,
 				AA10000000000000000008 /* Fonts */,
+				F3A000000000000000000003 /* Korean.json */,
+				F3A000000000000000000005 /* ko.lproj */,
 				AA10000000000000000005 /* Models */,
 				AA10000000000000000006 /* ViewModels */,
 				AA10000000000000000007 /* Views */,
@@ -790,7 +1051,9 @@
 				AA20000000000000000041 /* BingoDiaryBubbleDynamicsSimulator.swift */,
 				AA20000000000000000042 /* BingoDiaryBubbleView.swift */,
 				AA20000000000000000043 /* BingoDiaryGravityMonitor.swift */,
+				C0D300000000000000000001 /* BingoDiaryGravityBubbleCloud.swift */,
 				AA2000000000000000003F /* BingoDiaryDetailViews.swift */,
+				D1AE00000000000000000001 /* BingoDiaryCorrectionSheet.swift */,
 				AA2000000000000000001C /* BoardRuleSheets.swift */,
 				AA2000000000000000001D /* CelebrationView.swift */,
 				AA20000000000000000021 /* ContactUsSheet.swift */,
@@ -848,22 +1111,23 @@
 		B65FB4FB8B6E451F9374F61F /* Live Activity */ = {
 			isa = PBXGroup;
 			children = (
-				FFA5088FB4024F5981222DB7 /* BingoADHD/Views/BoardLiveActivityMenuAction.swift */,
-				D1552E35A46047088F293282 /* BingoADHD/Models/ExternalBoardTaskMutationService.swift */,
-				545CBBDEECC046DDA828185C /* BingoADHD/Models/BingoBoardActivityAttributes.swift */,
-				4B89D70AC87B40C1A8332CA5 /* BingoADHD/Models/BingoBoardActivitySnapshotBuilder.swift */,
-				A0134B7A9DBA4E1595BFDF02 /* BingoADHD/Models/ToggleLiveActivityTaskIntent.swift */,
-				477C1A6273ED49B0AA092C4A /* BingoADHD/Services/BingoBoardLiveActivityController.swift */,
-				9A2079DCB6874508888608F3 /* BingodaysWidget/BingoBoardTextFitter.swift */,
-				AF42E216DB4F4A74BA786FEE /* BingodaysWidget/BingoBoardLiveActivity.swift */,
-				740B524C2C2B4411B3F05E37 /* BingodaysWidget/BingoDynamicIslandIcon.swift */,
-				7CB15F6FB9CA4C2A9B86C93A /* BingodaysWidget/BingodaysLockScreenMiniBoard.swift */,
-				1A3EEA2F8BA1455A89714700 /* BingodaysWidget/BingodaysLockScreenWidgetView.swift */,
-				3C0BA9853F854FDFA7981B3E /* BingodaysWidget/BingodaysLockScreenWidget.swift */,
-				46402F66A5CB4A1B91B950D5 /* BingoADHD/Resources/LiveActivity.xcstrings */,
-				CAF964886CAB423C88CAB8E6 /* BingodaysWidget/BingoBoardLiveActivityProgress.swift */,
-				FF15FA6BFEA046DFB567B04C /* BingodaysWidget/BingoBoardLiveActivityContent.swift */,
-				1B96EF94BC87450EAD3D455B /* BingodaysWidget/BingoBoardLiveActivityCell.swift */,
+				FFA5088FB4024F5981222DB7 /* BoardLiveActivityMenuAction.swift */,
+				AA104A104A104A104A104A11 /* FeatureNewBadge.swift */,
+				D1552E35A46047088F293282 /* ExternalBoardTaskMutationService.swift */,
+				545CBBDEECC046DDA828185C /* BingoBoardActivityAttributes.swift */,
+				4B89D70AC87B40C1A8332CA5 /* BingoBoardActivitySnapshotBuilder.swift */,
+				A0134B7A9DBA4E1595BFDF02 /* ToggleLiveActivityTaskIntent.swift */,
+				477C1A6273ED49B0AA092C4A /* BingoBoardLiveActivityController.swift */,
+				9A2079DCB6874508888608F3 /* BingoBoardTextFitter.swift */,
+				AF42E216DB4F4A74BA786FEE /* BingoBoardLiveActivity.swift */,
+				740B524C2C2B4411B3F05E37 /* BingoDynamicIslandIcon.swift */,
+				7CB15F6FB9CA4C2A9B86C93A /* BingodaysLockScreenMiniBoard.swift */,
+				1A3EEA2F8BA1455A89714700 /* BingodaysLockScreenWidgetView.swift */,
+				3C0BA9853F854FDFA7981B3E /* BingodaysLockScreenWidget.swift */,
+				46402F66A5CB4A1B91B950D5 /* LiveActivity.xcstrings */,
+				CAF964886CAB423C88CAB8E6 /* BingoBoardLiveActivityProgress.swift */,
+				FF15FA6BFEA046DFB567B04C /* BingoBoardLiveActivityContent.swift */,
+				1B96EF94BC87450EAD3D455B /* BingoBoardLiveActivityCell.swift */,
 			);
 			name = "Live Activity";
 			sourceTree = "<group>";
@@ -871,7 +1135,7 @@
 		BB3091D6307B0D5C004FA7EE /* Recovered References */ = {
 			isa = PBXGroup;
 			children = (
-				AB9810000000000000000002 /* BingodaysWidget/LockScreenCellOutline.swift */,
+				AB9810000000000000000002 /* LockScreenCellOutline.swift */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -934,6 +1198,42 @@
 			productReference = 7A6AD22025CB29BE7FEB97A9 /* BingodaysWidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		8C247586D0AD1EEC1E9330F1 /* BingodaysMacTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2D5996ED883B1D96D001B1FA /* Build configuration list for PBXNativeTarget "BingodaysMacTests" */;
+			buildPhases = (
+				E6A33D279DB006C2811BE492 /* Sources */,
+				45B1FBF3C75F1F6C2523B57F /* Frameworks */,
+				8857A9B2DA3C1AF9569625B9 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BingodaysMacTests;
+			productName = BingodaysMacTests;
+			productReference = 2AFB5B7D3C55B2C02631E82B /* BingodaysMacTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		9D3BE097A3BD3BF43AFE2981 /* BingodaysMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 550C1BC8B433ACE7DF93D43C /* Build configuration list for PBXNativeTarget "BingodaysMac" */;
+			buildPhases = (
+				C8B756E2AAD319997F06ED08 /* Sources */,
+				8E893448F275CD811ACC753B /* Frameworks */,
+				BD8151B37365B4AB9DAFF044 /* Resources */,
+				065D9FDE3504D254E2CAA80A /* Embed Mac Widgets */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1AAD42709DDCF2AB980A9A73 /* PBXTargetDependency */,
+			);
+			name = BingodaysMac;
+			productName = BingodaysMac;
+			productReference = 26B4DEFE97C337180DA67FAB /* BingodaysMac.app */;
+			productType = "com.apple.product-type.application";
+		};
 		AA50000000000000000001 /* BingoADHD */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AA60000000000000000002 /* Build configuration list for PBXNativeTarget "BingoADHD" */;
@@ -980,6 +1280,23 @@
 			productReference = B0A1D2E3F4A5061728394D02 /* BingoADHDTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		EE57685E7B3828D2462E62AF /* BingodaysMacWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0F3A48DAA7BDC32B032C2622 /* Build configuration list for PBXNativeTarget "BingodaysMacWidget" */;
+			buildPhases = (
+				2D8825C5F2E041B466E129F7 /* Sources */,
+				4A75E08F6F5565EBB531456D /* Frameworks */,
+				4D0F065D2A271FB41B1F495D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BingodaysMacWidget;
+			productName = BingodaysMacWidget;
+			productReference = 3DDDC118F69E02F4FA4A84AE /* BingodaysMacWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -988,7 +1305,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 2630;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					5DAD236D36C29E50D5181212 = {
 						CreatedOnToolsVersion = 16.0;
@@ -1024,6 +1341,7 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				ko,
 				"zh-Hans",
 				Base,
 			);
@@ -1040,6 +1358,9 @@
 				AA50000000000000000001 /* BingoADHD */,
 				5DAD236D36C29E50D5181212 /* BingodaysWidgetExtension */,
 				B0A1D2E3F4A5061728394D03 /* BingoADHDTests */,
+				9D3BE097A3BD3BF43AFE2981 /* BingodaysMac */,
+				8C247586D0AD1EEC1E9330F1 /* BingodaysMacTests */,
+				EE57685E7B3828D2462E62AF /* BingodaysMacWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -1049,10 +1370,26 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E16521D5DA234BBB8C8367ED /* BingoADHD/Resources/LiveActivity.xcstrings in Resources */,
+				E16521D5DA234BBB8C8367ED /* LiveActivity.xcstrings in Resources */,
+				F3A000000000000000000002 /* Korean.json in Resources */,
 				F2C100000000000000000002 /* PrivacyInfo.xcprivacy in Resources */,
 				08C4A9D66F5B4CA1AA34B019 /* WidgetAssets.xcassets in Resources */,
 				AB9810000000000000000003 /* Outfit-wght.ttf in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4D0F065D2A271FB41B1F495D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6F94284F2E52A02F5246F441 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8857A9B2DA3C1AF9569625B9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1060,32 +1397,34 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D81100000000000000000001 /* BingoADHD/AlternateAppIcons/AppIcon60x60@2x.png in Resources */,
-				D81100000000000000000002 /* BingoADHD/AlternateAppIcons/AppIcon60x60@3x.png in Resources */,
-				D81100000000000000000003 /* BingoADHD/AlternateAppIcons/AppIcon76x76.png in Resources */,
-				D81100000000000000000004 /* BingoADHD/AlternateAppIcons/AppIcon76x76@2x.png in Resources */,
-				D81100000000000000000005 /* BingoADHD/AlternateAppIcons/AppIcon83.5x83.5@2x.png in Resources */,
-				D81100000000000000000006 /* BingoADHD/AlternateAppIcons/AppIcon10Days60x60@2x.png in Resources */,
-				D81100000000000000000007 /* BingoADHD/AlternateAppIcons/AppIcon10Days60x60@3x.png in Resources */,
-				D81100000000000000000008 /* BingoADHD/AlternateAppIcons/AppIcon10Days76x76.png in Resources */,
-				D81100000000000000000009 /* BingoADHD/AlternateAppIcons/AppIcon10Days76x76@2x.png in Resources */,
-				D8110000000000000000000a /* BingoADHD/AlternateAppIcons/AppIcon10Days83.5x83.5@2x.png in Resources */,
-				D8110000000000000000000b /* BingoADHD/AlternateAppIcons/AppIcon20Days60x60@2x.png in Resources */,
-				D8110000000000000000000c /* BingoADHD/AlternateAppIcons/AppIcon20Days60x60@3x.png in Resources */,
-				D8110000000000000000000d /* BingoADHD/AlternateAppIcons/AppIcon20Days76x76.png in Resources */,
-				D8110000000000000000000e /* BingoADHD/AlternateAppIcons/AppIcon20Days76x76@2x.png in Resources */,
-				D8110000000000000000000f /* BingoADHD/AlternateAppIcons/AppIcon20Days83.5x83.5@2x.png in Resources */,
-				D81100000000000000000010 /* BingoADHD/AlternateAppIcons/AppIcon30Days60x60@2x.png in Resources */,
-				D81100000000000000000011 /* BingoADHD/AlternateAppIcons/AppIcon30Days60x60@3x.png in Resources */,
-				D81100000000000000000012 /* BingoADHD/AlternateAppIcons/AppIcon30Days76x76.png in Resources */,
-				D81100000000000000000013 /* BingoADHD/AlternateAppIcons/AppIcon30Days76x76@2x.png in Resources */,
-				D81100000000000000000014 /* BingoADHD/AlternateAppIcons/AppIcon30Days83.5x83.5@2x.png in Resources */,
-				D81100000000000000000015 /* BingoADHD/AlternateAppIcons/AppIconPremium60x60@2x.png in Resources */,
-				D81100000000000000000016 /* BingoADHD/AlternateAppIcons/AppIconPremium60x60@3x.png in Resources */,
-				D81100000000000000000017 /* BingoADHD/AlternateAppIcons/AppIconPremium76x76.png in Resources */,
-				D81100000000000000000018 /* BingoADHD/AlternateAppIcons/AppIconPremium76x76@2x.png in Resources */,
-				D81100000000000000000019 /* BingoADHD/AlternateAppIcons/AppIconPremium83.5x83.5@2x.png in Resources */,
-				FE9249A2CFBD4169BF337018 /* BingoADHD/Resources/LiveActivity.xcstrings in Resources */,
+				D81100000000000000000001 /* AppIcon60x60@2x.png in Resources */,
+				D81100000000000000000002 /* AppIcon60x60@3x.png in Resources */,
+				D81100000000000000000003 /* AppIcon76x76.png in Resources */,
+				D81100000000000000000004 /* AppIcon76x76@2x.png in Resources */,
+				D81100000000000000000005 /* AppIcon83.5x83.5@2x.png in Resources */,
+				D81100000000000000000006 /* AppIcon10Days60x60@2x.png in Resources */,
+				D81100000000000000000007 /* AppIcon10Days60x60@3x.png in Resources */,
+				D81100000000000000000008 /* AppIcon10Days76x76.png in Resources */,
+				D81100000000000000000009 /* AppIcon10Days76x76@2x.png in Resources */,
+				D8110000000000000000000a /* AppIcon10Days83.5x83.5@2x.png in Resources */,
+				D8110000000000000000000b /* AppIcon20Days60x60@2x.png in Resources */,
+				D8110000000000000000000c /* AppIcon20Days60x60@3x.png in Resources */,
+				D8110000000000000000000d /* AppIcon20Days76x76.png in Resources */,
+				D8110000000000000000000e /* AppIcon20Days76x76@2x.png in Resources */,
+				D8110000000000000000000f /* AppIcon20Days83.5x83.5@2x.png in Resources */,
+				D81100000000000000000010 /* AppIcon30Days60x60@2x.png in Resources */,
+				D81100000000000000000011 /* AppIcon30Days60x60@3x.png in Resources */,
+				D81100000000000000000012 /* AppIcon30Days76x76.png in Resources */,
+				D81100000000000000000013 /* AppIcon30Days76x76@2x.png in Resources */,
+				D81100000000000000000014 /* AppIcon30Days83.5x83.5@2x.png in Resources */,
+				D81100000000000000000015 /* AppIconPremium60x60@2x.png in Resources */,
+				D81100000000000000000016 /* AppIconPremium60x60@3x.png in Resources */,
+				D81100000000000000000017 /* AppIconPremium76x76.png in Resources */,
+				D81100000000000000000018 /* AppIconPremium76x76@2x.png in Resources */,
+				D81100000000000000000019 /* AppIconPremium83.5x83.5@2x.png in Resources */,
+				FE9249A2CFBD4169BF337018 /* LiveActivity.xcstrings in Resources */,
+				F3A000000000000000000001 /* Korean.json in Resources */,
+				F3A000000000000000000004 /* ko.lproj in Resources */,
 				F2C100000000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
 				BC1300000000000000000003 /* BlindBoxMotion in Resources */,
 				F1A000000000000000000003 /* cat_bmp.pag in Resources */,
@@ -1117,6 +1456,17 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BD8151B37365B4AB9DAFF044 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				78F685BFB093D050074E4FFC /* Resources in Resources */,
+				FFDB1282FF4C0D1FB3BD3986 /* get1point.aiff in Resources */,
+				D644E2E0845EC808BA630F91 /* BingodaysMac.icns in Resources */,
+				68D7006D2DF258B088B25322 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
@@ -1141,26 +1491,37 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		2D8825C5F2E041B466E129F7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7AE64C7BBB03561FE963CC85 /* MacDesktopBoardProvider.swift in Sources */,
+				50952DE7729BEB0897553570 /* MacDesktopBoardView.swift in Sources */,
+				B3F1A03C0FDA91827D19E3F0 /* BingodaysMacWidget.swift in Sources */,
+				82E59B615D674D06AB3C46F1 /* MacDesktopBoardSnapshot.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		6B05E1ADD98405F9FF8927E5 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8A9312A6113245DEBEBD4E99 /* BingoADHD/Models/ExternalBoardTaskMutationService.swift in Sources */,
-				9D0F86B39D2D424C87B2137D /* BingoADHD/Models/BingoBoardActivityAttributes.swift in Sources */,
-				9A7CC21D4E4F463092A7CA8F /* BingoADHD/Models/BingoBoardActivitySnapshotBuilder.swift in Sources */,
-				F816875AB9B84F498550F8C0 /* BingoADHD/Models/ToggleLiveActivityTaskIntent.swift in Sources */,
-				C50D54C3ADA242278DA07848 /* BingoADHD/Services/BingoBoardLiveActivityController.swift in Sources */,
-				BD9C0CED650D4C3AA3109C96 /* BingodaysWidget/BingoBoardTextFitter.swift in Sources */,
-				64331AC750BE48559D50B62A /* BingodaysWidget/BingoBoardLiveActivity.swift in Sources */,
-				43A7DE85B68A457B8B3FFAD9 /* BingodaysWidget/BingoDynamicIslandIcon.swift in Sources */,
-				0F46E92E79F049D6B8B24CA1 /* BingodaysWidget/BingodaysLockScreenMiniBoard.swift in Sources */,
-				787EE70647AC46CF94D67B47 /* BingodaysWidget/BingodaysLockScreenWidgetView.swift in Sources */,
-				4B198651C9EE4552BE3A07BB /* BingodaysWidget/BingodaysLockScreenWidget.swift in Sources */,
+				8A9312A6113245DEBEBD4E99 /* ExternalBoardTaskMutationService.swift in Sources */,
+				9D0F86B39D2D424C87B2137D /* BingoBoardActivityAttributes.swift in Sources */,
+				9A7CC21D4E4F463092A7CA8F /* BingoBoardActivitySnapshotBuilder.swift in Sources */,
+				F816875AB9B84F498550F8C0 /* ToggleLiveActivityTaskIntent.swift in Sources */,
+				C50D54C3ADA242278DA07848 /* BingoBoardLiveActivityController.swift in Sources */,
+				BD9C0CED650D4C3AA3109C96 /* BingoBoardTextFitter.swift in Sources */,
+				64331AC750BE48559D50B62A /* BingoBoardLiveActivity.swift in Sources */,
+				43A7DE85B68A457B8B3FFAD9 /* BingoDynamicIslandIcon.swift in Sources */,
+				0F46E92E79F049D6B8B24CA1 /* BingodaysLockScreenMiniBoard.swift in Sources */,
+				787EE70647AC46CF94D67B47 /* BingodaysLockScreenWidgetView.swift in Sources */,
+				4B198651C9EE4552BE3A07BB /* BingodaysLockScreenWidget.swift in Sources */,
 				98B9C2BE0D7D4AE0BDFDE99E /* AppFont.swift in Sources */,
-				FCB8AA162F5C49C18AEC2788 /* BingodaysWidget/BingoBoardLiveActivityProgress.swift in Sources */,
-				2947A7C13F3D4D3B83EBC203 /* BingodaysWidget/BingoBoardLiveActivityContent.swift in Sources */,
-				3CB7447D1B7A455BA0997960 /* BingodaysWidget/BingoBoardLiveActivityCell.swift in Sources */,
-				AB9810000000000000000001 /* BingodaysWidget/LockScreenCellOutline.swift in Sources */,
+				FCB8AA162F5C49C18AEC2788 /* BingoBoardLiveActivityProgress.swift in Sources */,
+				2947A7C13F3D4D3B83EBC203 /* BingoBoardLiveActivityContent.swift in Sources */,
+				3CB7447D1B7A455BA0997960 /* BingoBoardLiveActivityCell.swift in Sources */,
+				AB9810000000000000000001 /* LockScreenCellOutline.swift in Sources */,
 				007D47AD92E038CFF32C8BE2 /* BingodaysWidget.swift in Sources */,
 				C10D00000000000000000002 /* NativeICloudPersistenceController.swift in Sources */,
 				C10D00000000000000000008 /* NativeICloudSyncStore.swift in Sources */,
@@ -1194,13 +1555,14 @@
 				D90300000000000000000001 /* ProbeIcon.swift in Sources */,
 				D90300000000000000000002 /* IconProbeModel.swift in Sources */,
 				D90300000000000000000003 /* IconProbeView.swift in Sources */,
-				09FBA64EE94645C9A39A0569 /* BingoADHD/Views/BoardLiveActivityMenuAction.swift in Sources */,
-				59B6336F47FE48EF9B1DE484 /* BingoADHD/Models/ExternalBoardTaskMutationService.swift in Sources */,
-				046CBDE1D9AE491D8C0E8E89 /* BingoADHD/Models/BingoBoardActivityAttributes.swift in Sources */,
-				792053262AEA488F8ACEF293 /* BingoADHD/Models/BingoBoardActivitySnapshotBuilder.swift in Sources */,
-				00F15176A9504D6CA74F7273 /* BingoADHD/Models/ToggleLiveActivityTaskIntent.swift in Sources */,
-				19F7C12CD742431BB2E00C37 /* BingoADHD/Services/BingoBoardLiveActivityController.swift in Sources */,
-				448226CAAE8C4B99823ED8F3 /* BingodaysWidget/BingoBoardTextFitter.swift in Sources */,
+				09FBA64EE94645C9A39A0569 /* BoardLiveActivityMenuAction.swift in Sources */,
+				AA104A104A104A104A104A10 /* FeatureNewBadge.swift in Sources */,
+				59B6336F47FE48EF9B1DE484 /* ExternalBoardTaskMutationService.swift in Sources */,
+				046CBDE1D9AE491D8C0E8E89 /* BingoBoardActivityAttributes.swift in Sources */,
+				792053262AEA488F8ACEF293 /* BingoBoardActivitySnapshotBuilder.swift in Sources */,
+				00F15176A9504D6CA74F7273 /* ToggleLiveActivityTaskIntent.swift in Sources */,
+				19F7C12CD742431BB2E00C37 /* BingoBoardLiveActivityController.swift in Sources */,
+				448226CAAE8C4B99823ED8F3 /* BingoBoardTextFitter.swift in Sources */,
 				AA30000000000000000001 /* BingoADHDApp.swift in Sources */,
 				C10D00000000000000000001 /* NativeICloudPersistenceController.swift in Sources */,
 				C10D00000000000000000007 /* NativeICloudSyncStore.swift in Sources */,
@@ -1289,7 +1651,9 @@
 				AA30000000000000000042 /* BingoDiaryBubbleDynamicsSimulator.swift in Sources */,
 				AA30000000000000000043 /* BingoDiaryBubbleView.swift in Sources */,
 				AA30000000000000000044 /* BingoDiaryGravityMonitor.swift in Sources */,
+				C0D300000000000000000002 /* BingoDiaryGravityBubbleCloud.swift in Sources */,
 				AA30000000000000000040 /* BingoDiaryDetailViews.swift in Sources */,
+				D1AE00000000000000000002 /* BingoDiaryCorrectionSheet.swift in Sources */,
 				AA3000000000000000001C /* BoardRuleSheets.swift in Sources */,
 				AA3000000000000000001D /* CelebrationView.swift in Sources */,
 				AA3000000000000000001E /* BoardResetCoordinator.swift in Sources */,
@@ -1357,9 +1721,126 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C8B756E2AAD319997F06ED08 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DDF79BC9A41451CEACE5AA36 /* BingoModels.swift in Sources */,
+				CF415CFEEFD5D15F11B9C0F8 /* BingoBoardStore.swift in Sources */,
+				9BE2F95C4022E0E721F90CD9 /* BoardEngine.swift in Sources */,
+				A450DA5C48B096B96F8018B2 /* BoardResetRuleEngine.swift in Sources */,
+				A712A6CE063785BC93E13920 /* TaskStores.swift in Sources */,
+				21359CF194E5195800055935 /* PointsStores.swift in Sources */,
+				A42F1E8DC5ED14F09B0C9505 /* BingoDiaryStore.swift in Sources */,
+				FB7EEB34ECA29521CB9C15F5 /* BingoTimeoutStore.swift in Sources */,
+				E865521A9F6AC6495EEBF813 /* WidgetTaskStores.swift in Sources */,
+				6D79D10153F58A7D7C36B0F0 /* Localization.swift in Sources */,
+				E7160545026D299D5B4F72B2 /* BlindBoxRuleEngine.swift in Sources */,
+				FBC9BA94E64ADB7B6764FE12 /* BlindBoxStateMachine.swift in Sources */,
+				F69233EB7DF977BE18C27CBC /* BlindBoxLegacyMigration.swift in Sources */,
+				0112728560D4CC98B52F7174 /* BlindBoxCatalogBundle.swift in Sources */,
+				1516CF8BC82C745B5B9ABA84 /* BingoViewModel.swift in Sources */,
+				4B4604690FCA84890C628C18 /* BingoViewModelPersistence.swift in Sources */,
+				3AD318C67B5CCF786FB0878E /* BoardStateCommitter.swift in Sources */,
+				31858A94475E1A29780090B0 /* BingoRewardSettlement.swift in Sources */,
+				47D2724D7A6D0B69A4BFAEB9 /* BingoTaskBoardHelpers.swift in Sources */,
+				2E7C41DB7B1220FE00B45C5C /* BoardManagementStore.swift in Sources */,
+				27FD939EBC4E07DA45A572E7 /* NativeICloudSyncStore.swift in Sources */,
+				92B199C05F482A61E646FE19 /* NativeICloudLocalProjection.swift in Sources */,
+				4100A60B14CFAC66D7CA754E /* NativeICloudSyncCoordinator.swift in Sources */,
+				9245549DD8109379880F31A6 /* NativeICloudPersistenceController.swift in Sources */,
+				A12178DEDF882C84596AEED0 /* NativeICloudInitialMigrator.swift in Sources */,
+				A86EFC8AAE91E7D16E94AF47 /* NativeICloudSnapshots.swift in Sources */,
+				FC12740E027EFAC07A087923 /* NativeICloudRuntime.swift in Sources */,
+				AB4BF9B94A70964CFDF6D5F6 /* NativeICloudSecondarySnapshot.swift in Sources */,
+				0B045EA98937246306134D7E /* DiagnosticLogStore.swift in Sources */,
+				EB6BFEF4AEA99D4337CE9C00 /* AppDebugFlags.swift in Sources */,
+				28D6F26C3F96C671712E2B91 /* NeumorphicStyles.swift in Sources */,
+				F3DC1455AEDBC0EF33D0D2F8 /* ColorHex.swift in Sources */,
+				9BC307ADB5769BF6C3A06AC6 /* AppFont.swift in Sources */,
+				445495DE92DC8ED5778A84C7 /* QuickEditTypes.swift in Sources */,
+				B0B58ABB0D3DDF27DF932BAE /* MacWorkspaceView.swift in Sources */,
+				7CC78D19AA242078B6492861 /* BingodaysMacApp.swift in Sources */,
+				4623B8F243C7AB576E8356A7 /* MacSettingsView.swift in Sources */,
+				2527918495086B43841DF3E8 /* MacWorkspaceStore.swift in Sources */,
+				28CB2419ECC7247AE670F8B4 /* MacAnalyticsService.swift in Sources */,
+				009EF8DE3BE52DDAEFC7F623 /* WidgetTaskToggleService.swift in Sources */,
+				3AA018F990B623C600DB3C30 /* BlindBoxCloudKitRecordCodec.swift in Sources */,
+				9E199D4F8689600FDA6E11AB /* MacMobileFeaturesView.swift in Sources */,
+				2D0CC881EAF654DA02A37AA8 /* MacAppearanceView.swift in Sources */,
+				45E67624009FA01A993C31AE /* MacBoardGrid.swift in Sources */,
+				D9DBE2E86F1933312DF269B1 /* MacTaskCell.swift in Sources */,
+				2172171D2ECC3E661E7D9CB6 /* MacTaskEditor.swift in Sources */,
+				DD1D19354FDA07552D744CDF /* MacTaskPromptModifier.swift in Sources */,
+				03469FD7E43FF65D0DD32790 /* MacReminderService.swift in Sources */,
+				DF43B87AE0A7DF24D53C9707 /* BoardResetCoordinator.swift in Sources */,
+				4B7360A97E7BB5338AAEC08D /* MacBingoLineOverlay.swift in Sources */,
+				2D7E371A035FC0B3255C2157 /* MacTaskDragModifier.swift in Sources */,
+				E496BFAFB27FE5265EABD67C /* MacDesktopBoardSnapshot.swift in Sources */,
+				7B365A3E667950CF1ABF338C /* MacDesktopBoardPublisher.swift in Sources */,
+				9CB1EDF7BC94E712F6ACE382 /* MacDesktopGuideView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E6A33D279DB006C2811BE492 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6A7781CBEE5F7AFF0056B373 /* BingoModels.swift in Sources */,
+				0C0F5AF549F4C9DCBFC77AAA /* BingoBoardStore.swift in Sources */,
+				73F6B74025133F87CDB81DF1 /* BoardEngine.swift in Sources */,
+				D894E8A51C87FF0EC0E7D0FA /* BoardResetRuleEngine.swift in Sources */,
+				4A52D35877C9F5FDA028227D /* TaskStores.swift in Sources */,
+				86AFD2AC3FB904F307F783D5 /* PointsStores.swift in Sources */,
+				956D4FC87CC7C0B4F24BB902 /* BingoDiaryStore.swift in Sources */,
+				DA44FFC15693639DB7CE0B76 /* BingoTimeoutStore.swift in Sources */,
+				DDF3C445B3E0BC9086F12B44 /* WidgetTaskStores.swift in Sources */,
+				BD26EB28A0463AF4A9F7C627 /* Localization.swift in Sources */,
+				56CA3E175EAA578B054383AB /* BlindBoxRuleEngine.swift in Sources */,
+				BC1D2D66B47762F222D91C9A /* BlindBoxStateMachine.swift in Sources */,
+				2A977D810DD8EF0E2D880797 /* BlindBoxLegacyMigration.swift in Sources */,
+				0AA99BAB3D706604DF0AD745 /* BlindBoxCatalogBundle.swift in Sources */,
+				63C43FA24DAD146128A344BC /* BingoViewModel.swift in Sources */,
+				98536150373DBE1379E1A580 /* BingoViewModelPersistence.swift in Sources */,
+				37A6D1711E842E0DEB753359 /* BoardStateCommitter.swift in Sources */,
+				A41C2C0C82CF53E04ECD8D1A /* BingoRewardSettlement.swift in Sources */,
+				42147C69C68D333C1C25BFE1 /* BingoTaskBoardHelpers.swift in Sources */,
+				512D41D64B9DBA580B628240 /* BoardManagementStore.swift in Sources */,
+				98DDDABBBE53B01409380B4C /* NativeICloudSyncStore.swift in Sources */,
+				BA1F7361A09020ACF9227BD6 /* NativeICloudLocalProjection.swift in Sources */,
+				D844E8F075949227F662694F /* NativeICloudSyncCoordinator.swift in Sources */,
+				F332ED4F1DAED9AE4FF25255 /* NativeICloudPersistenceController.swift in Sources */,
+				134CA0EED9613BDCF944ADC8 /* NativeICloudInitialMigrator.swift in Sources */,
+				EDB18286EB8A3532E6994A43 /* NativeICloudSnapshots.swift in Sources */,
+				D9913F851A9C0FF94BF247B3 /* NativeICloudRuntime.swift in Sources */,
+				0771EA6683C6E1653617FEDC /* NativeICloudSecondarySnapshot.swift in Sources */,
+				01269B1BD298BB33D45C6243 /* DiagnosticLogStore.swift in Sources */,
+				4753E93200887A13934191C4 /* AppDebugFlags.swift in Sources */,
+				5AC8F52A7C8F5ACB3CEF2F14 /* NeumorphicStyles.swift in Sources */,
+				8A89A9EF2C22C66712175BDA /* ColorHex.swift in Sources */,
+				9D8BB61DC9FFA7391CA01F1C /* AppFont.swift in Sources */,
+				D789BA93F84D2EC86078F808 /* QuickEditTypes.swift in Sources */,
+				546A2C6BE5507833C82EF0EC /* MacAnalyticsService.swift in Sources */,
+				000DAD4B00BC863222C33779 /* WidgetTaskToggleService.swift in Sources */,
+				B3E1602DE27E280B14E04FFC /* BlindBoxCloudKitRecordCodec.swift in Sources */,
+				D484AEF1DDAC55CC8D7DAF20 /* BoardResetCoordinator.swift in Sources */,
+				4F03884D75BBD8431E6ACDCE /* MacBoardCompatibilityTests.swift in Sources */,
+				3CA4F734D81BD7CC70FBE3CA /* MemoryPersistenceRepositories.swift in Sources */,
+				6F1DFCCF719F60A3E9A53F6D /* MacCompletionPersistenceTests.swift in Sources */,
+				44AB05DCD548FF3A220E9E0C /* MacDesktopBoardSnapshot.swift in Sources */,
+				DDB16E92CFFCBACE38D2987B /* MacDesktopBoardSnapshotTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		1AAD42709DDCF2AB980A9A73 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = BingodaysMacWidget;
+			target = EE57685E7B3828D2462E62AF /* BingodaysMacWidget */;
+			targetProxy = BE555201379AE4B018E79098 /* PBXContainerItemProxy */;
+		};
 		1BCDCB9BC09CE57496504CE6 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = BingodaysWidgetExtension;
@@ -1383,7 +1864,7 @@
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 65;
+				CURRENT_PROJECT_VERSION = 66;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Production;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
@@ -1394,7 +1875,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 5.4.2;
+				MARKETING_VERSION = 5.5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PRODUCT_NAME = BingodaysWidgetExtension;
 				PROVISIONING_PROFILE_SPECIFIER = "Bingodays Widget App Store 2026";
@@ -1403,6 +1884,115 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		0CAE78A85A116014D5BF6BEA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
+				CODE_SIGN_ENTITLEMENTS = BingodaysMacWidget/BingodaysMacWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R2372567GG;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BingodaysMacWidget/Info.plist;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.mac.widget;
+				PRODUCT_NAME = BingodaysMacWidget;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		1A4E282444D3DA30935E5D4A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BingodaysMac/BingodaysMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = R2372567GG;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				ICLOUD_CONTAINER_ENVIRONMENT = Development;
+				INFOPLIST_FILE = BingodaysMac/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Bingodays;
+				INFOPLIST_KEY_CFBundleIconFile = BingodaysMac;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.mac;
+				PRODUCT_NAME = BingodaysMac;
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		6B0D358ECD46831259CD674F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "";
+				CODE_SIGNING_ALLOWED = NO;
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.mac.tests;
+				PRODUCT_MODULE_NAME = BingodaysMacTests;
+				PRODUCT_NAME = BingodaysMacTests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "";
+			};
+			name = Debug;
+		};
+		6BB13298AA25FFF10349FC72 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BingodaysMac/BingodaysMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = R2372567GG;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				ICLOUD_CONTAINER_ENVIRONMENT = Production;
+				INFOPLIST_FILE = BingodaysMac/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Bingodays;
+				INFOPLIST_KEY_CFBundleIconFile = BingodaysMac;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.mac;
+				PRODUCT_NAME = BingodaysMac;
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
 		};
@@ -1533,7 +2123,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 65;
+				CURRENT_PROJECT_VERSION = 66;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Development;
 				INFOPLIST_FILE = BingoADHD/Info.plist;
@@ -1541,7 +2131,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.4.2;
+				MARKETING_VERSION = 5.5.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -1566,7 +2156,7 @@
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 65;
+				CURRENT_PROJECT_VERSION = 66;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Production;
 				INFOPLIST_FILE = BingoADHD/Info.plist;
@@ -1574,7 +2164,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.4.2;
+				MARKETING_VERSION = 5.5.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -1640,6 +2230,31 @@
 			};
 			name = Release;
 		};
+		BDF9FC7453A343C514FF05D0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
+				CODE_SIGN_ENTITLEMENTS = BingodaysMacWidget/BingodaysMacWidget.entitlements;
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R2372567GG;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BingodaysMacWidget/Info.plist;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.mac.widget;
+				PRODUCT_NAME = BingodaysMacWidget;
+				PROVISIONING_PROFILE_SPECIFIER = "Bingodays Mac Widget Development 2026";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
 		DD965AE4D6E112ED96B0E7DD /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1647,7 +2262,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 65;
+				CURRENT_PROJECT_VERSION = 66;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Development;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
@@ -1658,7 +2273,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 5.4.2;
+				MARKETING_VERSION = 5.5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PRODUCT_NAME = BingodaysWidgetExtension;
 				SDKROOT = iphoneos;
@@ -1668,14 +2283,58 @@
 			};
 			name = Debug;
 		};
+		F818928620EE6C7CCDA0FF86 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "";
+				CODE_SIGNING_ALLOWED = NO;
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.mac.tests;
+				PRODUCT_MODULE_NAME = BingodaysMacTests;
+				PRODUCT_NAME = BingodaysMacTests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		0F3A48DAA7BDC32B032C2622 /* Build configuration list for PBXNativeTarget "BingodaysMacWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0CAE78A85A116014D5BF6BEA /* Release */,
+				BDF9FC7453A343C514FF05D0 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2D5996ED883B1D96D001B1FA /* Build configuration list for PBXNativeTarget "BingodaysMacTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F818928620EE6C7CCDA0FF86 /* Release */,
+				6B0D358ECD46831259CD674F /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		4592D31743C11388EDE247DB /* Build configuration list for PBXNativeTarget "BingodaysWidgetExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				04F3E1E8C807A1CA7CB25CB3 /* Release */,
 				DD965AE4D6E112ED96B0E7DD /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		550C1BC8B433ACE7DF93D43C /* Build configuration list for PBXNativeTarget "BingodaysMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6BB13298AA25FFF10349FC72 /* Release */,
+				1A4E282444D3DA30935E5D4A /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
