@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import WidgetKit
 
 extension Notification.Name {
     static let appOpenStreakDidChange = Notification.Name("appOpenStreakDidChange")
@@ -95,6 +96,8 @@ final class AppOpenStreakStore: ObservableObject {
     }
 
     func recordOpen(at date: Date = .now) {
+        let previousBest = persistedState.bestStreak
+        defer { syncCompanionWidget(at: date, previousBest: previousBest) }
         let today = calendar.startOfDay(for: date)
 
         if let lastOpenedDay = persistedState.lastOpenedDay {
@@ -120,6 +123,40 @@ final class AppOpenStreakStore: ObservableObject {
         )
         publishAndSave()
         NotificationCenter.default.post(name: .appOpenStreakDidChange, object: nil)
+    }
+
+    private func syncCompanionWidget(at date: Date, previousBest: Int) {
+#if DEBUG
+        guard !isDebugSimulationActive else { return }
+#endif
+        guard let lastOpenedDay = persistedState.lastOpenedDay else { return }
+        let shared = BingoBoardStore.sharedDefaults
+        let today = calendar.startOfDay(for: date)
+        var snapshot = AppOpenWidgetSnapshot.load(from: shared) ?? AppOpenWidgetSnapshot(
+            trackedSince: today,
+            openedDays: (0..<min(persistedState.currentStreak, 90)).compactMap {
+                calendar.date(byAdding: .day, value: -$0, to: lastOpenedDay)
+            },
+            lastOpenedDay: lastOpenedDay,
+            streak: persistedState.currentStreak
+        )
+        if !snapshot.openedDays.contains(where: { calendar.isDate($0, inSameDayAs: today) }) {
+            snapshot.openedDays.append(today)
+        }
+        snapshot.lastOpenedDay = lastOpenedDay
+        snapshot.streak = persistedState.currentStreak
+        snapshot.bestStreak = persistedState.bestStreak
+        var milestoneDays = snapshot.milestoneDays ?? [:]
+        for milestone in [10, 20, 30] where previousBest < milestone && persistedState.currentStreak >= milestone {
+            milestoneDays[String(milestone)] = today
+        }
+        snapshot.milestoneDays = milestoneDays
+        let cutoff = calendar.date(byAdding: .day, value: -90, to: today) ?? today
+        snapshot.openedDays.removeAll { $0 < cutoff }
+        guard let data = try? JSONEncoder().encode(snapshot),
+              data != shared.data(forKey: AppOpenWidgetSnapshot.storageKey) else { return }
+        shared.set(data, forKey: AppOpenWidgetSnapshot.storageKey)
+        WidgetCenter.shared.reloadTimelines(ofKind: "BingodaysCompanionWidget")
     }
 
     private func load() {

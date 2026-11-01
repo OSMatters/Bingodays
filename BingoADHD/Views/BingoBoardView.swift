@@ -875,7 +875,7 @@ struct BingoBoardView: View {
             .map(weekdayLabel(for:))
 
         guard !labels.isEmpty else { return nil }
-        return L10n.taskScheduledMessage(labels.joined(separator: AppLanguage.current == .english ? ", " : "、"))
+        return L10n.taskScheduledMessage(labels.joined(separator: AppLanguage.current.listSeparator))
     }
 
     private func recurrenceNoticeLabel(for rule: TaskRecurrenceRule) -> String {
@@ -885,7 +885,7 @@ struct BingoBoardView: View {
             let labels = orderedWeekdays
                 .filter { rule.weekdays.contains($0) }
                 .map(weekdayLabel(for:))
-            return labels.joined(separator: AppLanguage.current == .english ? ", " : "、")
+            return labels.joined(separator: AppLanguage.current.listSeparator)
         case .monthlyDay:
             let day = rule.monthDay ?? Calendar.current.component(.day, from: Date())
             return L10n.tr(

@@ -27,7 +27,7 @@ struct AppIconSettingsSection: View {
                 ),
                 spacing: scaled(14, pad: 18)
             ) {
-                ForEach(AppIconOption.allCases) { option in
+                ForEach(iconManager.visibleOptions) { option in
                     iconButton(for: option)
                 }
             }

@@ -360,6 +360,8 @@ struct OnboardingFlowView: View {
                 .accessibilityHidden(true)
 
             Text(L10n.onboardingMadeForADHDBrains)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
                 .font(OnboardingFonts.schoolbell(size: 18))
                 .foregroundStyle(secondaryTextColor)
                 .onboardingTextEntrance(textEntranceVisible)
@@ -564,6 +566,8 @@ struct OnboardingFlowView: View {
                     .figmaFrame(x: 203, y: 154, width: 152, height: 59)
 
                 Text(L10n.onboardingStressFree)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
                     .font(OnboardingFonts.schoolbell(size: 24))
                     .foregroundStyle(.white)
                     .onboardingTextEntrance(textEntranceVisible)
@@ -576,6 +580,8 @@ struct OnboardingFlowView: View {
                 .figmaFrame(x: 293, y: 136, width: 38, height: 31)
 
                 Text(L10n.onboardingSimplified)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
                     .font(OnboardingFonts.schoolbell(size: 24))
                     .foregroundStyle(secondaryTextColor)
                     .onboardingTextEntrance(textEntranceVisible)
@@ -1080,9 +1086,9 @@ private extension View {
 
 
 enum OnboardingFonts {
-    private static var usesLocalizedCJKFonts: Bool {
+    private static var usesLocalizedSystemFonts: Bool {
         switch AppLanguage.current {
-        case .simplifiedChinese, .traditionalChinese, .japanese, .korean:
+        case .simplifiedChinese, .traditionalChinese, .japanese, .korean, .german:
             return true
         case .english:
             return false
@@ -1105,7 +1111,7 @@ enum OnboardingFonts {
     }
 
     static func headline(size: CGFloat) -> Font {
-        if usesLocalizedCJKFonts {
+        if usesLocalizedSystemFonts {
             let uiFont = localizedUIFont(size: size * 0.9, weight: .bold)
             return Font(uiFont as CTFont)
         }
@@ -1114,7 +1120,7 @@ enum OnboardingFonts {
     }
 
     static func supporting(size: CGFloat, weight: CGFloat) -> Font {
-        if usesLocalizedCJKFonts {
+        if usesLocalizedSystemFonts {
             let uiFont = localizedUIFont(size: size, weight: uiWeight(from: weight))
             return Font(uiFont as CTFont)
         }
@@ -1123,7 +1129,7 @@ enum OnboardingFonts {
     }
 
     static func button(size: CGFloat, weight: CGFloat) -> Font {
-        if usesLocalizedCJKFonts {
+        if usesLocalizedSystemFonts {
             let uiFont = localizedUIFont(size: size, weight: .semibold)
             return Font(uiFont as CTFont)
         }
@@ -1183,7 +1189,7 @@ enum OnboardingFonts {
         case .japanese:
             return UIFont(name: hiraginoSansName(for: weight), size: size)
                 ?? UIFont.systemFont(ofSize: size, weight: uiWeight)
-        case .korean:
+        case .korean, .german:
             return UIFont.systemFont(ofSize: size, weight: uiWeight)
         case .english:
             let baseFont = UIFont(name: "Outfit", size: size)

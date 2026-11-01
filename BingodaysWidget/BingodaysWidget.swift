@@ -198,6 +198,8 @@ struct BingodaysWidgets: WidgetBundle {
     var body: some Widget {
         BingodaysCountdownWidget()
         BingodaysLargeWidget()
+        // Companion widget is hidden until its artwork and design are ready.
+        // BingodaysCompanionWidget()
         BingodaysLockScreenWidget()
         BingoBoardLiveActivity()
     }
@@ -814,7 +816,7 @@ private struct WidgetBingoCellView: View {
         let formatter = DateFormatter()
         formatter.locale = AppLanguage.displayLocale
         formatter.calendar = Calendar.current
-        formatter.dateFormat = "M/d HH:mm"
+        formatter.setLocalizedDateFormatFromTemplate("MdHHmm")
         return formatter
     }
 

@@ -33,6 +33,12 @@
             "state": "translated",
             "value": "할 일 완료 상태 전환"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erledigungsstatus ändern"
+          }
         }
       }
     },
@@ -67,6 +73,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "보드 ID"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Board-ID"
           }
         }
       }
@@ -103,6 +115,12 @@
             "state": "translated",
             "value": "칸 ID"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feld-ID"
+          }
         }
       }
     },
@@ -138,6 +156,12 @@
             "state": "translated",
             "value": "완료됨"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erledigt"
+          }
         }
       }
     },
@@ -172,6 +196,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "버전"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version"
           }
         }
       }

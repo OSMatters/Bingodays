@@ -620,6 +620,7 @@ struct ContentView: View {
             UserDefaults(suiteName: BingoBoardStore.appGroupID)?.set(newCode, forKey: AppSettings.languageKey)
             BingoBoardStore.reloadWidgetTimelines()
             BingoBoardLiveActivityController.scheduleRefresh()
+            syncTaskStartReminders()
         }
         .onChange(of: pointsFeatureStore.committedSpendPoints) { _, _ in
             viewModel.normalizeTotalPointsForCommittedSpend()
@@ -706,11 +707,11 @@ struct ContentView: View {
                 selectedMainTab = tab
             }
         )) {
-            tabRoot { homeScreenContent }
+            tabRoot { homeScreenContent.id(selectedLanguageCode) }
                 .tabItem { nativeTabLabel(.home) }
                 .tag(HomeMainTab.home)
 
-            tabRoot { pointsTabContent(bottomInset: 0) }
+            tabRoot { pointsTabContent(bottomInset: 0).id(selectedLanguageCode) }
                 .tabItem { nativeTabLabel(.points) }
                 .badge(shouldShowBlindBoxNewBadge ? Text(verbatim: "NEW") : nil)
                 .tag(HomeMainTab.points)
@@ -1163,6 +1164,7 @@ struct ContentView: View {
                 meSkinRawValue = activeMeSkin == .halloween ? MeSkin.normal.rawValue : MeSkin.halloween.rawValue
             }
         )
+        .id(selectedLanguageCode)
         .sheet(isPresented: $isMeSettingsPresented, onDismiss: {
             if presentPremiumIconPaywallAfterSettings {
                 presentPremiumIconPaywallAfterSettings = false

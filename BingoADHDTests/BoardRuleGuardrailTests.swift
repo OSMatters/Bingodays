@@ -9573,6 +9573,21 @@ final class BoardManagementStoreTests: XCTestCase {
         XCTAssertTrue(BingoBoardStore.isPristineStarterGuideBoard(board))
     }
 
+    func testGermanStarterGuideBoardIsRecognizedWithoutChangingDeviceLanguage() {
+        let cells = [[
+            BingoCell(text: "Ein Glas Wasser trinken"),
+            BingoCell(text: "1 Minute stehen"),
+            BingoCell(text: "Den Körper dehnen")
+        ]]
+        let board = BingoBoardStore.NamedBoard(
+            name: "Board 1",
+            board: SavedBoard(gridSize: 3, cells: cells, completedLines: [], fullBoardCells: cells),
+            origin: .starterGuide
+        )
+
+        XCTAssertTrue(BingoBoardStore.isPristineStarterGuideBoard(board))
+    }
+
     @MainActor
     func testOrdinaryNewTaskStillInheritsCompletionHistory() {
         let harness = makeInMemoryViewModelHarness(savedBoard: nil)

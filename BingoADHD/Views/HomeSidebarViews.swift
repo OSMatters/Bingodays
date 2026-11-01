@@ -1614,6 +1614,7 @@ struct MeSettingsScreen: View {
                             .padding(.top, scaled(4, pad: 6))
                             .padding(.bottom, scaled(16, pad: 20))
                     }
+                    .id(selectedLanguageCode)
                     .frame(width: contentWidth)
                     .frame(maxWidth: .infinity)
                     .padding(.top, scaled(16, pad: 20))
@@ -1740,6 +1741,7 @@ struct MeSettingsScreen: View {
                     .foregroundStyle(MeScreenPalette.text)
                 Spacer()
                 Text(selectedLanguageTitle)
+                    .minimumScaleFactor(0.8)
                     .font(.appSystem(size: 14, weight: .regular, design: .rounded))
                     .foregroundStyle(MeScreenPalette.mutedText)
                     .lineLimit(1)
@@ -2210,6 +2212,8 @@ struct SidebarPricingDebugInfoRow: View {
             return "ja"
         case .korean:
             return "ko"
+        case .german:
+            return "de"
         }
     }
 
@@ -2228,27 +2232,27 @@ struct SidebarProEntryRow: View {
         let cardWidth: CGFloat = 254
         let cardHeight: CGFloat = 75
         let cornerRadius: CGFloat = 16
-        let isEnglish = AppLanguage.current == .english
+        let usesLatinLayout = AppLanguage.current == .english || AppLanguage.current == .german
         let titleText = isPremiumMember ? L10n.proEntryMemberTitle : L10n.proEntryTitle
         let subtitleText = isPremiumMember ? L10n.proEntryMemberSubtitle : L10n.proEntrySubtitle
         let proTitleWidth: CGFloat = {
             if isPremiumMember {
-                return isEnglish ? 172 : 132
+                return usesLatinLayout ? 172 : 132
             }
-            return isEnglish ? 70 : 88
+            return usesLatinLayout ? 70 : 88
         }()
         let subtitleWidth: CGFloat = {
             if isPremiumMember {
-                return isEnglish ? 214 : 188
+                return usesLatinLayout ? 214 : 188
             }
             return 168
         }()
         let proTitleCenterX: CGFloat = 27 + (proTitleWidth / 2)
         let proStarCenterX: CGFloat = {
             if isPremiumMember {
-                return proTitleCenterX + (isEnglish ? 71 : 52)
+                return proTitleCenterX + (usesLatinLayout ? 71 : 52)
             }
-            return isEnglish ? 101.5 : 116.5
+            return usesLatinLayout ? 101.5 : 116.5
         }()
         let titleFrameWidth: CGFloat = isPremiumMember ? 220 : proTitleWidth
         let subtitleFrameWidth: CGFloat = isPremiumMember ? 224 : subtitleWidth

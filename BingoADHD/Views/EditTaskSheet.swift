@@ -1481,7 +1481,7 @@ struct EditTaskSheet: View {
     private var repeatPreviewText: String? {
         guard scheduleMode == .repeating else { return nil }
         let rule = recurrenceRuleForCurrentRepeatingDraft(defaultDate: recurrenceAnchorDate)
-        let separator = AppLanguage.current == .english ? ", " : "、"
+        let separator = AppLanguage.current.listSeparator
 
         switch rule.kind {
         case .daily:
@@ -1541,7 +1541,7 @@ struct EditTaskSheet: View {
             zhHant: "在重複日期全天可完成。",
             ja: "繰り返し日は終日完了できます。"
         )
-        let separator = AppLanguage.current == .english ? " " : ""
+        let separator = AppLanguage.current.sentenceSeparator
         return "\(ruleText)\(separator)\(allDayText)"
     }
 

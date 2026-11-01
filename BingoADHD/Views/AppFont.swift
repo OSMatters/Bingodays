@@ -9,7 +9,7 @@ extension Font {
         switch AppLanguage.current {
         case .english:
             return .custom("Outfit", size: size).weight(weight)
-        case .simplifiedChinese, .traditionalChinese, .japanese, .korean:
+        case .simplifiedChinese, .traditionalChinese, .japanese, .korean, .german:
             return .system(size: size, weight: weight, design: design)
         }
     }

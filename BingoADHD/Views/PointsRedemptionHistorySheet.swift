@@ -20,7 +20,7 @@ struct PointsRedemptionHistorySheet: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectedDate = Calendar.current.startOfDay(for: .now)
     @State private var displayedMonth = Calendar.current.startOfMonth(for: .now)
-    private let calendar = Calendar.redemptionHistoryCalendar
+    private var calendar: Calendar { Calendar.redemptionHistoryCalendar }
 
     private var historyItems: [HistoryItem] {
         let recordedItems = records.map { record in
@@ -138,10 +138,9 @@ struct PointsRedemptionHistorySheet: View {
         var components = [item.detail]
         if item.redeemedAt != .distantPast {
             components.append(
-                DateFormatter.localizedString(
-                    from: item.redeemedAt,
-                    dateStyle: .full,
-                    timeStyle: .short
+                item.redeemedAt.formatted(
+                    .dateTime.weekday(.wide).day().month(.wide).year().hour().minute()
+                        .locale(AppLanguage.displayLocale)
                 )
             )
         }
@@ -347,7 +346,7 @@ struct PointsRedemptionHistorySheet: View {
                             .foregroundStyle(historySecondaryTextColor.opacity(0.92))
                     }
 
-                    Text("\(item.points) pts")
+                    Text("\(item.points) \(L10n.pointsUnit)")
                         .appDynamicFont(size: scaled(12, pad: 14), weight: .semibold, design: .rounded)
                         .foregroundStyle(historyPrimaryTextColor)
                 }
@@ -393,14 +392,14 @@ struct PointsRedemptionHistorySheet: View {
         }
 
         let formatter = DateFormatter()
-        formatter.locale = .current
+        formatter.locale = AppLanguage.displayLocale
         formatter.setLocalizedDateFormatFromTemplate("MMM d, yyyy")
         return formatter.string(from: date)
     }
 
     private func timeText(for date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.locale = .current
+        formatter.locale = AppLanguage.displayLocale
         formatter.timeStyle = .short
         formatter.dateStyle = .none
         return formatter.string(from: date)
@@ -414,7 +413,7 @@ private struct RedemptionCalendarView: View {
     let isPadLayout: Bool
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    private let calendar = Calendar.redemptionHistoryCalendar
+    private var calendar: Calendar { Calendar.redemptionHistoryCalendar }
     private let nonSelectedDayColor = Color(hex: "828282")
     private var historyAccentColor: Color { NeumorphicColors.modalAccent }
     private var selectedDayBackground: Color { historyAccentColor.opacity(0.18) }
@@ -514,7 +513,7 @@ private struct RedemptionCalendarView: View {
             .frame(maxWidth: .infinity, minHeight: dynamicTypeSize.isAccessibilitySize ? 48 : scaled(38, pad: 44))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(DateFormatter.localizedString(from: date, dateStyle: .full, timeStyle: .none))
+        .accessibilityLabel(date.formatted(.dateTime.weekday(.wide).day().month(.wide).year().locale(AppLanguage.displayLocale)))
         .accessibilityValue(
             hasRecord
                 ? L10n.tr("Has redemptions", zhHans: "有兑换记录", zhHant: "有兌換記錄", ja: "交換履歴あり")
@@ -552,15 +551,17 @@ private struct RedemptionCalendarView: View {
 
     private var monthTitle: String {
         let formatter = DateFormatter()
-        formatter.locale = .current
+        formatter.locale = AppLanguage.displayLocale
         formatter.setLocalizedDateFormatFromTemplate("MMMM yyyy")
         return formatter.string(from: displayedMonth)
     }
 
     private var weekdaySymbols: [String] {
         let formatter = DateFormatter()
-        formatter.locale = .current
-        return formatter.shortStandaloneWeekdaySymbols.map { $0.uppercased() }
+        formatter.locale = AppLanguage.displayLocale
+        let symbols = formatter.shortStandaloneWeekdaySymbols ?? []
+        let offset = calendar.firstWeekday - 1
+        return (Array(symbols.dropFirst(offset)) + Array(symbols.prefix(offset))).map { $0.uppercased() }
     }
 
     private var calendarCells: [CalendarCell] {
@@ -597,7 +598,8 @@ private struct RedemptionCalendarView: View {
 private extension Calendar {
     static var redemptionHistoryCalendar: Calendar {
         var calendar = Calendar.current
-        calendar.firstWeekday = 1
+        calendar.locale = AppLanguage.displayLocale
+        calendar.firstWeekday = AppLanguage.current == .german ? 2 : 1
         return calendar
     }
 

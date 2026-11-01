@@ -34,7 +34,7 @@ end
   icons = info.fetch(key, {})
   primary = icons.fetch('CFBundlePrimaryIcon', {}).fetch('CFBundleIconName', nil)
   alternates = icons.fetch('CFBundleAlternateIcons', {})
-  failures << "#{key}: unexpected primary icon #{primary.inspect}" unless expected.include?(primary)
+  failures << "#{key}: unexpected primary icon #{primary.inspect}" unless primary == 'AppIcon'
   (expected - [primary]).each do |name|
     entry = alternates[name]
     failures << "#{key}: #{name} is not registered with matching CFBundleIconName" unless entry && entry['CFBundleIconName'] == name

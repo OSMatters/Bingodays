@@ -90,15 +90,15 @@ enum NativeICloudPersistenceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .appGroupContainerUnavailable:
-            return "The Bingodays App Group container is unavailable."
+            return L10n.tr("The Bingodays App Group container is unavailable.", zhHans: "Bingodays 共享数据容器不可用。")
         case .cannotCreateStoreDirectory(let error):
-            return "The native iCloud store directory could not be created: \(error.localizedDescription)"
+            return L10n.tr("The native iCloud store directory could not be created: \(error.localizedDescription)", zhHans: "无法创建 iCloud 存储目录：\(error.localizedDescription)")
         case .iCloudAccountUnavailable:
-            return "An available iCloud account is required."
+            return L10n.tr("An available iCloud account is required.", zhHans: "需要可用的 iCloud 账户。")
         case .accountChangedRequiresConfirmation:
-            return "The iCloud account changed. Turn sync on again to confirm using the new account."
+            return L10n.tr("The iCloud account changed. Turn sync on again to confirm using the new account.", zhHans: "iCloud 账户已更改，请重新开启同步以确认使用新账户。")
         case .initialCloudImportTimedOut:
-            return "iCloud did not finish its initial download. Check the network and iCloud Drive, then try again."
+            return L10n.tr("iCloud did not finish its initial download. Check the network and iCloud Drive, then try again.", zhHans: "iCloud 首次下载未完成，请检查网络和 iCloud 云盘后重试。")
         }
     }
 }

@@ -308,7 +308,7 @@ struct NativeICloudSettingsView: View {
         case .preparing, .syncing:
             return L10n.tr("This can take a moment the first time.", zhHans: "首次同步可能需要一点时间。", zhHant: "首次同步可能需要一點時間。", ja: "初回は少し時間がかかることがあります。")
         case .waitingForCloud(let lastCheckedAt):
-            let time = lastCheckedAt.formatted(date: .omitted, time: .shortened)
+            let time = lastCheckedAt.formatted(.dateTime.hour().minute().locale(AppLanguage.displayLocale))
             return L10n.tr(
                 "Checked at \(time). iOS has not delivered a new iCloud update yet; automatic sync will keep trying.",
                 zhHans: "已于 \(time) 检查，本机尚未收到新的 iCloud 数据；系统会继续自动同步。",
@@ -320,10 +320,10 @@ struct NativeICloudSettingsView: View {
                 return L10n.tr("Automatic sync is on.", zhHans: "自动同步已开启。", zhHant: "自動同步已開啟。", ja: "自動同期がオンです。")
             }
             return L10n.tr(
-                "Last checked \(lastSyncAt.formatted(date: .omitted, time: .shortened))",
-                zhHans: "最近检查：\(lastSyncAt.formatted(date: .omitted, time: .shortened))",
-                zhHant: "最近檢查：\(lastSyncAt.formatted(date: .omitted, time: .shortened))",
-                ja: "最終確認：\(lastSyncAt.formatted(date: .omitted, time: .shortened))"
+                "Last checked \(lastSyncAt.formatted(.dateTime.hour().minute().locale(AppLanguage.displayLocale)))",
+                zhHans: "最近检查：\(lastSyncAt.formatted(.dateTime.hour().minute().locale(AppLanguage.displayLocale)))",
+                zhHant: "最近檢查：\(lastSyncAt.formatted(.dateTime.hour().minute().locale(AppLanguage.displayLocale)))",
+                ja: "最終確認：\(lastSyncAt.formatted(.dateTime.hour().minute().locale(AppLanguage.displayLocale)))"
             )
         case .accountChangeRequiresDecision:
             return L10n.tr(

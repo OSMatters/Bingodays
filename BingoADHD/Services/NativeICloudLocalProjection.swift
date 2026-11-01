@@ -44,15 +44,15 @@ enum NativeICloudLocalProjectionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedPrimarySchema(let version):
-            return "Unsupported primary iCloud data schema: \(version)."
+            return L10n.tr("Unsupported primary iCloud data schema: \(version).", zhHans: "不支持的 iCloud 主数据格式：\(version)。")
         case .invalidPrimarySnapshot:
-            return "The primary iCloud data is incomplete."
+            return L10n.tr("The primary iCloud data is incomplete.", zhHans: "iCloud 主数据不完整。")
         case .primaryProjectionFailed:
-            return "The primary iCloud data could not be applied locally."
+            return L10n.tr("The primary iCloud data could not be applied locally.", zhHans: "无法在本地应用 iCloud 主数据。")
         case .unsupportedSecondarySchema(let version):
-            return "Unsupported secondary iCloud data schema: \(version)."
+            return L10n.tr("Unsupported secondary iCloud data schema: \(version).", zhHans: "不支持的 iCloud 辅助数据格式：\(version)。")
         case .secondaryProjectionFailed:
-            return "The secondary iCloud data could not be applied locally."
+            return L10n.tr("The secondary iCloud data could not be applied locally.", zhHans: "无法在本地应用 iCloud 辅助数据。")
         }
     }
 }

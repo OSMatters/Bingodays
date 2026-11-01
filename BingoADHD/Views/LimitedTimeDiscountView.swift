@@ -347,7 +347,7 @@ struct LimitedTimeDiscountView: View {
 
     private var headlineTextWidth: CGFloat {
         switch AppLanguage.current {
-        case .english:
+        case .english, .german:
             return 223
         case .simplifiedChinese, .traditionalChinese:
             return 150
@@ -358,7 +358,7 @@ struct LimitedTimeDiscountView: View {
 
     private var headlineWheatSpacing: CGFloat {
         switch AppLanguage.current {
-        case .english:
+        case .english, .german:
             return 8
         case .simplifiedChinese, .traditionalChinese:
             return 10

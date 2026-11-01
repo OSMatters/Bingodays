@@ -574,9 +574,9 @@ final class NativeICloudSyncCoordinator: ObservableObject {
         case .keepLocalOnly:
             return ""
         case .useCurrentAccountCloud:
-            return "No Bingodays iCloud data is available for this account. Keep this device's data or copy it explicitly."
+            return L10n.tr("No Bingodays iCloud data is available for this account. Keep this device's data or copy it explicitly.", zhHans: "此账户没有 Bingodays iCloud 数据，请保留本机数据或明确选择复制。")
         case .copyLocalDataToEmptyCurrentAccount:
-            return "This iCloud account already has Bingodays data, or this device has no data to copy. Nothing was changed."
+            return L10n.tr("This iCloud account already has Bingodays data, or this device has no data to copy. Nothing was changed.", zhHans: "此 iCloud 账户已有 Bingodays 数据，或本机没有可复制的数据。未做任何更改。")
         }
     }
 
@@ -726,11 +726,11 @@ final class NativeICloudSyncCoordinator: ObservableObject {
     private func accountStatusMessage(_ status: CKAccountStatus) -> String {
         switch status {
         case .noAccount:
-            return "No iCloud account is signed in on this device."
+            return L10n.tr("No iCloud account is signed in on this device.", zhHans: "此设备尚未登录 iCloud 账户。")
         case .restricted:
             return "iCloud access is restricted on this device."
         case .couldNotDetermine:
-            return "The iCloud account status could not be determined."
+            return L10n.tr("The iCloud account status could not be determined.", zhHans: "无法确定 iCloud 账户状态。")
         case .temporarilyUnavailable:
             return "iCloud is temporarily unavailable."
         case .available:

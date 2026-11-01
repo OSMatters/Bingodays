@@ -123,7 +123,7 @@ struct BingoCellView: View {
         let formatter = DateFormatter()
         formatter.locale = AppLanguage.displayLocale
         formatter.calendar = Calendar.current
-        formatter.dateFormat = "M/d HH:mm"
+        formatter.setLocalizedDateFormatFromTemplate("MdHHmm")
         return formatter
     }
 

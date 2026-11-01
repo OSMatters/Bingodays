@@ -780,6 +780,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         if AppDebugFlags.appIconProbeEnabled { return true }
+        _ = AppIconEntitlementStore.shared
 #if DEBUG
         FirebaseConfiguration.shared.setLoggerLevel(.debug)
 #endif

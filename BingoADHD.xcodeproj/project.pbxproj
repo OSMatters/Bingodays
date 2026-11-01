@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E70100000000000000000001 /* AppIconEntitlementStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70100000000000000000002 /* AppIconEntitlementStore.swift */; };
 		000DAD4B00BC863222C33779 /* WidgetTaskToggleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394C10 /* WidgetTaskToggleService.swift */; };
 		007D47AD92E038CFF32C8BE2 /* BingodaysWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB77DB4D87E0770BB2F4B921 /* BingodaysWidget.swift */; };
 		009EF8DE3BE52DDAEFC7F623 /* WidgetTaskToggleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394C10 /* WidgetTaskToggleService.swift */; };
@@ -367,8 +368,11 @@
 		F2C100000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F2C100000000000000000004 /* PrivacyInfo.xcprivacy */; };
 		F332ED4F1DAED9AE4FF25255 /* NativeICloudPersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00000000000000000003 /* NativeICloudPersistenceController.swift */; };
 		F3A000000000000000000001 /* Korean.json in Resources */ = {isa = PBXBuildFile; fileRef = F3A000000000000000000003 /* Korean.json */; };
+		F3B000000000000000000001 /* German.json in Resources */ = {isa = PBXBuildFile; fileRef = F3B000000000000000000003 /* German.json */; };
 		F3A000000000000000000002 /* Korean.json in Resources */ = {isa = PBXBuildFile; fileRef = F3A000000000000000000003 /* Korean.json */; };
+		F3B000000000000000000002 /* German.json in Resources */ = {isa = PBXBuildFile; fileRef = F3B000000000000000000003 /* German.json */; };
 		F3A000000000000000000004 /* ko.lproj in Resources */ = {isa = PBXBuildFile; fileRef = F3A000000000000000000005 /* ko.lproj */; };
+		F3B000000000000000000004 /* de.lproj in Resources */ = {isa = PBXBuildFile; fileRef = F3B000000000000000000005 /* de.lproj */; };
 		F3DC1455AEDBC0EF33D0D2F8 /* ColorHex.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEBABD257330F177F05EF511 /* ColorHex.swift */; };
 		F69233EB7DF977BE18C27CBC /* BlindBoxLegacyMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1100000000000000000000A /* BlindBoxLegacyMigration.swift */; };
 		F816875AB9B84F498550F8C0 /* ToggleLiveActivityTaskIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0134B7A9DBA4E1595BFDF02 /* ToggleLiveActivityTaskIntent.swift */; };
@@ -378,6 +382,13 @@
 		FCB8AA162F5C49C18AEC2788 /* BingoBoardLiveActivityProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAF964886CAB423C88CAB8E6 /* BingoBoardLiveActivityProgress.swift */; };
 		FE9249A2CFBD4169BF337018 /* LiveActivity.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 46402F66A5CB4A1B91B950D5 /* LiveActivity.xcstrings */; };
 		FFDB1282FF4C0D1FB3BD3986 /* get1point.aiff in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000027 /* get1point.aiff */; };
+		E83100000000000000000011 /* AppOpenWidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83100000000000000000001 /* AppOpenWidgetSnapshot.swift */; };
+		E83100000000000000000012 /* AppOpenWidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83100000000000000000001 /* AppOpenWidgetSnapshot.swift */; };
+		E83100000000000000000013 /* BingodaysCompanionWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83100000000000000000002 /* BingodaysCompanionWidget.swift */; };
+		E83100000000000000000014 /* CompanionDayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83100000000000000000003 /* CompanionDayView.swift */; };
+		E83100000000000000000015 /* CompanionWidgetEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83100000000000000000004 /* CompanionWidgetEntry.swift */; };
+		E83100000000000000000016 /* CompanionWidgetProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83100000000000000000005 /* CompanionWidgetProvider.swift */; };
+		E83100000000000000000017 /* CompanionWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83100000000000000000006 /* CompanionWidgetView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -441,6 +452,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		E70100000000000000000002 /* AppIconEntitlementStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconEntitlementStore.swift; sourceTree = "<group>"; };
 		01F75565618BB4172D486E0A /* MacTaskCell.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacTaskCell.swift; sourceTree = "<group>"; };
 		0369CE2F651445ED297D64A7 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "../GoogleService-Info.plist"; sourceTree = "<group>"; };
 		08C4A9D66F5B4CA1AA34B01A /* WidgetAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = WidgetAssets.xcassets; sourceTree = "<group>"; };
@@ -694,12 +706,20 @@
 		F2C100000000000000000003 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		F2C100000000000000000004 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		F3A000000000000000000003 /* Korean.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Resources/Korean.json; sourceTree = "<group>"; };
+		F3B000000000000000000003 /* German.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Resources/German.json; sourceTree = "<group>"; };
 		F3A000000000000000000005 /* ko.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources/ko.lproj; sourceTree = "<group>"; };
+		F3B000000000000000000005 /* de.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources/de.lproj; sourceTree = "<group>"; };
 		F51B094775A4EADA931F4CD1 /* MemoryPersistenceRepositories.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryPersistenceRepositories.swift; sourceTree = "<group>"; };
 		F633F52685636BC684BB60B7 /* BingodaysMacWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BingodaysMacWidget.swift; sourceTree = "<group>"; };
 		FEC27A1F93734E4A8802CD30 /* HomeToastStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HomeToastStore.swift; sourceTree = "<group>"; };
 		FF15FA6BFEA046DFB567B04C /* BingoBoardLiveActivityContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingoBoardLiveActivityContent.swift; sourceTree = SOURCE_ROOT; };
 		FFA5088FB4024F5981222DB7 /* BoardLiveActivityMenuAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Views/BoardLiveActivityMenuAction.swift; sourceTree = SOURCE_ROOT; };
+		E83100000000000000000001 /* AppOpenWidgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Models/AppOpenWidgetSnapshot.swift; sourceTree = SOURCE_ROOT; };
+		E83100000000000000000002 /* BingodaysCompanionWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/BingodaysCompanionWidget.swift; sourceTree = SOURCE_ROOT; };
+		E83100000000000000000003 /* CompanionDayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/CompanionDayView.swift; sourceTree = SOURCE_ROOT; };
+		E83100000000000000000004 /* CompanionWidgetEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/CompanionWidgetEntry.swift; sourceTree = SOURCE_ROOT; };
+		E83100000000000000000005 /* CompanionWidgetProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/CompanionWidgetProvider.swift; sourceTree = SOURCE_ROOT; };
+		E83100000000000000000006 /* CompanionWidgetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/CompanionWidgetView.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -784,6 +804,7 @@
 			children = (
 				D90200000000000000000001 /* AppServices.swift */,
 				D70000000000000000000013 /* AppIconManager.swift */,
+				E70100000000000000000002 /* AppIconEntitlementStore.swift */,
 				C10D00000000000000000003 /* NativeICloudPersistenceController.swift */,
 				C10D00000000000000000006 /* NativeICloudSyncStore.swift */,
 				C10D00000000000000000009 /* NativeICloudSnapshots.swift */,
@@ -943,7 +964,9 @@
 				F1A000000000000000000036 /* CatReward.aiff */,
 				AA10000000000000000008 /* Fonts */,
 				F3A000000000000000000003 /* Korean.json */,
+				F3B000000000000000000003 /* German.json */,
 				F3A000000000000000000005 /* ko.lproj */,
+				F3B000000000000000000005 /* de.lproj */,
 				AA10000000000000000005 /* Models */,
 				AA10000000000000000006 /* ViewModels */,
 				AA10000000000000000007 /* Views */,
@@ -1145,6 +1168,12 @@
 			children = (
 				F2C100000000000000000004 /* PrivacyInfo.xcprivacy */,
 				08C4A9D66F5B4CA1AA34B01A /* WidgetAssets.xcassets */,
+				E83100000000000000000001 /* AppOpenWidgetSnapshot.swift */,
+				E83100000000000000000002 /* BingodaysCompanionWidget.swift */,
+				E83100000000000000000003 /* CompanionDayView.swift */,
+				E83100000000000000000004 /* CompanionWidgetEntry.swift */,
+				E83100000000000000000005 /* CompanionWidgetProvider.swift */,
+				E83100000000000000000006 /* CompanionWidgetView.swift */,
 				DB77DB4D87E0770BB2F4B921 /* BingodaysWidget.swift */,
 				5BD5B8B93106F3408E370AA2 /* Info.plist */,
 				DE212D5093D3B8D5B841BB8E /* BingodaysWidget.entitlements */,
@@ -1342,6 +1371,7 @@
 			knownRegions = (
 				en,
 				ko,
+				de,
 				"zh-Hans",
 				Base,
 			);
@@ -1372,6 +1402,7 @@
 			files = (
 				E16521D5DA234BBB8C8367ED /* LiveActivity.xcstrings in Resources */,
 				F3A000000000000000000002 /* Korean.json in Resources */,
+				F3B000000000000000000002 /* German.json in Resources */,
 				F2C100000000000000000002 /* PrivacyInfo.xcprivacy in Resources */,
 				08C4A9D66F5B4CA1AA34B019 /* WidgetAssets.xcassets in Resources */,
 				AB9810000000000000000003 /* Outfit-wght.ttf in Resources */,
@@ -1424,7 +1455,9 @@
 				D81100000000000000000019 /* AppIconPremium83.5x83.5@2x.png in Resources */,
 				FE9249A2CFBD4169BF337018 /* LiveActivity.xcstrings in Resources */,
 				F3A000000000000000000001 /* Korean.json in Resources */,
+				F3B000000000000000000001 /* German.json in Resources */,
 				F3A000000000000000000004 /* ko.lproj in Resources */,
+				F3B000000000000000000004 /* de.lproj in Resources */,
 				F2C100000000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
 				BC1300000000000000000003 /* BlindBoxMotion in Resources */,
 				F1A000000000000000000003 /* cat_bmp.pag in Resources */,
@@ -1522,6 +1555,12 @@
 				2947A7C13F3D4D3B83EBC203 /* BingoBoardLiveActivityContent.swift in Sources */,
 				3CB7447D1B7A455BA0997960 /* BingoBoardLiveActivityCell.swift in Sources */,
 				AB9810000000000000000001 /* LockScreenCellOutline.swift in Sources */,
+				E83100000000000000000012 /* AppOpenWidgetSnapshot.swift in Sources */,
+				E83100000000000000000013 /* BingodaysCompanionWidget.swift in Sources */,
+				E83100000000000000000014 /* CompanionDayView.swift in Sources */,
+				E83100000000000000000015 /* CompanionWidgetEntry.swift in Sources */,
+				E83100000000000000000016 /* CompanionWidgetProvider.swift in Sources */,
+				E83100000000000000000017 /* CompanionWidgetView.swift in Sources */,
 				007D47AD92E038CFF32C8BE2 /* BingodaysWidget.swift in Sources */,
 				C10D00000000000000000002 /* NativeICloudPersistenceController.swift in Sources */,
 				C10D00000000000000000008 /* NativeICloudSyncStore.swift in Sources */,
@@ -1575,9 +1614,11 @@
 				C10D00000000000000000019 /* NativeICloudSettingsView.swift in Sources */,
 				AA30000000000000000002 /* ContentView.swift in Sources */,
 				D70000000000000000000001 /* AppIconOption.swift in Sources */,
+				E83100000000000000000011 /* AppOpenWidgetSnapshot.swift in Sources */,
 				D70000000000000000000002 /* AppOpenStreakStore.swift in Sources */,
 				D90200000000000000000002 /* AppServices.swift in Sources */,
 				D70000000000000000000003 /* AppIconManager.swift in Sources */,
+				E70100000000000000000001 /* AppIconEntitlementStore.swift in Sources */,
 				D90200000000000000000004 /* BingodaysProductionRoot.swift in Sources */,
 				D70000000000000000000004 /* AppIconSettingsViews.swift in Sources */,
 				AA30000000000000000003 /* BingoModels.swift in Sources */,
@@ -1864,7 +1905,7 @@
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 66;
+				CURRENT_PROJECT_VERSION = 67;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Production;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
@@ -1875,7 +1916,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 5.5.0;
+				MARKETING_VERSION = 5.5.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PRODUCT_NAME = BingodaysWidgetExtension;
 				PROVISIONING_PROFILE_SPECIFIER = "Bingodays Widget App Store 2026";
@@ -2117,13 +2158,13 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APS_ENVIRONMENT = development;
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon AppIcon10Days AppIcon20Days AppIcon30Days AppIconPremium";
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconHalloween;
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIconHalloween AppIcon10Days AppIcon20Days AppIcon30Days AppIconPremium";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 66;
+				CURRENT_PROJECT_VERSION = 67;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Development;
 				INFOPLIST_FILE = BingoADHD/Info.plist;
@@ -2131,7 +2172,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.5.0;
+				MARKETING_VERSION = 5.5.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -2148,15 +2189,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APS_ENVIRONMENT = production;
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon AppIcon10Days AppIcon20Days AppIcon30Days AppIconPremium";
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconHalloween;
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIconHalloween AppIcon10Days AppIcon20Days AppIcon30Days AppIconPremium";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_ENABLE_CODE_COVERAGE = NO;
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 66;
+				CURRENT_PROJECT_VERSION = 67;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Production;
 				INFOPLIST_FILE = BingoADHD/Info.plist;
@@ -2164,7 +2205,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.5.0;
+				MARKETING_VERSION = 5.5.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -2262,7 +2303,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 66;
+				CURRENT_PROJECT_VERSION = 67;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Development;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
@@ -2273,7 +2314,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 5.5.0;
+				MARKETING_VERSION = 5.5.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PRODUCT_NAME = BingodaysWidgetExtension;
 				SDKROOT = iphoneos;

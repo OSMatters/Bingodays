@@ -1062,7 +1062,7 @@ private struct PointsDetailSheet: View {
                     .padding(.horizontal, scaled(14, pad: 18))
                     .offset(y: scaled(-11, pad: 34))
 
-                Text("\(reward.requiredPoints) pts")
+                Text("\(reward.requiredPoints) \(L10n.pointsUnit)")
                     .font(.appSystem(size: scaled(12, pad: 22), weight: .semibold, design: .rounded))
                     .foregroundStyle(NeumorphicColors.text)
                     .padding(.top, scaled(4, pad: 15))

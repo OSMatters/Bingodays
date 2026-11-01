@@ -12,9 +12,9 @@ enum NativeICloudInitialMigratorError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidPrimaryPayload:
-            return "The primary iCloud payload could not be decoded."
+            return L10n.tr("The primary iCloud payload could not be decoded.", zhHans: "无法解析 iCloud 主数据。")
         case .invalidSecondaryPayload:
-            return "The secondary iCloud payload could not be decoded."
+            return L10n.tr("The secondary iCloud payload could not be decoded.", zhHans: "无法解析 iCloud 辅助数据。")
         }
     }
 }

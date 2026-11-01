@@ -1,0 +1,2 @@
+"NSMicrophoneUsageDescription" = "Bingodays verwendet das Mikrofon, damit du Aufgaben per Sprache eingeben kannst.";
+"NSSpeechRecognitionUsageDescription" = "Bingodays verwendet die Spracherkennung, um gesprochene Aufgaben in Text umzuwandeln.";

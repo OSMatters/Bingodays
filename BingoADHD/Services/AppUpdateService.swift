@@ -711,6 +711,8 @@ private struct RemoteUpdateConfig: Decodable {
             keys = ["ja", "ja-JP", "en", "en-US"]
         case .korean:
             keys = ["ko", "ko-KR", "en", "en-US"]
+        case .german:
+            keys = ["de", "de-DE", "de_DE", "de-AT", "de-CH", "en", "en-US"]
         case .english:
             keys = ["en", "en-US"]
         }

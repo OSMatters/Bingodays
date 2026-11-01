@@ -17,6 +17,7 @@ final class AppServices: ObservableObject {
         isIconProbe: Bool = AppDebugFlags.appIconProbeEnabled,
         makeProduction: @MainActor () -> Production = { Production() }
     ) {
+        if !isIconProbe { _ = AppIconEntitlementStore.shared }
         production = isIconProbe ? nil : makeProduction()
 #if DEBUG
         if isIconProbe { print("[IconProbeIsolation] Production service construction skipped") }

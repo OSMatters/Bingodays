@@ -67,13 +67,13 @@ enum AppIconOption: String, CaseIterable, Identifiable {
         case .default:
             return L10n.tr("Default", zhHans: "默认", zhHant: "預設", ja: "デフォルト")
         case .halloween:
-            return "Halloween"
+            return L10n.tr("Halloween", zhHans: "万圣节", zhHant: "萬聖節", ja: "ハロウィン")
         case .days10:
-            return "10 days"
+            return L10n.tr("10 days", zhHans: "10 天", zhHant: "10 天", ja: "10日")
         case .days20:
-            return "20 days"
+            return L10n.tr("20 days", zhHans: "20 天", zhHant: "20 天", ja: "20日")
         case .days30:
-            return "30 days"
+            return L10n.tr("30 days", zhHans: "30 天", zhHant: "30 天", ja: "30日")
         case .premium:
             return "Premium"
         }

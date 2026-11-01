@@ -6,6 +6,7 @@ enum AppLanguage: String, CaseIterable {
     case traditionalChinese = "zh-Hant"
     case japanese = "ja"
     case korean = "ko"
+    case german = "de"
 
     static var current: AppLanguage {
         let selectedCode = UserDefaults.standard.string(forKey: AppSettings.languageKey)
@@ -66,6 +67,10 @@ enum AppLanguage: String, CaseIterable {
             return .korean
         }
 
+        if normalized.hasPrefix("de") {
+            return .german
+        }
+
         if normalized.hasPrefix("en") {
             return .english
         }
@@ -109,6 +114,8 @@ enum AppLanguage: String, CaseIterable {
             return Locale(identifier: "ja_JP")
         case .korean:
             return Locale(identifier: "ko_KR")
+        case .german:
+            return Locale(identifier: "de_DE")
         }
     }
 
@@ -124,6 +131,8 @@ enum AppLanguage: String, CaseIterable {
             return "ja-JP"
         case .korean:
             return "ko-KR"
+        case .german:
+            return "de-DE"
         }
     }
 
@@ -134,11 +143,30 @@ enum AppLanguage: String, CaseIterable {
         case .traditionalChinese: "繁體中文"
         case .japanese: "日本語"
         case .korean: "한국어"
+        case .german: "Deutsch"
+        }
+    }
+
+    var listSeparator: String {
+        switch self {
+        case .english, .german: ", "
+        case .simplifiedChinese, .traditionalChinese, .japanese, .korean: "、"
+        }
+    }
+
+    var sentenceSeparator: String {
+        switch self {
+        case .english, .german: " "
+        case .simplifiedChinese, .traditionalChinese, .japanese, .korean: ""
         }
     }
 }
 
-private enum KoreanLocalization {
+private struct CatalogLocalization {
+    static let korean = CatalogLocalization(resourceName: "Korean")
+    static let german = CatalogLocalization(resourceName: "German")
+    private static let placeholderRegex = try? NSRegularExpression(pattern: #"\{\{(\d+)\}\}"#)
+
     private struct Catalog: Decodable {
         let exact: [String: String]
         let patterns: [Pattern]
@@ -149,15 +177,29 @@ private enum KoreanLocalization {
         let translation: String
     }
 
-    private static let catalog: Catalog? = {
-        guard let url = Bundle.main.url(forResource: "Korean", withExtension: "json"),
-              let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(Catalog.self, from: data)
-    }()
+    private let catalog: Catalog?
+    private let compiledPatterns: [(NSRegularExpression, String)]
 
-    private static let compiledPatterns: [(NSRegularExpression, String)] = {
-        guard let placeholderRegex = try? NSRegularExpression(pattern: #"\{\{\d+\}\}"#) else { return [] }
-        return catalog?.patterns.sorted(by: { $0.source.count > $1.source.count }).compactMap { pattern in
+    private init(resourceName: String) {
+        if let url = Bundle.main.url(forResource: resourceName, withExtension: "json"),
+           let data = try? Data(contentsOf: url) {
+            catalog = try? JSONDecoder().decode(Catalog.self, from: data)
+        } else {
+            catalog = nil
+        }
+
+        guard let placeholderRegex = Self.placeholderRegex else {
+            compiledPatterns = []
+            return
+        }
+        func literalLength(_ source: String) -> Int {
+            let range = NSRange(source.startIndex..<source.endIndex, in: source)
+            let placeholderLength = placeholderRegex.matches(in: source, range: range)
+                .reduce(0) { $0 + $1.range.length }
+            return source.utf16.count - placeholderLength
+        }
+        // More specific templates, including singular forms, take precedence.
+        compiledPatterns = catalog?.patterns.sorted(by: { literalLength($0.source) > literalLength($1.source) }).compactMap { pattern in
             let source = pattern.source
             let matches = placeholderRegex.matches(in: source, range: NSRange(source.startIndex..<source.endIndex, in: source))
             guard !matches.isEmpty else { return nil }
@@ -172,17 +214,26 @@ private enum KoreanLocalization {
             guard let regex = try? NSRegularExpression(pattern: expression, options: .dotMatchesLineSeparators) else { return nil }
             return (regex, pattern.translation)
         } ?? []
-    }()
+    }
 
-    static func translate(_ english: String) -> String? {
+    func translate(_ english: String) -> String? {
         if let exact = catalog?.exact[english] { return exact }
         let range = NSRange(english.startIndex..<english.endIndex, in: english)
         for (regex, translation) in compiledPatterns {
             guard let match = regex.firstMatch(in: english, range: range) else { continue }
             var result = translation
-            for index in (1..<match.numberOfRanges).reversed() {
-                guard let captureRange = Range(match.range(at: index), in: english) else { continue }
-                result = result.replacingOccurrences(of: "{{\(index)}}", with: String(english[captureRange]))
+            let placeholders = Self.placeholderRegex?.matches(
+                in: translation,
+                range: NSRange(translation.startIndex..<translation.endIndex, in: translation)
+            ) ?? []
+            // Replace only catalog placeholders, preserving any similar text in task or board names.
+            for placeholder in placeholders.reversed() {
+                guard let indexRange = Range(placeholder.range(at: 1), in: translation),
+                      let index = Int(translation[indexRange]),
+                      index < match.numberOfRanges,
+                      let captureRange = Range(match.range(at: index), in: english),
+                      let replacementRange = Range(placeholder.range, in: result) else { continue }
+                result.replaceSubrange(replacementRange, with: english[captureRange])
             }
             return result
         }
@@ -205,7 +256,9 @@ enum L10n {
         case .japanese:
             return ja ?? japaneseFallback(for: english) ?? english
         case .korean:
-            return ko ?? KoreanLocalization.translate(english) ?? english
+            return ko ?? CatalogLocalization.korean.translate(english) ?? english
+        case .german:
+            return CatalogLocalization.german.translate(english) ?? english
         }
     }
 

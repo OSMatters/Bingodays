@@ -526,7 +526,8 @@ enum BingoBoardStore {
         ["Drink a glass of water", "Stand for 1 minute", "Stretch your body"],
         ["喝一杯水", "站立1分钟", "拉伸身体"],
         ["喝一杯水", "站立1分鐘", "拉伸身體"],
-        ["물 한 잔 마시기", "1분 동안 일어서기", "몸을 스트레칭하세요"]
+        ["물 한 잔 마시기", "1분 동안 일어서기", "몸을 스트레칭하세요"],
+        ["Ein Glas Wasser trinken", "1 Minute stehen", "Den Körper dehnen"]
     ].flatMap { tasks in
         // Keep legacy full text and the exact text installed under the task
         // editor's length limit. Never truncate the board's actual task keys:

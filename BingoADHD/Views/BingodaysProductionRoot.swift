@@ -26,6 +26,10 @@ struct BingodaysProductionRoot: View {
                 guard scenePhase == .active, subscriptionManager.hasConfirmedNoPremiumAccess else { return }
                 await appIconManager.restoreDefaultIfPremiumExpired()
             }
+            .task(id: scenePhase) {
+                guard scenePhase == .active else { return }
+                await appIconManager.migrateSeasonalIconIfNeeded()
+            }
             .onChange(of: subscriptionManager.hasPremiumAccess) { _, hasAccess in
                 if hasAccess { appIconManager.premiumAccessRestored() }
             }

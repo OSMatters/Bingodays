@@ -973,7 +973,7 @@ struct BlindBoxLiveFlowView: View {
                     action: .open,
                     reason: .requestFailed
                 )
-                presentToast("Unable to finish this reveal. Please try again.")
+                presentToast(L10n.tr("Unable to finish this reveal. Please try again.", zhHans: "无法完成本次揭晓，请重试。"))
             }
         }
     }
@@ -1031,13 +1031,13 @@ struct BlindBoxLiveFlowView: View {
         if let featureStoreError = error as? BlindBoxFeatureStoreError {
             switch featureStoreError {
             case .remoteCatalogUnavailable:
-                presentToast("Unable to verify the latest Blind Box rules. Please try again.")
+                presentToast(L10n.tr("Unable to verify the latest Blind Box rules. Please try again.", zhHans: "无法验证最新盲盒规则，请重试。"))
             case .openingPaused:
-                presentToast("Opening is temporarily paused.")
+                presentToast(L10n.tr("Opening is temporarily paused.", zhHans: "开盒功能暂时暂停。"))
             case .pointExchangeDisabled:
-                presentToast("Ticket exchange is temporarily unavailable.")
+                presentToast(L10n.tr("Ticket exchange is temporarily unavailable.", zhHans: "盲盒券兑换暂不可用。"))
             case .pointExchangeConfigurationChanged:
-                presentToast("Ticket exchange changed. Please review the updated price.")
+                presentToast(L10n.tr("Ticket exchange changed. Please review the updated price.", zhHans: "盲盒券兑换规则已变更，请查看最新价格。"))
             case .accountUnavailable, .pendingRevealChanged:
                 break
             case .pointLedgerWriteFailed:
@@ -1435,8 +1435,8 @@ private struct BlindBoxLobbyCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(theme.id.rawValue), \(statusText)")
-        .accessibilityHint(batch.isSoldOut ? "This box is restocking and cannot be opened yet." : "Opens this Blind Box.")
+        .accessibilityLabel("\(BlindBoxL10n.themeName(theme)), \(statusText)")
+        .accessibilityHint(batch.isSoldOut ? L10n.tr("This box is restocking and cannot be opened yet.", zhHans: "此盲盒正在补货，暂时无法开启。") : L10n.tr("Opens this Blind Box.", zhHans: "打开此盲盒。"))
     }
 
     private var statusText: String {
@@ -2591,7 +2591,7 @@ private struct BlindBoxBatchOddsSheet: View {
     }
 
     private func percent(_ value: Double) -> String {
-        "\((value * 100).formatted(.number.precision(.fractionLength(2))))%"
+        value.formatted(.percent.precision(.fractionLength(2)).locale(AppLanguage.displayLocale))
     }
 }
 
@@ -2810,7 +2810,7 @@ private enum BlindBoxL10n {
     static var boxAlreadyOpened: String { tr("This box has already been opened.", "这个位置已经开启过了。", "這個位置已經開啟過了。", "この枠はすでに開封済みです。") }
     static var finishPreviousOpening: String { tr("Finish viewing your previous opening first.", "请先查看上一次的开启结果。", "請先查看上一次的開啟結果。", "先に前回の開封結果を確認してください。") }
     static var openingFailed: String { tr("Unable to open this box. Please try again.", "盲盒开启失败，请再试一次。", "盲盒開啟失敗，請再試一次。", "ボックスを開けませんでした。もう一度お試しください。") }
-    static var ticketExchangeUnavailable: String { tr("Ticket exchange is temporarily unavailable.", "盲盒券兑换暂不可用。", "盲盒券兌換暫不可用。", "チケット交換は現在利用できません。") }
+    static var ticketExchangeUnavailable: String { tr(L10n.tr("Ticket exchange is temporarily unavailable.", zhHans: "盲盒券兑换暂不可用。"), "盲盒券兑换暂不可用。", "盲盒券兌換暫不可用。", "チケット交換は現在利用できません。") }
     static func needMorePoints(_ count: Int) -> String { tr("You need \(count) more points.", "还需要 \(count) 积分。", "還需要 \(count) 積分。", "あと\(count)ポイント必要です。") }
     static var ticketBalanceFull: String { tr("Your Blind Box ticket balance is full.", "盲盒券已达到上限。", "盲盒券已達到上限。", "ブラインドボックスチケットは上限です。") }
     static var exchangedToday: String { tr("All 3 exchanges used today. Come back tomorrow!", "今日 3 次兑换已用完，明天再来吧！", "今日 3 次兌換已用完，明天再來吧！", "本日の3回は交換済みです。また明日！") }
@@ -2969,7 +2969,7 @@ private struct BlindBoxOpenConfirmation: View {
     }
 
     private func percent(_ value: Double) -> String {
-        "\((value * 100).formatted(.number.precision(.fractionLength(2))))%"
+        value.formatted(.percent.precision(.fractionLength(2)).locale(AppLanguage.displayLocale))
     }
 }
 

@@ -6,7 +6,7 @@ import os
 @MainActor
 final class AppIconManager: ObservableObject {
     enum RequestSource: String {
-        case settings, milestone, premiumExpiration
+        case settings, milestone, premiumExpiration, migration
     }
 
     enum ChangeResult: Equatable {
@@ -75,16 +75,18 @@ final class AppIconManager: ObservableObject {
         return trace.joined(separator: " <- ")
     }
     private let client: Client
+    private let entitlements: AppIconEntitlementStore
     // Don't loop automatic restores when a system alert reactivates the scene.
     private var hasAttemptedPremiumRestore = false
     @Published private(set) var currentAlternateIconName: String?
     @Published private(set) var isChanging = false
 
     convenience init() {
-        self.init(client: .live)
+        self.init(client: .live, entitlements: .shared)
     }
 
-    init(client: Client) {
+    init(client: Client, entitlements: AppIconEntitlementStore) {
+        self.entitlements = entitlements
         self.client = client
         currentAlternateIconName = client.currentIconName()
     }
@@ -96,6 +98,21 @@ final class AppIconManager: ObservableObject {
     func isCurrent(_ option: AppIconOption) -> Bool {
         let actualName = currentAlternateIconName ?? client.primaryIconName
         return actualName == option.iconAssetName
+    }
+
+    var visibleOptions: [AppIconOption] { entitlements.visibleOptions }
+
+    /// Runs under the same switch gate as settings and Premium expiration.
+    func migrateSeasonalIconIfNeeded() async {
+        guard entitlements.pendingResetFromHalloween, !isChanging,
+              client.isActive(), !Task.isCancelled else { return }
+        refresh()
+        guard isCurrent(.halloween) else {
+            entitlements.finishReset()
+            return
+        }
+        let result = await setIcon(.default, source: .migration)
+        if result.succeeded { entitlements.finishReset() }
     }
 
     func premiumAccessRestored() {
@@ -114,6 +131,17 @@ final class AppIconManager: ObservableObject {
 
     func setIcon(_ option: AppIconOption, source: RequestSource = .settings) async -> ChangeResult {
         guard !isChanging else { return .busy }
+        guard entitlements.allows(option) else {
+            return .failed(L10n.tr(
+                "This seasonal icon is no longer available to new users.",
+                zhHans: "此节日图标已停止向新用户开放。",
+                zhHant: "此節日圖標已停止向新用戶開放。",
+                ja: "この季節限定アイコンは新規ユーザーには提供されていません。"
+            ))
+        }
+        // An explicit choice supersedes a pending automatic reset, even if iOS
+        // later refuses the selection. Never overwrite that choice on next launch.
+        if source == .settings { entitlements.finishReset() }
         refresh()
         guard !Task.isCancelled else { return .cancelled }
         guard !isCurrent(option) else { return .alreadyCurrent }

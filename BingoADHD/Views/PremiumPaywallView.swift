@@ -1791,7 +1791,7 @@ struct PremiumPaywallView: View {
         switch AppLanguage.current {
         case .english:
             return .custom("Outfit", size: size, relativeTo: .body).weight(weight)
-        case .simplifiedChinese, .traditionalChinese, .japanese, .korean:
+        case .simplifiedChinese, .traditionalChinese, .japanese, .korean, .german:
             return .system(size: size * paywallFontScale, weight: weight, design: .default)
         }
     }
