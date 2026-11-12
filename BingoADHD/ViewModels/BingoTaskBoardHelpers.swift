@@ -5,12 +5,14 @@ enum BingoTaskBoardHelpers {
         let text = cell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         return MyTaskItem(
+            id: cell.id,
             text: String(text.prefix(maxLength)),
             startAt: cell.startVisibleAt,
             endAt: cell.endVisibleAt,
             startMonth: cell.startVisibleMonth,
             startDay: cell.startVisibleDay,
-            recurrenceRule: cell.effectiveRecurrenceRule
+            recurrenceRule: cell.effectiveRecurrenceRule,
+            customCompletionPoints: cell.customCompletionPoints
         )
     }
 }
@@ -205,6 +207,8 @@ enum TaskEditRuleEngine {
     }
 
     private static func clearTaskOwnedState(in cell: inout BingoCell) {
+        cell.customCompletionPoints = nil
+        cell.taskRewardReceipt = nil
         cell.isCompleted = false
         cell.isForced = false
         cell.countdownEndsAt = nil

@@ -16,7 +16,6 @@ struct QuickEditFilterTabsView: View {
     let groups: [QuickEditGroupTab]
     let selectedGroupID: UUID?
     let isPadLayout: Bool
-    let fieldStroke: Color
     let onSelectAll: () -> Void
     let onSelectGroup: (UUID) -> Void
     let onLongPressGroup: (UUID) -> Void
@@ -63,37 +62,28 @@ struct QuickEditFilterTabsView: View {
                 }
             }
 
-            Button(action: onAddGroup) {
-                Text("+ \(L10n.addGroup)")
-                    .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                    .foregroundStyle(NeumorphicColors.text)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(tabSurface(isSelected: false))
-            }
-            .buttonStyle(.plain)
+            Button(L10n.addGroup, systemImage: "plus.circle", action: onAddGroup)
+                .labelStyle(.iconOnly)
+                .font(.appSystem(size: scaled(24, pad: 28), weight: .light))
+                .foregroundStyle(Color(hex: "D79863"))
+                .frame(width: 44, height: 44)
+                .background(Color(hex: "F4F4F4"))
+                .buttonStyle(.plain)
         }
     }
 
     private func filterTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
-                .foregroundStyle(isSelected ? .white : NeumorphicColors.text)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    tabSurface(isSelected: isSelected)
-                )
-                .overlay {
-                    Capsule(style: .continuous)
-                        .stroke(
-                            isSelected ? NeumorphicColors.modalAccent : fieldStroke,
-                            lineWidth: 1
-                        )
-                }
+                .font(.appSystem(size: scaled(15, pad: 17), weight: .semibold, design: .rounded))
+                .foregroundStyle(isSelected ? Color(hex: "D79863") : NeumorphicColors.text)
+                .underline(isSelected)
+                .padding(.horizontal, 8)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func positionSelectedFilter(using proxy: ScrollViewProxy, animated: Bool) {
@@ -138,10 +128,4 @@ struct QuickEditFilterTabsView: View {
         isPadLayout ? (pad ?? base * 1.18) : base
     }
 
-    private func tabSurface(isSelected: Bool) -> some View {
-        let theme = AppTheme.concise
-        return Capsule(style: .continuous)
-            .fill(isSelected ? theme.color : theme.color.opacity(theme == .concise ? 0.08 : 0.1))
-            .shadow(color: isSelected ? theme.bingoSurfaceShadowColor.opacity(0.18) : .clear, radius: 6, x: 0, y: 3)
-    }
 }

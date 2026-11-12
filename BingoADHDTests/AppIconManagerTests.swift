@@ -25,6 +25,7 @@ struct AppIconManagerTests {
         var currentName: String?
         var isActive = true
         var supportsIcons = true
+        var hasPremiumAccess = true
         var primaryName = "AppIconHalloween"
         var registeredNames = Set(AppIconOption.allCases.map(\.iconAssetName))
         var requests: [String?] = []
@@ -52,7 +53,8 @@ struct AppIconManagerTests {
                     self.retryStarted = nil
                     if let wait = self.wait { try await wait() }
                 },
-                feedback: { self.feedbackCount += 1 }
+                feedback: { self.feedbackCount += 1 },
+                hasPremiumAccess: { self.hasPremiumAccess }
             )
         }
 
@@ -63,17 +65,20 @@ struct AppIconManagerTests {
     }
 
     @Test
-    func newInstallStaysIneligibleAfterRecordingUsage() async {
+    func newInstallShowsHalloweenButRequiresPremium() async {
         let system = SystemStub(legacy: false)
         system.primaryName = "AppIcon"
+        system.hasPremiumAccess = false
         let manager = AppIconManager(client: system.client, entitlements: system.entitlements)
-        #expect(!manager.visibleOptions.contains(.halloween))
+        #expect(manager.visibleOptions.contains(.halloween))
         system.defaults.set(true, forKey: "has_seen_onboarding_v2")
         let reloaded = AppIconEntitlementStore(defaults: system.defaults)
         #expect(!reloaded.ownsHalloween)
         let result = await manager.setIcon(.halloween)
         #expect(!result.succeeded)
         #expect(system.requests.isEmpty)
+        system.hasPremiumAccess = true
+        #expect(await manager.setIcon(.halloween) == .changed)
     }
 
     @Test
@@ -91,12 +96,14 @@ struct AppIconManagerTests {
     @Test
     func explicitHalloweenResetsOnceAndCanBeSelectedAgain() async {
         let system = SystemStub()
+        system.hasPremiumAccess = false
         system.primaryName = "AppIcon"
         system.currentName = "AppIconHalloween"
         let manager = AppIconManager(client: system.client, entitlements: system.entitlements)
         await manager.migrateSeasonalIconIfNeeded()
-        #expect(manager.isCurrent(.default))
+        #expect(manager.isCurrent(.autumn))
         #expect(system.entitlements.ownsHalloween)
+        system.hasPremiumAccess = true
         #expect(await manager.setIcon(.halloween) == .changed)
         let reloaded = AppIconEntitlementStore(defaults: system.defaults)
         let restarted = AppIconManager(client: system.client, entitlements: reloaded)
@@ -105,7 +112,7 @@ struct AppIconManagerTests {
         #expect(system.requests.count == 2)
     }
 
-    @Test(arguments: [AppIconOption.days10, .days20, .days30, .premium])
+    @Test(arguments: [AppIconOption.autumn, .default, .days10, .days20, .days30, .premium])
     func migrationPreservesOtherSelections(_ option: AppIconOption) async {
         let system = SystemStub()
         system.primaryName = "AppIcon"
@@ -120,6 +127,7 @@ struct AppIconManagerTests {
     @Test
     func failedMigrationRetriesOnNextActivation() async {
         let system = SystemStub()
+        system.hasPremiumAccess = false
         system.primaryName = "AppIcon"
         system.currentName = "AppIconHalloween"
         system.change = { _ in throw NSError(domain: "Test", code: 1) }
@@ -128,7 +136,7 @@ struct AppIconManagerTests {
         #expect(system.entitlements.pendingResetFromHalloween)
         system.change = nil
         await manager.migrateSeasonalIconIfNeeded()
-        #expect(manager.isCurrent(.default))
+        #expect(manager.isCurrent(.autumn))
         #expect(!system.entitlements.pendingResetFromHalloween)
     }
 
@@ -167,6 +175,7 @@ struct AppIconManagerTests {
     @Test
     func inactiveMigrationWaitsWithoutFinishing() async {
         let system = SystemStub()
+        system.hasPremiumAccess = false
         system.primaryName = "AppIcon"
         system.currentName = "AppIconHalloween"
         system.isActive = false
@@ -176,7 +185,7 @@ struct AppIconManagerTests {
         #expect(system.entitlements.pendingResetFromHalloween)
         system.isActive = true
         await manager.migrateSeasonalIconIfNeeded()
-        #expect(manager.isCurrent(.default))
+        #expect(manager.isCurrent(.autumn))
         #expect(!system.entitlements.pendingResetFromHalloween)
     }
 
@@ -228,7 +237,7 @@ struct AppIconManagerTests {
     func previewsAreDistinctAndDefaultIsNotHalloween() {
         #expect(AppIconOption.default.previewAssetName == "AppIconPreviewDefault")
         #expect(AppIconOption.halloween.previewAssetName == "AppIconPreviewHalloween")
-        #expect(Set(AppIconOption.allCases.map(\.previewAssetName)).count == 6)
+        #expect(Set(AppIconOption.allCases.map(\.previewAssetName)).count == 7)
         #expect(UIImage(named: AppIconOption.default.previewAssetName)?.pngData()
             != UIImage(named: AppIconOption.halloween.previewAssetName)?.pngData())
     }
@@ -264,6 +273,28 @@ struct AppIconManagerTests {
         #expect(await manager.setIcon(.default) == .changed)
         #expect(system.currentName == nil)
         #expect(manager.isCurrent(.default))
+    }
+
+    @Test
+    func autumnPrimaryAndOriginalDefaultAreFreelySelectableOnNewInstall() async {
+        let system = SystemStub(legacy: false)
+        system.hasPremiumAccess = false
+        system.primaryName = "AppIconAutumn"
+        system.registeredNames.remove(system.primaryName)
+        let manager = AppIconManager(client: system.client, entitlements: system.entitlements)
+        #expect(manager.visibleOptions.first == .autumn)
+        #expect(manager.visibleOptions.contains(.default))
+        #expect(AppIconOption.autumn.isUnlocked(bestStreak: 0))
+        #expect(AppIconOption.default.isUnlocked(bestStreak: 0))
+        #expect(manager.isCurrent(.autumn))
+        await manager.migrateSeasonalIconIfNeeded()
+        #expect(system.requests.isEmpty)
+        #expect(await manager.setIcon(.default) == .changed)
+        #expect(system.currentName == "AppIcon")
+        #expect(manager.isCurrent(.default))
+        #expect(await manager.setIcon(.autumn) == .changed)
+        #expect(system.currentName == nil)
+        #expect(manager.isCurrent(.autumn))
     }
 
     @Test
@@ -407,10 +438,11 @@ struct AppIconManagerTests {
         #expect(!manager.isChanging)
     }
 
-    @Test
-    func expirationRestoreDoesNotLoopButExplicitSwitchStillWorks() async {
+    @Test(arguments: [AppIconOption.halloween, .premium])
+    func expirationRestoreDoesNotLoopButExplicitSwitchStillWorks(option: AppIconOption) async {
         let system = SystemStub()
-        system.currentName = "AppIconPremium"
+        system.hasPremiumAccess = false
+        system.currentName = option.iconAssetName
         let failure = temporaryError
         system.change = { _ in throw failure }
         let manager = AppIconManager(client: system.client, entitlements: system.entitlements)
@@ -421,16 +453,17 @@ struct AppIconManagerTests {
         system.change = nil
         #expect(await manager.setIcon(.default) == .changed)
         #expect(system.requests.count == 4)
-        system.currentName = "AppIconPremium"
+        system.currentName = option.iconAssetName
         manager.premiumAccessRestored()
         await manager.restoreDefaultIfPremiumExpired()
         #expect(system.requests.count == 5)
-        #expect(manager.isCurrent(.default))
+        #expect(manager.isCurrent(.autumn))
     }
 
     @Test
     func inactiveExpirationRestoreCanWaitForForeground() async {
         let system = SystemStub()
+        system.hasPremiumAccess = false
         system.currentName = "AppIconPremium"
         system.isActive = false
         let manager = AppIconManager(client: system.client, entitlements: system.entitlements)
@@ -439,5 +472,59 @@ struct AppIconManagerTests {
         system.isActive = true
         await manager.restoreDefaultIfPremiumExpired()
         #expect(system.requests.count == 1)
+    }
+
+    @Test(arguments: [true, false])
+    func halloweenRequiresPremiumRegardlessOfLegacyOwnership(legacy: Bool) async {
+        let system = SystemStub(legacy: legacy)
+        system.primaryName = "AppIconAutumn"
+        system.hasPremiumAccess = false
+        let manager = AppIconManager(client: system.client, entitlements: system.entitlements)
+        #expect(AppIconOption.halloween.requiresPremium)
+        #expect(AppIconOption.premium.requiresPremium)
+        #expect(!(await manager.setIcon(.halloween)).succeeded)
+        #expect(system.requests.isEmpty)
+        system.hasPremiumAccess = true
+        #expect(await manager.setIcon(.halloween) == .changed)
+    }
+
+    @Test
+    func activeMemberKeepsHalloweenDuringMigrationAndExpirationChecks() async {
+        let system = SystemStub()
+        system.primaryName = "AppIconAutumn"
+        system.currentName = "AppIconHalloween"
+        let manager = AppIconManager(client: system.client, entitlements: system.entitlements)
+        await manager.migrateSeasonalIconIfNeeded()
+        await manager.restoreDefaultIfPremiumExpired()
+        #expect(manager.isCurrent(.halloween))
+        #expect(system.requests.isEmpty)
+        #expect(!system.entitlements.pendingResetFromHalloween)
+    }
+
+    @Test
+    func expirationKeepsFreeIcons() async {
+        let system = SystemStub()
+        system.primaryName = "AppIconAutumn"
+        system.hasPremiumAccess = false
+        let manager = AppIconManager(client: system.client, entitlements: system.entitlements)
+        for option in [AppIconOption.autumn, .default, .days10, .days20, .days30] {
+            system.currentName = option.alternateIconName(primaryIconName: system.primaryName)
+            await manager.restoreDefaultIfPremiumExpired()
+            #expect(manager.isCurrent(option))
+        }
+        #expect(system.requests.isEmpty)
+    }
+
+    @Test
+    func membershipLossStopsRetryingMemberIcon() async {
+        let system = SystemStub()
+        system.primaryName = "AppIconAutumn"
+        let failure = temporaryError
+        system.change = { _ in throw failure }
+        system.wait = { system.hasPremiumAccess = false }
+        let manager = AppIconManager(client: system.client, entitlements: system.entitlements)
+        #expect(await manager.setIcon(.halloween) == .cancelled)
+        #expect(system.requests.count == 1)
+        #expect(!manager.isChanging)
     }
 }

@@ -21,6 +21,7 @@ struct QuickEditView: View {
     @State private var isLocalToastVisible = false
     @State private var hideLocalToastWorkItem: DispatchWorkItem?
     @State private var selectedTaskKeys: [String] = []
+    @State private var supplementalPoolTasks: [String: MyTaskItem] = [:]
     @State private var previewSlots: [PreviewSlot] = []
     @State private var deselectedTaskDrafts: [String: QuickEditDeselectedTaskDraft] = [:]
     @State private var explicitlyEditedCellIDs: Set<UUID> = []
@@ -35,10 +36,7 @@ struct QuickEditView: View {
     @State private var isPremiumPaywallPresented = false
     @State private var premiumPaywallSource = "quick_edit"
     @State private var activeFilter: QuickEditFilterTab = .all
-    @State private var isAddingTaskInline = false
-    @State private var newTaskDraft = ""
-    @State private var newTaskStartMonthDraft = ""
-    @State private var newTaskStartDayDraft = ""
+    @State private var newPoolTaskDestination: QuickEditFilterTab?
     @State private var isAddingGroupModalPresented = false
     @State private var newGroupNameDraft = ""
     @State private var groupActionTargetID: UUID?
@@ -47,6 +45,10 @@ struct QuickEditView: View {
     @State private var pendingGroupDeleteFinalConfirmation: UUID?
     @State private var taskEditorDraft: QuickEditTaskEditorDraft?
     @State private var previewEditingTarget: QuickEditPreviewEditingTarget?
+    @State private var poolEditingSlot: PreviewSlot?
+    @State private var movingTaskKey: String?
+    @State private var isTaskPoolHintVisible = true
+    @State private var pendingGridSize: Int?
 
     typealias PreviewSlot = QuickEditPreviewSlot
 
@@ -57,15 +59,14 @@ struct QuickEditView: View {
     private var activeTheme: AppTheme { .concise }
     private let quickEditBackgroundColor = Color(hex: "F4F4F4")
     private let quickEditBackgroundTint = Color.clear
-    private let quickEditSectionFlatBackground = Color.clear
     private var quickEditTaskFlatBackground: Color { Color(hex: "F4F4F4") }
-    private var quickEditSelectedBadgeBackground: Color { activeTheme.color.opacity(activeTheme == .concise ? 0.14 : 0.17) }
+    private var quickEditSelectedBadgeBackground: Color { Color(hex: "F4F4F4") }
     private var quickEditFieldStroke: Color { activeTheme.bingoSurfaceShadowColor.opacity(0.16) }
     private var quickEditPlaceholderColor: Color { NeumorphicColors.text.opacity(0.34) }
-    private var previewEmptySlotFill: Color { activeTheme.bingoSurfaceColor.opacity(0.16) }
-    private var previewFilledSlotFill: Color { activeTheme.bingoSurfaceColor.opacity(0.44) }
-    private var previewEmptySlotStroke: Color { activeTheme.bingoSurfaceShadowColor.opacity(0.44) }
-    private var previewFilledSlotStroke: Color { activeTheme.bingoSurfaceShadowColor.opacity(0.66) }
+    private var previewEmptySlotFill: Color { Color(hex: "F4F4F4") }
+    private var previewFilledSlotFill: Color { Color(hex: "E8D5C2") }
+    private var previewEmptySlotStroke: Color { .clear }
+    private var previewFilledSlotStroke: Color { .clear }
     private let quickEditPageHorizontalPadding: CGFloat = 20
 
     init(
@@ -126,17 +127,34 @@ struct QuickEditView: View {
     }
 
     private var allTaskCandidates: [QuickEditTaskCandidate] {
-        quickEditAllTaskCandidates(library: library, unlockedHistoryRecords: unlockedHistoryRecords)
+        let base = quickEditAllTaskCandidates(library: library, unlockedHistoryRecords: unlockedHistoryRecords)
+        var tasks = Dictionary(uniqueKeysWithValues: base.filter { candidate in
+            !candidate.id.hasPrefix("history:") || !supplementalPoolTasks.contains {
+                $0.key != candidate.id && quickEditSameTaskDefinition($0.value, candidate.task)
+            }
+        }.map { ($0.id, $0.task) })
+        tasks.merge(supplementalPoolTasks) { _, supplemental in supplemental }
+        return tasks.map { QuickEditTaskCandidate(id: $0.key, task: $0.value) }.sorted { $0.id < $1.id }
     }
 
     private var filteredTaskItems: [QuickEditFilteredTaskItem] {
-        quickEditFilteredTaskItems(
+        let base = quickEditFilteredTaskItems(
             activeFilter: activeFilter,
             library: library,
             historyBySourceTaskID: historyBySourceTaskID,
             historyOnlyRecordsSorted: historyOnlyRecordsSorted,
             isPremiumUser: isPremiumUser
         )
+        guard activeFilter == .all else { return base }
+        let visible = base.filter { item in
+            guard case .history = item.source else { return true }
+            return supplementalPoolTasks[item.id] == nil &&
+                !supplementalPoolTasks.contains { quickEditSameTaskDefinition($0.value, item.task) }
+        }
+        let supplemental = supplementalPoolTasks.map { key, task in
+            QuickEditFilteredTaskItem(id: key, source: .history, task: task, operationDate: .distantFuture, isLocked: false)
+        }.sorted { $0.id < $1.id }
+        return supplemental + visible
     }
 
     private var candidateTaskMap: [String: MyTaskItem] {
@@ -181,8 +199,8 @@ struct QuickEditView: View {
         .onAppear {
             handleQuickEditAppear()
         }
-        .onChange(of: library) { _, _ in
-            handleLibraryDidChange()
+        .onChange(of: library) { previousLibrary, _ in
+            handleLibraryDidChange(previousLibrary: previousLibrary)
         }
         .onReceive(NotificationCenter.default.publisher(for: .nativeICloudSecondaryProjectionDidChange).receive(on: RunLoop.main)) { _ in
             refreshTaskHistory()
@@ -208,7 +226,10 @@ struct QuickEditView: View {
                 limitedOfferState: $limitedOfferState
             )
         }
-        .sheet(item: $previewEditingTarget) { target in
+        .sheet(item: $previewEditingTarget, onDismiss: {
+            poolEditingSlot = nil
+            newPoolTaskDestination = nil
+        }) { target in
             previewEditTaskSheet(for: target.slotID)
                 .presentationDetents([.fraction(isPadLayout ? 0.66 : 0.74), .large])
                 .presentationDragIndicator(.visible)
@@ -290,11 +311,32 @@ struct QuickEditView: View {
         } message: {
             Text(L10n.quickEditReplaceConfirmationMessage)
         }
-        .safeAreaInset(edge: .bottom) {
-            if isPremiumUser && activeFilter == .all && !isAddingGroupModalPresented {
-                quickEditBottomAddTaskBar
-                    .accessibilityHidden(isQuickEditCustomModalPresented)
+        .confirmationDialog(
+            L10n.tr("Move to Group", zhHans: "移动分组", zhHant: "移動分組"),
+            isPresented: Binding(get: { movingTaskKey != nil }, set: { if !$0 { movingTaskKey = nil } }),
+            titleVisibility: .visible,
+            presenting: movingTaskKey
+        ) { key in
+            Button(L10n.tr("Ungrouped", zhHans: "未分组", zhHant: "未分組")) {
+                moveTask(key: key, to: nil)
             }
+            ForEach(library.groups) { group in
+                Button(quickEditDisplayGroupName(group)) { moveTask(key: key, to: group.id) }
+            }
+            Button(L10n.cancel, role: .cancel) { movingTaskKey = nil }
+        }
+        .alert(
+            L10n.tr("Reduce board size?", zhHans: "缩小棋盘？", zhHant: "縮小棋盤？"),
+            isPresented: Binding(get: { pendingGridSize != nil }, set: { if !$0 { pendingGridSize = nil } })
+        ) {
+            Button(L10n.cancel, role: .cancel) { pendingGridSize = nil }
+            Button(L10n.tr("Reduce", zhHans: "缩小", zhHant: "縮小"), role: .destructive) {
+                guard let size = pendingGridSize else { return }
+                pendingGridSize = nil
+                resizeGrid(to: size)
+            }
+        } message: {
+            Text(L10n.tr("Tasks outside the smaller board will return to the task pool.", zhHans: "超出新棋盘范围的任务将取消选择，仍保留在任务池中。", zhHant: "超出新棋盤範圍的任務將取消選擇，仍保留在任務池中。"))
         }
     }
 
@@ -339,21 +381,47 @@ struct QuickEditView: View {
 
     private var quickEditMainScroll: some View {
         GeometryReader { geo in
-            let isPadPortrait = isPadLayout && geo.size.height > geo.size.width
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    quickEditControlsCard
-                    filterTabsSection
-                        .padding(.top, -10)
-                    taskListSection
+            if #available(iOS 27.1, *), isPadLayout, geo.size.width >= 700 {
+                ArrangementView {
+                    ScrollView {
+                        quickEditControlsCard
+                            .frame(maxWidth: 440)
+                            .padding(24)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .splitArrangementLayoutRatio(0.48)
+                    .layoutPriority(1)
+                } secondary: {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            taskPoolHint
+                            filterTabsSection
+                            taskListSection
+                        }
+                        .padding(.horizontal, quickEditPageHorizontalPadding)
+                        .padding(.top, 24)
+                        .padding(.bottom, 110)
+                    }
                 }
-                .frame(maxWidth: isPadLayout ? 760 : .infinity, alignment: .topLeading)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.horizontal, quickEditPageHorizontalPadding)
-                .padding(.top, 24 + (isPadPortrait ? 80 : 0))
-                .padding(.bottom, isPadPortrait ? 0 : 110)
+                .arrangementViewStyle(.split)
+                .scrollDismissesKeyboard(.interactively)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        quickEditControlsCard
+                            .frame(maxWidth: .infinity)
+                        taskPoolHint
+                        filterTabsSection
+                        taskListSection
+                    }
+                    .frame(maxWidth: isPadLayout ? 560 : .infinity, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, quickEditPageHorizontalPadding)
+                    .padding(.top, 12)
+                    .padding(.bottom, 32)
+                }
+                .scrollDismissesKeyboard(.interactively)
             }
-            .scrollDismissesKeyboard(.interactively)
         }
     }
 
@@ -369,6 +437,11 @@ struct QuickEditView: View {
                 },
                 onDelete: {
                     requestFinalGroupDeletion(groupID)
+                },
+                onApply: {
+                    dismissGroupActions()
+                    activeFilter = .group(groupID)
+                    applyActiveGroupToPreview()
                 }
             )
             .transition(.opacity)
@@ -392,19 +465,26 @@ struct QuickEditView: View {
 
     @ToolbarContentBuilder
     private var quickEditToolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            Text(L10n.quickEdit)
-                .font(.appSystem(size: scaled(20, pad: 23), weight: .bold, design: .rounded))
-                .foregroundStyle(NeumorphicColors.text)
-                .accessibilityHidden(isQuickEditCustomModalPresented)
+        if #available(iOS 26.0, *) {
+            quickEditToolbarButtons.sharedBackgroundVisibility(.hidden)
+        } else {
+            quickEditToolbarButtons
         }
+    }
 
+    @ToolbarContentBuilder
+    private var quickEditToolbarButtons: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Button(L10n.tr("Exit", zhHans: "退出", zhHant: "退出")) {
                 handleExitTap()
             }
             .fontWeight(.semibold)
             .foregroundStyle(NeumorphicColors.text)
+            .buttonStyle(.plain)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+            .background(Color(hex: "EAE2DC"), in: Capsule())
             .accessibilityHidden(isQuickEditCustomModalPresented)
         }
 
@@ -414,6 +494,11 @@ struct QuickEditView: View {
             }
             .fontWeight(.semibold)
             .foregroundStyle(NeumorphicColors.text)
+            .buttonStyle(.plain)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+            .background(Color(hex: "EAE2DC"), in: Capsule())
             .accessibilityHidden(isQuickEditCustomModalPresented)
         }
 
@@ -427,14 +512,14 @@ struct QuickEditView: View {
             previewDropTargetID: $previewDropTargetID,
             selectedCountSummary: selectedCountSummary,
             isPadLayout: isPadLayout,
-            sectionBackground: quickEditSectionFlatBackground,
+            sectionBackground: .white,
             selectedBadgeBackground: quickEditSelectedBadgeBackground,
             previewEmptySlotFill: previewEmptySlotFill,
             previewFilledSlotFill: previewFilledSlotFill,
             previewEmptySlotStroke: previewEmptySlotStroke,
             previewFilledSlotStroke: previewFilledSlotStroke,
             onDecreaseGrid: {
-                targetGridSize = max(2, targetGridSize - 1)
+                requestDecreaseGrid()
             },
             onIncreaseGrid: {
                 let nextSize = targetGridSize + 1
@@ -463,7 +548,6 @@ struct QuickEditView: View {
             groups: library.groups.map { QuickEditGroupTab(id: $0.id, title: quickEditDisplayGroupName($0)) },
             selectedGroupID: activeGroupID,
             isPadLayout: isPadLayout,
-            fieldStroke: quickEditFieldStroke,
             onSelectAll: {
                 activeFilter = .all
             },
@@ -480,163 +564,135 @@ struct QuickEditView: View {
         )
     }
 
-    private var taskListSection: some View {
-        let visibleItems = filteredTaskItems.filter { !$0.isLocked }
-        let lockedHistoryPreviewItems = Array(
-            filteredTaskItems
-                .filter { $0.isLocked && $0.source == .history }
-                .prefix(5)
-        )
-        let isAllTasksFilter = activeFilter == .all
-
-        return QuickEditTaskListContainerView(
-            isAllTasksFilter: isAllTasksFilter,
-            hasVisibleItems: !visibleItems.isEmpty,
-            hasLockedHistoryPreview: !lockedHistoryPreviewItems.isEmpty,
-            isAddingTaskInline: isAddingTaskInline,
-            showsAddTaskButton: activeGroupID != nil,
-            isPadLayout: isPadLayout,
-            sectionBackground: quickEditSectionFlatBackground
-        ) {
-            QuickEditTaskListHeaderView(
-                title: activeFilterTitle,
-                activeGroupID: activeGroupID,
-                canApplyGroup: !activeGroupTaskKeys.isEmpty,
-                isPadLayout: isPadLayout,
-                taskBackground: quickEditTaskFlatBackground,
-                onApplyGroup: applyActiveGroupToPreview,
-                onDeleteGroup: { groupID in
-                    requestFinalGroupDeletion(groupID)
-                }
-            )
-        } rows: {
-            ForEach(visibleItems) { item in
-                taskRow(for: item)
-            }
-
-            if !lockedHistoryPreviewItems.isEmpty {
-                lockedHistoryPreviewBlock(items: lockedHistoryPreviewItems)
-            }
-        } inlineRow: {
-            newTaskInlineRow
-        } addTaskButton: {
-            addTaskButton
-        }
-    }
-
-    private var quickEditBottomAddTaskBar: some View {
-        VStack(spacing: 0) {
-            addTaskButton
-                .frame(maxWidth: isPadLayout ? 760 : .infinity)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.horizontal, quickEditPageHorizontalPadding)
-                .padding(.top, 6)
-                .padding(.bottom, 10)
-        }
-        .background(quickEditBackgroundColor)
-    }
-
-    private func lockedHistoryPreviewBlock(items: [QuickEditFilteredTaskItem]) -> some View {
-        QuickEditLockedHistoryPreviewBlock(
-            taskTexts: items.map { $0.task.trimmedText },
-            isPadLayout: isPadLayout,
-            taskBackground: quickEditTaskFlatBackground,
-            fieldStroke: quickEditFieldStroke
-        ) {
-            presentPremiumPaywallForLimit(source: "quick_edit_all_tasks_history_locked")
-        }
-    }
-
     @ViewBuilder
-    private func taskRow(for item: QuickEditFilteredTaskItem) -> some View {
-        if item.isLocked {
-            lockedHistoryTaskRow(for: item)
+    private var taskPoolHint: some View {
+        if isTaskPoolHintVisible {
+            HStack(alignment: .top, spacing: 4) {
+                Label {
+                    Text(L10n.tr(
+                        "Select task tags from the pool below to quickly place them on the board. Touch and hold a task tag to edit its details.",
+                        zhHans: "从下方的任务池中选择任务tag快速放置到棋盘中，长按任务tag进行详细编辑。",
+                        zhHant: "從下方的任務池中選擇任務tag快速放置到棋盤中，長按任務tag進行詳細編輯。"
+                    ))
+                    .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "questionmark.circle.fill")
+                        .foregroundStyle(NeumorphicColors.text.opacity(0.22))
+                }
+                .font(.appSystem(size: scaled(13, pad: 15), weight: .medium))
+                .foregroundStyle(NeumorphicColors.text.opacity(0.55))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+
+                Button {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+                        isTaskPoolHintVisible = false
+                    }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.appSystem(size: 12, weight: .semibold))
+                        .foregroundStyle(NeumorphicColors.text.opacity(0.5))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.tr("Dismiss tip", zhHans: "关闭提示", zhHant: "關閉提示"))
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, 4)
+            .padding(.vertical, 4)
+            .background(Color(hex: "FAF7F4"), in: RoundedRectangle(cornerRadius: 16))
+        }
+    }
+
+    private var taskListSection: some View {
+        let items = filteredTaskItems
+        let selectedKeys = Set(selectedTaskKeys)
+        let tagItems = items.filter { !$0.isLocked }.map { item in
+            return QuickEditTaskTagItem(
+                id: item.id, title: item.task.trimmedText,
+                isSelected: selectedKeys.contains(item.id), isLocked: false,
+                canEdit: true, canMove: true
+            )
+        }
+        // Keep restricted history behind the existing paywall, without exposing its titles.
+        let lockedItems = items.filter(\.isLocked).prefix(5).map { item in
+            QuickEditTaskTagItem(
+                id: item.id, title: item.task.trimmedText,
+                isSelected: false, isLocked: true, canEdit: false, canMove: false
+            )
+        }
+        return VStack(alignment: .leading, spacing: 12) {
+            QuickEditTaskPoolView(
+                items: tagItems + lockedItems,
+                filterID: activeGroupID?.uuidString ?? "all",
+                onAdd: startAddingPoolTask,
+                onToggle: { key in
+                    focusedField = nil
+                    toggleSelection(for: key)
+                    AppHaptics.control()
+                },
+                onEdit: { key in
+                    openPoolTaskEditor(for: key)
+                },
+                onMove: { key in focusedField = nil; movingTaskKey = key },
+                onDelete: { key in
+                    focusedField = nil
+                    if let location = taskLocation(forTaskKey: key) {
+                        deleteConfirmationTarget = location.deleteTarget
+                    } else {
+                        deleteConfirmationTarget = .history(key)
+                    }
+                },
+                onUnlock: { presentPremiumPaywallForLimit(source: "quick_edit_all_tasks_history_locked") }
+            )
+        }
+    }
+
+    private func moveTask(key: String, to groupID: UUID?) {
+        movingTaskKey = nil
+        guard let task = candidateTaskMap[key] else { return }
+        let isExternalTask = taskLocation(forTaskKey: key) == nil
+        // Commit the complete library once, so observers never see a task temporarily removed.
+        var updatedLibrary = library
+        switch quickEditMovePoolTask(key: key, task: task, to: groupID, isPremiumUser: isPremiumUser, library: &updatedLibrary) {
+        case .moved:
+            if isExternalTask {
+                let newKey = quickEditTaskKey(task)
+                selectedTaskKeys = selectedTaskKeys.map { $0 == key ? newKey : $0 }
+                for index in previewSlots.indices where previewSlots[index].sourceTaskKey == key {
+                    previewSlots[index].sourceTaskKey = newKey
+                }
+                if let draft = deselectedTaskDrafts.removeValue(forKey: key) { deselectedTaskDrafts[newKey] = draft }
+                supplementalPoolTasks.removeValue(forKey: key)
+            }
+            library = updatedLibrary
+            showLocalToast(L10n.tr("Task moved", zhHans: "已移动任务", zhHant: "已移動任務"))
+        case .limitReached:
+            presentPremiumPaywallForLimit(source: "quick_edit_move_task_limit")
+        case .unchanged, .invalid:
+            break
+        }
+    }
+
+    private func requestDecreaseGrid() {
+        let size = max(2, targetGridSize - 1)
+        guard size != targetGridSize else { return }
+        if previewSlots.dropFirst(size * size).contains(where: { $0.task != nil }) {
+            pendingGridSize = size
         } else {
-            switch item.source {
-            case .library(let location):
-                editableLibraryTaskRow(for: item, location: location)
-            case .history:
-                readOnlyHistoryTaskRow(for: item)
-            }
+            resizeGrid(to: size)
         }
     }
 
-    private func editableLibraryTaskRow(for item: QuickEditFilteredTaskItem, location: QuickEditTaskLocation) -> some View {
-        let key = item.id
-        let isSelected = selectedTaskKeys.contains(key)
-
-        return QuickEditEditableTaskRow(
-            text: taskBinding(for: location),
-            placeholder: location.placeholder,
-            isSelected: isSelected,
-            focusBinding: $focusedField,
-            focusField: location.focusedField,
-            isPadLayout: isPadLayout,
-            placeholderColor: quickEditPlaceholderColor,
-            taskBackground: quickEditTaskFlatBackground,
-            fieldStroke: quickEditFieldStroke,
-            onToggle: {
-                toggleSelection(for: key)
-            }
-            ,
-            onDelete: {
-                focusedField = nil
-                deleteConfirmationTarget = location.deleteTarget
-            }
-        )
-    }
-
-    private func readOnlyHistoryTaskRow(for item: QuickEditFilteredTaskItem) -> some View {
-        let key = item.id
-        let isSelected = selectedTaskKeys.contains(key)
-
-        return QuickEditReadOnlyTaskRow(
-            text: item.task.trimmedText,
-            isSelected: isSelected,
-            isPadLayout: isPadLayout,
-            taskBackground: quickEditTaskFlatBackground,
-            fieldStroke: quickEditFieldStroke,
-            onToggle: {
-                toggleSelection(for: key)
-            },
-            onDelete: {
-                deleteConfirmationTarget = .history(item.id)
-                focusedField = nil
-            }
-        )
-    }
-
-    private func lockedHistoryTaskRow(for item: QuickEditFilteredTaskItem) -> some View {
-        QuickEditLockedTaskRow(
-            text: item.task.trimmedText,
-            isPadLayout: isPadLayout,
-            taskBackground: quickEditTaskFlatBackground,
-            fieldStroke: quickEditFieldStroke
-        ) {
-            presentPremiumPaywallForLimit(source: "quick_edit_all_tasks_history_locked")
+    private func resizeGrid(to size: Int) {
+        let removedKeys = previewSlots.dropFirst(size * size).compactMap(\.sourceTaskKey)
+        for key in removedKeys {
+            removePreviewTask(for: key)
+            selectedTaskKeys.removeAll { $0 == key }
         }
-    }
-
-    private var newTaskInlineRow: some View {
-        QuickEditInlineNewTaskRow(
-            draftText: $newTaskDraft,
-            focusBinding: $focusedField,
-            isPadLayout: isPadLayout,
-            placeholderColor: quickEditPlaceholderColor,
-            taskBackground: quickEditTaskFlatBackground,
-            onSubmit: commitAddingTaskInline,
-            onCancel: cancelAddingTaskInline
-        )
-    }
-
-    private var addTaskButton: some View {
-        QuickEditAddTaskButton(isPadLayout: isPadLayout) {
-            if isAddingTaskInline {
-                commitAddingTaskInline()
-            } else {
-                startAddingTaskInline()
-            }
-        }
+        clearPreviewDragState()
+        targetGridSize = size
     }
 
     @ViewBuilder
@@ -760,8 +816,7 @@ struct QuickEditView: View {
 
     @ViewBuilder
     private func previewEditTaskSheet(for slotID: UUID) -> some View {
-        if let index = previewSlots.firstIndex(where: { $0.id == slotID }),
-           let currentCell = previewSlots[index].cellState {
+        if let editingSlot = taskEditingSlot(for: slotID), let currentCell = editingSlot.cellState {
             EditTaskSheet(
                 text: currentCell.storedTaskText,
                 isForcedTask: currentCell.isForced,
@@ -774,16 +829,14 @@ struct QuickEditView: View {
                 startReminderOffsetMinutes: currentCell.startReminderOffsetMinutes,
                 isCompletedTask: currentCell.isCompleted,
                 estimatedDurationMinutes: quickEditRemainingMinutes(from: currentCell.countdownEndsAt),
+                customCompletionPoints: currentCell.customCompletionPoints,
                 completionHistoryCountProvider: completionHistoryCountLookup,
                 diagnosticCellID: currentCell.id,
                 diagnosticSource: "quick_edit_editor",
-                onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, recurrenceRule, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes in
-                    guard let latestIndex = previewSlots.firstIndex(where: { $0.id == slotID }) else {
-                        return false
-                    }
-
-                    let existingCell = previewSlots[latestIndex].cellState
-                    previewSlots[latestIndex].cellState = quickEditMakePreviewCellFromEdit(
+                onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, recurrenceRule, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes, taskRewardEdit in
+                    guard let slot = taskEditingSlot(for: slotID), let existingCell = slot.cellState else { return false }
+                    guard TaskCompletionRewardRules.allows(taskRewardEdit, hasPremiumAccess: subscriptionManager.hasPremiumAccess) else { return false }
+                    guard var editedCell = quickEditMakePreviewCellFromEdit(
                         existingCell: existingCell,
                         text: newText,
                         isForcedTask: isForcedTask,
@@ -796,25 +849,51 @@ struct QuickEditView: View {
                         startReminderEnabled: startReminderEnabled,
                         startReminderOffsetMinutes: startReminderOffsetMinutes,
                         availableHistoryCount: viewModel.completionHistoryCount(for: newText)
-                    )
+                    ) else { return false }
 
-                    if let editedCell = previewSlots[latestIndex].cellState {
+                    let rewardDateKey = PointsStore.dateKey(for: .now)
+                    let dailyRewards = PointsStore.loadDailyRewardState()
+                    let legacyCredit = dailyRewards?.dateKey == rewardDateKey
+                        ? dailyRewards?.taskReversalCredits[existingCell.id.uuidString.lowercased()] : nil
+                    editedCell = TaskCompletionRewardRules.applyingEdit(
+                        taskRewardEdit, previous: existingCell, updated: editedCell,
+                        legacyReversalCredit: legacyCredit, dateKey: rewardDateKey
+                    )
+                    if let destination = newPoolTaskDestination {
+                        guard commitNewPoolTask(cell: editedCell, destination: destination) else { return false }
+                        poolEditingSlot = nil
+                        previewEditingTarget = nil
+                        return true
+                    }
+                    guard let updatedTask = PreviewSlot(cellState: editedCell).task else { return false }
+                    if let key = slot.sourceTaskKey, !syncLibraryTask(forTaskKey: key, with: updatedTask) { return false }
+                    if let index = previewSlots.firstIndex(where: { $0.id == slotID }) {
+                        previewSlots[index].cellState = editedCell
                         explicitlyEditedCellIDs.insert(editedCell.id)
-                        DiagnosticLogStore.recordStateChange("task_rule.preview_edited", details: [
-                            "source": "quick_edit_editor", "cell_id": editedCell.id.uuidString,
-                            "before_rule": existingCell?.diagnosticTaskRuleKind ?? "empty",
-                            "after_rule": editedCell.diagnosticTaskRuleKind
-                        ])
+                    } else if let key = slot.sourceTaskKey, let task = candidateTaskMap[key] {
+                        // Editing an unselected tag must not select it or consume a board slot.
+                        deselectedTaskDrafts[key] = QuickEditDeselectedTaskDraft(sourceTask: task, cellState: editedCell)
                     }
-                    if let sourceTaskKey = previewSlots[latestIndex].sourceTaskKey {
-                        let syncedTask = previewSlots[latestIndex].task ?? MyTaskItem(text: "")
-                        syncLibraryTask(forTaskKey: sourceTaskKey, with: syncedTask)
-                    }
+                    poolEditingSlot = nil
+                    DiagnosticLogStore.recordStateChange("task_rule.preview_edited", details: [
+                        "source": "quick_edit_editor", "cell_id": editedCell.id.uuidString,
+                        "before_rule": existingCell.diagnosticTaskRuleKind,
+                        "after_rule": editedCell.diagnosticTaskRuleKind
+                    ])
                     previewEditingTarget = nil
                     return true
                 },
                 onDelete: {
-                    deletePreviewTask(slotID: slotID)
+                    if previewSlots.contains(where: { $0.id == slotID }) {
+                        deletePreviewTask(slotID: slotID)
+                    } else if let key = editingSlot.sourceTaskKey {
+                        if let location = taskLocation(forTaskKey: key) {
+                            confirmDelete(location.deleteTarget)
+                        } else {
+                            confirmDelete(.history(key))
+                        }
+                    }
+                    poolEditingSlot = nil
                     previewEditingTarget = nil
                 },
                 onCancel: {
@@ -831,12 +910,48 @@ struct QuickEditView: View {
 
     private func deletePreviewTask(slotID: UUID) {
         guard let index = previewSlots.firstIndex(where: { $0.id == slotID }) else { return }
-        if let sourceTaskKey = previewSlots[index].sourceTaskKey {
-            selectedTaskKeys.removeAll(where: { $0 == sourceTaskKey })
+        if let key = previewSlots[index].sourceTaskKey {
+            removePreviewTask(for: key)
+        } else {
+            previewSlots[index].cellState = nil
         }
-        previewSlots[index].cellState = nil
-        previewSlots[index].sourceTaskKey = nil
-        showLocalToast(L10n.taskDeletedSuccess)
+        selectedTaskKeys = previewSlots.compactMap(\.sourceTaskKey)
+        showLocalToast(L10n.tr("Removed from board", zhHans: "已从棋盘移除", zhHant: "已從棋盤移除"))
+    }
+
+    private func openPoolTaskEditor(for key: String) {
+        focusedField = nil
+        if let slot = previewSlots.first(where: { $0.sourceTaskKey == key && $0.task != nil }) {
+            previewEditingTarget = QuickEditPreviewEditingTarget(slotID: slot.id)
+        } else if let task = candidateTaskMap[key] {
+            let cell = deselectedTaskDrafts[key]?.cellState ?? quickEditMakePreviewCell(from: task)
+            let slot = PreviewSlot(cellState: cell, sourceTaskKey: key)
+            poolEditingSlot = slot
+            previewEditingTarget = QuickEditPreviewEditingTarget(slotID: slot.id)
+        }
+    }
+
+    private func taskEditingSlot(for slotID: UUID) -> PreviewSlot? {
+        previewSlots.first { $0.id == slotID } ?? (poolEditingSlot?.id == slotID ? poolEditingSlot : nil)
+    }
+
+    @discardableResult
+    private func saveExternalPoolTask(_ task: MyTaskItem, for key: String) -> Bool {
+        if let historyKey = quickEditHistoryRecordKey(from: key) {
+            var records = TaskHistoryStore.load()
+            guard let index = records.firstIndex(where: { $0.key == historyKey }) else { return false }
+            records[index].text = task.text
+            records[index].startAt = task.startAt
+            records[index].endAt = task.endAt
+            records[index].startMonth = task.startMonth
+            records[index].startDay = task.startDay
+            records[index].recurrenceRule = task.recurrenceRule
+            records[index].lastEditedAt = .now
+            guard TaskHistoryStore.save(records) else { return false }
+            refreshTaskHistory()
+        }
+        supplementalPoolTasks[key] = task
+        return true
     }
 
     private func clearTaskEditorStartDate() {
@@ -874,9 +989,12 @@ struct QuickEditView: View {
         focusedField = nil
     }
 
-    private func syncLibraryTask(forTaskKey key: String, with newTask: MyTaskItem) {
-        guard let location = taskLocation(forTaskKey: key),
-              let existingTask = task(for: location) else { return }
+    @discardableResult
+    private func syncLibraryTask(forTaskKey key: String, with newTask: MyTaskItem) -> Bool {
+        guard let location = taskLocation(forTaskKey: key) else {
+            return saveExternalPoolTask(newTask, for: key)
+        }
+        guard let existingTask = task(for: location) else { return false }
         let syncedTask = quickEditSyncedTask(existingTask: existingTask, newTask: newTask)
         setTask(syncedTask, for: location)
         recordTaskHistory(syncedTask, sourceTaskID: syncedTask.id)
@@ -885,6 +1003,7 @@ struct QuickEditView: View {
             "task_id": syncedTask.id.uuidString,
             "rule": syncedTask.recurrenceRule?.kind.rawValue ?? "single"
         ])
+        return true
     }
 
     private func taskLocation(forTaskKey key: String) -> QuickEditTaskLocation? {
@@ -902,20 +1021,30 @@ struct QuickEditView: View {
         editingContext = viewModel.makeQuickEditBoardContext()
         targetGridSize = viewModel.gridSize
         activeFilter = .all
-        previewSlots = buildInitialPreviewSlots()
-        selectedTaskKeys = []
+        seedTaskHistoryIfNeeded()
+        let initialPool = quickEditInitialTaskPool(
+            cells: viewModel.currentBoardCellsInRowMajor(size: targetGridSize),
+            // Only tasks already on this board may be surfaced from restricted history.
+            candidates: quickEditAllTaskCandidates(library: library, unlockedHistoryRecords: historyOnlyRecordsSorted),
+            totalSlots: totalGridSlots
+        )
+        supplementalPoolTasks = initialPool.supplementalTasks
+        previewSlots = initialPool.slots
+        selectedTaskKeys = previewSlots.compactMap(\.sourceTaskKey)
         deselectedTaskDrafts = [:]
         explicitlyEditedCellIDs = []
-        seedTaskHistoryIfNeeded()
         initialSnapshot = makeCurrentSnapshot()
         syncActiveFilterWithCurrentLibrary()
     }
 
-    private func handleLibraryDidChange() {
+    private func handleLibraryDidChange(previousLibrary: MyTasksLibrary) {
         let candidates = candidateTaskMap
         deselectedTaskDrafts = deselectedTaskDrafts.filter { candidates[$0.key] != nil }
-        syncSelectedTaskKeysWithCurrentLibrary()
-        syncPreviewSlotsWithCurrentLibrary()
+        // Moving or renaming groups must not rewrite board runtime state.
+        if !quickEditHasSameTaskDefinitions(previousLibrary, library) {
+            syncSelectedTaskKeysWithCurrentLibrary()
+            syncPreviewSlotsWithCurrentLibrary()
+        }
         syncActiveFilterWithCurrentLibrary()
     }
 
@@ -986,62 +1115,41 @@ struct QuickEditView: View {
         taskHistoryRecords = TaskHistoryStore.load()
     }
 
-    private func startAddingTaskInline() {
-        switch quickEditStartInlineAddDecision(
-            activeFilter: activeFilter,
-            library: library,
-            isPremiumUser: isPremiumUser
-        ) {
+    private func startAddingPoolTask() {
+        switch quickEditStartInlineAddDecision(activeFilter: activeFilter, library: library, isPremiumUser: isPremiumUser) {
         case .paywall(let source):
             presentPremiumPaywallForLimit(source: source)
             return
         case .allowed:
             break
         }
-
-        isAddingTaskInline = true
-        newTaskDraft = ""
-        newTaskStartMonthDraft = ""
-        newTaskStartDayDraft = ""
-        DispatchQueue.main.async {
-            focusedField = .newTask
-        }
-    }
-
-    private func cancelAddingTaskInline() {
-        isAddingTaskInline = false
-        newTaskDraft = ""
-        newTaskStartMonthDraft = ""
-        newTaskStartDayDraft = ""
         focusedField = nil
+        newPoolTaskDestination = activeFilter
+        let rule = TaskRecurrenceRule(kind: activeGroupID == nil ? .none : .daily)
+        let slot = PreviewSlot(cellState: BingoCell(recurrenceRule: rule))
+        poolEditingSlot = slot
+        previewEditingTarget = QuickEditPreviewEditingTarget(slotID: slot.id)
     }
 
-    private func commitAddingTaskInline() {
-        let result = quickEditCommitInlineTask(
-            draftText: newTaskDraft,
-            monthText: newTaskStartMonthDraft,
-            dayText: newTaskStartDayDraft,
-            activeFilter: activeFilter,
-            isPremiumUser: isPremiumUser,
-            library: &library
-        )
-
-        switch result {
-        case .noOp:
-            return
-        case .paywall(let source):
-            presentPremiumPaywallForLimit(source: source)
-            return
-        case .resetFilterToAll:
-            activeFilter = .all
-            return
+    private func commitNewPoolTask(cell: BingoCell, destination: QuickEditFilterTab) -> Bool {
+        var updatedLibrary = library
+        switch quickEditCommitDetailedTask(cell: cell, destination: destination, isPremiumUser: isPremiumUser, library: &updatedLibrary) {
         case .appended(let task):
+            library = updatedLibrary
+            // Keep the complete editor configuration for later placement; adding does not select a tag.
+            deselectedTaskDrafts[quickEditTaskKey(task)] = QuickEditDeselectedTaskDraft(sourceTask: task, cellState: cell)
             recordTaskHistory(task, sourceTaskID: task.id)
-            isAddingTaskInline = false
-            newTaskDraft = ""
-            newTaskStartMonthDraft = ""
-            newTaskStartDayDraft = ""
             focusedField = nil
+            return true
+        case .paywall(let source):
+            showLocalToast(L10n.tr("Task limit reached. Your draft is still here.", zhHans: "任务数量已达上限，已保留编辑内容。", zhHant: "任務數量已達上限，已保留編輯內容。"))
+            premiumPaywallSource = source
+            return false
+        case .resetFilterToAll:
+            showLocalToast(L10n.tr("This group was removed. Cancel and choose another group.", zhHans: "该分组已被移除，请取消后重新选择分组。", zhHant: "該分組已被移除，請取消後重新選擇分組。"))
+            return false
+        case .noOp:
+            return false
         }
     }
 
@@ -1232,7 +1340,8 @@ struct QuickEditView: View {
         finalizeLibrary(showSuccessToast: false, emitChangeToast: false)
         let plan = QuickEditApplyPlan(tasks: previewSlots.compactMap(\.task), targetGridSize: targetGridSize)
 
-        guard !plan.tasks.isEmpty else {
+        let hadInitialTasks = initialSnapshot?.previewItems.contains { $0.cellState?.hasStoredTask == true } ?? false
+        if plan.tasks.isEmpty && !hadInitialTasks {
             didApplyToBoard = true
             onSaveSuccess(L10n.quickEditKeptBoardWithoutSelection)
             dismiss()
@@ -1253,7 +1362,8 @@ struct QuickEditView: View {
         guard viewModel.applyBoardOrderedCells(
             orderedCells, targetGridSize: plan.targetGridSize,
             explicitlyEditedCellIDs: explicitlyEditedCellIDs,
-            editingContext: editingContext
+            editingContext: editingContext,
+            hasPremiumTaskRewardAccess: subscriptionManager.hasPremiumAccess
         ) else {
             if !viewModel.isQuickEditBoardContextCurrent(editingContext) {
                 showLocalToast(L10n.tr(
@@ -1389,6 +1499,15 @@ struct QuickEditView: View {
         }
     }
 private func confirmDelete(_ target: QuickEditDeleteTarget) {
+    if case .history(let key) = target, key.hasPrefix("board:") {
+        removePreviewTask(for: key)
+        selectedTaskKeys.removeAll { $0 == key }
+        supplementalPoolTasks.removeValue(forKey: key)
+        deselectedTaskDrafts.removeValue(forKey: key)
+        deleteConfirmationTarget = nil
+        showLocalToast(L10n.taskDeletedSuccess)
+        return
+    }
     let resolution = quickEditResolveDeleteTarget(target, in: &library)
     switch resolution {
     case .libraryTaskRemoved(let task, let successMessage):
@@ -1403,6 +1522,7 @@ private func confirmDelete(_ target: QuickEditDeleteTarget) {
             return
         }
         TaskHistoryStore.deleteRecord(withKey: historyKey)
+        supplementalPoolTasks.removeValue(forKey: historyItemID)
         selectedTaskKeys.removeAll(where: { $0 == historyItemID })
         removePreviewTask(for: historyItemID)
         refreshTaskHistory()

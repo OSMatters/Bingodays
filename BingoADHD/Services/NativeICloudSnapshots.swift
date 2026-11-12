@@ -464,14 +464,14 @@ enum NativeICloudPrimaryStateMerger {
             guard let localBoard = localByID[id] else { return incomingByID[id] }
             guard let incomingBoard = incomingByID[id] else { return localBoard }
 
-            if shouldPreserveLocalProgress(
+            if let preserved = preservingLocalProgress(
                 local: localBoard,
                 incoming: incomingBoard,
                 referenceDate: referenceDate,
                 calendar: calendar
             ) {
                 preservedLocalProgressAgainstReset = true
-                return localBoard
+                return preserved
             }
             if preferIncomingCommit {
                 return incomingBoard
@@ -516,36 +516,75 @@ enum NativeICloudPrimaryStateMerger {
         return uniqueBoardIDs(boards).compactMap { byID[$0] }
     }
 
-    private static func shouldPreserveLocalProgress(
+    private static func preservingLocalProgress(
         local: BingoBoardStore.NamedBoard,
         incoming: BingoBoardStore.NamedBoard,
         referenceDate: Date,
         calendar: Calendar
-    ) -> Bool {
-        // A scheduled midnight reset has a distinct reset anchor. If a device
-        // that was offline performs that reset after another device completed
-        // tasks today, its newer `updatedAt` must not erase today's work.
-        guard incoming.taskResetMode == .resetStatusNextDay,
-              BoardResetRuleEngine.normalizedCustomResetMinutes(
-                incoming.customResetMinutes,
-                mode: incoming.taskResetMode
-              ) == nil,
+    ) -> BingoBoardStore.NamedBoard? {
+        // A reset-only snapshot may arrive after this device has completed work.
+        // Preserve individual current-cycle completions, not the whole board:
+        // the incoming device may have completed different tasks in that cycle.
+        guard incoming.taskResetMode != .keepTaskStatus,
+              incoming.taskResetMode == local.taskResetMode,
+              BoardResetRuleEngine.normalizedCustomResetMinutes(incoming.customResetMinutes, mode: incoming.taskResetMode)
+                == BoardResetRuleEngine.normalizedCustomResetMinutes(local.customResetMinutes, mode: local.taskResetMode),
+              let boundary = BoardResetRuleEngine.latestScheduledResetTime(atOrBefore: referenceDate, for: incoming, calendar: calendar),
               let incomingResetAt = incoming.lastTaskResetAppliedAt,
-              let localResetAt = local.lastTaskResetAppliedAt,
-              incomingResetAt > localResetAt,
-              calendar.isDate(incomingResetAt, inSameDayAs: referenceDate),
-              calendar.isDate(localResetAt, inSameDayAs: referenceDate),
-              completedTaskCount(in: incoming.board) < completedTaskCount(in: local.board) else {
-            return false
+              incomingResetAt >= (local.lastTaskResetAppliedAt ?? .distantPast),
+              BoardResetRuleEngine.latestScheduledResetTime(atOrBefore: incomingResetAt, for: incoming, calendar: calendar) == boundary,
+              incoming.updatedAt <= incomingResetAt else { return nil }
+        let localCells = BoardEngine.expandedBoardCache(from: local.board)
+        var cells = BoardEngine.expandedBoardCache(from: incoming.board)
+        // Expanding a legacy small cache creates fresh empty-cell identities.
+        // Reuse local empty slots so replaying the same reset is stable.
+        for row in cells.indices {
+            for col in cells[row].indices where !cells[row][col].hasStoredTask {
+                if row < localCells.count, col < localCells[row].count, !localCells[row][col].hasStoredTask {
+                    cells[row][col] = localCells[row][col]
+                }
+            }
         }
-        return true
-    }
-
-    private static func completedTaskCount(in board: SavedBoard) -> Int {
-        BoardEngine.expandedBoardCache(from: board)
-            .flatMap(\.self)
-            .filter { $0.isCompleted && $0.hasStoredTask }
-            .count
+        let incomingIDs = Set(cells.flatMap { $0 }.filter(\.hasStoredTask).map(\.id))
+        var didPreserve = false
+        for row in localCells.indices {
+            for col in localCells[row].indices {
+                let source = localCells[row][col]
+                guard source.hasStoredTask, source.isCompleted,
+                      let completedAt = source.lastCompletedAt, completedAt >= boundary else { continue }
+                if let targetRow = cells.firstIndex(where: { $0.contains(where: { $0.id == source.id }) }),
+                   let targetCol = cells[targetRow].firstIndex(where: { $0.id == source.id }) {
+                    let target = cells[targetRow][targetCol]
+                    guard !target.isCompleted, target.storedTaskText == source.storedTaskText,
+                          target.recurrenceRule == source.recurrenceRule else { continue }
+                    var restored = target
+                    restored.isCompleted = true
+                    restored.lastCompletedAt = source.lastCompletedAt
+                    restored.completionStreakCount = source.completionStreakCount
+                    restored.taskRewardReceipt = source.taskRewardReceipt
+                    cells[targetRow][targetCol] = restored
+                } else {
+                    // Reset can remove a single task completed on another device.
+                    // Restore it only into its empty slot; never replace a new task.
+                    guard !incomingIDs.contains(source.id), row < cells.count, col < cells[row].count,
+                          !cells[row][col].hasStoredTask else { continue }
+                    cells[row][col] = source
+                }
+                didPreserve = true
+            }
+        }
+        guard didPreserve else { return nil }
+        var result = incoming
+        if cells == localCells {
+            result.board = local.board
+        } else {
+            let size = incoming.board.gridSize
+            let visible = BoardEngine.projectVisibleCells(from: cells, size: size, referenceDate: referenceDate)
+            result.board = SavedBoard(gridSize: size, cells: visible,
+                completedLines: BoardEngine.completedLines(in: visible, size: size), fullBoardCells: cells)
+        }
+        result.updatedAt = max(local.updatedAt, incoming.updatedAt)
+        return result
     }
 }
 

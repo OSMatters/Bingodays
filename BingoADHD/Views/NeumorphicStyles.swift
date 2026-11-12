@@ -307,12 +307,14 @@ extension View {
         in shape: S,
         interactive: Bool = true,
         tint: Color? = nil,
-        fallbackWhiteOpacity: Double = 0.74
+        fallbackWhiteOpacity: Double = 0.74,
+        fallbackShowsBorder: Bool = true,
+        usesClearGlass: Bool = false
     ) -> some View {
         if #available(iOS 26.0, *) {
             self
                 .glassEffect(
-                    .regular
+                    (usesClearGlass ? Glass.clear : Glass.regular)
                         .tint(tint)
                         .interactive(interactive),
                     in: shape
@@ -340,13 +342,15 @@ extension View {
                             .fill(tint.opacity(0.26))
                     }
 
-                    shape
-                        .stroke(Color.white.opacity(0.94), lineWidth: 1)
+                    if fallbackShowsBorder {
+                        shape
+                            .stroke(Color.white.opacity(0.94), lineWidth: 1)
 
-                    shape
-                        .stroke(Color.white.opacity(0.24), lineWidth: 3)
-                        .blur(radius: 2.4)
-                        .offset(y: -1)
+                        shape
+                            .stroke(Color.white.opacity(0.24), lineWidth: 3)
+                            .blur(radius: 2.4)
+                            .offset(y: -1)
+                    }
                 }
                 .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
             }

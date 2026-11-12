@@ -112,6 +112,7 @@ struct QuickEditGroupActionsOverlayView: View {
     let onDismiss: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
+    let onApply: () -> Void
 
     private let backgroundColor = Color(hex: "FAF9F3")
     @AccessibilityFocusState private var firstActionAccessibilityFocused: Bool
@@ -131,6 +132,7 @@ struct QuickEditGroupActionsOverlayView: View {
                         action: onEdit
                     )
                     .accessibilityFocused($firstActionAccessibilityFocused)
+                    actionButton(title: L10n.quickEditApplyGroup, color: NeumorphicColors.text, action: onApply)
                     actionButton(
                         title: L10n.quickEditDeleteGroup,
                         color: Color.red.opacity(0.84),

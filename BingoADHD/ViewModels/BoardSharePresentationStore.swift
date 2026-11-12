@@ -19,6 +19,7 @@ final class BoardSharePresentationStore: ObservableObject {
     private let serviceFactory: () -> any BoardShareServicing
     private var service: (any BoardShareServicing)?
     private var operationTask: Task<Void, Never>?
+    private var operationID = UUID()
 
     init(
         serviceFactory: @escaping () -> any BoardShareServicing = BoardShareServiceFactory.makeDefaultService
@@ -31,16 +32,19 @@ final class BoardSharePresentationStore: ObservableObject {
     }
 
     func showMenu() {
+        cancelPendingOperation()
         errorMessage = nil
         page = .menu
     }
 
     func showShareBoardPicker() {
+        cancelPendingOperation()
         errorMessage = nil
         page = .selectBoard
     }
 
     func showImportCodeEntry() {
+        cancelPendingOperation()
         errorMessage = nil
         codeDraft = ""
         page = .importCode
@@ -50,7 +54,9 @@ final class BoardSharePresentationStore: ObservableObject {
         codeDraft = String(BoardShareCode.normalized(codeDraft).prefix(BoardShareCode.length))
     }
 
-    func publish(_ board: BingoBoardStore.NamedBoard) {
+    @discardableResult
+    func publish(_ board: BingoBoardStore.NamedBoard) -> Task<Void, Never>? {
+        cancelPendingOperation()
         guard BoardSharePayload.isShareable(board.board) else {
             AnalyticsService.logBoardSharePublishResult(
                 result: "not_shareable",
@@ -61,73 +67,79 @@ final class BoardSharePresentationStore: ObservableObject {
                 zhHans: "添加任务后才能分享这个棋盘",
                 zhHant: "新增任務後才能分享這個棋盤"
             )
-            return
+            return nil
         }
 
-        isWorking = true
-        errorMessage = nil
+        let id = beginOperation()
         let service = resolvedService()
         operationTask = Task { [weak self, service] in
-            guard let self else { return }
-            defer {
-                self.isWorking = false
-                self.operationTask = nil
-            }
-
             do {
                 let result = try await service.publish(board: board, now: .now)
-                guard !Task.isCancelled else { return }
-                AnalyticsService.logBoardSharePublishResult(
-                    result: "success",
-                    payload: result.payload
-                )
-                page = .shareResult(result)
+                guard let self, self.operationID == id, !Task.isCancelled else { return }
+                AnalyticsService.logBoardSharePublishResult(result: "success", payload: result.payload)
+                self.page = .shareResult(result)
+                self.finishOperation(id)
             } catch {
-                AnalyticsService.logBoardSharePublishResult(
-                    result: AnalyticsService.boardShareErrorResult(error),
-                    payload: nil
-                )
-                errorMessage = (error as? LocalizedError)?.errorDescription
+                guard let self, self.operationID == id, !Task.isCancelled else { return }
+                AnalyticsService.logBoardSharePublishResult(result: AnalyticsService.boardShareErrorResult(error), payload: nil)
+                self.errorMessage = (error as? LocalizedError)?.errorDescription
                     ?? L10n.tr("Could not share this board. Please try again.", zhHans: "分享失败，请重试", zhHant: "分享失敗，請重試")
+                self.finishOperation(id)
             }
         }
+        return operationTask
     }
 
-    func lookupCode() {
+    @discardableResult
+    func lookupCode() -> Task<Void, Never>? {
+        cancelPendingOperation()
         normalizeCodeDraft()
         guard BoardShareCode.isValid(codeDraft) else {
             AnalyticsService.logBoardImportLookupResult(result: "invalid_code")
             errorMessage = BoardShareError.invalidCode.errorDescription
-            return
+            return nil
         }
 
+        let id = beginOperation()
+        let service = resolvedService()
+        let code = codeDraft
+        operationTask = Task { [weak self, service] in
+            do {
+                let lookup = try await service.lookup(code: code, now: .now)
+                guard let self, self.operationID == id, !Task.isCancelled else { return }
+                AnalyticsService.logBoardImportLookupResult(result: "success", payload: lookup.payload)
+                self.codeDraft = lookup.code
+                self.page = .importPreview(lookup)
+                self.finishOperation(id)
+            } catch {
+                guard let self, self.operationID == id, !Task.isCancelled else { return }
+                AnalyticsService.logBoardImportLookupResult(result: AnalyticsService.boardShareErrorResult(error))
+                self.errorMessage = (error as? LocalizedError)?.errorDescription
+                    ?? L10n.tr("Could not find this board. Please try again.", zhHans: "查找棋盘失败，请重试", zhHant: "查找棋盤失敗，請重試")
+                self.finishOperation(id)
+            }
+        }
+        return operationTask
+    }
+
+    func cancelPendingOperation() {
+        operationID = UUID()
+        operationTask?.cancel()
+        operationTask = nil
+        isWorking = false
+    }
+
+    private func beginOperation() -> UUID {
+        cancelPendingOperation()
         isWorking = true
         errorMessage = nil
-        let service = resolvedService()
-        operationTask = Task { [weak self, service] in
-            guard let self else { return }
-            defer {
-                self.isWorking = false
-                self.operationTask = nil
-            }
+        return operationID
+    }
 
-            do {
-                let lookup = try await service.lookup(code: codeDraft, now: .now)
-                guard !Task.isCancelled else { return }
-                AnalyticsService.logBoardImportLookupResult(
-                    result: "success",
-                    payload: lookup.payload
-                )
-                codeDraft = lookup.code
-                page = .importPreview(lookup)
-            } catch {
-                AnalyticsService.logBoardImportLookupResult(
-                    result: AnalyticsService.boardShareErrorResult(error)
-                )
-                errorMessage = (error as? LocalizedError)?.errorDescription
-                    ?? L10n.tr("Could not find this board. Please try again.", zhHans: "查找棋盘失败，请重试", zhHant: "查找棋盤失敗，請重試")
-            }
-        }
+    private func finishOperation(_ id: UUID) {
+        guard operationID == id else { return }
+        isWorking = false
+        operationTask = nil
     }
 
     func savePendingPremiumImport(_ lookup: BoardShareLookup) {
@@ -136,6 +148,7 @@ final class BoardSharePresentationStore: ObservableObject {
 
     func restorePendingPremiumImport() -> Bool {
         guard let pending = BoardSharePendingImportStore.load() else { return false }
+        cancelPendingOperation()
         codeDraft = pending.code
         errorMessage = nil
         page = .importPreview(BoardShareLookup(code: pending.code, payload: pending.payload))

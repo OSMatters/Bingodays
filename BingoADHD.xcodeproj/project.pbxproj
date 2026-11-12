@@ -7,6 +7,18 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0F135FFACFB74A989F99B64D /* MeSkinTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C2069E6A7864D1AB1CCA536 /* MeSkinTests.swift */; };
+		B5B696E60F234FDC92D15072 /* MeSpeechBubbleShape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67D453AAF94A426398C043B9 /* MeSpeechBubbleShape.swift */; };
+		371E6FC07ECE4BC4BFB84026 /* MeSkinPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FA7B4CA361848F1AD59E542 /* MeSkinPicker.swift */; };
+		F85B47C75F4646B7BFD90D34 /* MeSkinMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C62F6B1C7C134916BD731DBC /* MeSkinMigration.swift */; };
+		488F62DFBC56494A9BCF9376 /* MeSceneLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9E8064CB744B41A5232712 /* MeSceneLayout.swift */; };
+		C4763406FB4247CB91FB4FB3 /* MeSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F18FBC19A714E2F8DA8812D /* MeSkin.swift */; };
+		A00000000000000000000109 /* JuanjuanLaunch.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000110 /* JuanjuanLaunch.mp4 */; };
+		A00000000000000000000107 /* LaunchVideoPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000108 /* LaunchVideoPlayback.swift */; };
+		A00000000000000000000105 /* LaunchVideoUIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000106 /* LaunchVideoUIView.swift */; };
+		A00000000000000000000103 /* LaunchVideoSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* LaunchVideoSurface.swift */; };
+		A00000000000000000000101 /* AppLaunchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* AppLaunchView.swift */; };
+		DA2700000000000000000001 /* DuoContentRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA2700000000000000000002 /* DuoContentRegion.swift */; };
 		E70100000000000000000001 /* AppIconEntitlementStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70100000000000000000002 /* AppIconEntitlementStore.swift */; };
 		000DAD4B00BC863222C33779 /* WidgetTaskToggleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1D2E3F4A5061728394C10 /* WidgetTaskToggleService.swift */; };
 		007D47AD92E038CFF32C8BE2 /* BingodaysWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB77DB4D87E0770BB2F4B921 /* BingodaysWidget.swift */; };
@@ -389,6 +401,27 @@
 		E83100000000000000000015 /* CompanionWidgetEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83100000000000000000004 /* CompanionWidgetEntry.swift */; };
 		E83100000000000000000016 /* CompanionWidgetProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83100000000000000000005 /* CompanionWidgetProvider.swift */; };
 		E83100000000000000000017 /* CompanionWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83100000000000000000006 /* CompanionWidgetView.swift */; };
+		7BBC1F00AC1B44B8A0C7DF78 /* TaskRewardReceipt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75567A391F4D4F1CA56C2C5E /* TaskRewardReceipt.swift */; };
+		B60B82DC8D6A4A658B279EF1 /* TaskRewardReceipt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75567A391F4D4F1CA56C2C5E /* TaskRewardReceipt.swift */; };
+		277496FCE12D4C618A4C2A49 /* TaskRewardReceipt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75567A391F4D4F1CA56C2C5E /* TaskRewardReceipt.swift */; };
+		60EE758EB0DA490A828A34FA /* TaskRewardReceipt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75567A391F4D4F1CA56C2C5E /* TaskRewardReceipt.swift */; };
+		734CCD7F82DD43568717FBDC /* TaskRewardEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C64DE525554F979B4BFB3D /* TaskRewardEdit.swift */; };
+		F218E9FD3CC345B381AAA24C /* TaskRewardEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C64DE525554F979B4BFB3D /* TaskRewardEdit.swift */; };
+		548EDE44ADE740F7A5C37EDC /* TaskRewardEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C64DE525554F979B4BFB3D /* TaskRewardEdit.swift */; };
+		F49204746E3846D2811765C1 /* TaskRewardEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C64DE525554F979B4BFB3D /* TaskRewardEdit.swift */; };
+		F6F13A1B434C461B9182C02F /* TaskCompletionRewardRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB9977752244206A5598FBD /* TaskCompletionRewardRules.swift */; };
+		51280CFCE41140BF817B1646 /* TaskCompletionRewardRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB9977752244206A5598FBD /* TaskCompletionRewardRules.swift */; };
+		F743E073BCA94A78AC8DF004 /* TaskCompletionRewardRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB9977752244206A5598FBD /* TaskCompletionRewardRules.swift */; };
+		F96B8A6B2D1C4A2A8B060236 /* TaskCompletionRewardRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB9977752244206A5598FBD /* TaskCompletionRewardRules.swift */; };
+		42E9B9831890429288D84395 /* TaskCompletionPointsEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7686916677A44E7C88F12135 /* TaskCompletionPointsEditor.swift */; };
+		A503988814B947C3A5FC6CFC /* TaskPointsPaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93A6156222FE4FF2A639DB61 /* TaskPointsPaywallView.swift */; };
+		59C5C67189F24F6286C6FF4E /* TaskCompletionRewardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65EC3775DEEC425B9CE45F0A /* TaskCompletionRewardTests.swift */; };
+		745E1EB28CED4BF09891AF98 /* QuickEditTaskTagItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A34D738AF3842FAAA7E5A55 /* QuickEditTaskTagItem.swift */; };
+		2959EB42BD0B460A922CA51A /* QuickEditThreeRowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481DBB14342143F3808F9E61 /* QuickEditThreeRowLayout.swift */; };
+		63F539C46A0D4B7B8A206A05 /* QuickEditTaskTagView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F466E6DCC494DA29D2F8824 /* QuickEditTaskTagView.swift */; };
+		55CBBCD3AC6946AE88FBD470 /* QuickEditTaskPoolView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B17F2F263346A7872F7337 /* QuickEditTaskPoolView.swift */; };
+		81DB70EA660045C5A9E36B2C /* QuickEditTaskMove.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8582CC5164B54CEA86304860 /* QuickEditTaskMove.swift */; };
+		845840A7848C4624B16E3F36 /* QuickEditTaskMoveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A789CF41C49B4B629EF8E2D4 /* QuickEditTaskMoveTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -452,6 +485,18 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		8C2069E6A7864D1AB1CCA536 /* MeSkinTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeSkinTests.swift; sourceTree = "<group>"; };
+		67D453AAF94A426398C043B9 /* MeSpeechBubbleShape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeSpeechBubbleShape.swift; sourceTree = "<group>"; };
+		5FA7B4CA361848F1AD59E542 /* MeSkinPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeSkinPicker.swift; sourceTree = "<group>"; };
+		C62F6B1C7C134916BD731DBC /* MeSkinMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeSkinMigration.swift; sourceTree = "<group>"; };
+		8A9E8064CB744B41A5232712 /* MeSceneLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeSceneLayout.swift; sourceTree = "<group>"; };
+		9F18FBC19A714E2F8DA8812D /* MeSkin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeSkin.swift; sourceTree = "<group>"; };
+		A00000000000000000000110 /* JuanjuanLaunch.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = BingoADHD/Resources/Launch/JuanjuanLaunch.mp4; sourceTree = SOURCE_ROOT; };
+		A00000000000000000000108 /* LaunchVideoPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Services/LaunchVideoPlayback.swift; sourceTree = SOURCE_ROOT; };
+		A00000000000000000000106 /* LaunchVideoUIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Views/LaunchVideoUIView.swift; sourceTree = SOURCE_ROOT; };
+		A00000000000000000000104 /* LaunchVideoSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Views/LaunchVideoSurface.swift; sourceTree = SOURCE_ROOT; };
+		A00000000000000000000102 /* AppLaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Views/AppLaunchView.swift; sourceTree = SOURCE_ROOT; };
+		DA2700000000000000000002 /* DuoContentRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuoContentRegion.swift; sourceTree = "<group>"; };
 		E70100000000000000000002 /* AppIconEntitlementStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconEntitlementStore.swift; sourceTree = "<group>"; };
 		01F75565618BB4172D486E0A /* MacTaskCell.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacTaskCell.swift; sourceTree = "<group>"; };
 		0369CE2F651445ED297D64A7 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "../GoogleService-Info.plist"; sourceTree = "<group>"; };
@@ -720,6 +765,18 @@
 		E83100000000000000000004 /* CompanionWidgetEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/CompanionWidgetEntry.swift; sourceTree = SOURCE_ROOT; };
 		E83100000000000000000005 /* CompanionWidgetProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/CompanionWidgetProvider.swift; sourceTree = SOURCE_ROOT; };
 		E83100000000000000000006 /* CompanionWidgetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingodaysWidget/CompanionWidgetView.swift; sourceTree = SOURCE_ROOT; };
+		75567A391F4D4F1CA56C2C5E /* TaskRewardReceipt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRewardReceipt.swift; sourceTree = "<group>"; };
+		42C64DE525554F979B4BFB3D /* TaskRewardEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRewardEdit.swift; sourceTree = "<group>"; };
+		8BB9977752244206A5598FBD /* TaskCompletionRewardRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskCompletionRewardRules.swift; sourceTree = "<group>"; };
+		7686916677A44E7C88F12135 /* TaskCompletionPointsEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskCompletionPointsEditor.swift; sourceTree = "<group>"; };
+		93A6156222FE4FF2A639DB61 /* TaskPointsPaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskPointsPaywallView.swift; sourceTree = "<group>"; };
+		65EC3775DEEC425B9CE45F0A /* TaskCompletionRewardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskCompletionRewardTests.swift; sourceTree = "<group>"; };
+		6A34D738AF3842FAAA7E5A55 /* QuickEditTaskTagItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEditTaskTagItem.swift; sourceTree = "<group>"; };
+		481DBB14342143F3808F9E61 /* QuickEditThreeRowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEditThreeRowLayout.swift; sourceTree = "<group>"; };
+		3F466E6DCC494DA29D2F8824 /* QuickEditTaskTagView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEditTaskTagView.swift; sourceTree = "<group>"; };
+		E3B17F2F263346A7872F7337 /* QuickEditTaskPoolView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEditTaskPoolView.swift; sourceTree = "<group>"; };
+		8582CC5164B54CEA86304860 /* QuickEditTaskMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEditTaskMove.swift; sourceTree = "<group>"; };
+		A789CF41C49B4B629EF8E2D4 /* QuickEditTaskMoveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEditTaskMoveTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -802,6 +859,7 @@
 		380EB4E171B6C6A42E72B718 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				C62F6B1C7C134916BD731DBC /* MeSkinMigration.swift */,
 				D90200000000000000000001 /* AppServices.swift */,
 				D70000000000000000000013 /* AppIconManager.swift */,
 				E70100000000000000000002 /* AppIconEntitlementStore.swift */,
@@ -981,9 +1039,14 @@
 		AA10000000000000000005 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				8A9E8064CB744B41A5232712 /* MeSceneLayout.swift */,
+				9F18FBC19A714E2F8DA8812D /* MeSkin.swift */,
 				D70000000000000000000011 /* AppIconOption.swift */,
 				D70000000000000000000012 /* AppOpenStreakStore.swift */,
 				AA20000000000000000003 /* BingoModels.swift */,
+				8BB9977752244206A5598FBD /* TaskCompletionRewardRules.swift */,
+				42C64DE525554F979B4BFB3D /* TaskRewardEdit.swift */,
+				75567A391F4D4F1CA56C2C5E /* TaskRewardReceipt.swift */,
 				B10B0000000000000000000A /* BlindBoxRuleEngine.swift */,
 				B1160000000000000000000A /* BlindBoxCatalogBundle.swift */,
 				B10D0000000000000000000A /* BlindBoxStateMachine.swift */,
@@ -1029,7 +1092,14 @@
 		AA10000000000000000007 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				67D453AAF94A426398C043B9 /* MeSpeechBubbleShape.swift */,
+				5FA7B4CA361848F1AD59E542 /* MeSkinPicker.swift */,
 				D90200000000000000000003 /* BingodaysProductionRoot.swift */,
+				A00000000000000000000110 /* JuanjuanLaunch.mp4 */,
+				A00000000000000000000108 /* LaunchVideoPlayback.swift */,
+				A00000000000000000000106 /* LaunchVideoUIView.swift */,
+				A00000000000000000000104 /* LaunchVideoSurface.swift */,
+				A00000000000000000000102 /* AppLaunchView.swift */,
 				D70000000000000000000014 /* AppIconSettingsViews.swift */,
 				B46D7F0F4C2A4CD09F3D6CF6 /* AppFont.swift */,
 				B10F0000000000000000000A /* BlindBoxFlowView.swift */,
@@ -1037,6 +1107,8 @@
 				C10D00000000000000000018 /* NativeICloudSettingsView.swift */,
 				AA20000000000000000006 /* BingoCellView.swift */,
 				AA20000000000000000007 /* EditTaskSheet.swift */,
+				93A6156222FE4FF2A639DB61 /* TaskPointsPaywallView.swift */,
+				7686916677A44E7C88F12135 /* TaskCompletionPointsEditor.swift */,
 				AA20000000000000000008 /* BingoLineOverlay.swift */,
 				AA20000000000000000010 /* NeumorphicStyles.swift */,
 				AA20000000000000000011 /* OnboardingFlowView.swift */,
@@ -1050,12 +1122,18 @@
 				CD0810000000000000000002 /* RewardEmojiTextField.swift */,
 				AA20000000000000000015 /* NineTenthsSheetContainer.swift */,
 				AA20000000000000000016 /* HomeEditingViews.swift */,
+				8582CC5164B54CEA86304860 /* QuickEditTaskMove.swift */,
+				E3B17F2F263346A7872F7337 /* QuickEditTaskPoolView.swift */,
+				3F466E6DCC494DA29D2F8824 /* QuickEditTaskTagView.swift */,
+				481DBB14342143F3808F9E61 /* QuickEditThreeRowLayout.swift */,
+				6A34D738AF3842FAAA7E5A55 /* QuickEditTaskTagItem.swift */,
 				AA20000000000000000044 /* HomeTimeoutOverlayLayer.swift */,
 				AA20000000000000000045 /* HomeHeaderView.swift */,
 				C8D4A2E6B7F2416C92A50100 /* HomeLimitedOfferBannerView.swift */,
 				C8D4A2E6B7F2416C92A50106 /* LimitedTimeDiscountView.swift */,
 				AA20000000000000000046 /* HomeStickerLayer.swift */,
 				AA20000000000000000047 /* HomeBoardMainContent.swift */,
+				DA2700000000000000000002 /* DuoContentRegion.swift */,
 				AA20000000000000000050 /* BoardSwipePagerView.swift */,
 				AA20000000000000000051 /* BoardSwipePreviewView.swift */,
 				C013B0000000000000000001 /* BoardSwipePageWindow.swift */,
@@ -1118,9 +1196,12 @@
 		B0A1D2E3F4A5061728394D04 /* BingoADHDTests */ = {
 			isa = PBXGroup;
 			children = (
+				8C2069E6A7864D1AB1CCA536 /* MeSkinTests.swift */,
 				D90100000000000000000001 /* AppIconManagerTests.swift */,
 				DEB43482CDF146E49409C99E /* LiveActivityBoardTests.swift */,
+				65EC3775DEEC425B9CE45F0A /* TaskCompletionRewardTests.swift */,
 				B0A1D2E3F4A5061728394D00 /* BoardRuleGuardrailTests.swift */,
+				A789CF41C49B4B629EF8E2D4 /* QuickEditTaskMoveTests.swift */,
 				C013B0000000000000000002 /* BoardSwipePagerTests.swift */,
 				C013C0000000000000000002 /* DecorativeAnimationTests.swift */,
 				B10C0000000000000000000A /* BlindBoxRuleEngineTests.swift */,
@@ -1428,6 +1509,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A00000000000000000000109 /* JuanjuanLaunch.mp4 in Resources */,
 				D81100000000000000000001 /* AppIcon60x60@2x.png in Resources */,
 				D81100000000000000000002 /* AppIcon60x60@3x.png in Resources */,
 				D81100000000000000000003 /* AppIcon76x76.png in Resources */,
@@ -1573,6 +1655,9 @@
 				5E2D6F7AB9C34140A13ED6C9 /* BoardStateCommitter.swift in Sources */,
 				8E907B19D8A77ED5CA3F12E0 /* ColorHex.swift in Sources */,
 				C3DA38C1D37F02D4B7DDAB7A /* BingoModels.swift in Sources */,
+				F743E073BCA94A78AC8DF004 /* TaskCompletionRewardRules.swift in Sources */,
+				548EDE44ADE740F7A5C37EDC /* TaskRewardEdit.swift in Sources */,
+				277496FCE12D4C618A4C2A49 /* TaskRewardReceipt.swift in Sources */,
 				B0A1D2E3F4A5061728394B52 /* BoardEngine.swift in Sources */,
 				B0A1D2E3F4A5061728394B62 /* BoardResetRuleEngine.swift in Sources */,
 				B0A1D2E3F4A5061728394B72 /* BingoDiaryStore.swift in Sources */,
@@ -1591,6 +1676,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B5B696E60F234FDC92D15072 /* MeSpeechBubbleShape.swift in Sources */,
+				371E6FC07ECE4BC4BFB84026 /* MeSkinPicker.swift in Sources */,
+				F85B47C75F4646B7BFD90D34 /* MeSkinMigration.swift in Sources */,
+				488F62DFBC56494A9BCF9376 /* MeSceneLayout.swift in Sources */,
+				C4763406FB4247CB91FB4FB3 /* MeSkin.swift in Sources */,
 				D90300000000000000000001 /* ProbeIcon.swift in Sources */,
 				D90300000000000000000002 /* IconProbeModel.swift in Sources */,
 				D90300000000000000000003 /* IconProbeView.swift in Sources */,
@@ -1620,8 +1710,15 @@
 				D70000000000000000000003 /* AppIconManager.swift in Sources */,
 				E70100000000000000000001 /* AppIconEntitlementStore.swift in Sources */,
 				D90200000000000000000004 /* BingodaysProductionRoot.swift in Sources */,
+				A00000000000000000000107 /* LaunchVideoPlayback.swift in Sources */,
+				A00000000000000000000105 /* LaunchVideoUIView.swift in Sources */,
+				A00000000000000000000103 /* LaunchVideoSurface.swift in Sources */,
+				A00000000000000000000101 /* AppLaunchView.swift in Sources */,
 				D70000000000000000000004 /* AppIconSettingsViews.swift in Sources */,
 				AA30000000000000000003 /* BingoModels.swift in Sources */,
+				51280CFCE41140BF817B1646 /* TaskCompletionRewardRules.swift in Sources */,
+				F218E9FD3CC345B381AAA24C /* TaskRewardEdit.swift in Sources */,
+				B60B82DC8D6A4A658B279EF1 /* TaskRewardReceipt.swift in Sources */,
 				B10B0000000000000000000B /* BlindBoxRuleEngine.swift in Sources */,
 				B10D0000000000000000000B /* BlindBoxStateMachine.swift in Sources */,
 				B10E0000000000000000000B /* BlindBoxPreviewStore.swift in Sources */,
@@ -1653,6 +1750,8 @@
 				AA30000000000000000005 /* BingoBoardView.swift in Sources */,
 				AA30000000000000000006 /* BingoCellView.swift in Sources */,
 				AA30000000000000000007 /* EditTaskSheet.swift in Sources */,
+				A503988814B947C3A5FC6CFC /* TaskPointsPaywallView.swift in Sources */,
+				42E9B9831890429288D84395 /* TaskCompletionPointsEditor.swift in Sources */,
 				AA30000000000000000008 /* BingoLineOverlay.swift in Sources */,
 				AA30000000000000000010 /* NeumorphicStyles.swift in Sources */,
 				AA30000000000000000011 /* OnboardingFlowView.swift in Sources */,
@@ -1667,12 +1766,18 @@
 				AA30000000000000000014 /* PointsSoundPlayer.swift in Sources */,
 				AA30000000000000000015 /* NineTenthsSheetContainer.swift in Sources */,
 				AA30000000000000000016 /* HomeEditingViews.swift in Sources */,
+				81DB70EA660045C5A9E36B2C /* QuickEditTaskMove.swift in Sources */,
+				55CBBCD3AC6946AE88FBD470 /* QuickEditTaskPoolView.swift in Sources */,
+				63F539C46A0D4B7B8A206A05 /* QuickEditTaskTagView.swift in Sources */,
+				2959EB42BD0B460A922CA51A /* QuickEditThreeRowLayout.swift in Sources */,
+				745E1EB28CED4BF09891AF98 /* QuickEditTaskTagItem.swift in Sources */,
 				AA30000000000000000045 /* HomeTimeoutOverlayLayer.swift in Sources */,
 				AA30000000000000000046 /* HomeHeaderView.swift in Sources */,
 				C8D4A2E6B7F2416C92A50101 /* HomeLimitedOfferBannerView.swift in Sources */,
 				C8D4A2E6B7F2416C92A50107 /* LimitedTimeDiscountView.swift in Sources */,
 				AA30000000000000000047 /* HomeStickerLayer.swift in Sources */,
 				AA30000000000000000048 /* HomeBoardMainContent.swift in Sources */,
+				DA2700000000000000000001 /* DuoContentRegion.swift in Sources */,
 				AA30000000000000000050 /* BoardSwipePagerView.swift in Sources */,
 				AA30000000000000000051 /* BoardSwipePreviewView.swift in Sources */,
 				C013B0000000000000000011 /* BoardSwipePageWindow.swift in Sources */,
@@ -1750,9 +1855,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0F135FFACFB74A989F99B64D /* MeSkinTests.swift in Sources */,
 				D90100000000000000000002 /* AppIconManagerTests.swift in Sources */,
 				B84119F662CF44A389ECCC23 /* LiveActivityBoardTests.swift in Sources */,
+				59C5C67189F24F6286C6FF4E /* TaskCompletionRewardTests.swift in Sources */,
 				B0A1D2E3F4A5061728394D01 /* BoardRuleGuardrailTests.swift in Sources */,
+				845840A7848C4624B16E3F36 /* QuickEditTaskMoveTests.swift in Sources */,
 				C013B0000000000000000012 /* BoardSwipePagerTests.swift in Sources */,
 				C013C0000000000000000012 /* DecorativeAnimationTests.swift in Sources */,
 				B10C0000000000000000000B /* BlindBoxRuleEngineTests.swift in Sources */,
@@ -1767,6 +1875,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				DDF79BC9A41451CEACE5AA36 /* BingoModels.swift in Sources */,
+				F96B8A6B2D1C4A2A8B060236 /* TaskCompletionRewardRules.swift in Sources */,
+				F49204746E3846D2811765C1 /* TaskRewardEdit.swift in Sources */,
+				60EE758EB0DA490A828A34FA /* TaskRewardReceipt.swift in Sources */,
 				CF415CFEEFD5D15F11B9C0F8 /* BingoBoardStore.swift in Sources */,
 				9BE2F95C4022E0E721F90CD9 /* BoardEngine.swift in Sources */,
 				A450DA5C48B096B96F8018B2 /* BoardResetRuleEngine.swift in Sources */,
@@ -1828,6 +1939,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				6A7781CBEE5F7AFF0056B373 /* BingoModels.swift in Sources */,
+				F6F13A1B434C461B9182C02F /* TaskCompletionRewardRules.swift in Sources */,
+				734CCD7F82DD43568717FBDC /* TaskRewardEdit.swift in Sources */,
+				7BBC1F00AC1B44B8A0C7DF78 /* TaskRewardReceipt.swift in Sources */,
 				0C0F5AF549F4C9DCBFC77AAA /* BingoBoardStore.swift in Sources */,
 				73F6B74025133F87CDB81DF1 /* BoardEngine.swift in Sources */,
 				D894E8A51C87FF0EC0E7D0FA /* BoardResetRuleEngine.swift in Sources */,
@@ -1905,7 +2019,7 @@
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 67;
+				CURRENT_PROJECT_VERSION = 68;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Production;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
@@ -1916,7 +2030,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 5.5.1;
+				MARKETING_VERSION = 5.5.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PRODUCT_NAME = BingodaysWidgetExtension;
 				PROVISIONING_PROFILE_SPECIFIER = "Bingodays Widget App Store 2026";
@@ -2158,13 +2272,13 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APS_ENVIRONMENT = development;
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIconHalloween AppIcon10Days AppIcon20Days AppIcon30Days AppIconPremium";
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon AppIconHalloween AppIcon10Days AppIcon20Days AppIcon30Days AppIconPremium";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconAutumn;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 67;
+				CURRENT_PROJECT_VERSION = 68;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Development;
 				INFOPLIST_FILE = BingoADHD/Info.plist;
@@ -2172,7 +2286,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.5.1;
+				MARKETING_VERSION = 5.5.2;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -2189,15 +2303,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APS_ENVIRONMENT = production;
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIconHalloween AppIcon10Days AppIcon20Days AppIcon30Days AppIconPremium";
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon AppIconHalloween AppIcon10Days AppIcon20Days AppIcon30Days AppIconPremium";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconAutumn;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_ENABLE_CODE_COVERAGE = NO;
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 67;
+				CURRENT_PROJECT_VERSION = 68;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Production;
 				INFOPLIST_FILE = BingoADHD/Info.plist;
@@ -2205,7 +2319,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.5.1;
+				MARKETING_VERSION = 5.5.2;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -2303,7 +2417,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 67;
+				CURRENT_PROJECT_VERSION = 68;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Development;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
@@ -2314,7 +2428,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 5.5.1;
+				MARKETING_VERSION = 5.5.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PRODUCT_NAME = BingodaysWidgetExtension;
 				SDKROOT = iphoneos;

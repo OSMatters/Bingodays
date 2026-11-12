@@ -72,7 +72,6 @@ struct PointsFlowPresenter: View {
                 )
             }
         }
-        .onDisappear { portalPresented = false }
         )
     }
 
@@ -635,7 +634,10 @@ private struct PointsDetailSheet: View {
     }
 
     private var rewardGridColumns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: scaled(6, pad: 10)), count: 2)
+        if isPadLayout && !usesAccessibilityType {
+            return [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 16)]
+        }
+        return Array(repeating: GridItem(.flexible(), spacing: scaled(6, pad: 10)), count: 2)
     }
 
     private var stickerCatalog: [StickerKind] {
@@ -699,7 +701,7 @@ private struct PointsDetailSheet: View {
                             .padding(.top, scaled(4, pad: 8))
                         } else if rewards.isEmpty {
                             emptyRewardsState
-                                .padding(.top, usesAccessibilityType ? 48 : scaled(118, pad: 150))
+                                .padding(.top, usesAccessibilityType ? 48 : scaled(72, pad: 48))
                         } else {
                             if usesAccessibilityType {
                                 LazyVStack(spacing: 12) {

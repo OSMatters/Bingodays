@@ -29,7 +29,7 @@ enum AppFontRegistrar {
 }
 
 enum TaskStartReminderService {
-    private struct PendingReminder {
+    struct PendingReminder {
         let identifier: String
         let title: String
         let body: String
@@ -59,7 +59,7 @@ enum TaskStartReminderService {
     ) -> Date? {
         guard !cell.hasRepeatingSchedule,
               let startDate = cell.startVisibleAt,
-              cell.endVisibleAt != nil else {
+              let endDate = cell.endVisibleAt, endDate > startDate else {
             return nil
         }
 
@@ -109,7 +109,7 @@ enum TaskStartReminderService {
         selectedBoardID: UUID?,
         activeBoard: SavedBoard?,
         now: Date = .now
-    ) async {
+    ) async -> Bool {
         let boards = resolvedBoards(
             namedBoards: namedBoards,
             selectedBoardID: selectedBoardID,
@@ -144,14 +144,17 @@ enum TaskStartReminderService {
             center.removeDeliveredNotifications(withIdentifiers: staleDeliveredIDs)
         }
 
-        guard await hasNotificationAuthorization(center: center) else { return }
+        guard await hasNotificationAuthorization(center: center) else { return false }
 
+        var succeeded = true
         for reminder in desiredReminders {
+            guard !Task.isCancelled else { return false }
             guard pendingRequestsByID[reminder.identifier] == nil || changedPendingIDs.contains(reminder.identifier) else {
                 continue
             }
-            schedule(reminder, center: center)
+            if !(await schedule(reminder, center: center)) { succeeded = false }
         }
+        return succeeded && !Task.isCancelled
     }
 
     static func syncSignature(
@@ -193,7 +196,7 @@ enum TaskStartReminderService {
         return boards
     }
 
-    private static func desiredReminders(
+    static func desiredReminders(
         from boards: [BingoBoardStore.NamedBoard],
         now: Date
     ) -> [PendingReminder] {
@@ -239,7 +242,7 @@ enum TaskStartReminderService {
         "\(notificationIDPrefix)\(boardID.uuidString).\(cellID.uuidString)"
     }
 
-    private static func schedule(_ reminder: PendingReminder, center: UNUserNotificationCenter) {
+    private static func schedule(_ reminder: PendingReminder, center: UNUserNotificationCenter) async -> Bool {
         let content = UNMutableNotificationContent()
         content.title = reminder.title
         content.body = reminder.body
@@ -250,13 +253,17 @@ enum TaskStartReminderService {
             "cell_id": reminder.cellID.uuidString
         ]
 
-        let triggerDate = Calendar.current.dateComponents(
-            [.year, .month, .day, .hour, .minute, .second],
-            from: reminder.date
-        )
+        let triggerDate = triggerComponents(for: reminder.date)
         let trigger = UNCalendarNotificationTrigger(dateMatching: triggerDate, repeats: false)
         let request = UNNotificationRequest(identifier: reminder.identifier, content: content, trigger: trigger)
-        center.add(request)
+        do { try await center.add(request); return true } catch { return false }
+    }
+
+    static func triggerComponents(for date: Date, calendar: Calendar = .current) -> DateComponents {
+        var components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        components.calendar = calendar
+        components.timeZone = calendar.timeZone
+        return components
     }
 
     // Copy only the fields used for reconciliation before leaving the SDK callback.
@@ -290,16 +297,16 @@ enum TaskStartReminderService {
             return false
         }
 
-        let expectedDateComponents = Calendar.current.dateComponents(
-            [.year, .month, .day, .hour, .minute, .second],
-            from: reminder.date
-        )
-        return dateComponents.year == expectedDateComponents.year &&
-            dateComponents.month == expectedDateComponents.month &&
-            dateComponents.day == expectedDateComponents.day &&
-            dateComponents.hour == expectedDateComponents.hour &&
-            dateComponents.minute == expectedDateComponents.minute &&
-            dateComponents.second == expectedDateComponents.second
+        return triggerComponentsMatch(dateComponents, date: reminder.date)
+    }
+
+    static func triggerComponentsMatch(_ components: DateComponents, date: Date) -> Bool {
+        // Upgrade floating triggers from older versions even when their wall-clock fields match.
+        guard let calendar = components.calendar, components.timeZone != nil,
+              components.year != nil, components.month != nil, components.day != nil,
+              components.hour != nil, components.minute != nil, components.second != nil,
+              let scheduledDate = calendar.date(from: components) else { return false }
+        return scheduledDate.timeIntervalSince1970.rounded(.down) == date.timeIntervalSince1970.rounded(.down)
     }
 
     private static func hasNotificationAuthorization(center: UNUserNotificationCenter) async -> Bool {
@@ -608,7 +615,7 @@ protocol TaskStartReminderScheduling: Sendable {
         selectedBoardID: UUID?,
         activeBoard: SavedBoard?,
         now: Date
-    ) async
+    ) async -> Bool
 
     func syncSignature(
         namedBoards: [BingoBoardStore.NamedBoard],
@@ -624,7 +631,7 @@ struct LiveTaskStartReminderScheduler: TaskStartReminderScheduling {
         selectedBoardID: UUID?,
         activeBoard: SavedBoard?,
         now: Date
-    ) async {
+    ) async -> Bool {
         await TaskStartReminderService.syncReminders(
             namedBoards: namedBoards,
             selectedBoardID: selectedBoardID,

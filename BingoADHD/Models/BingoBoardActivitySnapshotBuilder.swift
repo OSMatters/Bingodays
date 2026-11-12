@@ -43,6 +43,8 @@ enum BingoBoardActivitySnapshotBuilder {
         let resetAnchor = BoardResetRuleEngine.nextScheduledResetTime(for: board, after: now)
             ?? board.lastTaskResetAppliedAt
         data.append(Data([
+            "account:\(NativeICloudPreferences.accountScopeIdentifier ?? "")",
+            "board:\(board.id.uuidString)",
             board.taskResetMode.rawValue,
             resetAnchor?.timeIntervalSince1970.description ?? "",
             cell.occurrenceStartVisibleAt(on: now)?.timeIntervalSince1970.description ?? "",

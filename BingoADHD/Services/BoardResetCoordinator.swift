@@ -29,6 +29,7 @@ struct BoardResetCoordinator {
     private(set) var resetDebugToasts: [String] = []
     private(set) var customResetDebugToasts: [String] = []
 
+    private let archiveTasksForReset: (BingoBoardStore.NamedBoard, Date) -> Bool
     private let selectedBoardID: UUID?
     private let debugConfiguration: BoardResetDebugConfiguration
 
@@ -38,8 +39,12 @@ struct BoardResetCoordinator {
         lastEvaluationDateKey: String,
         hasAppliedDebugSimulatedResetThisLaunch: Bool,
         lastCustomResetDebugToastKey: String,
-        debugConfiguration: BoardResetDebugConfiguration
+        debugConfiguration: BoardResetDebugConfiguration,
+        archiveTasksForReset: @escaping (BingoBoardStore.NamedBoard, Date) -> Bool = {
+            TaskCompletionHistoryStore.archiveTasksRemovedByReset(from: $0, at: $1)
+        }
     ) {
+        self.archiveTasksForReset = archiveTasksForReset
         self.namedBoards = namedBoards
         self.selectedBoardID = selectedBoardID
         self.lastEvaluationDateKey = lastEvaluationDateKey
@@ -65,8 +70,8 @@ struct BoardResetCoordinator {
         }
 
         let dayKey = PointsStore.dateKey(for: now)
-        let hasPendingCustomReset = hasPendingCustomTimeReset(at: now)
-        if !force, dayKey == lastEvaluationDateKey, !hasPendingCustomReset {
+        let hasPendingReset = hasPendingReset(at: now)
+        if !force, dayKey == lastEvaluationDateKey, !hasPendingReset {
             #if DEBUG
             if debugConfiguration.simulateNextDayReset,
                !hasAppliedDebugSimulatedResetThisLaunch {
@@ -223,7 +228,7 @@ struct BoardResetCoordinator {
                 staleForceCount += 1
             }
 
-            guard TaskCompletionHistoryStore.archiveTasksRemovedByReset(from: board, at: now) else {
+            guard archiveTasksForReset(board, now) else {
                 // Keep this board untouched so the next lifecycle evaluation can
                 // retry without losing a completion count.
                 debugLog("apply.skip_history_save_failed source=\(source) board=\(index)")
@@ -238,6 +243,8 @@ struct BoardResetCoordinator {
                 continue
             }
 
+            let resetBoundary = resetEvaluation.usesCustomResetTime
+                ? BoardResetRuleEngine.latestScheduledResetTime(atOrBefore: now, for: board, calendar: calendar) : nil
             let taskCells = BoardEngine.expandedBoardCache(from: board.board)
                 .flatMap { $0 }
                 .filter(\.hasStoredTask)
@@ -248,7 +255,8 @@ struct BoardResetCoordinator {
             for cell in taskCells {
                 let action = TaskLifecycleRuleEngine.dailySettlementAction(
                     for: cell,
-                    mode: board.taskResetMode
+                    mode: board.taskResetMode,
+                    preservingCompletionsSince: resetBoundary
                 )
                 switch action {
                 case .preserve:
@@ -277,13 +285,17 @@ struct BoardResetCoordinator {
                     resetCompletionTaskCount += 1
                 }
             }
-            let clearedCompletedCount = BoardResetRuleEngine.completedTaskCount(in: board)
+            let completedBefore = BoardResetRuleEngine.completedTaskCount(in: board)
             let transformedBoard = BoardResetRuleEngine.transformedBoardSnapshotForResetMode(
                 board.board,
                 mode: board.taskResetMode,
-                referenceDate: now
+                referenceDate: now,
+                preservingCompletionsSince: resetBoundary
             )
 
+            let completedAfter = BoardEngine.expandedBoardCache(from: transformedBoard)
+                .flatMap { $0 }.filter { $0.hasStoredTask && $0.isCompleted }.count
+            let clearedCompletedCount = max(0, completedBefore - completedAfter)
             namedBoards[index].board = transformedBoard
             namedBoards[index].countdownEndsAt = nil
             namedBoards[index].lastTaskResetAppliedAt = now
@@ -303,7 +315,12 @@ struct BoardResetCoordinator {
                     "mode": board.taskResetMode.rawValue,
                     "custom_minutes": board.customResetMinutes.map(String.init) ?? "none",
                     "task_count": "\(taskCells.count)",
-                    "completed_before": "\(clearedCompletedCount)",
+                    "completed_before": "\(completedBefore)",
+                    "completed_after": "\(completedAfter)",
+                    "timezone": calendar.timeZone.identifier,
+                    "previous_reset": board.lastTaskResetAppliedAt.map { String($0.timeIntervalSince1970) } ?? "none",
+                    "latest_due": resetBoundary.map { String($0.timeIntervalSince1970) } ?? "midnight",
+                    "evaluated_at": String(now.timeIntervalSince1970),
                     "preserved": "\(preservedTaskCount)",
                     "removed": "\(removedTaskCount)",
                     "removed_completed_single": "\(removedCompletedSingleTaskCount)",
@@ -327,9 +344,9 @@ struct BoardResetCoordinator {
         )
     }
 
-    private mutating func hasPendingCustomTimeReset(at now: Date, calendar: Calendar = .current) -> Bool {
+    private mutating func hasPendingReset(at now: Date, calendar: Calendar = .current) -> Bool {
         for board in namedBoards {
-            if BoardResetRuleEngine.pendingResetEvaluation(for: board, now: now, calendar: calendar).customResetDue {
+            if BoardResetRuleEngine.pendingResetEvaluation(for: board, now: now, calendar: calendar).shouldApply {
                 return true
             }
         }

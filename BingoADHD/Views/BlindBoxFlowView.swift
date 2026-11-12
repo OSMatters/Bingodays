@@ -493,7 +493,7 @@ struct BlindBoxFlowView: View {
 struct BlindBoxLiveFlowView: View {
     @Environment(\.blindBoxEntranceReady) private var entranceReady
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private enum Route {
+    enum Route {
         case lobby
         case detail(UUID)
         case reveal(BlindBoxOpenResult)
@@ -509,7 +509,11 @@ struct BlindBoxLiveFlowView: View {
 
     @StateObject private var store = BlindBoxFeatureStore()
     @StateObject private var connectivity = BlindBoxConnectivityMonitor()
-    @State private var route: Route = .lobby
+    @EnvironmentObject private var presentation: BlindBoxPresentationState
+    private var route: Route {
+        get { presentation.liveRoute }
+        nonmutating set { presentation.liveRoute = newValue }
+    }
     @State private var toastMessage: String?
     @State private var toastDismissalTask: Task<Void, Never>?
     @State private var isShowingTicketExchange = false
@@ -1205,6 +1209,107 @@ private struct BlindBoxLobbyView: View {
     @AccessibilityFocusState.Binding var ticketWalletAccessibilityFocused: Bool
 
     var body: some View {
+        GeometryReader { geometry in
+            if geometry.size.width >= 650 {
+                expandedContent(in: geometry)
+            } else {
+                compactContent
+            }
+        }
+    }
+
+    private func expandedContent(in geometry: GeometryProxy) -> some View {
+        let width = min(geometry.size.width - 56, 1000)
+        let columns = 3
+        let slots = max(6, candidates.count + (isPremium ? 0 : 2))
+        let rows = Int(ceil(Double(slots) / Double(columns)))
+        return ZStack {
+            BlindBoxCanvasBackdrop(assetName: nil, containerSize: geometry.size)
+            ScrollView {
+                VStack(spacing: 8) {
+                    HStack {
+                        expandedIcon("chevron.left", label: BlindBoxL10n.back, action: onSelectCustomRewards ?? onDismiss)
+                        Spacer()
+                        Image("BlindBoxLobbyBackground")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 340)
+                            .offset(y: -78)
+                            .frame(width: 340, height: 94, alignment: .top)
+                            .clipped()
+                            .accessibilityHidden(true)
+                        Spacer()
+                        expandedIcon("questionmark", label: BlindBoxL10n.rulesTitle, action: onShowRules)
+                    }
+                    HStack {
+                        Button(action: onShowMyBox) { BlindBoxMyBoxIcon() }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(BlindBoxL10n.myBox)
+                        Spacer()
+                        ticketBadge
+                    }
+                    .padding(.horizontal, 24)
+                    VStack(spacing: 0) {
+                        ForEach(0..<rows, id: \.self) { row in
+                            HStack(spacing: 0) {
+                                ForEach(0..<columns, id: \.self) { column in
+                                    expandedSlot(row * columns + column)
+                                        .frame(maxWidth: .infinity)
+                                }
+                            }
+                            .frame(height: 184)
+                            .background {
+                                Image("BlindBoxShelfMiddle")
+                                    .resizable()
+                                    .frame(width: width * 420 / 360, height: 184 * 175 / 156)
+                                    .frame(width: width, height: 184, alignment: .top)
+                                    .clipped()
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                    }
+                    .padding(.top, 16)
+                    .padding(.bottom, 18)
+                    .background(Color(hex: "9A8A78"), in: RoundedRectangle(cornerRadius: 24))
+                    .overlay(alignment: .top) {
+                        Image("BlindBoxShelfTop").resizable().frame(height: 20).accessibilityHidden(true)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
+                    if hasCollectedEveryActiveTheme, candidates.isEmpty {
+                        BlindBoxCollectionCompleteNotice(onShowMyBox: onShowMyBox)
+                    }
+                }
+                .frame(width: width)
+                .padding(.top, 12)
+                .padding(.bottom, 28)
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func expandedSlot(_ index: Int) -> some View {
+        if index < candidates.count,
+           let theme = themes.first(where: { $0.id == candidates[index].plan.themeID }) {
+            let batch = candidates[index]
+            BlindBoxLobbyCard(batch: batch, theme: theme, onTap: { onSelectBatch(batch.id) })
+                .shadow(color: .white.opacity(highlightsAvailableBoxes && batch.remainingPositionCount > 0 ? 0.8 : 0), radius: 8)
+        } else if !isPremium, index < candidates.count + 2, !themes.isEmpty {
+            BlindBoxPremiumPlaceholder(theme: themes[(index - candidates.count) % themes.count], isCollectionComplete: hasCollectedEveryActiveTheme, onTap: onShowPremiumPaywall)
+        } else {
+            Color.clear.frame(width: 146, height: 176)
+        }
+    }
+
+    private func expandedIcon(_ name: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            LiquidGlassIconBadge(systemName: name, size: 44, iconSize: 17, foregroundColor: Color(hex: "5A412C"), glassTint: .white)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private var compactContent: some View {
         BlindBoxCanvas(backgroundAssetName: "BlindBoxLobbyBackground", backgroundVerticalOffset: 20) {
             ZStack {
                 Button(action: onSelectCustomRewards ?? onDismiss) {
@@ -1460,16 +1565,11 @@ private struct BlindBoxDetailView: View {
     @State private var selectedSticker: BlindBoxStickerDetail?
 
     var body: some View {
-        BlindBoxCanvas(contentHorizontalOffset: 0) {
-            ZStack {
-                BlindBoxImage("BlindBoxDrawBackground")
-                    .frame(
-                        width: BlindBoxCanvasLayout.referenceSize.width,
-                        height: BlindBoxCanvasLayout.referenceSize.height
-                    )
-
-                detailContent
-
+        GeometryReader { geometry in
+            if geometry.size.width >= 650 {
+                expandedContent(in: geometry)
+            } else {
+                compactContent
             }
         }
         .sheet(isPresented: $isShowingOdds) {
@@ -1484,6 +1584,77 @@ private struct BlindBoxDetailView: View {
                 isAddedToHome: isStickerOnHome(selection.sticker.id),
                 onAddToHome: onAddStickerToHome
             )
+        }
+    }
+
+    private var compactContent: some View {
+        BlindBoxCanvas(contentHorizontalOffset: 0) {
+            ZStack {
+                BlindBoxImage("BlindBoxDrawBackground")
+                    .frame(
+                        width: BlindBoxCanvasLayout.referenceSize.width,
+                        height: BlindBoxCanvasLayout.referenceSize.height
+                    )
+
+                detailContent
+
+            }
+        }
+    }
+
+    private func expandedContent(in geometry: GeometryProxy) -> some View {
+        let width = min(geometry.size.width - 64, 1000)
+        let cellSize = min(138, max(98, (geometry.size.height - 240) / 3))
+        return ZStack {
+            BlindBoxImage("BlindBoxDrawBackground")
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+                .accessibilityHidden(true)
+            ScrollView {
+                VStack(spacing: 10) {
+                    HStack {
+                        Button(action: onBack) {
+                            LiquidGlassIconBadge(systemName: "chevron.left", size: 44, iconSize: 17, foregroundColor: Color(hex: "5A412C"), glassTint: .white)
+                        }
+                        .accessibilityLabel(BlindBoxL10n.back)
+                        Spacer()
+                        Button(action: onTickets) { detailTicketBadge }
+                            .accessibilityLabel(BlindBoxL10n.getTickets)
+                            .accessibilityFocused($ticketWalletAccessibilityFocused)
+                        Spacer()
+                        Button { isShowingOdds = true } label: {
+                            LiquidGlassIconBadge(systemName: "questionmark", size: 44, iconSize: 17, foregroundColor: Color(hex: "5A412C"), glassTint: .white)
+                        }
+                        .accessibilityLabel(BlindBoxL10n.viewOdds)
+                    }
+                    .buttonStyle(.plain)
+                    BlindBoxThemeHeader(theme: theme)
+                        .frame(width: 230, height: 126)
+                        .padding(.bottom, -10)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 20), count: 3), spacing: 12) {
+                        ForEach(batch.plan.positions) { position in
+                            positionCell(position)
+                                .scaleEffect(cellSize / 98)
+                                .frame(height: cellSize)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .padding(22)
+                    .background {
+                        Image(boardAssetName).resizable().accessibilityHidden(true)
+                    }
+                    if batch.isSoldOut {
+                        BlindBoxRestockCountdownLabel(restockAt: batch.restockAt(), prefix: "Restocks in", font: .appSystem(size: 14, weight: .bold, design: .rounded), foregroundColor: Color(hex: "88644C"))
+                    } else {
+                        actionButtons
+                            .padding(.top, 8)
+                    }
+                }
+                .frame(width: width)
+                .padding(.top, 16)
+                .padding(.bottom, 28)
+                .frame(maxWidth: .infinity)
+            }
         }
     }
 
@@ -1570,32 +1741,25 @@ private struct BlindBoxDetailView: View {
         .frame(width: 92, height: 43)
     }
 
-    @ViewBuilder
+    private func positionCell(_ position: BlindBoxPositionPlan) -> some View {
+        let isOpened = batch.openedPositionIndices.contains(position.index)
+        let sticker = theme.stickers.first(where: { $0.id == position.stickerID })
+        return BlindBoxPositionCell(isOpened: isOpened, sticker: sticker) {
+            if isOpened, let sticker {
+                let isSystemOpened = batch.isOpenedBySystem(at: position.index)
+                selectedSticker = BlindBoxStickerDetail(sticker: sticker, isOwned: !isSystemOpened, isSystemOpened: isSystemOpened)
+            } else {
+                onOpenPosition(position.index)
+            }
+        }
+    }
+
     private var positionGrid: some View {
         let xPositions: [CGFloat] = [87, 197, 307]
         let yPositions: [CGFloat] = [370, 480, 590]
-        ForEach(batch.plan.positions) { position in
-            let row = position.index / 3
-            let column = position.index % 3
-            let isOpened = batch.openedPositionIndices.contains(position.index)
-            let sticker = theme.stickers.first(where: { $0.id == position.stickerID })
-            BlindBoxPositionCell(
-                isOpened: isOpened,
-                sticker: sticker,
-                onTap: {
-                    if isOpened, let sticker {
-                        let isSystemOpened = batch.isOpenedBySystem(at: position.index)
-                        selectedSticker = BlindBoxStickerDetail(
-                            sticker: sticker,
-                            isOwned: !isSystemOpened,
-                            isSystemOpened: isSystemOpened
-                        )
-                    } else {
-                        onOpenPosition(position.index)
-                    }
-                }
-            )
-            .position(x: xPositions[column], y: yPositions[row])
+        return ForEach(batch.plan.positions) { position in
+            positionCell(position)
+                .position(x: xPositions[position.index % 3], y: yPositions[position.index / 3])
         }
     }
 

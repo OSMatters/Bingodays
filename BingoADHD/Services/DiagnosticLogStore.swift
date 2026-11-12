@@ -188,14 +188,18 @@ enum DiagnosticLogStore {
             }
         }
         let budget = maxExportCharacters - 200
+        // Keep reset outcomes even when points exports and rule edits fill the log.
+        let resets = bounded(entries.filter { $0.name == "board_reset.applied" || $0.name == "board_reset.history_archive_failed" }, budget: budget / 10)
+        let resetCharacters = resets.reduce(0) { $0 + line($1).count + 1 }
+        let resetEntries = Set(resets.map(line))
         let completion = bounded(entries.filter(isCompletionTrace), budget: budget / 3)
         let completionCharacters = completion.reduce(0) { $0 + line($1).count + 1 }
         let rules = bounded(entries.filter(isRuleTrace), budget: budget / 2)
         let ruleCharacters = rules.reduce(0) { $0 + line($1).count + 1 }
-        let critical = bounded(entries.filter { isCritical($0) && !isRuleTrace($0) && !isCompletionTrace($0) }, budget: max(0, budget * 9 / 10 - ruleCharacters - completionCharacters))
-        let used = completionCharacters + ruleCharacters + critical.reduce(0) { $0 + line($1).count + 1 }
+        let critical = bounded(entries.filter { isCritical($0) && !isRuleTrace($0) && !isCompletionTrace($0) && !resetEntries.contains(line($0)) }, budget: max(0, budget * 9 / 10 - ruleCharacters - completionCharacters - resetCharacters))
+        let used = resetCharacters + completionCharacters + ruleCharacters + critical.reduce(0) { $0 + line($1).count + 1 }
         let recent = bounded(entries.filter { !isCritical($0) }, budget: budget - used)
-        let selected = (completion + rules + critical + recent).sorted { $0.timestamp < $1.timestamp }
+        let selected = (resets + completion + rules + critical + recent).sorted { $0.timestamp < $1.timestamp }
         return "Diagnostic v4: selected=\(selected.count) available=\(entries.count); completion and task-rule history reserved.\n" + selected.map(line).joined(separator: "\n")
     }
 

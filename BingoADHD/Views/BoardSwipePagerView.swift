@@ -15,6 +15,7 @@ struct BoardSwipePagerView: View {
     let shouldShowCenterLongPressHint: Bool
     let allowsBoardSwipe: Bool
     let onSelectBoard: (UUID) -> Bool
+    var onPrepareTaskCompletion: ((Date) -> Bool)? = nil
     let onCellCompletionToggled: () -> Void
     let onTaskPresentationChange: (Bool) -> Void
 
@@ -78,6 +79,7 @@ struct BoardSwipePagerView: View {
                 viewModel: viewModel,
                 currentTime: currentTime,
                 shouldShowCenterLongPressHint: shouldShowCenterLongPressHint,
+                onPrepareTaskCompletion: onPrepareTaskCompletion,
                 onCellCompletionToggled: onCellCompletionToggled,
                 onTaskPresentationChange: onTaskPresentationChange,
                 onCellReorderActiveChanged: { isActive in

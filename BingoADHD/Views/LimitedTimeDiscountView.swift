@@ -110,6 +110,7 @@ struct LimitedTimeDiscountView: View {
     }
 
     var body: some View {
+        DuoContentRegion {
         GeometryReader { geo in
             let scale = limitedTimeScale(for: geo.size)
 
@@ -117,16 +118,19 @@ struct LimitedTimeDiscountView: View {
                 limitedTimeBackground
                     .ignoresSafeArea()
 
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    limitedTimeContent(now: timeline.date)
-                        .frame(width: designWidth, height: designHeight, alignment: .topLeading)
-                        .scaleEffect(scale, anchor: .top)
-                        .frame(width: geo.size.width, height: max(geo.size.height, designHeight * scale), alignment: .top)
+                ScrollView {
+                    TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                        limitedTimeContent(now: timeline.date)
+                            .frame(width: designWidth, height: designHeight, alignment: .topLeading)
+                            .scaleEffect(scale, anchor: .top)
+                            .frame(width: geo.size.width, height: designHeight * scale, alignment: .top)
+                    }
+                    .padding(.bottom, 20)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
-        .ignoresSafeArea()
+        }
         .onAppear {
             if closeIfPremium() { return }
             startCountdownIfNeeded()
@@ -151,7 +155,7 @@ struct LimitedTimeDiscountView: View {
         let heightScale = size.height / designHeight
 
         guard isPadLayout else { return widthScale }
-        return min(widthScale, heightScale, 1.12)
+        return min(widthScale, max(heightScale, 1), 1.12)
     }
 
     private func logPaywallViewIfNeeded() {

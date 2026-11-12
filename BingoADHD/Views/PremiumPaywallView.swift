@@ -119,27 +119,22 @@ struct PremiumPaywallView: View {
     @State private var measuredHeroHeight: CGFloat = 0
     @State private var heroPinnedTopInset: CGFloat = 0
     private var isBlindBoxHero: Bool { classicHeroBenefit.id == "blindBox" && !isAllFeaturesEntrySource }
-    private var isPremiumAppIconHero: Bool { entrySource == "premium_app_icon" }
     private var heroExtraHeight: CGFloat {
-        if isBlindBoxHero {
-            return max(0, 188 + measuredHeroHeight + 24 - 343)
-        }
-        if isPremiumAppIconHero {
-            // Reserve the pinned header inset as well as the complete description.
-            return max(0, 188 + measuredHeroHeight + 24 + heroPinnedTopInset - 343)
-        }
-        return 0
+        // Every translation must finish before the opaque pinned header begins.
+        let headerOverlap = isBlindBoxHero ? blindBoxPlanCardsLift : heroPinnedTopInset
+        return max(0, 188 + measuredHeroHeight + 24 + headerOverlap - 343)
     }
     /// Keeps the Blind Box offer close to its hero artwork without changing the
     /// normal paywall layout.
     private let blindBoxPlanCardsLift: CGFloat = 66
-    private var classicPaywallContentHeight: CGFloat { 1372 + heroExtraHeight }
+    private var classicPaywallContentHeight: CGFloat { 1372 + heroExtraHeight + classicBenefitsHeight - 521 }
     private var classicPlanCardsTop: CGFloat { 343 + heroExtraHeight }
     private let classicPlanCardsHeight: CGFloat = 144
     private let classicPinnedCountdownExtraHeight: CGFloat = 12
     private let classicPinnedBackgroundBleed: CGFloat = 2
     private var classicBenefitsTop: CGFloat { 519 + heroExtraHeight }
-    private let classicBenefitsHeight: CGFloat = 521
+    // Header (47), standard rows plus spacing (52), and final row (58).
+    private var classicBenefitsHeight: CGFloat { 47 + CGFloat(max(paywallBenefits.count - 1, 0)) * 52 + 58 }
     private let classicLegalFooterTopSpacing: CGFloat = 24
 
     private var classicPaywallBodyTop: CGFloat {
@@ -240,6 +235,7 @@ struct PremiumPaywallView: View {
             PaywallFeature(id: "quickTasks", text: L10n.paywallFeatureUnlimitedQuickTasks),
             PaywallFeature(id: "groups", text: L10n.paywallFeatureUnlimitedGroups),
             PaywallFeature(id: "customRewards", text: L10n.paywallFeatureCustomRewards),
+            PaywallFeature(id: "taskPoints", text: taskPointsBenefit.title),
             PaywallFeature(id: "history", text: L10n.paywallFeatureAllHistoryTasks),
             PaywallFeature(id: "customReset", text: L10n.paywallFeatureCustomResetTime),
             PaywallFeature(id: "backgroundSkins", text: L10n.paywallFeaturePremiumBackgroundSkins)
@@ -282,6 +278,7 @@ struct PremiumPaywallView: View {
                 title: L10n.paywallBenefitCustomRewardsTitle,
                 subtitle: L10n.paywallBenefitCustomRewardsSubtitle
             ),
+            taskPointsBenefit,
             PaywallBenefit(
                 id: "blindBox",
                 iconAssetName: "PaywallBenefitBlindBox",
@@ -309,6 +306,15 @@ struct PremiumPaywallView: View {
         ]
     }
 
+    private var taskPointsBenefit: PaywallBenefit {
+        PaywallBenefit(
+            id: "taskPoints",
+            iconAssetName: "PaywallBenefitTaskPoints",
+            title: L10n.tr("Custom Task Points", zhHans: "自定义任务积分", zhHant: "自訂任務積分", ja: "タスクのポイントを自由に設定"),
+            subtitle: L10n.tr("Set completion points for each task", zhHans: "按任务难度，设置专属完成积分", zhHant: "按任務難度，設定專屬完成積分", ja: "タスクに合わせて完了ポイントを設定")
+        )
+    }
+
     private var initialFeatureIndexForEntrySource: Int {
         let featureID = entryFeatureID(for: entrySource)
         return paywallFeatures.firstIndex { $0.id == featureID } ?? 0
@@ -317,7 +323,9 @@ struct PremiumPaywallView: View {
     private func entryFeatureID(for source: String) -> String {
         let source = source.lowercased()
 
-        if source.contains("blind_box") || source.contains("blindbox") {
+        if source.contains("task_completion_points") || source.contains("task_points") {
+            return "taskPoints"
+        } else if source.contains("blind_box") || source.contains("blindbox") {
             return "blindBox"
         } else if source.contains("grid") {
             return "grid5x5"
@@ -400,6 +408,8 @@ struct PremiumPaywallView: View {
             benefitID = "groups"
         case "customRewards":
             benefitID = "rewards"
+        case "taskPoints":
+            benefitID = "taskPoints"
         case "history":
             benefitID = "history"
         case "customReset":
@@ -420,12 +430,15 @@ struct PremiumPaywallView: View {
                 if isMemberCenter {
                     memberCenterContent(in: geo)
                 } else {
-                    classicPaywallContent(in: geo)
+                    hingeAwareClassicPaywallContent(in: geo)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
         }
-        .ignoresSafeArea()
+        // The illustrated scroll background also covers the status bar. Content
+        // positions below still use the reported safe-area inset for controls.
+        .ignoresSafeArea(.container, edges: isMemberCenter ? [] : .top)
+        .background(Color(hex: "1D1002").ignoresSafeArea())
         .task {
             if !didRunInitialPriceWarmup {
                 didRunInitialPriceWarmup = true
@@ -487,13 +500,134 @@ struct PremiumPaywallView: View {
         )
     }
 
+    @ViewBuilder
+    private func hingeAwareClassicPaywallContent(in geo: GeometryProxy) -> some View {
+        if #available(iOS 27.1, *), geo.reservedRegions(kind: .division).contains(where: \.isActive) {
+            ArrangementView {
+                GeometryReader { pane in
+                    fixedClassicPaywallContent(in: pane, includesBenefits: false)
+                }
+                .layoutPriority(1)
+            } secondary: {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        Text(L10n.paywallGetFullAccess)
+                            .font(paywallFont(size: 22, weight: .semibold))
+                            .foregroundStyle(Color(hex: "ECD5C2"))
+                            .accessibilityAddTraits(.isHeader)
+                        ForEach(paywallBenefits) { benefit in
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(benefit.iconAssetName)
+                                    .resizable().scaledToFit()
+                                    .frame(width: 32, height: 32)
+                                    .accessibilityHidden(true)
+                                adaptiveBenefitRow(benefit)
+                            }
+                        }
+                        Text(legalFooterAttributedText)
+                            .font(paywallFont(size: 13, weight: .medium))
+                            .foregroundStyle(Color(hex: "AFA7A0"))
+                            .tint(Color(hex: "D3A375"))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(24)
+                }
+            }
+            .arrangementViewStyle(.split)
+        } else {
+            classicPaywallContent(in: geo)
+        }
+    }
+
     private func classicPaywallContent(in geo: GeometryProxy) -> some View {
         Group {
-            if dynamicTypeSize >= .xLarge || geo.size.width < 360 || geo.size.height < 600 {
+            if geo.size.width >= 700 && !dynamicTypeSize.isAccessibilitySize {
+                expandedClassicPaywallContent(in: geo)
+            } else if dynamicTypeSize >= .xLarge || geo.size.width < 360 || geo.size.height < 600 {
                 adaptiveClassicPaywallContent(in: geo)
             } else {
                 fixedClassicPaywallContent(in: geo)
             }
+        }
+    }
+
+    private func expandedClassicPaywallContent(in geo: GeometryProxy) -> some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                HStack {
+                    backButton
+                    Spacer()
+                    restoreSubscriptionButton(maxWidth: 160)
+                }
+                HStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(classicHeroTitle)
+                            .font(paywallFont(size: 34, weight: .bold))
+                            .foregroundStyle(.white)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityAddTraits(.isHeader)
+                        Text(classicHeroSubtitle)
+                            .font(paywallFont(size: 19, weight: .semibold))
+                            .foregroundStyle(Color(hex: "C8BBB3"))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Image("PaywallFigmaBlackBG")
+                        .resizable()
+                        .frame(width: 393, height: 852)
+                        .offset(y: -100)
+                        .frame(width: 330, height: 250, alignment: .topTrailing)
+                        .clipped()
+                        .mask(LinearGradient(colors: [.clear, .black, .black], startPoint: .leading, endPoint: .trailing))
+                        .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.1), .init(color: .black, location: 0.9), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+                        .accessibilityHidden(true)
+                }
+                // Use the original illustrated cards as a complete horizontal plan group.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) {
+                        ForEach(classicPaywallPlanOrder) { plan in planCard(plan) }
+                    }
+                    VStack(spacing: 12) {
+                        ForEach(classicPaywallPlanOrder) { plan in adaptivePlanCard(plan) }
+                    }
+                }
+                Text(L10n.paywallGetFullAccess)
+                    .font(paywallFont(size: 22, weight: .semibold))
+                    .foregroundStyle(Color(hex: "ECD5C2"))
+                    .accessibilityAddTraits(.isHeader)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 28)], alignment: .leading, spacing: 24) {
+                    ForEach(paywallBenefits) { benefit in
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(benefit.iconAssetName)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 36, height: 36)
+                                .accessibilityHidden(true)
+                            adaptiveBenefitRow(benefit)
+                        }
+                    }
+                }
+                Text(legalFooterAttributedText)
+                    .font(paywallFont(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: "AFA7A0"))
+                    .tint(Color(hex: "D3A375"))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: 1000)
+            .padding(.leading, 24)
+            .padding(.trailing, 24)
+            .padding(.top, geo.safeAreaInsets.top + 20)
+            .padding(.bottom, 24)
+            .frame(maxWidth: .infinity)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            subscribeButton
+                .frame(maxWidth: 560)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
+                .background(Color(hex: "1D1002").opacity(0.96))
         }
     }
 
@@ -657,45 +791,49 @@ struct PremiumPaywallView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func fixedClassicPaywallContent(in geo: GeometryProxy) -> some View {
+    private func fixedClassicPaywallContent(in geo: GeometryProxy, includesBenefits: Bool = true) -> some View {
         let scale = classicPaywallScale(for: geo.size)
         let contentWidth = designWidth * scale
+        let contentHeight = includesBenefits ? classicPaywallContentHeight : classicPlanCardsTop + classicPinnedHeaderBodyHeight
         let pinnedTopInset = min(classicPlanCardsTop, (geo.safeAreaInsets.top + 60) / scale)
 
         return ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                heroSection
+                heroSection(topSafeAreaInset: geo.safeAreaInsets.top / scale)
                     // The pinned header paints its inset too; reserve the entire hero
                     // so that background cannot cover the last subtitle lines.
                     .frame(width: designWidth, height: classicPlanCardsTop - (isBlindBoxHero ? blindBoxPlanCardsLift : pinnedTopInset), alignment: .topLeading)
 
                 Section {
-                    ZStack(alignment: .topLeading) {
-                        benefitsSection
-                            .offset(x: 0, y: -classicPaywallBodyTop)
-                        legalFooter
-                            .offset(x: 0, y: -classicPaywallBodyTop)
+                    if includesBenefits {
+                        ZStack(alignment: .topLeading) {
+                            benefitsSection
+                                .offset(x: 0, y: -classicPaywallBodyTop)
+                            legalFooter
+                                .offset(x: 0, y: -classicPaywallBodyTop)
+                        }
+                        .frame(width: designWidth, height: classicPaywallBodyHeight, alignment: .topLeading)
                     }
-                    .frame(width: designWidth, height: classicPaywallBodyHeight, alignment: .topLeading)
                 } header: {
                     pinnedPlanCardsHeader(topInset: pinnedTopInset)
                 }
             }
-            .frame(width: designWidth, height: classicPaywallContentHeight + (isBlindBoxHero ? pinnedTopInset - blindBoxPlanCardsLift : 0), alignment: .topLeading)
+            .frame(width: designWidth, height: contentHeight + (isBlindBoxHero ? pinnedTopInset - blindBoxPlanCardsLift : 0), alignment: .topLeading)
             .background(alignment: .top) {
                 classicPaywallScrollBackground
             }
             .scaleEffect(scale, anchor: .top)
-            .frame(width: contentWidth, height: (classicPaywallContentHeight + (isBlindBoxHero ? pinnedTopInset - blindBoxPlanCardsLift : 0)) * scale, alignment: .top)
+            .frame(width: contentWidth, height: (contentHeight + (isBlindBoxHero ? pinnedTopInset - blindBoxPlanCardsLift : 0)) * scale, alignment: .top)
             .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.bottom, 20)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            floatingSubscribeButton(scale: scale, bottomInset: 0)
         }
         .frame(width: geo.size.width, height: geo.size.height)
+        .clipped()
         .onChange(of: pinnedTopInset, initial: true) { _, inset in
             heroPinnedTopInset = inset
-        }
-        .ignoresSafeArea()
-        .overlay(alignment: .bottom) {
-            floatingSubscribeButton(scale: scale, bottomInset: geo.safeAreaInsets.bottom)
         }
     }
 
@@ -1191,13 +1329,15 @@ struct PremiumPaywallView: View {
         .allowsHitTesting(false)
     }
 
-    private var heroSection: some View {
-        ZStack(alignment: .topLeading) {
+    private func heroSection(topSafeAreaInset: CGFloat) -> some View {
+        let controlsTop = max(50, topSafeAreaInset + 12)
+
+        return ZStack(alignment: .topLeading) {
             backButton
-                .offset(x: 20, y: 50)
+                .offset(x: 20, y: controlsTop)
 
             restoreSubscriptionButton()
-                .offset(x: 319, y: 50)
+                .offset(x: 319, y: controlsTop)
 
             VStack(alignment: .leading, spacing: 12) {
                 Text(classicHeroTitle)
@@ -1205,27 +1345,24 @@ struct PremiumPaywallView: View {
                     .foregroundStyle(.white)
                     .accessibilityAddTraits(.isHeader)
                     .lineSpacing(2)
-                    .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                    .minimumScaleFactor(0.82)
 
                 Text(classicHeroSubtitle)
                     .font(paywallFont(size: 16, weight: .semibold))
                     .foregroundStyle(Color(hex: "C8BBB3"))
                     .lineSpacing(2)
-                    .lineLimit(isBlindBoxHero || isPremiumAppIconHero ? nil : 2)
                     .multilineTextAlignment(.leading)
-                    .frame(width: 190, alignment: .topLeading)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(minHeight: 42, alignment: .topLeading)
-                    .minimumScaleFactor(0.9)
             }
-            .frame(width: 260, alignment: .topLeading)
+            // Keep both texts clear of the king's scepter and surrounding stars,
+            // which extend farther left than the character's body.
+            .frame(width: 170, alignment: .topLeading)
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.height
             } action: { height in
-                if isBlindBoxHero || isPremiumAppIconHero { measuredHeroHeight = height }
+                measuredHeroHeight = height
             }
             .offset(x: 23, y: 188)
         }
@@ -1537,16 +1674,9 @@ struct PremiumPaywallView: View {
 
     private func floatingSubscribeButton(scale: CGFloat, bottomInset: CGFloat) -> some View {
         VStack(spacing: 0) {
-            LinearGradient(
-                colors: [
-                    Color(hex: "1D1002").opacity(0),
-                    Color(hex: "1D1002").opacity(0.95)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 42 * scale)
-            .allowsHitTesting(false)
+            Color.clear
+                .frame(height: 42 * scale)
+                .allowsHitTesting(false)
 
             subscribeButton
                 .scaleEffect(scale, anchor: .bottom)
@@ -1556,10 +1686,17 @@ struct PremiumPaywallView: View {
                 .padding(.bottom, max(32, bottomInset + 16))
         }
         .frame(maxWidth: .infinity)
-        .background(alignment: .bottom) {
-            Color(hex: "1D1002")
-                .opacity(0.92)
-                .frame(height: (92 * scale) + max(32, bottomInset + 16))
+        .background {
+            LinearGradient(
+                stops: [
+                    .init(color: Color(hex: "1D1002").opacity(0), location: 0),
+                    .init(color: Color(hex: "1D1002").opacity(0.95), location: 0.4),
+                    .init(color: Color(hex: "1D1002"), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+                .ignoresSafeArea(.container, edges: .bottom)
                 .allowsHitTesting(false)
         }
     }

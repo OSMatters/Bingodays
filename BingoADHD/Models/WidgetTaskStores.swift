@@ -49,6 +49,15 @@ enum WidgetTaskSyncStore {
     private static let eventFileName = "widget_task_sync_event_v1.json"
 
     struct Event: Codable, Equatable {
+        struct SideEffects: Codable, Equatable {
+            let accountScope: String?
+            let previousPoints: PointsPersistenceSnapshot
+            let points: PointsPersistenceSnapshot
+            let previousDiary: [String: BingoDiaryEntry]
+            let diary: [String: BingoDiaryEntry]
+            let previousHistory: [TaskCompletionHistoryRecord]
+            let history: [TaskCompletionHistoryRecord]
+        }
         struct CellMutation: Codable, Equatable {
             let cellID: UUID
             let previousCell: BingoCell
@@ -81,6 +90,7 @@ enum WidgetTaskSyncStore {
         /// app process to persist the matching board snapshot. This prevents the
         /// recovery path from charging the same task a second time.
         let sideEffectsCommitted: Bool
+        let sideEffects: SideEffects?
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -90,6 +100,7 @@ enum WidgetTaskSyncStore {
             case didApplyBoardReset
             case cellMutation
             case sideEffectsCommitted
+            case sideEffects
         }
 
         init(
@@ -99,7 +110,8 @@ enum WidgetTaskSyncStore {
             savedAt: Date,
             didApplyBoardReset: Bool,
             cellMutation: CellMutation? = nil,
-            sideEffectsCommitted: Bool = false
+            sideEffectsCommitted: Bool = false,
+            sideEffects: SideEffects? = nil
         ) {
             self.id = id
             self.boardID = boardID
@@ -108,6 +120,7 @@ enum WidgetTaskSyncStore {
             self.didApplyBoardReset = didApplyBoardReset
             self.cellMutation = cellMutation
             self.sideEffectsCommitted = sideEffectsCommitted
+            self.sideEffects = sideEffects
         }
 
         init(from decoder: Decoder) throws {
@@ -129,6 +142,7 @@ enum WidgetTaskSyncStore {
             // upgrade, treating such an interrupted event as uncommitted would
             // replay its reward. Prefer a missed recovery for that historical
             // edge case over silently minting points a second time.
+            sideEffects = try container.decodeIfPresent(SideEffects.self, forKey: .sideEffects)
             sideEffectsCommitted = try container.decodeIfPresent(
                 Bool.self,
                 forKey: .sideEffectsCommitted
@@ -183,26 +197,30 @@ enum WidgetTaskSyncStore {
     static func save(
         board: BingoBoardStore.NamedBoard,
         didApplyBoardReset: Bool,
-        cellMutation: Event.CellMutation? = nil
+        cellMutation: Event.CellMutation? = nil,
+        sideEffects: Event.SideEffects? = nil
     ) -> Bool {
         saveEvent(
             board: board,
             didApplyBoardReset: didApplyBoardReset,
-            cellMutation: cellMutation
+            cellMutation: cellMutation,
+            sideEffects: sideEffects
         ) != nil
     }
 
     static func saveEvent(
         board: BingoBoardStore.NamedBoard,
         didApplyBoardReset: Bool,
-        cellMutation: Event.CellMutation? = nil
+        cellMutation: Event.CellMutation? = nil,
+        sideEffects: Event.SideEffects? = nil
     ) -> Event? {
         let event = Event(
             boardID: board.id,
             board: board,
             savedAt: board.updatedAt,
             didApplyBoardReset: didApplyBoardReset,
-            cellMutation: cellMutation
+            cellMutation: cellMutation,
+            sideEffects: sideEffects
         )
         return save(event) ? event : nil
     }
@@ -219,7 +237,8 @@ enum WidgetTaskSyncStore {
             savedAt: event.savedAt,
             didApplyBoardReset: event.didApplyBoardReset,
             cellMutation: event.cellMutation,
-            sideEffectsCommitted: true
+            sideEffectsCommitted: true,
+            sideEffects: event.sideEffects
         )
         return save(committedEvent) ? committedEvent : nil
     }
@@ -321,6 +340,9 @@ enum WidgetTaskEventMerge {
     ) -> BingoBoardStore.NamedBoardsSnapshot {
         guard let event else { return snapshot }
 
+        if let effects = event.sideEffects,
+           effects.accountScope != NativeICloudPreferences.accountScopeIdentifier { return snapshot }
+
         var mergedSnapshot = snapshot
         guard let boardIndex = mergedSnapshot.boards.firstIndex(
             where: { $0.id == event.boardID }
@@ -420,6 +442,13 @@ enum WidgetTaskEventMerge {
     ) -> Bool {
         var didChange = false
         let eventResetAt = event.board.lastTaskResetAppliedAt ?? event.savedAt
+        if let currentReset = currentBoard.lastTaskResetAppliedAt,
+           let currentBoundary = BoardResetRuleEngine.latestScheduledResetTime(atOrBefore: currentReset, for: currentBoard),
+           let eventBoundary = BoardResetRuleEngine.latestScheduledResetTime(atOrBefore: eventResetAt, for: currentBoard),
+           currentBoundary > eventBoundary {
+            // An old recovery event cannot resurrect a previous cycle's toggle.
+            return false
+        }
         let shouldApplyReset = currentBoard.lastTaskResetAppliedAt.map {
             $0 < eventResetAt
         } ?? true
@@ -427,7 +456,10 @@ enum WidgetTaskEventMerge {
             currentBoard.board = BoardResetRuleEngine.transformedBoardSnapshotForResetMode(
                 currentBoard.board,
                 mode: currentBoard.taskResetMode,
-                referenceDate: event.savedAt
+                referenceDate: event.savedAt,
+                preservingCompletionsSince: BoardResetRuleEngine.latestScheduledResetTime(
+                    atOrBefore: eventResetAt, for: currentBoard
+                )
             )
             currentBoard.countdownEndsAt = nil
             currentBoard.lastTaskResetAppliedAt = eventResetAt
@@ -452,7 +484,8 @@ enum WidgetTaskEventMerge {
         let cell = cells[position.row][position.col]
         return hasSameTaskDefinition(cell, mutation.updatedCell) &&
             cell.isCompleted == mutation.updatedCell.isCompleted &&
-            cell.lastCompletedAt == mutation.updatedCell.lastCompletedAt
+            cell.lastCompletedAt == mutation.updatedCell.lastCompletedAt &&
+            cell.taskRewardReceipt == mutation.updatedCell.taskRewardReceipt
     }
 
     private static func hasSameTaskDefinition(
@@ -470,7 +503,8 @@ enum WidgetTaskEventMerge {
             lhs.startReminderEnabled == rhs.startReminderEnabled &&
             lhs.startReminderOffsetMinutes == rhs.startReminderOffsetMinutes &&
             lhs.startVisibleMonth == rhs.startVisibleMonth &&
-            lhs.startVisibleDay == rhs.startVisibleDay
+            lhs.startVisibleDay == rhs.startVisibleDay &&
+            lhs.customCompletionPoints == rhs.customCompletionPoints
     }
 
     static func resolvedPosition(
@@ -514,6 +548,7 @@ enum WidgetTaskEventMerge {
         var result = destination
         result.isTaskHidden = source.isTaskHidden
         result.isCompleted = source.isCompleted
+        result.taskRewardReceipt = source.taskRewardReceipt
         result.isForced = source.isForced
         result.countdownEndsAt = source.countdownEndsAt
         result.countdownPausedRemainingSeconds = source.countdownPausedRemainingSeconds

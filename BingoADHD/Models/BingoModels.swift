@@ -204,6 +204,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
     var countdownEndsAt: Date?
     var countdownPausedRemainingSeconds: Int?
     var estimatedDurationMinutes: Int?
+    var customCompletionPoints: Int?
+    var taskRewardReceipt: TaskRewardReceipt?
     var completionStreakCount: Int
     var lastCompletedAt: Date?
     var lastVisibilityWindowTimeoutAt: Date?
@@ -228,6 +230,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
         case countdownEndsAt
         case countdownPausedRemainingSeconds
         case estimatedDurationMinutes
+        case customCompletionPoints
+        case taskRewardReceipt
         case completionStreakCount
         case lastCompletedAt
         case lastVisibilityWindowTimeoutAt
@@ -254,6 +258,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
         countdownEndsAt: Date? = nil,
         countdownPausedRemainingSeconds: Int? = nil,
         estimatedDurationMinutes: Int? = nil,
+        customCompletionPoints: Int? = nil,
+        taskRewardReceipt: TaskRewardReceipt? = nil,
         completionStreakCount: Int = 0,
         lastCompletedAt: Date? = nil,
         lastVisibilityWindowTimeoutAt: Date? = nil
@@ -278,6 +284,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
         self.countdownEndsAt = countdownEndsAt
         self.countdownPausedRemainingSeconds = countdownPausedRemainingSeconds
         self.estimatedDurationMinutes = estimatedDurationMinutes
+        self.customCompletionPoints = TaskCompletionRewardRules.normalizedConfiguration(customCompletionPoints)
+        self.taskRewardReceipt = taskRewardReceipt
         self.completionStreakCount = max(completionStreakCount, 0)
         self.lastCompletedAt = lastCompletedAt
         self.lastVisibilityWindowTimeoutAt = lastVisibilityWindowTimeoutAt
@@ -307,6 +315,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
         countdownEndsAt = try container.decodeIfPresent(Date.self, forKey: .countdownEndsAt)
         countdownPausedRemainingSeconds = try container.decodeIfPresent(Int.self, forKey: .countdownPausedRemainingSeconds)
         estimatedDurationMinutes = try container.decodeIfPresent(Int.self, forKey: .estimatedDurationMinutes)
+        customCompletionPoints = TaskCompletionRewardRules.normalizedConfiguration(try container.decodeIfPresent(Int.self, forKey: .customCompletionPoints))
+        taskRewardReceipt = try container.decodeIfPresent(TaskRewardReceipt.self, forKey: .taskRewardReceipt)
         completionStreakCount = try container.decodeIfPresent(Int.self, forKey: .completionStreakCount) ?? 0
         lastCompletedAt = try container.decodeIfPresent(Date.self, forKey: .lastCompletedAt)
         lastVisibilityWindowTimeoutAt = try container.decodeIfPresent(Date.self, forKey: .lastVisibilityWindowTimeoutAt)
@@ -333,6 +343,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(countdownEndsAt, forKey: .countdownEndsAt)
         try container.encodeIfPresent(countdownPausedRemainingSeconds, forKey: .countdownPausedRemainingSeconds)
         try container.encodeIfPresent(estimatedDurationMinutes, forKey: .estimatedDurationMinutes)
+        try container.encodeIfPresent(customCompletionPoints, forKey: .customCompletionPoints)
+        try container.encodeIfPresent(taskRewardReceipt, forKey: .taskRewardReceipt)
         try container.encode(completionStreakCount, forKey: .completionStreakCount)
         try container.encodeIfPresent(lastCompletedAt, forKey: .lastCompletedAt)
         try container.encodeIfPresent(lastVisibilityWindowTimeoutAt, forKey: .lastVisibilityWindowTimeoutAt)
@@ -818,6 +830,7 @@ struct MyTaskItem: Identifiable, Codable, Equatable {
     /// The task-library definition only. Runtime completion and countdown state
     /// remain owned by the board cell that is created from this task.
     var recurrenceRule: TaskRecurrenceRule?
+    var customCompletionPoints: Int?
 
     init(
         id: UUID = UUID(),
@@ -826,7 +839,8 @@ struct MyTaskItem: Identifiable, Codable, Equatable {
         endAt: Date? = nil,
         startMonth: Int? = nil,
         startDay: Int? = nil,
-        recurrenceRule: TaskRecurrenceRule? = nil
+        recurrenceRule: TaskRecurrenceRule? = nil,
+        customCompletionPoints: Int? = nil
     ) {
         self.id = id
         self.text = text
@@ -835,6 +849,7 @@ struct MyTaskItem: Identifiable, Codable, Equatable {
         self.startMonth = startMonth
         self.startDay = startDay
         self.recurrenceRule = recurrenceRule
+        self.customCompletionPoints = TaskCompletionRewardRules.normalizedConfiguration(customCompletionPoints)
         normalizeVisibilityWindow()
     }
 
@@ -848,6 +863,7 @@ struct MyTaskItem: Identifiable, Codable, Equatable {
             startMonth = nil
             startDay = nil
             recurrenceRule = nil
+            customCompletionPoints = nil
             return
         }
 
@@ -859,6 +875,7 @@ struct MyTaskItem: Identifiable, Codable, Equatable {
         startMonth = try container.decodeIfPresent(Int.self, forKey: .startMonth)
         startDay = try container.decodeIfPresent(Int.self, forKey: .startDay)
         recurrenceRule = try container.decodeIfPresent(TaskRecurrenceRule.self, forKey: .recurrenceRule)
+        customCompletionPoints = try container.decodeIfPresent(Int.self, forKey: .customCompletionPoints)
         normalizeVisibilityWindow()
     }
 
@@ -867,6 +884,7 @@ struct MyTaskItem: Identifiable, Codable, Equatable {
     }
 
     mutating func normalizeVisibilityWindow() {
+        customCompletionPoints = TaskCompletionRewardRules.normalizedConfiguration(customCompletionPoints)
         if let startAt {
             let components = Calendar.current.dateComponents([.month, .day], from: startAt)
             startMonth = components.month
@@ -892,6 +910,12 @@ struct MyTaskItem: Identifiable, Codable, Equatable {
 
     var trimmedText: String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func hasSameDefinition(as other: MyTaskItem) -> Bool {
+        trimmedText == other.trimmedText && startAt == other.startAt && endAt == other.endAt &&
+            startMonth == other.startMonth && startDay == other.startDay &&
+            recurrenceRule == other.recurrenceRule && customCompletionPoints == other.customCompletionPoints
     }
 
     var hasStartDate: Bool {
@@ -955,6 +979,7 @@ struct TaskHistoryRecord: Identifiable, Codable, Equatable {
     var startMonth: Int?
     var startDay: Int?
     var recurrenceRule: TaskRecurrenceRule?
+    var customCompletionPoints: Int?
     var sourceTaskID: UUID?
     var lastEditedAt: Date
 
@@ -968,6 +993,7 @@ struct TaskHistoryRecord: Identifiable, Codable, Equatable {
         startMonth: Int? = nil,
         startDay: Int? = nil,
         recurrenceRule: TaskRecurrenceRule? = nil,
+        customCompletionPoints: Int? = nil,
         sourceTaskID: UUID? = nil,
         lastEditedAt: Date = .now
     ) {
@@ -978,6 +1004,7 @@ struct TaskHistoryRecord: Identifiable, Codable, Equatable {
         self.startMonth = startMonth
         self.startDay = startDay
         self.recurrenceRule = recurrenceRule
+        self.customCompletionPoints = TaskCompletionRewardRules.normalizedConfiguration(customCompletionPoints)
         self.sourceTaskID = sourceTaskID
         self.lastEditedAt = lastEditedAt
         normalizeVisibilityWindow()
@@ -992,6 +1019,7 @@ struct TaskHistoryRecord: Identifiable, Codable, Equatable {
     }
 
     mutating func normalizeVisibilityWindow() {
+        customCompletionPoints = TaskCompletionRewardRules.normalizedConfiguration(customCompletionPoints)
         if let startAt {
             let components = Calendar.current.dateComponents([.month, .day], from: startAt)
             startMonth = components.month

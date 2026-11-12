@@ -709,6 +709,9 @@ final class BoardManagementStore: ObservableObject {
             return snapshot
         }
 
+        if let effects = event.sideEffects,
+           effects.accountScope != NativeICloudPreferences.accountScopeIdentifier { return snapshot }
+
         let updatedSnapshot = WidgetTaskEventMerge.applying(event, to: snapshot, recoverBoard: repository.taskRuleRecoveryBoard)
         let savedNamedBoards: Bool
         if updatedSnapshot == snapshot {

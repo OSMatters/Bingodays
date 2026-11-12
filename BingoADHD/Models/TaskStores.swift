@@ -5,17 +5,27 @@ enum CommonTasksStore {
         loadLibrary().tasks.map(\.trimmedText)
     }
 
-    static func loadLibrary() -> MyTasksLibrary {
+    static func loadLibrary(recoverPendingEdits: Bool = true) -> MyTasksLibrary {
+        if recoverPendingEdits {
+            _ = BingoBoardStore.withBoardPersistenceLock {
+                TaskLibraryEditTransaction.recover(repository: LiveTaskLibraryRepository(),
+                    currentBoard: BingoBoardStore.loadBoard(), boardID: BingoBoardStore.loadNamedBoardsSnapshot().selectedBoardID)
+            }
+        }
         let defaults = UserDefaults.standard
 
         if let data = defaults.data(forKey: AppSettings.commonTasksKey),
            let saved = try? JSONDecoder().decode(MyTasksLibrary.self, from: data) {
-            return migrateGroupTasksToDaily(sanitize(saved))
+            let repaired = sanitize(saved)
+            if repaired != saved { _ = saveLibrary(repaired) }
+            return migrateGroupTasksToDaily(repaired)
         }
 
         if let saved = defaults.array(forKey: AppSettings.commonTasksKey) as? [String] {
             let legacyTasks = saved.map { MyTaskItem(text: $0) }
-            return MyTasksLibrary(tasks: sanitizeTasks(legacyTasks), groups: [])
+            let migrated = MyTasksLibrary(tasks: sanitizeTasks(legacyTasks), groups: [])
+            _ = saveLibrary(migrated)
+            return migrated
         }
         return MyTasksLibrary()
     }
@@ -79,11 +89,63 @@ enum CommonTasksStore {
         return didSave
     }
 
+    /// Only update an unambiguous template; same-title tasks are independent definitions.
+    static func libraryByUpdatingCompletionPoints(
+        _ library: MyTasksLibrary, from previous: MyTaskItem, to updated: MyTaskItem
+    ) -> MyTasksLibrary {
+        guard previous.customCompletionPoints != updated.customCompletionPoints || updated.customCompletionPoints != nil else { return library }
+        let tasks = library.tasks + library.groups.flatMap(\.tasks)
+        let identityMatches = tasks.filter { $0.id == previous.id }
+        let definitionMatches = tasks.filter { $0.hasSameDefinition(as: previous) }
+        let legacyMatches = tasks.filter { task in
+            guard task.customCompletionPoints == nil else { return false }
+            var migrated = task
+            migrated.customCompletionPoints = previous.customCompletionPoints
+            return migrated.hasSameDefinition(as: previous)
+        }
+        let matches = !identityMatches.isEmpty ? identityMatches :
+            (!definitionMatches.isEmpty ? definitionMatches : legacyMatches)
+        guard matches.count == 1, let id = matches.first?.id else { return library }
+        var result = library
+        for index in result.tasks.indices where result.tasks[index].id == id {
+            result.tasks[index].customCompletionPoints = updated.customCompletionPoints
+        }
+        for group in result.groups.indices {
+            for index in result.groups[group].tasks.indices where result.groups[group].tasks[index].id == id {
+                result.groups[group].tasks[index].customCompletionPoints = updated.customCompletionPoints
+            }
+        }
+        return result
+    }
+
+    @discardableResult
+    static func updateCompletionPoints(from previous: MyTaskItem, to updated: MyTaskItem) -> Bool {
+        guard previous.customCompletionPoints != updated.customCompletionPoints || updated.customCompletionPoints != nil else { return true }
+        let library = loadLibrary()
+        let updatedLibrary = libraryByUpdatingCompletionPoints(library, from: previous, to: updated)
+        return updatedLibrary == library || saveLibrary(updatedLibrary)
+    }
+
     private static func sanitize(_ library: MyTasksLibrary) -> MyTasksLibrary {
-        MyTasksLibrary(
-            tasks: sanitizeTasks(library.tasks),
-            groups: sanitizeGroups(library.groups)
-        )
+        var result = MyTasksLibrary(tasks: sanitizeTasks(library.tasks), groups: sanitizeGroups(library.groups))
+        var taskIDs = Set<UUID>()
+        func uniqueTask(_ task: MyTaskItem) -> MyTaskItem {
+            guard !taskIDs.insert(task.id).inserted else { return task }
+            var id = UUID()
+            while !taskIDs.insert(id).inserted { id = UUID() }
+            return MyTaskItem(id: id, text: task.text, startAt: task.startAt, endAt: task.endAt,
+                startMonth: task.startMonth, startDay: task.startDay, recurrenceRule: task.recurrenceRule,
+                customCompletionPoints: task.customCompletionPoints)
+        }
+        result.tasks = result.tasks.map(uniqueTask)
+        var groupIDs = Set<UUID>()
+        for index in result.groups.indices {
+            let group = result.groups[index]
+            var id = group.id
+            while !groupIDs.insert(id).inserted { id = UUID() }
+            result.groups[index] = MyTaskGroup(id: id, name: group.name, tasks: group.tasks.map(uniqueTask))
+        }
+        return result
     }
 
     private static func sanitizeTasks(_ tasks: [MyTaskItem]) -> [MyTaskItem] {
@@ -253,6 +315,7 @@ enum TaskHistoryStore {
             records[index].startMonth = sanitizedTask.startMonth
             records[index].startDay = sanitizedTask.startDay
             records[index].recurrenceRule = sanitizedTask.recurrenceRule
+            records[index].customCompletionPoints = sanitizedTask.customCompletionPoints
             records[index].sourceTaskID = sourceTaskID
             records[index].lastEditedAt = date
             records[index].normalizeVisibilityWindow()
@@ -266,6 +329,7 @@ enum TaskHistoryStore {
                     startMonth: sanitizedTask.startMonth,
                     startDay: sanitizedTask.startDay,
                     recurrenceRule: sanitizedTask.recurrenceRule,
+                    customCompletionPoints: sanitizedTask.customCompletionPoints,
                     sourceTaskID: sourceTaskID,
                     lastEditedAt: date
                 )
@@ -285,7 +349,8 @@ enum TaskHistoryStore {
                 endAt: cell.endVisibleAt,
                 startMonth: cell.startVisibleMonth,
                 startDay: cell.startVisibleDay,
-                recurrenceRule: cell.effectiveRecurrenceRule
+                recurrenceRule: cell.effectiveRecurrenceRule,
+                customCompletionPoints: cell.customCompletionPoints
             )
         }
     }
@@ -322,6 +387,7 @@ enum TaskHistoryStore {
                     startMonth: sanitizedTask.startMonth,
                     startDay: sanitizedTask.startDay,
                     recurrenceRule: sanitizedTask.recurrenceRule,
+                    customCompletionPoints: sanitizedTask.customCompletionPoints,
                     sourceTaskID: task.id,
                     lastEditedAt: date
                 )
@@ -347,6 +413,7 @@ enum TaskHistoryStore {
                         startMonth: sanitizedTask.startMonth,
                         startDay: sanitizedTask.startDay,
                         recurrenceRule: sanitizedTask.recurrenceRule,
+                        customCompletionPoints: sanitizedTask.customCompletionPoints,
                         sourceTaskID: task.id,
                         lastEditedAt: date
                     )
@@ -746,7 +813,9 @@ enum TaskCompletionHistoryStore {
             .filter { cell in
                 if case .remove = TaskLifecycleRuleEngine.dailySettlementAction(
                     for: cell,
-                    mode: board.taskResetMode
+                    mode: board.taskResetMode,
+                    preservingCompletionsSince: BoardResetRuleEngine.boardUsesCustomResetTime(board)
+                        ? BoardResetRuleEngine.latestScheduledResetTime(atOrBefore: date, for: board) : nil
                 ) {
                     return true
                 }
@@ -757,5 +826,115 @@ enum TaskCompletionHistoryStore {
 
     static func mergedWithLocal(_ remoteRecords: [TaskCompletionHistoryRecord]) -> [TaskCompletionHistoryRecord] {
         TaskCompletionHistoryRuleEngine.normalizedRecords(load() + remoteRecords)
+    }
+}
+
+struct TaskLibraryEditJournal: Codable, Equatable {
+    let accountScope: String?
+    let boardID: UUID?
+    let previousBoard: SavedBoard?
+    let board: SavedBoard
+    let previousLibrary: MyTasksLibrary
+    let library: MyTasksLibrary
+    let savedAt: Date
+}
+
+protocol TaskLibraryRepository {
+    func loadLibrary() -> MyTasksLibrary
+    func saveLibrary(_ library: MyTasksLibrary) -> Bool
+    func loadPendingEdit() -> TaskLibraryEditJournal?
+    func hasPendingEdit() -> Bool
+    func savePendingEdit(_ edit: TaskLibraryEditJournal) -> Bool
+    func clearPendingEdit() -> Bool
+}
+
+extension TaskLibraryRepository {
+    func hasPendingEdit() -> Bool { loadPendingEdit() != nil }
+}
+
+struct LiveTaskLibraryRepository: TaskLibraryRepository {
+    private let key = "task_library_edit_journal_v1"
+    func loadLibrary() -> MyTasksLibrary { CommonTasksStore.loadLibrary(recoverPendingEdits: false) }
+    func saveLibrary(_ library: MyTasksLibrary) -> Bool { CommonTasksStore.saveLibrary(library) }
+    func loadPendingEdit() -> TaskLibraryEditJournal? {
+        UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(TaskLibraryEditJournal.self, from: $0) }
+    }
+    func hasPendingEdit() -> Bool { UserDefaults.standard.object(forKey: key) != nil }
+    func savePendingEdit(_ edit: TaskLibraryEditJournal) -> Bool {
+        guard let data = try? JSONEncoder().encode(edit) else { return false }
+        UserDefaults.standard.set(data, forKey: key)
+        return UserDefaults.standard.data(forKey: key) == data && loadPendingEdit() != nil
+    }
+    func clearPendingEdit() -> Bool {
+        UserDefaults.standard.removeObject(forKey: key)
+        return UserDefaults.standard.object(forKey: key) == nil
+    }
+}
+
+/// A configuration-only journal. No points or rewards are recomputed during recovery.
+enum TaskLibraryEditTransaction {
+    private static func sameBoard(_ lhs: SavedBoard?, _ rhs: SavedBoard?, at date: Date) -> Bool {
+        func canonical(_ board: SavedBoard?) -> SavedBoard? {
+            guard let board,
+                  let data = try? JSONEncoder().encode(BingoBoardStore.normalizedBoardForPersistence(board, referenceDate: date)) else { return nil }
+            return try? JSONDecoder().decode(SavedBoard.self, from: data)
+        }
+        return canonical(lhs) == canonical(rhs)
+    }
+
+    static func recover(repository: any TaskLibraryRepository, currentBoard: SavedBoard?, boardID: UUID?) -> Bool {
+        guard let edit = repository.loadPendingEdit() else { return !repository.hasPendingEdit() }
+        guard edit.accountScope == NativeICloudPreferences.accountScopeIdentifier,
+              edit.boardID == boardID else { return false }
+        let library = repository.loadLibrary()
+        guard library == edit.previousLibrary || library == edit.library else { return false }
+        let target: MyTasksLibrary
+        if sameBoard(currentBoard, edit.board, at: edit.savedAt) {
+            target = edit.library
+        } else if sameBoard(currentBoard, edit.previousBoard, at: edit.savedAt) {
+            target = edit.previousLibrary
+        } else { return false }
+        guard library == target || NativeICloudLocalChangeReporter.withReportingSuppressed({ repository.saveLibrary(target) }),
+              repository.loadLibrary() == target, repository.clearPendingEdit() else { return false }
+        if target == edit.library { NativeICloudLocalChangeReporter.secondaryStateDidChange() }
+        return true
+    }
+
+    static func commit(
+        board: SavedBoard, expected: SavedBoard?, boardID: UUID?, savedAt: Date,
+        repository: any TaskLibraryRepository,
+        loadBoard: () -> SavedBoard?, loadBoardID: () -> UUID?, saveBoard: () -> Bool
+    ) -> Bool {
+        guard recover(repository: repository, currentBoard: loadBoard(), boardID: loadBoardID()),
+              sameBoard(loadBoard(), expected, at: savedAt), loadBoardID() == boardID else { return false }
+        let previousLibrary = repository.loadLibrary()
+        var library = previousLibrary
+        let previousCells = expected.map { BoardEngine.expandedBoardCache(from: $0).flatMap { $0 } } ?? []
+        for cell in BoardEngine.expandedBoardCache(from: board).flatMap({ $0 }) where cell.hasStoredTask {
+            guard let previous = previousCells.first(where: { $0.id == cell.id }),
+                  previous.hasStoredTask else { continue }
+            func task(_ value: BingoCell) -> MyTaskItem {
+                MyTaskItem(id: value.id, text: value.storedTaskText, startAt: value.startVisibleAt,
+                    endAt: value.endVisibleAt, startMonth: value.startVisibleMonth, startDay: value.startVisibleDay,
+                    recurrenceRule: value.effectiveRecurrenceRule, customCompletionPoints: value.customCompletionPoints)
+            }
+            library = CommonTasksStore.libraryByUpdatingCompletionPoints(library, from: task(previous), to: task(cell))
+        }
+        guard library != previousLibrary else { return saveBoard() }
+        let edit = TaskLibraryEditJournal(accountScope: NativeICloudPreferences.accountScopeIdentifier,
+            boardID: boardID, previousBoard: expected, board: board,
+            previousLibrary: previousLibrary, library: library, savedAt: savedAt)
+        guard repository.savePendingEdit(edit) else { return false }
+        // Fail before publishing the board. A retained journal repairs an interrupted rollback.
+        guard NativeICloudLocalChangeReporter.withReportingSuppressed({ repository.saveLibrary(library) }),
+              repository.loadLibrary() == library else {
+            _ = recover(repository: repository, currentBoard: loadBoard(), boardID: loadBoardID())
+            return false
+        }
+        guard saveBoard() else {
+            _ = recover(repository: repository, currentBoard: loadBoard(), boardID: loadBoardID())
+            return false
+        }
+        return recover(repository: repository, currentBoard: loadBoard(), boardID: loadBoardID())
     }
 }

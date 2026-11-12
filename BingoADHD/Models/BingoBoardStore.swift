@@ -1450,6 +1450,8 @@ enum BingoBoardStore {
             countdownEndsAt: cell.countdownEndsAt,
             countdownPausedRemainingSeconds: cell.countdownPausedRemainingSeconds,
             estimatedDurationMinutes: cell.estimatedDurationMinutes,
+            customCompletionPoints: cell.customCompletionPoints,
+            taskRewardReceipt: cell.taskRewardReceipt,
             completionStreakCount: cell.completionStreakCount,
             lastCompletedAt: cell.lastCompletedAt,
             lastVisibilityWindowTimeoutAt: cell.lastVisibilityWindowTimeoutAt

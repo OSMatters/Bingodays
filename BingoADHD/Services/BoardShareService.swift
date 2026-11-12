@@ -57,6 +57,7 @@ struct BoardSharePayload: Codable, Equatable, Sendable {
         expiresAt: Date? = nil
     ) throws {
         let size = board.board.gridSize
+        guard (Self.minimumGridSize...Self.maximumGridSize).contains(size) else { throw BoardShareError.invalidPayload }
         let visibleCells = board.board.cells
         let templateCells = (0..<size).flatMap { row in
             (0..<size).map { column in
@@ -159,7 +160,11 @@ enum BoardShareCode {
     }
 
     static func normalized(_ rawValue: String) -> String {
-        rawValue.filter(\.isNumber)
+        rawValue.compactMap { character -> String? in
+            guard character.unicodeScalars.allSatisfy({ CharacterSet.decimalDigits.contains($0) }),
+                  let digit = character.wholeNumberValue, (0...9).contains(digit) else { return nil }
+            return String(digit)
+        }.joined()
     }
 
     static func isValid(_ rawValue: String) -> Bool {

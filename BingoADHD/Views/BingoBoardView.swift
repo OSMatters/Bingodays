@@ -84,9 +84,11 @@ struct BingoBoardView: View {
         let cell: BingoCell
     }
 
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @ObservedObject var viewModel: BingoViewModel
     let currentTime: Date
     let shouldShowCenterLongPressHint: Bool
+    var onPrepareTaskCompletion: ((Date) -> Bool)? = nil
     var onCellCompletionToggled: (() -> Void)? = nil
     var onTaskPresentationChange: ((Bool) -> Void)? = nil
     var onCellReorderActiveChanged: ((Bool) -> Void)? = nil
@@ -192,16 +194,13 @@ struct BingoBoardView: View {
                                             : nil,
                                         onTap: {
                                             dismissActionMenu()
-                                            if let currentCell = currentVisibleCell(for: target),
-                                                !currentCell.isEmpty &&
-                                                !viewModel.isLocked(row: row, col: col) &&
-                                                viewModel.canToggleComplete(row: row, col: col, referenceDate: currentTime) {
-                                                // The tapped cell owns its local 70% → spring-back
-                                                // feedback. Do not wrap the entire board mutation in
-                                                // an animation transaction: it causes unrelated cells
-                                                // and UIKit PAG views to be re-evaluated mid-playback.
-                                                viewModel.toggleComplete(row: row, col: col, referenceDate: currentTime)
-                                                onCellCompletionToggled?()
+                                            if let currentCell = currentVisibleCell(for: target), !currentCell.isEmpty {
+                                                if viewModel.toggleComplete(
+                                                    row: row, col: col, referenceDate: .now,
+                                                    prepareBoardForToggle: onPrepareTaskCompletion
+                                                ) {
+                                                    onCellCompletionToggled?()
+                                                }
                                             }
                                         },
                                         onLongPressRelease: {
@@ -444,11 +443,12 @@ struct BingoBoardView: View {
             startReminderOffsetMinutes: editingCell.startReminderOffsetMinutes,
                 isCompletedTask: editingCell.isCompleted,
                 estimatedDurationMinutes: viewModel.remainingTaskCountdownMinutes(row: target.row, col: target.col),
+                customCompletionPoints: editingCell.customCompletionPoints,
                 usesClearPresentationBackground: isPadDevice,
                 completionHistoryCountProvider: viewModel.completionHistoryCount(for:),
                 diagnosticCellID: editingCell.id,
                 diagnosticSource: "home_cell_editor",
-                onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, recurrenceRule, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes in
+                onSave: { newText, isForcedTask, residentWeekdays, isOneTimeTask, recurrenceRule, estimatedDurationMinutes, startVisibleAt, endVisibleAt, startReminderEnabled, startReminderOffsetMinutes, taskRewardEdit in
                 guard currentVisibleCell(for: target) != nil else {
                     return false
                 }
@@ -471,6 +471,8 @@ struct BingoBoardView: View {
                     endVisibleAt: endVisibleAt,
                     startReminderEnabled: startReminderEnabled,
                     startReminderOffsetMinutes: startReminderOffsetMinutes,
+                    taskRewardEdit: taskRewardEdit,
+                    hasPremiumTaskRewardAccess: subscriptionManager.hasPremiumAccess,
                     editSource: "home_cell_editor"
                 )
                 guard didSave else { return false }

@@ -98,7 +98,7 @@ struct AppIconSettingsSection: View {
 #endif
 
     private func iconButton(for option: AppIconOption) -> some View {
-        let isUnlocked = option == .premium ? hasPremiumAccess : option.isUnlocked(bestStreak: streakStore.bestStreak)
+        let isUnlocked = option.requiresPremium ? hasPremiumAccess : option.isUnlocked(bestStreak: streakStore.bestStreak)
 
         return Button {
             if isUnlocked {
@@ -154,7 +154,7 @@ struct AppIconSettingsSection: View {
                     .frame(width: scaled(27, pad: 31), height: scaled(27, pad: 31))
                     .background(themeColor, in: Circle())
             } else if !isUnlocked {
-                Image(systemName: option == .premium ? "crown.fill" : "lock.fill")
+                Image(systemName: option.requiresPremium ? "crown.fill" : "lock.fill")
                     .font(.system(size: scaled(10, pad: 12), weight: .bold))
                     .foregroundStyle(AppIconPalette.text.opacity(0.82))
                     .frame(width: scaled(27, pad: 31), height: scaled(27, pad: 31))
@@ -197,12 +197,12 @@ private struct AppIconUnlockSheet: View {
                         .offset(y: -20)
 
                     VStack(spacing: 16) {
-                        Text(option == .premium ? L10n.tr("Members-only app icon", zhHans: "会员专属应用图标", zhHant: "會員專屬應用程式圖標", ja: "会員限定アプリアイコン") : L10n.tr("Unlock this app icon", zhHans: "解锁这个应用图标", zhHant: "解鎖這個應用程式圖標", ja: "このアプリアイコンを解放"))
+                        Text(option.requiresPremium ? L10n.tr("Members-only app icon", zhHans: "会员专属应用图标", zhHant: "會員專屬應用程式圖標", ja: "会員限定アプリアイコン") : L10n.tr("Unlock this app icon", zhHans: "解锁这个应用图标", zhHant: "解鎖這個應用程式圖標", ja: "このアプリアイコンを解放"))
                             .font(.appSystem(size: 22, weight: .black, design: .rounded))
                             .foregroundStyle(.black)
                             .multilineTextAlignment(.center)
 
-                        Text(option == .premium ? L10n.tr("Join Bingodays Pro to use this exclusive app icon", zhHans: "开通 Bingodays Pro 即可使用此专属图标", zhHant: "開通 Bingodays Pro 即可使用此專屬圖標", ja: "Bingodays Proに加入して限定アイコンを使おう") : L10n.tr(
+                        Text(option.requiresPremium ? L10n.tr("Join Bingodays Pro to use this exclusive app icon", zhHans: "开通 Bingodays Pro 即可使用此专属图标", zhHant: "開通 Bingodays Pro 即可使用此專屬圖標", ja: "Bingodays Proに加入して限定アイコンを使おう") : L10n.tr(
                             "Keep Bingodays open for \(requiredDays) consecutive days",
                             zhHans: "连续开启 Bingodays \(requiredDays) 天",
                             zhHant: "連續開啟 Bingodays \(requiredDays) 天",
@@ -212,7 +212,7 @@ private struct AppIconUnlockSheet: View {
                         .foregroundStyle(.black.opacity(0.68))
                         .multilineTextAlignment(.center)
 
-                        if option != .premium { VStack(spacing: 5) {
+                        if !option.requiresPremium { VStack(spacing: 5) {
                             artisticStreakText
 
                             Text(L10n.tr("Current consecutive days", zhHans: "当前连续开启天数", zhHant: "目前連續開啟天數", ja: "現在の連続起動日数"))
@@ -221,10 +221,10 @@ private struct AppIconUnlockSheet: View {
                         } }
 
                         Button {
-                            if option == .premium { onOpenPremium() }
+                            if option.requiresPremium { onOpenPremium() }
                             dismiss()
                         } label: {
-                            Text(option == .premium ? L10n.tr("Unlock with Pro", zhHans: "开通会员", zhHant: "開通會員", ja: "Proに加入") : L10n.tr("Got it!", zhHans: "明白了！", zhHant: "明白了！", ja: "わかった！"))
+                            Text(option.requiresPremium ? L10n.tr("Unlock with Pro", zhHans: "开通会员", zhHant: "開通會員", ja: "Proに加入") : L10n.tr("Got it!", zhHans: "明白了！", zhHant: "明白了！", ja: "わかった！"))
                                 .font(.appSystem(size: 16, weight: .bold, design: .rounded))
                                 .foregroundStyle(.white)
                                 .frame(width: min(proxy.size.width - 120, 220))

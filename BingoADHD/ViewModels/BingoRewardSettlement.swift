@@ -19,6 +19,7 @@ struct BingoRewardSettlementOutput {
     var totalPoints: Int
     var lifetimePoints: Int
     var dailyRewardState: DailyRewardState
+    var taskRewardReceipts: [UUID: TaskRewardReceipt] = [:]
 }
 
 enum BingoRewardSettlement {
@@ -74,13 +75,27 @@ enum BingoRewardSettlement {
         let pointsFloor = max(minimumTotalPoints, 0)
         var updatedTotalPoints = max(totalPoints, pointsFloor)
         var updatedLifetimePoints = lifetimePoints
+        var receipts: [UUID: TaskRewardReceipt] = [:]
+        let previousTasks = Dictionary(previousCells.flatMap { $0 }.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let currentTasks = Dictionary(currentCells.flatMap { $0 }.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         let previousCompletedCellIDs = completedCellIDs(in: previousCells)
         let currentCompletedCellIDs = completedCellIDs(in: currentCells)
 
         for cellID in currentCompletedCellIDs.subtracting(previousCompletedCellIDs).sorted(by: stableOrder) {
             let key = cellID.uuidString.lowercased()
-            if let restoredPoints = currentDailyRewardState.taskReversalCredits.removeValue(forKey: key) {
+            if let previous = previousTasks[cellID], let current = currentTasks[cellID],
+               TaskCompletionRewardRules.usesCustomSettlement(previous: previous, current: current) {
+                let legacyCredit = currentDailyRewardState.taskReversalCredits.removeValue(forKey: key)
+                let result = TaskCompletionRewardRules.transition(
+                    previous: previous, current: current, dateKey: currentDailyRewardState.dateKey,
+                    availableToDeduct: max(updatedTotalPoints - pointsFloor, 0),
+                    legacyReversalCredit: previous.taskRewardReceipt == nil && previous.customCompletionPoints == nil ? legacyCredit : nil
+                )
+                updatedTotalPoints += result.pointsDelta
+                updatedLifetimePoints += result.lifetimeDelta
+                receipts[cellID] = result.receipt
+            } else if let restoredPoints = currentDailyRewardState.taskReversalCredits.removeValue(forKey: key) {
                 updatedTotalPoints += max(restoredPoints, 0)
                 updatedLifetimePoints += max(restoredPoints, 0)
             } else {
@@ -91,11 +106,25 @@ enum BingoRewardSettlement {
 
         for cellID in previousCompletedCellIDs.subtracting(currentCompletedCellIDs).sorted(by: stableOrder) {
             let key = cellID.uuidString.lowercased()
-            currentDailyRewardState.taskReversalCredits[key] = deduct(
-                1,
-                from: &updatedTotalPoints,
-                minimumTotalPoints: pointsFloor
-            )
+            // A system transition may remove the task entirely. Its original
+            // receipt still determines the deduction; no replacement task owns it.
+            var removedTask = previousTasks[cellID]
+            removedTask?.isCompleted = false
+            if let previous = previousTasks[cellID], let current = currentTasks[cellID] ?? removedTask,
+               TaskCompletionRewardRules.usesCustomSettlement(previous: previous, current: current) {
+                let result = TaskCompletionRewardRules.transition(
+                    previous: previous, current: current, dateKey: currentDailyRewardState.dateKey,
+                    availableToDeduct: max(updatedTotalPoints - pointsFloor, 0),
+                    legacyReversalCredit: nil
+                )
+                updatedTotalPoints += result.pointsDelta
+                receipts[cellID] = result.receipt
+                currentDailyRewardState.taskReversalCredits.removeValue(forKey: key)
+            } else {
+                currentDailyRewardState.taskReversalCredits[key] = deduct(
+                    1, from: &updatedTotalPoints, minimumTotalPoints: pointsFloor
+                )
+            }
         }
 
         let restoredLines: Set<BingoLine>
@@ -162,7 +191,8 @@ enum BingoRewardSettlement {
         return BingoRewardSettlementOutput(
             totalPoints: updatedTotalPoints,
             lifetimePoints: updatedLifetimePoints,
-            dailyRewardState: currentDailyRewardState
+            dailyRewardState: currentDailyRewardState,
+            taskRewardReceipts: receipts
         )
     }
 

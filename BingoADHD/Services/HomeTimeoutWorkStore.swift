@@ -162,20 +162,9 @@ struct HomeTimeoutWorkStore {
             if evaluation.customResetDue || evaluation.shouldForceApplyForStaleCompletion {
                 return now
             }
-            guard let triggerTime = BoardResetRuleEngine.customResetTriggerTime(
-                for: board,
-                now: now,
-                calendar: calendar
-            ) else {
-                continue
-            }
-
-            let candidate: Date
-            if triggerTime > now {
-                candidate = triggerTime
-            } else {
-                candidate = calendar.date(byAdding: .day, value: 1, to: triggerTime) ?? triggerTime.addingTimeInterval(86_400)
-            }
+            guard let candidate = BoardResetRuleEngine.nextScheduledResetTime(
+                for: board, after: now, calendar: calendar
+            ) else { continue }
             nextDate = nextDate.map { min($0, candidate) } ?? candidate
         }
 

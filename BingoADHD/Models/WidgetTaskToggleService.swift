@@ -89,6 +89,23 @@ enum WidgetTaskToggleService {
             in: &fullBoard
         )
 
+        if TaskCompletionRewardRules.usesCustomSettlement(
+            previous: visibleCell, current: fullBoard[row][col]
+        ) {
+            // Prepare the receipt before writing the recovery event. The ordinary
+            // one-point path retains its existing reads and side-effect ordering.
+            let provisionalCells = BoardEngine.projectVisibleCells(from: fullBoard, size: gridSize, referenceDate: now)
+            var provisionalBoard = preparedBoard
+            provisionalBoard.board = SavedBoard(
+                gridSize: gridSize, cells: provisionalCells,
+                completedLines: BoardEngine.completedLines(in: provisionalCells, size: gridSize), fullBoardCells: fullBoard
+            )
+            let rewardOutput = rewardSettlement(
+                previousBoard: preparedBoard, updatedBoard: provisionalBoard, now: now,
+                currentPoints: PointsStore.loadPersistenceSnapshot(reading: .readOnly)
+            )
+            fullBoard = TaskCompletionRewardRules.applyingReceipts(rewardOutput.taskRewardReceipts, to: fullBoard)
+        }
         let updatedVisibleCells = BoardEngine.projectVisibleCells(from: fullBoard, size: gridSize, referenceDate: now)
         let completedLines = BoardEngine.completedLines(in: updatedVisibleCells, size: gridSize)
         let updatedSavedBoard = SavedBoard(
@@ -117,6 +134,62 @@ enum WidgetTaskToggleService {
         updatedNamedBoard.board = updatedSavedBoard
         updatedNamedBoard.updatedAt = now
         return updatedNamedBoard
+    }
+
+    /// Capture deterministic targets before any effect is written. Replaying these
+    /// snapshots repairs a partial commit without recalculating a reward delta.
+    static func prepareSideEffects(
+        previousBoard: BingoBoardStore.NamedBoard, updatedBoard: BingoBoardStore.NamedBoard,
+        row: Int, col: Int, now: Date
+    ) -> WidgetTaskSyncStore.Event.SideEffects? {
+        let previous = BoardEngine.expandedBoardCache(from: previousBoard.board)
+        let updated = BoardEngine.expandedBoardCache(from: updatedBoard.board)
+        guard row >= 0, col >= 0, row < previous.count, row < updated.count,
+              col < previous[row].count, col < updated[row].count,
+              previous[row][col].id == updated[row][col].id,
+              previous[row][col].isCompleted != updated[row][col].isCompleted else { return nil }
+        let cell = updated[row][col]
+        let points = PointsStore.loadPersistenceSnapshot(reading: .readOnly)
+        let diary = BingoDiaryStore.loadAllEntriesDictionary(reading: .readOnly)
+        let history = TaskCompletionHistoryStore.load()
+        let archived = TaskCompletionHistoryRuleEngine.recordsByArchiving(previous.flatMap { $0 }, into: history, at: now)
+        let effects = WidgetTaskSyncStore.Event.SideEffects(
+            accountScope: NativeICloudPreferences.accountScopeIdentifier,
+            previousPoints: points,
+            points: projectedPointsSnapshot(previousBoard: previousBoard, updatedBoard: updatedBoard,
+                now: now, didApplyBoardReset: false, currentPoints: points),
+            previousDiary: diary,
+            diary: BingoDiaryStore.entriesByApplyingExplicitTaskDelta(task: cell.storedTaskText,
+                delta: cell.isCompleted ? 1 : -1, board: updatedBoard.board, on: now, entries: diary),
+            previousHistory: history,
+            history: TaskCompletionHistoryRuleEngine.recordsByApplyingCompletionDelta(taskText: cell.storedTaskText,
+                delta: cell.isCompleted ? 1 : -1, to: archived, at: now)
+        )
+        guard let data = try? JSONEncoder().encode(effects) else { return nil }
+        return try? JSONDecoder().decode(WidgetTaskSyncStore.Event.SideEffects.self, from: data)
+    }
+
+    static func applyPreparedSideEffects(
+        _ effects: WidgetTaskSyncStore.Event.SideEffects,
+        savePoints: (PointsPersistenceSnapshot) -> Bool = PointsStore.replacePersistenceSnapshot,
+        saveDiary: ([String: BingoDiaryEntry]) -> Bool = BingoDiaryStore.replaceAllEntriesDictionary,
+        saveHistory: ([TaskCompletionHistoryRecord]) -> Bool = TaskCompletionHistoryStore.save
+    ) -> Bool {
+        guard effects.accountScope == NativeICloudPreferences.accountScopeIdentifier else { return false }
+        let points = PointsStore.loadPersistenceSnapshot(reading: .readOnly)
+        let diary = BingoDiaryStore.loadAllEntriesDictionary(reading: .readOnly)
+        let history = TaskCompletionHistoryStore.load()
+        // A newer unrelated mutation is a conflict, never an excuse to overwrite it.
+        guard (points == effects.previousPoints || points == effects.points),
+              (diary == effects.previousDiary || diary == effects.diary),
+              (history == effects.previousHistory || history == effects.history) else {
+            DiagnosticLogStore.recordWarning("widget.effects_recovery_conflict")
+            return false
+        }
+        guard savePoints(effects.points), PointsStore.loadPersistenceSnapshot(reading: .readOnly) == effects.points,
+              saveDiary(effects.diary), BingoDiaryStore.loadAllEntriesDictionary(reading: .readOnly) == effects.diary,
+              saveHistory(effects.history), TaskCompletionHistoryStore.load() == effects.history else { return false }
+        return true
     }
 
     @discardableResult
@@ -269,6 +342,8 @@ enum WidgetTaskToggleService {
         mergedBoard: BingoBoardStore.NamedBoard,
         now: Date
     ) -> Bool {
+        if let effects = event.sideEffects,
+           effects.accountScope != NativeICloudPreferences.accountScopeIdentifier { return false }
         if let mutation = event.cellMutation,
            !WidgetTaskEventMerge.containsAppliedMutation(mutation, in: mergedBoard.board) {
             DiagnosticLogStore.recordWarning("task_rule.widget_stale_reward_replay_skipped", details: [
@@ -276,6 +351,7 @@ enum WidgetTaskToggleService {
             ])
             return true
         }
+        if let effects = event.sideEffects { return applyPreparedSideEffects(effects) }
         guard !event.didApplyBoardReset,
               let mutation = event.cellMutation,
               let position = WidgetTaskEventMerge.resolvedPosition(
@@ -326,6 +402,16 @@ enum WidgetTaskToggleService {
         currentPoints: PointsPersistenceSnapshot = PointsStore.loadPersistenceSnapshot()
     ) -> PointsPersistenceSnapshot {
         _ = didApplyBoardReset
+        let output = rewardSettlement(previousBoard: previousBoard, updatedBoard: updatedBoard, now: now, currentPoints: currentPoints)
+        return PointsPersistenceSnapshot(
+            totalPoints: output.totalPoints, lifetimePoints: output.lifetimePoints, dailyRewardState: output.dailyRewardState
+        )
+    }
+
+    private static func rewardSettlement(
+        previousBoard: BingoBoardStore.NamedBoard, updatedBoard: BingoBoardStore.NamedBoard,
+        now: Date, currentPoints: PointsPersistenceSnapshot
+    ) -> BingoRewardSettlementOutput {
         let previousCells = previousBoard.board.cells
         let previousCompletedLines = previousBoard.board.completedLines
         let initialTotalPoints = currentPoints.totalPoints ?? BoardEngine.boardScore(
@@ -350,7 +436,7 @@ enum WidgetTaskToggleService {
         } else {
             taskIsNowCompleted = nil
         }
-        let output = BingoRewardSettlement.settleTaskToggle(
+        return BingoRewardSettlement.settleTaskToggle(
             date: now,
             previousCells: previousCells,
             previousCompletedLines: previousCompletedLines,
@@ -363,11 +449,6 @@ enum WidgetTaskToggleService {
             dailyRewardState: currentPoints.dailyRewardState ?? BingoRewardSettlement.emptyDailyRewardState(for: now),
             taskIsNowCompleted: taskIsNowCompleted,
             minimumTotalPoints: PointRedemptionLedger.currentCommittedSpend()
-        )
-        return PointsPersistenceSnapshot(
-            totalPoints: output.totalPoints,
-            lifetimePoints: output.lifetimePoints,
-            dailyRewardState: output.dailyRewardState
         )
     }
 

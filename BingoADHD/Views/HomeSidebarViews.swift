@@ -685,50 +685,6 @@ private enum MeScreenPalette {
     static let border = Color(hex: "2F281F").opacity(0.82)
 }
 
-enum MeSkin: String, Equatable {
-    case normal
-    case halloween
-
-    var isHalloween: Bool { self == .halloween }
-
-    var backgroundImageName: String {
-        isHalloween ? "MeHalloweenBackground" : "MeBackground"
-    }
-
-    var titleColor: Color {
-        isHalloween ? Color(hex: "FFF7E8") : MeScreenPalette.text
-    }
-
-    var actionColor: Color {
-        isHalloween ? Color(hex: "FFC477") : MeScreenPalette.accent
-    }
-
-    var crownArrowImageName: String {
-        isHalloween ? "MeHalloweenCrownArrow" : "MeCrownArrow"
-    }
-
-    func characterImageName(isPremiumMember: Bool, hasReviewedApp: Bool) -> String {
-        switch (isHalloween, isPremiumMember, hasReviewedApp) {
-        case (false, false, false):
-            return "MeNoproUnreviewed"
-        case (false, false, true):
-            return "MeNoproReviewed"
-        case (false, true, false):
-            return "MeProUnreviewed"
-        case (false, true, true):
-            return "MeProReviewed"
-        case (true, false, false):
-            return "MeHalloweenNoproUnreviewed"
-        case (true, false, true):
-            return "MeHalloweenNoproReviewed"
-        case (true, true, false):
-            return "MeHalloweenProUnreviewed"
-        case (true, true, true):
-            return "MeHalloweenProReviewed"
-        }
-    }
-}
-
 enum MeGreeting: Int, CaseIterable {
     case hardWork
     case welcomeBack
@@ -816,6 +772,7 @@ struct BingodaysMeScreen: View {
     let streakDays: Int
     let greetingText: String
     let skin: MeSkin
+    @Binding var isSkinPickerExpanded: Bool
     let isPadLayout: Bool
     let bottomInset: CGFloat
     let onOpenContact: () -> Void
@@ -823,7 +780,7 @@ struct BingodaysMeScreen: View {
     let onLeaveReview: () -> Void
     let onOpenDiary: () -> Void
     let onOpenPremium: () -> Void
-    let onToggleSkin: () -> Void
+    let onSelectSkin: (MeSkin) -> Void
 
     @State private var halloweenCatDotLottieFile: DotLottieFile?
     @State private var halloweenCatAnimationToken = 0
@@ -831,191 +788,182 @@ struct BingodaysMeScreen: View {
 
     var body: some View {
         GeometryReader { geo in
-            let contentWidth = min(geo.size.width, isPadLayout ? 430 : 393)
-            let layoutScale = min(
-                max(
-                    min(contentWidth / 393, (geo.size.height - bottomInset) / 849),
-                    isPadLayout ? 0.9 : 0.82
-                ),
-                isPadLayout ? 1.08 : 1.0
+            let layout = MeSceneLayout.resolve(
+                skin: skin, availableSize: geo.size, safeAreaInsets: geo.safeAreaInsets,
+                isPadLayout: isPadLayout, bottomInset: bottomInset
             )
+            // Typography follows the original themes, independently of Autumn's artwork scale.
+            let textLayout = skin == .autumn ? MeSceneLayout.resolve(
+                skin: .normal, availableSize: geo.size, safeAreaInsets: geo.safeAreaInsets,
+                isPadLayout: isPadLayout, bottomInset: bottomInset
+            ) : layout
+            let layoutScale = layout.scale
+            let contentWidth = layout.contentWidth
             let contentX = geo.size.width / 2
-            let yLift = isPadLayout ? max(0, (geo.size.height - 849 * layoutScale) * 0.18) : 0
-            // Keep the Me screen adaptive when the same iPhone changes between Duo displays.
             let isPadDevice = isPadLayout
-            let isPadPortraitLayout = isPadDevice && geo.size.height > geo.size.width
-            let isPadLandscapeLayout = isPadDevice && geo.size.width > geo.size.height
-            let reviewBubbleHorizontalOffset: CGFloat = isPadPortraitLayout ? -60 : 0
-            let meContentVerticalOffset: CGFloat = 16
-            let characterAndDiaryVerticalOffset: CGFloat = meContentVerticalOffset
-                + (isPadDevice ? 20 : 0)
-                + (isPadPortraitLayout ? 40 : 0)
-            let backgroundVerticalOffset: CGFloat = isPadLandscapeLayout ? -60 : 0
-            let skinToggleVerticalOffset: CGFloat = 42
 
             ZStack(alignment: .top) {
                 Image(skin.backgroundImageName)
                     .resizable()
                     .interpolation(.high)
                     .scaledToFill()
-                    .offset(y: backgroundVerticalOffset)
-                    .frame(
-                        width: geo.size.width,
-                        height: geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom
-                    )
+                    .frame(width: geo.size.width,
+                           height: geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom)
                     .clipped()
-                    .ignoresSafeArea()
-
-                MeSkinToggleButton(
-                    skin: skin,
-                    isPadLayout: isPadLayout,
-                    onTap: onToggleSkin
-                )
-                .scaleEffect(layoutScale, anchor: .center)
-                .position(
-                    x: contentX - contentWidth / 2 + 20 + scaled(39, pad: 44) * layoutScale,
-                    y: y(skinToggleVerticalOffset, scale: layoutScale, lift: yLift)
-                )
-                .zIndex(12)
-
-                VStack(spacing: scaled(20, pad: 24)) {
-                    titleBlock
-                    topActions
-                }
-                .frame(width: contentWidth)
-                .position(x: contentX, y: y(118, scale: layoutScale, lift: yLift))
-
-                if isPremiumMember {
-                    if isPadDevice {
-                        membershipBadgeButton
-                            .padding(.trailing, 28)
-                            .frame(width: geo.size.width, alignment: .trailing)
-                            .position(x: geo.size.width / 2, y: 39)
-                            .zIndex(10)
-                    } else {
-                        membershipBadgeButton
-                            .position(
-                                x: contentX + contentWidth / 2 - scaled(66, pad: 76),
-                                y: y(39, scale: layoutScale, lift: yLift)
-                            )
-                            .zIndex(10)
-                    }
-                }
-
-                MeStreakCard(
-                    streakDays: streakDays,
-                    isPadLayout: isPadLayout
-                )
-                .scaleEffect(layoutScale, anchor: .center)
-                .position(
-                    x: contentX - contentWidth / 2 + 96 * layoutScale,
-                    y: y(266, scale: layoutScale, lift: yLift) + meContentVerticalOffset
-                )
-
-                if !isPremiumMember {
-                    MeCrownUpgradeButton(
-                        isPadLayout: isPadLayout,
-                        textColor: skin.titleColor,
-                        arrowImageName: skin.crownArrowImageName,
-                        onTap: onOpenPremium
-                    )
-                    .scaleEffect(layoutScale, anchor: .center)
-                    .position(
-                        x: contentX + contentWidth / 2 - 126 * layoutScale,
-                        y: y(270, scale: layoutScale, lift: yLift) + meContentVerticalOffset
-                    )
-                }
-
-                Image(mainImageName)
-                    .resizable()
-                    .interpolation(.high)
-                    .renderingMode(.original)
-                    .scaledToFit()
-                    .frame(width: scaled(392, pad: 424) * layoutScale)
-                    .position(
-                        x: contentX,
-                        y: y(476, scale: layoutScale, lift: yLift) + characterAndDiaryVerticalOffset
-                    )
+                    .position(x: contentX,
+                              y: (geo.size.height + geo.safeAreaInsets.bottom - geo.safeAreaInsets.top) / 2
+                                + layout.backgroundVerticalOffset)
                     .accessibilityHidden(true)
 
-                if skin.isHalloween {
-                    Button {
-                        AppHaptics.control()
-                        halloweenCatAnimationToken &+= 1
-                        isHalloweenCatAnimating = true
-                    } label: {
-                        Group {
-                            if let halloweenCatDotLottieFile {
-                                MeHalloweenCatLottieView(
-                                    dotLottieFile: halloweenCatDotLottieFile,
-                                    playToken: halloweenCatAnimationToken,
-                                    isPlaying: isHalloweenCatAnimating,
-                                    onFinished: { isHalloweenCatAnimating = false }
+                ZStack(alignment: .top) {
+                    VStack(spacing: scaled(20, pad: 24)) {
+                        titleBlock
+                        topActions
+                    }
+                    .frame(width: contentWidth)
+                    .position(layout.titleCenter)
+
+                    if isPremiumMember {
+                        if isPadDevice {
+                            membershipBadgeButton
+                                .padding(.trailing, 28)
+                                .frame(width: geo.size.width, alignment: .trailing)
+                                .position(x: geo.size.width / 2, y: 39)
+                                .zIndex(10)
+                        } else {
+                            membershipBadgeButton
+                                .position(
+                                    x: contentX + contentWidth / 2 - scaled(66, pad: 76),
+                                    y: layout.pickerFrame.midY
                                 )
-                            } else {
-                                Color.clear
-                            }
+                                .zIndex(10)
                         }
-                        .frame(
-                            width: scaled(112, pad: 128) * layoutScale,
-                            height: scaled(178, pad: 202) * layoutScale
-                        )
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .position(
-                        x: contentX - contentWidth / 2 + 70 * layoutScale,
-                        y: y(674, scale: layoutScale, lift: yLift) + characterAndDiaryVerticalOffset
-                    )
-                    .accessibilityLabel(
-                        L10n.tr("Play cat animation", zhHans: "播放猫咪动画", zhHant: "播放貓咪動畫", ja: "猫のアニメーションを再生")
-                    )
-                    .task {
-                        guard halloweenCatDotLottieFile == nil else { return }
-                        halloweenCatDotLottieFile = try? await DotLottieFile.asset(named: "MeHalloweenCatLottie")
-                    }
-                    .zIndex(0.5)
-                }
 
-                MeDiaryDeskButton(
-                    isPadLayout: isPadLayout,
-                    onTap: onOpenDiary
-                )
-                .scaleEffect(layoutScale, anchor: .center)
-                .position(
-                    x: contentX + contentWidth / 2 - 173 * layoutScale,
-                    y: y(557, scale: layoutScale, lift: yLift) + characterAndDiaryVerticalOffset
-                )
-                .zIndex(2)
-
-                if !hasReviewedApp {
-                    MeReviewButton(
+                    MeStreakCard(
+                        streakDays: streakDays,
                         isPadLayout: isPadLayout,
-                        onTap: onLeaveReview
+                        fontScale: textLayout.streakFrame.width / layout.streakFrame.width
+                    )
+                    .scaleEffect(layout.streakFrame.width / scaled(96, pad: 108))
+                    .position(x: layout.streakFrame.midX, y: layout.streakFrame.midY)
+
+                    if !isPremiumMember {
+                        MeCrownUpgradeButton(
+                            isPadLayout: isPadLayout,
+                            textColor: skin.titleColor,
+                            arrowImageName: skin.crownArrowImageName,
+                            fontScale: textLayout.crownFrame.width / layout.crownFrame.width,
+                            onTap: onOpenPremium
+                        )
+                        .scaleEffect(layout.crownFrame.width / scaled(150, pad: 168))
+                        .position(x: layout.crownFrame.midX, y: layout.crownFrame.midY)
+                    }
+
+                    Image(mainImageName)
+                        .resizable()
+                        .interpolation(.high)
+                        .renderingMode(.original)
+                        .scaledToFit()
+                        .frame(width: layout.characterFrame.width)
+                        .scaleEffect(skin == .autumn ? 0.86 : 1, anchor: .center)
+                        .position(x: layout.characterFrame.midX, y: layout.characterFrame.midY)
+                        .accessibilityHidden(true)
+
+                    if skin.isHalloween {
+                        Button {
+                            AppHaptics.control()
+                            halloweenCatAnimationToken &+= 1
+                            isHalloweenCatAnimating = true
+                        } label: {
+                            Group {
+                                if let halloweenCatDotLottieFile {
+                                    MeHalloweenCatLottieView(
+                                        dotLottieFile: halloweenCatDotLottieFile,
+                                        playToken: halloweenCatAnimationToken,
+                                        isPlaying: isHalloweenCatAnimating,
+                                        onFinished: { isHalloweenCatAnimating = false }
+                                    )
+                                } else {
+                                    Color.clear
+                                }
+                            }
+                            .frame(
+                                width: scaled(112, pad: 128) * layoutScale,
+                                height: scaled(178, pad: 202) * layoutScale
+                            )
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .position(layout.catCenter)
+                        .accessibilityLabel(
+                            L10n.tr("Play cat animation", zhHans: "播放猫咪动画", zhHant: "播放貓咪動畫", ja: "猫のアニメーションを再生")
+                        )
+                        .task {
+                            guard halloweenCatDotLottieFile == nil else { return }
+                            halloweenCatDotLottieFile = try? await DotLottieFile.asset(named: "MeHalloweenCatLottie")
+                        }
+                        .zIndex(0.5)
+                    }
+
+                    MeDiaryDeskButton(
+                        isPadLayout: isPadLayout,
+                        skin: skin,
+                        onTap: onOpenDiary
                     )
                     .scaleEffect(layoutScale, anchor: .center)
-                    .position(
-                        x: contentX - contentWidth / 2 + 125 * layoutScale + reviewBubbleHorizontalOffset,
-                        y: y(383, scale: layoutScale, lift: yLift) + characterAndDiaryVerticalOffset
+                    .position(x: layout.diaryArtworkFrame.midX, y: layout.diaryArtworkFrame.midY)
+                    .zIndex(2)
+
+                    if !hasReviewedApp {
+                        MeReviewButton(
+                            isPadLayout: isPadLayout,
+                            skin: skin,
+                            scale: layoutScale,
+                            fontScale: textLayout.scale,
+                            onTap: onLeaveReview
+                        )
+                        .position(x: layout.reviewFrame.midX, y: layout.reviewFrame.midY)
+                    }
+
+                    MeDiaryButton(
+                        isPadLayout: isPadLayout,
+                        skin: skin,
+                        scale: layoutScale,
+                        fontScale: textLayout.scale,
+                        onTap: onOpenDiary
                     )
+                    .position(x: layout.diaryButtonFrame.midX, y: layout.diaryButtonFrame.midY)
+                    .zIndex(3)
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+                .accessibilityElement(children: .contain)
+                .accessibilityHidden(isSkinPickerExpanded)
+
+                if isSkinPickerExpanded {
+                    Button {
+                        isSkinPickerExpanded = false
+                    } label: {
+                        Color.clear.contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.tr("Close theme picker", zhHans: "关闭主题选择", zhHant: "關閉主題選擇", ja: "テーマ選択を閉じる", ko: "테마 선택 닫기"))
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .zIndex(20)
                 }
 
-                MeDiaryButton(
-                    isPadLayout: isPadLayout,
-                    onTap: onOpenDiary
+                MeSkinPicker(
+                    selection: skin,
+                    isExpanded: $isSkinPickerExpanded,
+                    onSelect: onSelectSkin
                 )
-                .scaleEffect(layoutScale, anchor: .center)
-                .position(
-                    x: contentX + contentWidth / 2 - (147 + 52) * layoutScale,
-                    y: y(623, scale: layoutScale, lift: yLift) + characterAndDiaryVerticalOffset
-                )
-                .zIndex(1)
+                .position(x: layout.pickerFrame.midX, y: layout.pickerFrame.midY)
+                .zIndex(21)
             }
+            .appGlassEffectContainer(spacing: 8)
         }
-        .background(
-            (skin.isHalloween ? Color(hex: "131936") : MeScreenPalette.background)
-                .ignoresSafeArea()
-        )
+        .background(skin.backgroundColor.ignoresSafeArea())
+        .onDisappear { isSkinPickerExpanded = false }
     }
 
     private var membershipBadgeButton: some View {
@@ -1031,16 +979,13 @@ struct BingodaysMeScreen: View {
     }
 
     private var titleBlock: some View {
-        VStack(spacing: 0) {
-            Text(greetingText)
-                .lineLimit(2)
-                .minimumScaleFactor(0.72)
-        }
-        .font(.custom("Outfit", size: scaled(23, pad: 27)).weight(.semibold))
-        .foregroundStyle(skin.titleColor)
-        .multilineTextAlignment(.center)
-        .accessibilityElement(children: .combine)
-        .offset(y: scaled(-4, pad: -5))
+        Text(greetingText)
+            .lineLimit(2)
+            .minimumScaleFactor(0.72)
+            .font(.custom("Outfit", size: scaled(23, pad: 27)).weight(.semibold))
+            .foregroundStyle(skin.titleColor)
+            .multilineTextAlignment(.center)
+            .offset(y: scaled(-4, pad: -5))
     }
 
     private var topActions: some View {
@@ -1056,7 +1001,9 @@ struct BingodaysMeScreen: View {
                 settingsTapCount = min(settingsTapCount + 1, 2)
                 onOpenSettings()
             } label: {
-                Text("\(L10n.tr("Preferences", zhHans: "个性设置", zhHant: "個性設定", ja: "個人設定")) ⚙️")
+                Text(skin == .autumn
+                    ? "\(L10n.tr("Settings", zhHans: "设置", zhHant: "設定", ja: "設定", ko: "설정")) ⚙️"
+                    : "\(L10n.tr("Preferences", zhHans: "个性设置", zhHant: "個性設定", ja: "個人設定")) ⚙️")
                     .font(.appSystem(size: scaled(14, pad: 16), weight: .semibold, design: .rounded))
                     .foregroundStyle(skin.actionColor)
             }
@@ -1077,10 +1024,6 @@ struct BingodaysMeScreen: View {
             isPremiumMember: isPremiumMember,
             hasReviewedApp: hasReviewedApp
         )
-    }
-
-    private func y(_ value: CGFloat, scale: CGFloat, lift: CGFloat) -> CGFloat {
-        value * scale + lift
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
@@ -1145,77 +1088,6 @@ private struct MeHalloweenCatLottieView: UIViewRepresentable {
     }
 }
 
-private struct MeSkinToggleButton: View {
-    let skin: MeSkin
-    let isPadLayout: Bool
-    let onTap: () -> Void
-
-    var body: some View {
-        Button {
-            AppHaptics.control()
-            onTap()
-        } label: {
-            ZStack {
-                Capsule(style: .continuous)
-                    .fill(skin.isHalloween ? Color(hex: "20294D") : Color(hex: "D9AA7C"))
-                    .overlay {
-                        Capsule(style: .continuous)
-                            .stroke(Color.white.opacity(skin.isHalloween ? 0.28 : 0.42), lineWidth: 1)
-                    }
-                    .shadow(color: Color.black.opacity(0.16), radius: 2, y: 1)
-
-                if skin.isHalloween {
-                    Image("MeHalloweenCasper")
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFit()
-                        .frame(width: casperWidth, height: casperHeight)
-                        .offset(x: -switchWidth / 2 + casperLeading, y: -3)
-                }
-
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: knobSize, height: knobSize)
-                    .shadow(color: Color.black.opacity(0.16), radius: 1.5, y: 1)
-                    .offset(x: knobOffset)
-                    .animation(.spring(response: 0.24, dampingFraction: 0.82), value: skin)
-            }
-            .frame(width: switchWidth, height: switchHeight)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .frame(minWidth: 44, minHeight: 44)
-        .accessibilityLabel(
-            skin.isHalloween
-                ? L10n.tr("Switch to normal theme", zhHans: "切换到普通皮肤", zhHant: "切換到普通皮膚", ja: "通常スキンに切り替える")
-                : L10n.tr("Switch to Halloween theme", zhHans: "切换到万圣节皮肤", zhHant: "切換到萬聖節皮膚", ja: "ハロウィンスキンに切り替える")
-        )
-    }
-
-    private var switchWidth: CGFloat { scaled(78, pad: 88) }
-
-    private var switchHeight: CGFloat { scaled(40, pad: 46) }
-
-    private var knobSize: CGFloat { scaled(27, pad: 31) }
-
-    private var casperWidth: CGFloat { scaled(56, pad: 63) }
-
-    private var casperHeight: CGFloat { scaled(38, pad: 43) }
-
-    private var casperLeading: CGFloat { scaled(27, pad: 31) }
-
-    private var knobOffset: CGFloat {
-        let inset = scaled(4, pad: 5)
-        return skin.isHalloween
-            ? switchWidth / 2 - knobSize / 2 - inset
-            : -switchWidth / 2 + knobSize / 2 + inset
-    }
-
-    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
-        isPadLayout ? (pad ?? base * 1.15) : base
-    }
-}
-
 private struct MeMembershipBadge: View {
     let planKind: PremiumPlanKind?
     let isPadLayout: Bool
@@ -1267,6 +1139,7 @@ private struct MeMembershipBadge: View {
 private struct MeStreakCard: View {
     let streakDays: Int
     let isPadLayout: Bool
+    let fontScale: CGFloat
     @StateObject private var streakStore = AppOpenStreakStore.shared
     @State private var isIconProgressPresented = false
 
@@ -1290,12 +1163,12 @@ private struct MeStreakCard: View {
                             .frame(width: scaled(19, pad: 22), height: scaled(19, pad: 22))
 
                         Text("\(streakDays)")
-                            .font(.appSystem(size: scaled(28, pad: 32), weight: .bold, design: .rounded))
+                            .font(.appSystem(size: scaled(28, pad: 32) * fontScale, weight: .bold, design: .rounded))
                             .foregroundStyle(MeScreenPalette.accent)
                     }
 
                     Text(L10n.consecutiveOpenDays)
-                        .font(.appSystem(size: scaled(9.5, pad: 11), weight: .bold, design: .rounded))
+                        .font(.appSystem(size: scaled(9.5, pad: 11) * fontScale, weight: .bold, design: .rounded))
                         .foregroundStyle(MeScreenPalette.accent.opacity(0.8))
                 }
                 .offset(y: scaled(10, pad: 12))
@@ -1320,6 +1193,7 @@ private struct MeCrownUpgradeButton: View {
     let isPadLayout: Bool
     let textColor: Color
     let arrowImageName: String
+    let fontScale: CGFloat
     let onTap: () -> Void
 
     var body: some View {
@@ -1350,7 +1224,7 @@ private struct MeCrownUpgradeButton: View {
                 .frame(width: scaled(150, pad: 170), height: scaled(88, pad: 98))
 
                 Text(L10n.tr("Go Crowned", zhHans: "戴上皇冠", zhHant: "戴上皇冠", ja: "王冠をかぶる"))
-                    .font(.appSystem(size: scaled(13, pad: 15), weight: .bold, design: .rounded))
+                    .font(.appSystem(size: scaled(13, pad: 15) * fontScale, weight: .bold, design: .rounded))
                     .foregroundStyle(textColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
@@ -1376,15 +1250,20 @@ private struct MeCrownUpgradeButton: View {
 
 private struct MeReviewButton: View {
     let isPadLayout: Bool
+    let skin: MeSkin
+    let scale: CGFloat
+    let fontScale: CGFloat
     let onTap: () -> Void
 
     var body: some View {
-        MeOutlinedPillButton(
-            title: L10n.tr("Like Bingodays?", zhHans: "喜欢 Bingodays？", zhHant: "喜歡 Bingodays？", ja: "Bingodaysが好き？"),
-            imageName: "MePopReview",
-            width: scaled(142, pad: 163),
-            height: scaled(70, pad: 80),
-            isPadLayout: isPadLayout,
+        MeGlassBubbleButton(
+            title: L10n.tr("Like\nBingodays?", zhHans: "喜欢\nBingodays？", zhHant: "喜歡\nBingodays？", ja: "Bingodaysは\n好き？", ko: "Bingodays가\n좋으세요?"),
+            width: (skin == .autumn ? 128 : scaled(142, pad: 163)) * scale,
+            height: (skin == .autumn ? 52 : scaled(70, pad: 80)) * scale,
+            skin: skin,
+            pointsUp: false,
+            scale: scale,
+            fontScale: fontScale,
             onTap: onTap
         )
     }
@@ -1396,16 +1275,20 @@ private struct MeReviewButton: View {
 
 private struct MeDiaryButton: View {
     let isPadLayout: Bool
+    let skin: MeSkin
+    let scale: CGFloat
+    let fontScale: CGFloat
     let onTap: () -> Void
 
     var body: some View {
-        MeOutlinedPillButton(
+        MeGlassBubbleButton(
             title: L10n.tr("Check My\nBingo Diary", zhHans: "查看我的\nBingo 日记", zhHant: "查看我的\nBingo 日記", ja: "Bingo日記を\n見る"),
-            imageName: "MePopDiary",
-            width: scaled(178, pad: 205),
-            height: scaled(73, pad: 84),
-            isPadLayout: isPadLayout,
-            contentTopOffset: 4,
+            width: (skin == .autumn ? 158 : scaled(178, pad: 205)) * scale,
+            height: (skin == .autumn ? 65 : scaled(73, pad: 84)) * scale,
+            skin: skin,
+            pointsUp: true,
+            scale: scale,
+            fontScale: fontScale,
             onTap: onTap
         )
     }
@@ -1417,6 +1300,7 @@ private struct MeDiaryButton: View {
 
 private struct MeDiaryDeskButton: View {
     let isPadLayout: Bool
+    let skin: MeSkin
     let onTap: () -> Void
 
     var body: some View {
@@ -1424,11 +1308,12 @@ private struct MeDiaryDeskButton: View {
             AppHaptics.control()
             onTap()
         } label: {
-            Image("MeDiary")
+            Image(skin == .autumn ? "MeAutumnBooks" : "MeDiary")
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .frame(width: scaled(94, pad: 108), height: scaled(70, pad: 80))
+                .frame(width: skin == .autumn ? 110 : scaled(94, pad: 108),
+                       height: skin == .autumn ? 123 : scaled(70, pad: 80))
                 .contentShape(Rectangle())
         }
         .buttonStyle(MeDiaryDeskButtonStyle())
@@ -1448,73 +1333,51 @@ private struct MeDiaryDeskButtonStyle: ButtonStyle {
     }
 }
 
-private struct MeOutlinedPillButton: View {
+private struct MeGlassBubbleButton: View {
     let title: String
-    let imageName: String
     let width: CGFloat
     let height: CGFloat
-    let isPadLayout: Bool
-    let contentTopOffset: CGFloat
+    let skin: MeSkin
+    let pointsUp: Bool
+    let scale: CGFloat
+    let fontScale: CGFloat
     let onTap: () -> Void
 
-    init(
-        title: String,
-        imageName: String,
-        width: CGFloat,
-        height: CGFloat,
-        isPadLayout: Bool,
-        contentTopOffset: CGFloat = 0,
-        onTap: @escaping () -> Void
-    ) {
-        self.title = title
-        self.imageName = imageName
-        self.width = width
-        self.height = height
-        self.isPadLayout = isPadLayout
-        self.contentTopOffset = contentTopOffset
-        self.onTap = onTap
-    }
+    private var tailHeight: CGFloat { MeSpeechBubbleShape.tailHeight(for: height) }
+    private var horizontalInset: CGFloat { min(20 * scale, height * 0.28) }
 
     var body: some View {
         Button(action: onTap) {
-            ZStack {
-                Image(imageName)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(width: width, height: height)
+            HStack(spacing: 6 * scale) {
+                Text(title)
+                    .font(.appSystem(size: 14 * fontScale, weight: .semibold, design: .rounded))
+                    .foregroundStyle(skin.controlTextColor)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.76)
+                    .frame(maxWidth: .infinity, alignment: .center)
 
-                HStack(spacing: scaled(6, pad: 7)) {
-                    Text(title)
-                        .font(.appSystem(size: scaled(14, pad: 16), weight: .bold, design: .rounded))
-                        .foregroundStyle(MeScreenPalette.text)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.76)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .layoutPriority(1)
-
-                    Image("MeEnter")
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFit()
-                        .frame(width: scaled(20, pad: 23), height: scaled(20, pad: 23))
-                        .padding(.trailing, scaled(1, pad: 2))
-                }
-                .padding(.leading, scaled(17, pad: 20))
-                .padding(.trailing, scaled(12, pad: 14))
-                .padding(.top, scaled(3 + contentTopOffset, pad: 4 + contentTopOffset))
-                .frame(width: width, height: height)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12 * fontScale, weight: .light))
+                    .foregroundStyle(skin.controlTextColor)
+                    .fixedSize()
             }
+            .frame(width: width - horizontalInset * 2, height: height - tailHeight)
+            .padding(.horizontal, horizontalInset)
+            .padding(.top, pointsUp ? tailHeight : 0)
+            .padding(.bottom, pointsUp ? 0 : tailHeight)
             .frame(width: width, height: height)
+            .appLiquidGlass(
+                in: MeSpeechBubbleShape(pointsUp: pointsUp),
+                fallbackWhiteOpacity: 0.18,
+                fallbackShowsBorder: false,
+                usesClearGlass: true
+            )
+            .environment(\.colorScheme, skin.isDarkBackground ? .dark : .light)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title.replacingOccurrences(of: "\n", with: " "))
-    }
-
-    private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
-        isPadLayout ? (pad ?? base * 1.15) : base
     }
 }
 

@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 struct QuickEditPreviewDropDelegate: DropDelegate {
     let targetSlotID: UUID
-    @Binding var previewSlots: [QuickEditView.PreviewSlot]
+    @Binding var previewSlots: [QuickEditPreviewSlot]
     @Binding var dragSourceID: UUID?
     @Binding var dropTargetID: UUID?
 

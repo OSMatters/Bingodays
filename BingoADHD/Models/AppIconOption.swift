@@ -1,6 +1,7 @@
 import Foundation
 
 enum AppIconOption: String, CaseIterable, Identifiable {
+    case autumn
     case `default`
     case halloween
     case days10
@@ -10,8 +11,14 @@ enum AppIconOption: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    var requiresPremium: Bool {
+        self == .halloween || self == .premium
+    }
+
     var previewAssetName: String {
         switch self {
+        case .autumn:
+            return "AppIconPreviewAutumn"
         case .default:
             return "AppIconPreviewDefault"
         case .halloween:
@@ -30,6 +37,8 @@ enum AppIconOption: String, CaseIterable, Identifiable {
     /// A stable asset identity, independent of which seasonal icon is primary.
     var iconAssetName: String {
         switch self {
+        case .autumn:
+            return "AppIconAutumn"
         case .default:
             return "AppIcon"
         case .halloween:
@@ -51,7 +60,7 @@ enum AppIconOption: String, CaseIterable, Identifiable {
 
     var requiredDays: Int? {
         switch self {
-        case .default, .halloween, .premium:
+        case .autumn, .default, .halloween, .premium:
             return nil
         case .days10:
             return 10
@@ -64,6 +73,8 @@ enum AppIconOption: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
+        case .autumn:
+            return L10n.tr("Autumn", zhHans: "秋日", zhHant: "秋日", ja: "秋", ko: "가을")
         case .default:
             return L10n.tr("Default", zhHans: "默认", zhHant: "預設", ja: "デフォルト")
         case .halloween:

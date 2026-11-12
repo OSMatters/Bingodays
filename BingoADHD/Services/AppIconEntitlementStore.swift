@@ -2,6 +2,7 @@ import Foundation
 
 /// Captured before production services write this launch's onboarding/streak data.
 /// Local ownership survives ordinary upgrades; it is not an account entitlement.
+/// Legacy Halloween ownership does not bypass the current Pro requirement.
 @MainActor
 final class AppIconEntitlementStore {
     static let storageKey = "app_icon_entitlement_migration_v1"
@@ -42,11 +43,11 @@ final class AppIconEntitlementStore {
     var pendingResetFromHalloween: Bool { state.pendingResetFromHalloween }
 
     var visibleOptions: [AppIconOption] {
-        AppIconOption.allCases.filter { allows($0) }
+        AppIconOption.allCases
     }
 
-    func allows(_ option: AppIconOption) -> Bool {
-        option != .halloween || ownsHalloween
+    func allows(_ option: AppIconOption, hasPremiumAccess: Bool) -> Bool {
+        !option.requiresPremium || hasPremiumAccess
     }
 
     func finishReset() {

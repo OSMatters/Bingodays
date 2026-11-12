@@ -61,8 +61,15 @@ final class MacWorkspaceStore: ObservableObject {
     }
     func toggle(row: Int, col: Int) {
         if isOrganizing || !model.cells[row][col].hasStoredTask { editingCellID = model.cells[row][col].id; return }
+        let tappedID = model.cells[row][col].id
+        let now = Date()
+        evaluateResets(now: now)
+        guard let active = boards.selectedBoardSnapshot,
+              !BoardResetRuleEngine.pendingResetEvaluation(for: active, now: now).shouldApply,
+              row < model.cells.count, col < model.cells[row].count,
+              model.cells[row][col].id == tappedID else { return }
         let wasCompleted = model.cells[row][col].isCompleted
-        model.toggleComplete(row: row, col: col)
+        guard model.toggleComplete(row: row, col: col, referenceDate: now) else { return }
         if !wasCompleted && model.cells[row][col].isCompleted && AppSettings.isSoundEffectsEnabled { completionSound?.play() }
         persist()
     }

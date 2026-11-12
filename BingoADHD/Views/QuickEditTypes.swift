@@ -3,9 +3,17 @@ import Foundation
 struct QuickEditBoardContext {
     let boardID: UUID?
     let board: SavedBoard
+    let accountScopeIdentifier: String?
+
+    init(boardID: UUID?, board: SavedBoard) {
+        self.boardID = boardID
+        self.board = board
+        self.accountScopeIdentifier = NativeICloudPreferences.accountScopeIdentifier
+    }
 
     func matches(_ current: SavedBoard?, boardID: UUID?) -> Bool {
-        guard self.boardID == boardID, let current else { return false }
+        guard accountScopeIdentifier == NativeICloudPreferences.accountScopeIdentifier,
+              self.boardID == boardID, let current else { return false }
         // Compare stored cells, not date-dependent projections or board metadata.
         return TaskRulePersistenceGuard.matchesStoredTasks(board, current)
     }
@@ -77,12 +85,14 @@ struct QuickEditPreviewSlot: Identifiable, Equatable {
         let text = cellState.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         return MyTaskItem(
+            id: cellState.id,
             text: text,
             startAt: cellState.startVisibleAt,
             endAt: cellState.endVisibleAt,
             startMonth: cellState.startVisibleMonth,
             startDay: cellState.startVisibleDay,
-            recurrenceRule: cellState.effectiveRecurrenceRule
+            recurrenceRule: cellState.effectiveRecurrenceRule,
+            customCompletionPoints: cellState.customCompletionPoints
         )
     }
 }
@@ -98,7 +108,8 @@ struct QuickEditDeselectedTaskDraft {
            task.endAt == sourceTask.endAt,
            task.startMonth == sourceTask.startMonth,
            task.startDay == sourceTask.startDay,
-           task.recurrenceRule == sourceTask.recurrenceRule {
+           task.recurrenceRule == sourceTask.recurrenceRule,
+           task.customCompletionPoints == sourceTask.customCompletionPoints {
             return cellState
         }
 
@@ -245,6 +256,11 @@ func quickEditMakePreviewCell(
     var taskCopy = task
     taskCopy.text = String(task.text.prefix(AppSettings.maxTaskLength)).trimmingCharacters(in: .whitespacesAndNewlines)
     taskCopy.normalizeVisibilityWindow()
+    // Legacy library definitions have no points field. They must not erase an
+    // existing board occurrence's configuration during metadata synchronization.
+    if taskCopy.customCompletionPoints == nil, let existingCell {
+        taskCopy.customCompletionPoints = existingCell.customCompletionPoints
+    }
 
     guard let existingCell else {
         let recurrenceRule = taskCopy.recurrenceRule
@@ -266,6 +282,7 @@ func quickEditMakePreviewCell(
             isForced: false,
             countdownEndsAt: nil,
             estimatedDurationMinutes: nil,
+            customCompletionPoints: taskCopy.customCompletionPoints,
             completionStreakCount: TaskCompletionHistoryRuleEngine.inheritedCompletionCount(
                 previousTaskText: "",
                 previousCompletionCount: 0,
@@ -292,6 +309,7 @@ func quickEditMakePreviewCell(
         existingCell.endVisibleAt != endAt ||
         existingCell.startVisibleMonth != startMonth ||
         existingCell.startVisibleDay != startDay
+    cell.customCompletionPoints = taskCopy.customCompletionPoints
     cell.text = taskCopy.trimmedText
     cell.residentTaskText = usesStoredSchedule ? taskCopy.trimmedText : nil
     cell.residentWeekdays = []
@@ -515,6 +533,39 @@ func quickEditEmptyPreviewSlots(count: Int) -> [QuickEditPreviewSlot] {
     return (0..<count).map { _ in QuickEditPreviewSlot() }
 }
 
+/// Match task definitions, never just titles: same-name tasks may have different rules.
+func quickEditSameTaskDefinition(_ lhs: MyTaskItem, _ rhs: MyTaskItem) -> Bool {
+    lhs.hasSameDefinition(as: rhs)
+}
+
+/// Creates local associations without modifying the library or board runtime state.
+func quickEditInitialTaskPool(
+    cells: [BingoCell?], candidates: [QuickEditTaskCandidate], totalSlots: Int
+) -> (slots: [QuickEditPreviewSlot], supplementalTasks: [String: MyTaskItem]) {
+    var usedKeys = Set<String>()
+    var supplementalTasks: [String: MyTaskItem] = [:]
+    var slots = cells.prefix(totalSlots).map { cell -> QuickEditPreviewSlot in
+        var slot = QuickEditPreviewSlot(cellState: cell)
+        guard let cell, let task = slot.task else { return slot }
+        let legacyMatches = candidates.filter { candidate in
+            guard !usedKeys.contains(candidate.id), candidate.task.customCompletionPoints == nil else { return false }
+            var migrated = candidate.task
+            migrated.customCompletionPoints = task.customCompletionPoints
+            return quickEditSameTaskDefinition(migrated, task)
+        }
+        let match = candidates.first { !usedKeys.contains($0.id) && $0.task.id == cell.id }
+            ?? candidates.first { !usedKeys.contains($0.id) && quickEditSameTaskDefinition($0.task, task) }
+            ?? (legacyMatches.count == 1 ? legacyMatches.first : nil)
+        let key = match?.id ?? "board:\(cell.id.uuidString)"
+        slot.sourceTaskKey = key
+        usedKeys.insert(key)
+        if match == nil || key.hasPrefix("history:") { supplementalTasks[key] = task }
+        return slot
+    }
+    slots += quickEditEmptyPreviewSlots(count: max(0, totalSlots - slots.count))
+    return (slots, supplementalTasks)
+}
+
 func quickEditTaskKey(_ task: MyTaskItem) -> String {
     task.id.uuidString
 }
@@ -530,7 +581,8 @@ func quickEditTaskFromHistory(_ record: TaskHistoryRecord) -> MyTaskItem {
         endAt: record.endAt,
         startMonth: record.startMonth,
         startDay: record.startDay,
-        recurrenceRule: record.recurrenceRule
+        recurrenceRule: record.recurrenceRule,
+        customCompletionPoints: record.customCompletionPoints
     )
 }
 
@@ -928,9 +980,17 @@ func quickEditSyncPreviewSlotsWithLibrary(
     var slots = currentSlots
     for index in slots.indices {
         guard let sourceTaskKey = slots[index].sourceTaskKey else { continue }
-        guard let task = candidateTaskMap[sourceTaskKey],
-              !task.trimmedText.isEmpty,
-              task.isStartDateReached() else {
+        guard var task = candidateTaskMap[sourceTaskKey],
+              !task.trimmedText.isEmpty else {
+            slots[index].cellState = nil
+            slots[index].sourceTaskKey = nil
+            continue
+        }
+        if task.customCompletionPoints == nil {
+            task.customCompletionPoints = slots[index].cellState?.customCompletionPoints
+        }
+        if let existingTask = slots[index].task, quickEditSameTaskDefinition(existingTask, task) { continue }
+        guard task.isStartDateReached() else {
             slots[index].cellState = nil
             slots[index].sourceTaskKey = nil
             continue
@@ -1117,7 +1177,8 @@ func quickEditLegacyHistoryItemsFromDiaryEntries(_ entries: [BingoDiaryEntry]) -
                         endAt: cell.endVisibleAt,
                         startMonth: cell.startVisibleMonth,
                         startDay: cell.startVisibleDay,
-                        recurrenceRule: cell.effectiveRecurrenceRule
+                        recurrenceRule: cell.effectiveRecurrenceRule,
+                        customCompletionPoints: cell.customCompletionPoints
                     ),
                     date: entry.date
                 )
@@ -1216,6 +1277,29 @@ func quickEditCommitInlineTask(
     }
 }
 
+/// Saves the detailed editor's definition without replacing its chosen schedule with a group default.
+func quickEditCommitDetailedTask(
+    cell: BingoCell, destination: QuickEditFilterTab, isPremiumUser: Bool,
+    library: inout MyTasksLibrary
+) -> QuickEditInlineCommitResult {
+    guard var task = QuickEditPreviewSlot(cellState: cell).task else { return .noOp }
+    task.text = String(task.trimmedText.prefix(AppSettings.maxTaskLength))
+    switch destination {
+    case .all:
+        guard quickEditCanAddStandaloneTask(isPremiumUser: isPremiumUser, library: library) else {
+            return .paywall("standalone_task_limit_detailed_commit")
+        }
+        library.tasks.append(task)
+    case .group(let groupID):
+        guard let index = library.groups.firstIndex(where: { $0.id == groupID }) else { return .resetFilterToAll }
+        guard quickEditCanAddTask(to: library.groups[index], isPremiumUser: isPremiumUser) else {
+            return .paywall("group_task_limit_detailed_commit")
+        }
+        library.groups[index].tasks.append(task)
+    }
+    return .appended(task)
+}
+
 func quickEditSyncedTask(existingTask: MyTaskItem, newTask: MyTaskItem) -> MyTaskItem {
     var task = existingTask
     task.text = newTask.trimmedText
@@ -1224,6 +1308,7 @@ func quickEditSyncedTask(existingTask: MyTaskItem, newTask: MyTaskItem) -> MyTas
     task.startMonth = newTask.startMonth
     task.startDay = newTask.startDay
     task.recurrenceRule = newTask.recurrenceRule
+    task.customCompletionPoints = newTask.customCompletionPoints
     task.normalizeStartDate()
     return task
 }

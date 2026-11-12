@@ -31,25 +31,29 @@ final class TaskStartReminderSyncStore: ObservableObject {
             now: now
         )
 
-        guard syncSignature != pendingSyncSignature,
-              syncSignature != lastCompletedSyncSignature else {
-            return syncTask
-        }
+        if syncSignature == pendingSyncSignature { return syncTask }
+        if pendingSyncSignature == nil, syncSignature == lastCompletedSyncSignature { return nil }
 
-        syncTask?.cancel()
+        // Another plan can partially write before failing or being cancelled.
+        lastCompletedSyncSignature = nil
+        let previousTask = syncTask
+        previousTask?.cancel()
         pendingSyncSignature = syncSignature
         let task = Task { [scheduler, debounceNanoseconds, syncSignature] in
+            // Drain an in-flight SDK write before reconciling the newer plan.
+            await previousTask?.value
             try? await Task.sleep(nanoseconds: debounceNanoseconds)
             guard !Task.isCancelled else { return }
-            await scheduler.syncReminders(
+            let succeeded = await scheduler.syncReminders(
                 namedBoards: namedBoards,
                 selectedBoardID: selectedBoardID,
                 activeBoard: activeBoard,
                 now: now
             )
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard pendingSyncSignature == syncSignature else { return }
-                lastCompletedSyncSignature = syncSignature
+                if succeeded { lastCompletedSyncSignature = syncSignature }
                 pendingSyncSignature = nil
                 syncTask = nil
             }
@@ -58,9 +62,14 @@ final class TaskStartReminderSyncStore: ObservableObject {
         return task
     }
 
+    func invalidateCompletedSync() {
+        lastCompletedSyncSignature = nil
+    }
+
     func cancelPendingSync() {
         syncTask?.cancel()
-        syncTask = nil
+        // Retain the handle so a later request still drains any late SDK write.
         pendingSyncSignature = nil
+        lastCompletedSyncSignature = nil
     }
 }

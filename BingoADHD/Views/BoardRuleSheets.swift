@@ -634,6 +634,23 @@ struct BoardRulesSheet: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .transition(.opacity)
 
+                    if let nextReset = BoardResetRuleEngine.nextScheduledResetTime(
+                        after: .now, mode: selectedResetMode, customResetMinutes: resolvedCustomResetMinutes
+                    ) {
+                        Text(L10n.tr("Next reset: ", zhHans: "下次重置：", zhHant: "下次重置：", ja: "次のリセット：")
+                             + nextReset.formatted(date: .abbreviated, time: .shortened))
+                            .appDynamicFont(size: scaled(13, pad: 15), design: .rounded)
+                            .foregroundStyle(NeumorphicColors.text.opacity(0.58))
+                    }
+                    Text(L10n.tr(
+                        "If the app is closed, your board updates automatically when you return.",
+                        zhHans: "未打开 App 时，下次打开会自动更新面板。",
+                        zhHant: "未開啟 App 時，下次開啟會自動更新面板。",
+                        ja: "アプリを閉じている場合、次に開くとボードが自動更新されます。"
+                    ))
+                    .appDynamicFont(size: scaled(13, pad: 15), design: .rounded)
+                    .foregroundStyle(NeumorphicColors.text.opacity(0.58))
+
                     DatePicker(
                         "",
                         selection: $customResetTimeOfDay,

@@ -22,6 +22,7 @@ struct HomeBoardMainContent: View {
     let onBoardLongPress: (UUID) -> Void
     let onCreateBoard: () -> Void
     let onDismissBoardEditHint: () -> Void
+    var onPrepareTaskCompletion: ((Date) -> Bool)? = nil
     let onCellCompletionToggled: () -> Void
     let onTaskPresentationChange: (Bool) -> Void
     let onCountdown: () -> Void
@@ -60,6 +61,7 @@ struct HomeBoardMainContent: View {
                 shouldShowCenterLongPressHint: shouldShowCenterLongPressHint,
                 allowsBoardSwipe: allowsBoardSwipe,
                 onSelectBoard: onSelectBoard,
+                onPrepareTaskCompletion: onPrepareTaskCompletion,
                 onCellCompletionToggled: onCellCompletionToggled,
                 onTaskPresentationChange: onTaskPresentationChange
             )

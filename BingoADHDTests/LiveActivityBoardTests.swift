@@ -162,7 +162,9 @@ struct LiveActivityBoardTests {
             let first = makeBoard(size: 3, now: now)
             let second = makeBoard(size: 3, now: now)
             try save(boards: [first, second], selected: first.id)
-            #expect(ExternalBoardTaskMutationService.apply(boardID: second.id, target: .position(row: 0, col: 0), selectBoard: true, now: now))
+            let cell = BingoBoardActivitySnapshotBuilder.make(board: second, now: now).cells[0]
+            #expect(ExternalBoardTaskMutationService.apply(boardID: second.id,
+                target: .cell(id: cell.id, completed: true, version: cell.version), selectBoard: true, now: now))
             #expect(BingoBoardStore.loadNamedBoardsSnapshot().selectedBoardID == second.id)
             #expect(WidgetPanelSelectionStore.loadSelectedPanelID() == second.id)
             #expect(PointsStore.loadTotalPoints() == 1)

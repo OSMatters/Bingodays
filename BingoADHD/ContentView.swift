@@ -28,6 +28,7 @@ struct ContentView: View {
     @StateObject private var viewModel = BingoViewModel()
     @StateObject private var boardManagementStore = BoardManagementStore()
     @StateObject private var pointsFeatureStore = PointsFeatureStore()
+    @StateObject private var blindBoxPresentation = BlindBoxPresentationState()
     @StateObject private var homeBlindBoxStickerShelfStore = HomeBlindBoxStickerShelfStore()
     @StateObject private var toastStore = HomeToastStore()
     @StateObject private var pointsAnimationStore = PointsAnimationStore()
@@ -109,7 +110,8 @@ struct ContentView: View {
     @AppStorage(AppSettings.newBadgeExistingUserKey) private var isExistingUserForNewBadges = false
     @AppStorage(AppSettings.themeKey) private var themeRawValue = AppTheme.concise.rawValue
     @AppStorage(AppSettings.homeBackgroundKey) private var homeBackgroundRawValue = HomeBackgroundOption.none.rawValue
-    @AppStorage(AppSettings.meSkinKey) private var meSkinRawValue = MeSkin.halloween.rawValue
+    @AppStorage(AppSettings.meSkinKey) private var meSkinRawValue = MeSkin.autumn.rawValue
+    @State private var isMeSkinPickerExpanded = false
     @AppStorage(AppSettings.homeSkinNewBadgeVersionKey) private var homeSkinNewBadgeVersion = ""
     @AppStorage(AppSettings.homeSkinNewBadgeTapCountKey) private var homeSkinNewBadgeTapCount = 0
     @AppStorage(AppSettings.lastPromptedUpdateVersionKey) private var lastPromptedUpdateVersion = ""
@@ -154,14 +156,14 @@ struct ContentView: View {
         return selectedBackground
     }
     private var activeMeSkin: MeSkin {
-        MeSkin(rawValue: meSkinRawValue) ?? .halloween
+        MeSkin(rawValue: meSkinRawValue) ?? .autumn
     }
     private var isDarkTabBarBackground: Bool {
         switch selectedMainTab {
         case .home:
             return activeHomeBackground.isDarkTone
         case .me:
-            return activeMeSkin.isHalloween
+            return activeMeSkin.isDarkBackground
         case .points:
             return false
         }
@@ -345,6 +347,10 @@ struct ContentView: View {
             let taskCells = BoardEngine.expandedBoardCache(from: selectedBoard.board)
                 .flatMap { $0 }
                 .filter(\.hasStoredTask)
+            details["reset_timezone"] = TimeZone.current.identifier
+            details["selected_last_reset"] = selectedBoard.lastTaskResetAppliedAt.map { String($0.timeIntervalSince1970) } ?? "none"
+            details["selected_latest_due"] = BoardResetRuleEngine.latestScheduledResetTime(atOrBefore: .now, for: selectedBoard)
+                .map { String($0.timeIntervalSince1970) } ?? "none"
             details["selected_reset_mode"] = selectedBoard.taskResetMode.rawValue
             details["selected_custom_reset_minutes"] = selectedBoard.customResetMinutes.map(String.init) ?? "none"
             details["selected_task_count"] = "\(taskCells.count)"
@@ -549,6 +555,7 @@ struct ContentView: View {
             )
         )
         .environment(\.locale, AppLanguage(rawValue: selectedLanguageCode)?.locale ?? AppLanguage.system.locale)
+        .environmentObject(blindBoxPresentation)
         .modifier(BlindBoxSilentTicketRefresh())
         .fullScreenCover(isPresented: $isIconMilestonePresented, onDismiss: {
             iconStreakStore.acknowledgeMilestones(presentedIconMilestones)
@@ -632,6 +639,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: selectedMainTab) { _, newValue in
+            isMeSkinPickerExpanded = false
             if newValue == .points {
                 hasSeenBlindBoxNewBadge = true
             }
@@ -644,6 +652,12 @@ struct ContentView: View {
             if newValue != .points {
                 isPointsTabSubpagePresented = false
             }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                taskStartReminderSyncStore.invalidateCompletedSync()
+                syncTaskStartReminders()
+            } else { isMeSkinPickerExpanded = false }
         }
         .onReceive(NotificationCenter.default.publisher(for: .limitedOfferEligibilityDidChange)) { _ in
             Task {
@@ -743,9 +757,9 @@ struct ContentView: View {
         }
     }
 
-    private func tabRoot<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func tabRoot<Content: View>(@ViewBuilder content: @escaping () -> Content) -> some View {
         // Bar preferences must originate inside the TabView that owns the bar.
-        ZStack { content() }
+        DuoContentRegion { content() }
             .toolbar(isMainTabBarSuppressed ? .hidden : .visible, for: .tabBar)
             .toolbarColorScheme(.light, for: .tabBar)
     }
@@ -782,9 +796,9 @@ struct ContentView: View {
             let heightLimitedContent = geo.size.height
                 - max(topLayoutSafeInset, 0)
                 - max(geo.safeAreaInsets.bottom, 0)
-                - (usesPadLayout ? 250 : 0)
+                - (usesPadLayout ? 190 : 0)
             let contentWidth = usesPadLayout
-                ? max(300, min(widthLimitedContent, heightLimitedContent))
+                ? max(220, min(widthLimitedContent, heightLimitedContent))
                 : min(353, widthLimitedContent)
 
             ZStack(alignment: .top) {
@@ -813,6 +827,7 @@ struct ContentView: View {
                 }
 
                 Group {
+                    ScrollView(.vertical) {
                     VStack(spacing: 0) {
                     HomeHeaderView(
                         pointsAnimationStore: pointsAnimationStore,
@@ -859,7 +874,7 @@ struct ContentView: View {
                             presentLimitedTimeDiscount()
                         }
                     )
-                        .frame(width: contentWidth)
+                        .frame(width: usesPadLayout ? min(widthLimitedContent, 900) : contentWidth)
                         .padding(.top, max(topLayoutSafeInset, 0) + 12)
 
                     HomeBoardMainContent(
@@ -883,6 +898,11 @@ struct ContentView: View {
                         onBoardLongPress: beginBoardActions,
                         onCreateBoard: beginCreateBoard,
                         onDismissBoardEditHint: dismissBoardEditHint,
+                        onPrepareTaskCompletion: { now in
+                            handleBoardResetLifecycle(now: now, source: "taskTap")
+                            guard let selected = boardManagementStore.selectedBoardSnapshot else { return false }
+                            return !BoardResetRuleEngine.pendingResetEvaluation(for: selected, now: now).shouldApply
+                        },
                         onCellCompletionToggled: {
                             commitCellCompletionSnapshot()
                             selectedStickerID = nil
@@ -970,8 +990,11 @@ struct ContentView: View {
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .top)
                 .offset(y: -layoutLift)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .scrollIndicators(.hidden)
 
                     HomeStickerLayer(
                     pointsFeatureStore: pointsFeatureStore,
@@ -1127,9 +1150,11 @@ struct ContentView: View {
             streakDays: meConsecutiveOpenDays,
             greetingText: MeGreeting.localizedText(at: meGreetingIndex),
             skin: activeMeSkin,
+            isSkinPickerExpanded: $isMeSkinPickerExpanded,
             isPadLayout: isPadLayout,
             bottomInset: bottomInset,
             onOpenContact: {
+                isMeSkinPickerExpanded = false
                 DiagnosticLogStore.recordUserAction(
                     "me.contact",
                     details: diagnosticHomeStateDetails(source: "me")
@@ -1137,6 +1162,7 @@ struct ContentView: View {
                 isContactUsPresented = true
             },
             onOpenSettings: {
+                isMeSkinPickerExpanded = false
                 DiagnosticLogStore.recordUserAction(
                     "me.settings",
                     details: diagnosticHomeStateDetails(source: "me")
@@ -1144,6 +1170,7 @@ struct ContentView: View {
                 isMeSettingsPresented = true
             },
             onLeaveReview: {
+                isMeSkinPickerExpanded = false
                 DiagnosticLogStore.recordUserAction(
                     "me.encourage_us",
                     details: diagnosticHomeStateDetails(source: "me")
@@ -1151,6 +1178,7 @@ struct ContentView: View {
                 requestAppStoreReviewFromMe(markEntryHidden: true)
             },
             onOpenDiary: {
+                isMeSkinPickerExpanded = false
                 DiagnosticLogStore.recordUserAction(
                     "me.diary",
                     details: diagnosticHomeStateDetails(source: "me")
@@ -1158,10 +1186,14 @@ struct ContentView: View {
                 isDiaryPresented = true
             },
             onOpenPremium: {
+                isMeSkinPickerExpanded = false
                 presentPremiumPaywall(source: "me_pro_entry")
             },
-            onToggleSkin: {
-                meSkinRawValue = activeMeSkin == .halloween ? MeSkin.normal.rawValue : MeSkin.halloween.rawValue
+            onSelectSkin: { skin in
+                isMeSkinPickerExpanded = false
+                guard skin != activeMeSkin else { return }
+                AppHaptics.control()
+                meSkinRawValue = skin.rawValue
             }
         )
         .id(selectedLanguageCode)

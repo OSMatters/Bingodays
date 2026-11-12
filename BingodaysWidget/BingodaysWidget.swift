@@ -8,6 +8,7 @@ struct WidgetBoardPanel: Identifiable {
     let board: SavedBoard
     let countdownEndsAt: Date?
     let nextResetAt: Date?
+    var taskVersions: [UUID: String] = [:]
 }
 
 struct BingodaysWidgetEntry: TimelineEntry {
@@ -125,7 +126,9 @@ struct BingodaysWidgetProvider: TimelineProvider {
             nextResetAt: BoardResetRuleEngine.nextScheduledResetTime(
                 for: preparedBoard,
                 after: date
-            )
+            ),
+            taskVersions: Dictionary(uniqueKeysWithValues:
+                BingoBoardActivitySnapshotBuilder.make(board: preparedBoard, now: date).cells.map { ($0.id, $0.version) })
         )
     }
 
@@ -576,12 +579,13 @@ private struct BingodaysLargeWidgetView: View {
                 usesCompletionArtwork: true
             )
 
-        guard isActive, let activePanelID, isToggleable else {
+        guard isActive, let activePanelID, isToggleable,
+              let version = entry.panels.first(where: { $0.id == activePanelID })?.taskVersions[cell.id] else {
             return AnyView(cellView)
         }
 
         return AnyView(
-            Button(intent: ToggleWidgetTaskIntent(boardID: activePanelID.uuidString, row: row, col: col)) {
+            Button(intent: ToggleWidgetTaskIntent(boardID: activePanelID, cellID: cell.id, completed: !cell.isCompleted, version: version)) {
                 cellView
             }
             .buttonStyle(.plain)

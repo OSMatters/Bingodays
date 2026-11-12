@@ -2,7 +2,7 @@ import SwiftUI
 
 struct QuickEditPreviewGridView: View {
     @Binding var targetGridSize: Int
-    @Binding var previewSlots: [QuickEditView.PreviewSlot]
+    @Binding var previewSlots: [QuickEditPreviewSlot]
     @Binding var previewDragSourceID: UUID?
     @Binding var previewDropTargetID: UUID?
 
@@ -41,6 +41,11 @@ struct QuickEditPreviewGridView: View {
                     )
                     .frame(maxWidth: .infinity)
                     .aspectRatio(1, contentMode: .fit)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: isPadLayout ? 18 : 16)
+                            .stroke(Color(hex: "D79863"), lineWidth: previewDropTargetID == slot.id ? 2 : 0)
+                            .allowsHitTesting(false)
+                    }
                     .onDrag {
                         guard slot.task != nil else { return NSItemProvider() }
                         previewDragSourceID = slot.id
@@ -71,8 +76,25 @@ struct QuickEditPreviewGridView: View {
                             }
                         }
                     }
+                    .overlay(alignment: .topLeading) {
+                        if slot.task != nil {
+                            Button {
+                                onDeleteSlot(slot.id)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.appSystem(size: 20, weight: .medium))
+                                    .foregroundStyle(NeumorphicColors.text.opacity(0.65), Color.white.opacity(0.95))
+                                    .frame(width: 32, height: 32)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .offset(x: -8, y: -8)
+                            .accessibilityLabel(L10n.tr("Remove from board", zhHans: "从棋盘移除", zhHant: "從棋盤移除"))
+                        }
+                    }
                 }
             }
+            .aspectRatio(1, contentMode: .fit)
             .onDrop(of: ["public.text", "public.plain-text"], isTargeted: nil) { _ in
                 onClearPreviewDrag()
                 return false
@@ -86,12 +108,24 @@ struct QuickEditPreviewGridView: View {
     }
 
     private var controlsRow: some View {
-        let controlSize: CGFloat = isPadLayout ? 38 : 32
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                gridSizeControls
+                Spacer(minLength: 0)
+                selectedCountBadge
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                gridSizeControls
+                selectedCountBadge
+            }
+        }
+    }
+
+    private var gridSizeControls: some View {
+        let controlSize: CGFloat = 44
         let iconSize: CGFloat = isPadLayout ? 18 : 16
         let theme = AppTheme.concise
-
-        return HStack(alignment: .center, spacing: 12) {
-            HStack(spacing: isPadLayout ? 14 : 11) {
+        return HStack(spacing: isPadLayout ? 10 : 2) {
                 Button {
                     onDecreaseGrid()
                 } label: {
@@ -99,21 +133,14 @@ struct QuickEditPreviewGridView: View {
                         .font(.appSystem(size: iconSize, weight: .bold))
                         .foregroundStyle(theme.color)
                         .frame(width: controlSize, height: controlSize)
-                        .background(controlButtonSurface(size: controlSize))
+
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(L10n.tr("Reduce board size", zhHans: "缩小棋盘", zhHant: "縮小棋盤"))
                 .disabled(targetGridSize <= 2)
                 .opacity(targetGridSize <= 2 ? 0.45 : 1)
 
-                Text("\(targetGridSize)")
-                    .font(.appSystem(size: scaled(18, pad: 22), weight: .medium, design: .rounded))
-                    .foregroundStyle(NeumorphicColors.text)
-
-                Image(systemName: "xmark")
-                    .font(.appSystem(size: scaled(10, pad: 12), weight: .bold, design: .rounded))
-                    .foregroundStyle(NeumorphicColors.text.opacity(0.6))
-
-                Text("\(targetGridSize)")
+                Text("\(targetGridSize) × \(targetGridSize)")
                     .font(.appSystem(size: scaled(18, pad: 22), weight: .medium, design: .rounded))
                     .foregroundStyle(NeumorphicColors.text)
 
@@ -124,16 +151,17 @@ struct QuickEditPreviewGridView: View {
                         .font(.appSystem(size: iconSize, weight: .bold))
                         .foregroundStyle(theme.color)
                         .frame(width: controlSize, height: controlSize)
-                        .background(controlButtonSurface(size: controlSize))
+
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(L10n.tr("Increase board size", zhHans: "扩大棋盘", zhHant: "擴大棋盤"))
                 .disabled(targetGridSize >= 5)
                 .opacity(targetGridSize >= 5 ? 0.45 : 1)
-            }
+            }.fixedSize(horizontal: true, vertical: false)
+    }
 
-            Spacer(minLength: 0)
-
-            Text(selectedCountSummary)
+    private var selectedCountBadge: some View {
+        Text(selectedCountSummary)
                 .font(.appSystem(size: scaled(13, pad: 15), weight: .semibold, design: .rounded))
                 .foregroundStyle(NeumorphicColors.text.opacity(0.92))
                 .padding(.horizontal, 16)
@@ -141,26 +169,18 @@ struct QuickEditPreviewGridView: View {
                 .background(
                     Capsule(style: .continuous)
                         .fill(selectedBadgeBackground)
-                )
-        }
+                ).fixedSize(horizontal: true, vertical: false)
     }
 
     private func scaled(_ base: CGFloat, pad: CGFloat? = nil) -> CGFloat {
         isPadLayout ? (pad ?? base * 1.18) : base
     }
 
-    private func controlButtonSurface(size: CGFloat) -> some View {
-        let theme = AppTheme.concise
-        return Circle()
-            .fill(theme.color.opacity(theme == .concise ? 0.12 : 0.14))
-            .shadow(color: Color.white.opacity(theme == .concise ? 0.72 : 0.62), radius: 6, x: -3, y: -3)
-            .shadow(color: theme.bingoSurfaceShadowColor.opacity(0.2), radius: 6, x: 3, y: 3)
-            .frame(width: size, height: size)
-    }
+
 }
 
 private struct QuickEditPreviewSlotCard: View {
-    let slot: QuickEditView.PreviewSlot
+    let slot: QuickEditPreviewSlot
     let isPadLayout: Bool
     let emptySlotFill: Color
     let filledSlotFill: Color
@@ -181,7 +201,7 @@ private struct QuickEditPreviewSlotCard: View {
 
             if let task = slot.task?.trimmedText, !task.isEmpty {
                 Text(task)
-                    .font(.appSystem(size: scaled(14, pad: 18), weight: .semibold, design: .rounded))
+                    .font(.appSystem(size: scaled(17, pad: 20), weight: .semibold, design: .rounded))
                     .foregroundStyle(NeumorphicColors.text)
                     .lineLimit(3)
                     .multilineTextAlignment(.center)

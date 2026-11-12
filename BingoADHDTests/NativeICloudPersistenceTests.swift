@@ -1285,6 +1285,89 @@ final class NativeICloudPersistenceTests: XCTestCase {
         XCTAssertEqual(merged.points.lifetimePoints, 816)
     }
 
+    func testCustomResetCloudMergeProtectsCycleAcrossMidnightButAllowsUndoAndNextReset() throws {
+        let f = ISO8601DateFormatter()
+        func date(_ text: String) -> Date { f.date(from: text)! }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Taipei"))
+        let anchor = date("2026-11-09T05:00:00+08:00")
+        let completion = date("2026-11-09T08:00:00+08:00")
+        let delayedReset = date("2026-11-09T09:00:00+08:00")
+        let cell = BingoCell(text: "Protected", recurrenceRule: .init(kind: .daily), isCompleted: true, lastCompletedAt: completion)
+        func snapshot(_ board: BingoBoardStore.NamedBoard, total: Int) -> NativeICloudPrimaryStateSnapshot {
+            NativeICloudPrimaryStateSnapshot(boards: [board],
+                points: .init(totalPoints: total, lifetimePoints: 41, dailyRewardState: nil),
+                diaryEntries: [:], timeoutPayload: [:], customRewards: [], redemptionHistory: [],
+                stickerInventory: [:], stickerPlacements: [])
+        }
+        for mode in [BoardTaskResetMode.resetStatusNextDay, .customResetStatusTime, .clearTasksNextDay] {
+            let local = BingoBoardStore.NamedBoard(name: "Cycle", board: SavedBoard(gridSize: 2, cells: [[cell]], completedLines: [], fullBoardCells: [[cell]]),
+                taskResetMode: mode, customResetMinutes: 300, lastTaskResetAppliedAt: anchor, updatedAt: completion)
+            var incoming = local
+            var cleared = cell
+            cleared.isCompleted = false
+            cleared.lastCompletedAt = nil
+            incoming.board = SavedBoard(gridSize: 2, cells: [[cleared]], completedLines: [], fullBoardCells: [[cleared]])
+            incoming.lastTaskResetAppliedAt = delayedReset
+            incoming.updatedAt = delayedReset
+            for now in [date("2026-11-09T11:00:00+08:00"), date("2026-11-10T01:00:00+08:00")] {
+                let kept = NativeICloudPrimaryStateMerger.merged(local: snapshot(local, total: 41), incoming: snapshot(incoming, total: 40),
+                    localHasNewerUserChange: false, referenceDate: now, calendar: calendar)
+                XCTAssertTrue(kept.boards[0].board.cells[0][0].isCompleted)
+                XCTAssertEqual(kept.points.totalPoints, 41)
+                XCTAssertEqual(kept.points.lifetimePoints, 41)
+                let repeated = NativeICloudPrimaryStateMerger.merged(local: kept, incoming: snapshot(incoming, total: 40),
+                    localHasNewerUserChange: false, referenceDate: now, calendar: calendar)
+                XCTAssertEqual(repeated.points, kept.points)
+                XCTAssertEqual(repeated.boards, kept.boards)
+            }
+            // A later explicit undo is user intent, including after a delayed reset.
+            incoming.updatedAt = delayedReset.addingTimeInterval(60)
+            let undone = NativeICloudPrimaryStateMerger.merged(local: snapshot(local, total: 41), incoming: snapshot(incoming, total: 40),
+                localHasNewerUserChange: false, referenceDate: incoming.updatedAt, calendar: calendar)
+            XCTAssertFalse(undone.boards[0].board.cells[0][0].isCompleted)
+            XCTAssertEqual(undone.points.totalPoints, 40)
+            XCTAssertEqual(undone.points.lifetimePoints, 41)
+            incoming.lastTaskResetAppliedAt = date("2026-11-10T05:00:00+08:00")
+            incoming.updatedAt = incoming.lastTaskResetAppliedAt!
+            let next = NativeICloudPrimaryStateMerger.merged(local: snapshot(local, total: 41), incoming: snapshot(incoming, total: 40),
+                localHasNewerUserChange: false, referenceDate: date("2026-11-10T06:00:00+08:00"), calendar: calendar)
+            XCTAssertFalse(next.boards[0].board.cells[0][0].isCompleted)
+        }
+    }
+
+    func testResetMergeKeepsDifferentDevicesCompletionsWithoutDoublePoints() {
+        let calendar = Calendar.current
+        let now = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: Date())!
+        let boundary = calendar.date(bySettingHour: 5, minute: 0, second: 0, of: now)!
+        var cells = BoardEngine.createEmptyGrid(size: 5)
+        cells[0][0] = BingoCell(text: "Local", recurrenceRule: .init(kind: .daily), isCompleted: true, lastCompletedAt: now.addingTimeInterval(-60))
+        cells[1][1] = BingoCell(text: "Remote", recurrenceRule: .init(kind: .daily))
+        let local = BingoBoardStore.NamedBoard(name: "Cycle", board: SavedBoard(gridSize: 3, cells: cells, completedLines: [], fullBoardCells: cells),
+            customResetMinutes: 300, lastTaskResetAppliedAt: boundary, updatedAt: now.addingTimeInterval(-60))
+        cells[0][0].isCompleted = false
+        cells[0][0].lastCompletedAt = nil
+        cells[1][1].isCompleted = true
+        cells[1][1].lastCompletedAt = now
+        var remote = local
+        remote.board = SavedBoard(gridSize: 3, cells: cells, completedLines: [], fullBoardCells: cells)
+        remote.lastTaskResetAppliedAt = now
+        remote.updatedAt = now
+        func snapshot(_ board: BingoBoardStore.NamedBoard) -> NativeICloudPrimaryStateSnapshot {
+            .init(boards: [board], points: .init(totalPoints: 41, lifetimePoints: 41, dailyRewardState: nil),
+                diaryEntries: [:], timeoutPayload: [:], customRewards: [], redemptionHistory: [], stickerInventory: [:], stickerPlacements: [])
+        }
+        var result = snapshot(local)
+        for _ in 0..<3 {
+            result = NativeICloudPrimaryStateMerger.merged(local: result, incoming: snapshot(remote),
+                localHasNewerUserChange: false, referenceDate: now)
+            XCTAssertTrue(result.boards[0].board.fullBoardCells![0][0].isCompleted)
+            XCTAssertTrue(result.boards[0].board.fullBoardCells![1][1].isCompleted)
+            XCTAssertEqual(result.points.totalPoints, 41)
+            XCTAssertEqual(result.points.lifetimePoints, 41)
+        }
+    }
+
     func testPrimaryMergeDoesNotResurrectBoardRemovedByAnotherDevice() {
         let now = Date(timeIntervalSince1970: 1_774_176_000)
         let deletedBoard = BingoBoardStore.NamedBoard(

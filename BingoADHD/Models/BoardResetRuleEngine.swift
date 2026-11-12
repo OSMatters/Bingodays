@@ -11,9 +11,15 @@ enum TaskLifecycleRuleEngine {
     /// pre-single-removal behavior; only an explicit single occurrence is removed.
     static func dailySettlementAction(
         for cell: BingoCell,
-        mode: BoardTaskResetMode
+        mode: BoardTaskResetMode,
+        preservingCompletionsSince boundary: Date? = nil
     ) -> DailySettlementAction {
         guard cell.hasStoredTask else { return .preserve }
+        // A stale imported reset anchor must not erase a completion in this cycle.
+        if let boundary, cell.isCompleted, let completedAt = cell.lastCompletedAt,
+           completedAt >= boundary {
+            return .preserve
+        }
 
         switch mode {
         case .resetStatusNextDay, .customResetStatusTime:
@@ -97,7 +103,9 @@ enum BoardResetRuleEngine {
         updatedBoard.board = transformedBoardSnapshotForResetMode(
             board.board,
             mode: board.taskResetMode,
-            referenceDate: now
+            referenceDate: now,
+            preservingCompletionsSince: evaluation.usesCustomResetTime
+                ? latestScheduledResetTime(atOrBefore: now, for: board, calendar: calendar) : nil
         )
         updatedBoard.countdownEndsAt = nil
         updatedBoard.lastTaskResetAppliedAt = now
@@ -128,14 +136,41 @@ enum BoardResetRuleEngine {
         calendar: Calendar = .current
     ) -> Date? {
         guard boardUsesCustomResetTime(board) else { return nil }
-        guard let clampedMinutes = normalizedCustomResetMinutes(
-            board.customResetMinutes,
-            mode: board.taskResetMode
-        ) else {
+        return scheduledResetTime(on: now, for: board, calendar: calendar)
+    }
+
+    /// Resolve wall-clock time in each calendar day. Missing DST times advance to
+    /// the next valid time; repeated times use the first occurrence, once per day.
+    private static func scheduledResetTime(
+        on day: Date,
+        for board: BingoBoardStore.NamedBoard,
+        calendar: Calendar
+    ) -> Date? {
+        guard board.taskResetMode != .keepTaskStatus else { return nil }
+        let minutes = normalizedCustomResetMinutes(board.customResetMinutes, mode: board.taskResetMode) ?? 0
+        return scheduledResetTime(on: day, minutes: minutes, calendar: calendar)
+    }
+
+    private static func scheduledResetTime(on day: Date, minutes: Int, calendar: Calendar) -> Date? {
+        calendar.nextDate(
+            after: calendar.startOfDay(for: day).addingTimeInterval(-1),
+            matching: DateComponents(hour: minutes / 60, minute: minutes % 60, second: 0),
+            matchingPolicy: .nextTime,
+            repeatedTimePolicy: .first
+        )
+    }
+
+    static func latestScheduledResetTime(
+        atOrBefore now: Date,
+        for board: BingoBoardStore.NamedBoard,
+        calendar: Calendar = .current
+    ) -> Date? {
+        guard let today = scheduledResetTime(on: now, for: board, calendar: calendar) else { return nil }
+        if today <= now { return today }
+        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: now)) else {
             return nil
         }
-        let startOfDay = calendar.startOfDay(for: now)
-        return calendar.date(byAdding: .minute, value: clampedMinutes, to: startOfDay)
+        return scheduledResetTime(on: yesterday, for: board, calendar: calendar)
     }
 
     static func nextScheduledResetTime(
@@ -143,21 +178,25 @@ enum BoardResetRuleEngine {
         after now: Date,
         calendar: Calendar = .current
     ) -> Date? {
-        guard board.taskResetMode != .keepTaskStatus else { return nil }
+        nextScheduledResetTime(
+            after: now, mode: board.taskResetMode, customResetMinutes: board.customResetMinutes, calendar: calendar
+        )
+    }
 
-        let minutes = normalizedCustomResetMinutes(
-            board.customResetMinutes,
-            mode: board.taskResetMode
-        ) ?? 0
-        let startOfDay = calendar.startOfDay(for: now)
-        guard let triggerToday = calendar.date(byAdding: .minute, value: minutes, to: startOfDay) else {
+    static func nextScheduledResetTime(
+        after now: Date,
+        mode: BoardTaskResetMode,
+        customResetMinutes: Int?,
+        calendar: Calendar = .current
+    ) -> Date? {
+        guard mode != .keepTaskStatus else { return nil }
+        let minutes = normalizedCustomResetMinutes(customResetMinutes, mode: mode) ?? 0
+        guard let today = scheduledResetTime(on: now, minutes: minutes, calendar: calendar) else { return nil }
+        if today > now { return today }
+        guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) else {
             return nil
         }
-        if triggerToday > now {
-            return triggerToday
-        }
-        return calendar.date(byAdding: .day, value: 1, to: triggerToday)
-            ?? triggerToday.addingTimeInterval(86_400)
+        return scheduledResetTime(on: tomorrow, minutes: minutes, calendar: calendar)
     }
 
     static func shouldApplyCustomReset(
@@ -165,12 +204,12 @@ enum BoardResetRuleEngine {
         now: Date,
         calendar: Calendar = .current
     ) -> Bool {
-        guard let triggerTime = customResetTriggerTime(for: board, now: now, calendar: calendar) else {
+        guard boardUsesCustomResetTime(board),
+              let triggerTime = latestScheduledResetTime(atOrBefore: now, for: board, calendar: calendar) else {
             return false
         }
-        guard now >= triggerTime else { return false }
-        guard let lastApplied = board.lastTaskResetAppliedAt else { return true }
-        return lastApplied < triggerTime
+        // Match the decoding migration for old boards without a reset anchor.
+        return (board.lastTaskResetAppliedAt ?? board.updatedAt) < triggerTime
     }
 
     static func completedTaskCount(in board: BingoBoardStore.NamedBoard) -> Int {
@@ -205,7 +244,8 @@ enum BoardResetRuleEngine {
     static func transformedBoardSnapshotForResetMode(
         _ board: SavedBoard,
         mode: BoardTaskResetMode,
-        referenceDate: Date
+        referenceDate: Date,
+        preservingCompletionsSince boundary: Date? = nil
     ) -> SavedBoard {
         var fullBoard: [[BingoCell]]
 
@@ -215,7 +255,9 @@ enum BoardResetRuleEngine {
             for row in fullBoard.indices {
                 for col in fullBoard[row].indices {
                     var cell = normalizedBoardCellForNextDay(fullBoard[row][col])
-                    switch TaskLifecycleRuleEngine.dailySettlementAction(for: cell, mode: mode) {
+                    switch TaskLifecycleRuleEngine.dailySettlementAction(
+                        for: cell, mode: mode, preservingCompletionsSince: boundary
+                    ) {
                     case .preserve:
                         clearDailyRuntimeState(&cell)
                     case .remove:
@@ -232,7 +274,9 @@ enum BoardResetRuleEngine {
             for row in fullBoard.indices {
                 for col in fullBoard[row].indices {
                     var cell = normalizedBoardCellForNextDay(fullBoard[row][col])
-                    switch TaskLifecycleRuleEngine.dailySettlementAction(for: cell, mode: mode) {
+                    switch TaskLifecycleRuleEngine.dailySettlementAction(
+                        for: cell, mode: mode, preservingCompletionsSince: boundary
+                    ) {
                     case .preserve:
                         clearDailyRuntimeState(&cell)
                     case .remove:
@@ -258,7 +302,7 @@ enum BoardResetRuleEngine {
         return SavedBoard(
             gridSize: gridSize,
             cells: visibleCells,
-            completedLines: [],
+            completedLines: boundary == nil ? [] : BoardEngine.completedLines(in: visibleCells, size: gridSize),
             fullBoardCells: fullBoard
         )
     }
@@ -282,6 +326,7 @@ enum BoardResetRuleEngine {
     }
 
     private static func resetCurrentCycleState(_ cell: inout BingoCell) {
+        cell.taskRewardReceipt = nil
         cell.isCompleted = false
         cell.isTaskHidden = false
         if !cell.hasRepeatingSchedule {

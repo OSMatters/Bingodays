@@ -176,19 +176,22 @@ struct BingoViewModelPersistenceDependencies {
     var pointsRepository: any BingoPointsRepository
     var completionHistoryRepository: any TaskCompletionHistoryRepository
     var transactionRepository: any BingoPersistenceTransactionRepository
+    var taskLibraryRepository: any TaskLibraryRepository
 
     init(
         boardRepository: any BingoBoardRepository,
         diaryRepository: any BingoDiaryRepository,
         pointsRepository: any BingoPointsRepository,
         completionHistoryRepository: any TaskCompletionHistoryRepository = LiveTaskCompletionHistoryRepository(),
-        transactionRepository: any BingoPersistenceTransactionRepository = LiveBingoPersistenceTransactionRepository()
+        transactionRepository: any BingoPersistenceTransactionRepository = LiveBingoPersistenceTransactionRepository(),
+        taskLibraryRepository: any TaskLibraryRepository = LiveTaskLibraryRepository()
     ) {
         self.boardRepository = boardRepository
         self.diaryRepository = diaryRepository
         self.pointsRepository = pointsRepository
         self.completionHistoryRepository = completionHistoryRepository
         self.transactionRepository = transactionRepository
+        self.taskLibraryRepository = taskLibraryRepository
     }
 
     // These adapters are stateless values. Construct them per dependency bundle rather

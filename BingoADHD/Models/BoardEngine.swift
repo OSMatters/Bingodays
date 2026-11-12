@@ -329,12 +329,12 @@ enum BoardEngine {
     }
 
     static func boardScore(cells: [[BingoCell]], completedLines: Set<BingoLine>) -> Int {
-        let completedTaskCount = cells
+        let completedTaskPoints = cells
             .flatMap { $0 }
             .filter { $0.isCompleted && !$0.isEmpty && !$0.isDisplayOnlyInactive }
-            .count
+            .reduce(0) { $0 + ($1.taskRewardReceipt.map { min(max($0.awardedPoints, 1), 99) } ?? 1) }
         let allTasksCompletedBonus = isBoardFullyCompleted(cells) ? 10 : 0
-        return completedTaskCount + (completedLines.count * 5) + allTasksCompletedBonus
+        return completedTaskPoints + (completedLines.count * 5) + allTasksCompletedBonus
     }
 
     static func isBoardFullyCompleted(_ cells: [[BingoCell]]) -> Bool {

@@ -4,13 +4,10 @@ import Foundation
 /// stay in WidgetTaskToggleService; choosing a board is a caller policy.
 enum ExternalBoardTaskMutationService {
     enum Target {
-        case position(row: Int, col: Int)
         case cell(id: UUID, completed: Bool, version: String)
 
         func position(in board: BingoBoardStore.NamedBoard, now: Date) -> (row: Int, col: Int)? {
             switch self {
-            case let .position(row, col):
-                return (row, col)
             case let .cell(id, completed, version):
                 let cells = BoardEngine.expandedBoardCache(from: board.board)
                 let size = min(max(board.board.gridSize, 2), BoardEngine.maxGridSize)
@@ -39,6 +36,8 @@ enum ExternalBoardTaskMutationService {
     /// Never overwrite the single recovery event with another in-flight transaction.
     private static func recoverPendingEvent() -> Bool {
         guard let event = WidgetTaskSyncStore.load() else { return true }
+        if let effects = event.sideEffects,
+           effects.accountScope != NativeICloudPreferences.accountScopeIdentifier { return false }
         let repository = WidgetIntentBoardRepository()
         let original = repository.loadNamedBoardsSnapshot()
         let merged = WidgetTaskEventMerge.applying(event, to: original)
@@ -103,24 +102,20 @@ enum ExternalBoardTaskMutationService {
             row: row,
             col: col
         )
+        guard let effects = WidgetTaskToggleService.prepareSideEffects(previousBoard: previousBoard,
+            updatedBoard: updatedBoard, row: row, col: col, now: now) else { return false }
         guard let localSyncEvent = WidgetTaskSyncStore.saveEvent(
             board: updatedBoard,
             didApplyBoardReset: didApplyBoardReset,
-            cellMutation: cellMutation
+            cellMutation: cellMutation,
+            sideEffects: effects
         ) else {
             return false
         }
         // The local event is the recovery marker. Settle points before publishing the
         // named-board snapshot so App launch cannot observe a new board with old points.
         let committedSideEffects = NativeICloudLocalChangeReporter.withReportingSuppressed {
-            WidgetTaskToggleService.commitToggleSideEffects(
-                previousBoard: previousBoard,
-                updatedBoard: updatedBoard,
-                row: row,
-                col: col,
-                now: now,
-                didApplyBoardReset: didApplyBoardReset
-            )
+            WidgetTaskToggleService.applyPreparedSideEffects(effects)
         }
         guard committedSideEffects else {
             return false

@@ -79,6 +79,7 @@ struct BoardShareFlowSheet: View {
                 }
             }
         }
+        .onDisappear { store.cancelPendingOperation() }
         .presentationDetents(usesReflowedLayout ? [.large] : presentationDetents)
         .presentationContentInteraction(.scrolls)
         .alert(

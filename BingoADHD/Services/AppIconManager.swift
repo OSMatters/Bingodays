@@ -28,6 +28,7 @@ final class AppIconManager: ObservableObject {
         var changeIcon: @MainActor (String?) async throws -> Void
         var waitBeforeRetry: @MainActor () async throws -> Void
         var feedback: @MainActor () -> Void
+        var hasPremiumAccess: @MainActor () -> Bool = { false }
 
         @MainActor static var live: Self {
             let icons = Bundle.main.object(forInfoDictionaryKey: "CFBundleIcons") as? [String: Any]
@@ -81,8 +82,10 @@ final class AppIconManager: ObservableObject {
     @Published private(set) var currentAlternateIconName: String?
     @Published private(set) var isChanging = false
 
-    convenience init() {
-        self.init(client: .live, entitlements: .shared)
+    convenience init(hasPremiumAccess: @escaping @MainActor () -> Bool) {
+        var client = Client.live
+        client.hasPremiumAccess = hasPremiumAccess
+        self.init(client: client, entitlements: .shared)
     }
 
     init(client: Client, entitlements: AppIconEntitlementStore) {
@@ -107,11 +110,11 @@ final class AppIconManager: ObservableObject {
         guard entitlements.pendingResetFromHalloween, !isChanging,
               client.isActive(), !Task.isCancelled else { return }
         refresh()
-        guard isCurrent(.halloween) else {
+        guard isCurrent(.halloween), !client.hasPremiumAccess() else {
             entitlements.finishReset()
             return
         }
-        let result = await setIcon(.default, source: .migration)
+        let result = await setIcon(.autumn, source: .migration)
         if result.succeeded { entitlements.finishReset() }
     }
 
@@ -122,21 +125,22 @@ final class AppIconManager: ObservableObject {
     func restoreDefaultIfPremiumExpired() async {
         refresh()
         guard !hasAttemptedPremiumRestore, !isChanging, client.isActive(),
-              !Task.isCancelled, isCurrent(.premium) else { return }
+              !Task.isCancelled, !client.hasPremiumAccess(),
+              AppIconOption.allCases.contains(where: { $0.requiresPremium && isCurrent($0) }) else { return }
         hasAttemptedPremiumRestore = true
         // The caller confirmed expiration. Automatic failures are logged, not
         // presented by unrelated views; explicit user selections can still retry.
-        _ = await setIcon(.default, source: .premiumExpiration)
+        _ = await setIcon(.autumn, source: .premiumExpiration)
     }
 
     func setIcon(_ option: AppIconOption, source: RequestSource = .settings) async -> ChangeResult {
         guard !isChanging else { return .busy }
-        guard entitlements.allows(option) else {
+        guard entitlements.allows(option, hasPremiumAccess: client.hasPremiumAccess()) else {
             return .failed(L10n.tr(
-                "This seasonal icon is no longer available to new users.",
-                zhHans: "此节日图标已停止向新用户开放。",
-                zhHant: "此節日圖標已停止向新用戶開放。",
-                ja: "この季節限定アイコンは新規ユーザーには提供されていません。"
+                "Join Bingodays Pro to use this exclusive app icon",
+                zhHans: "开通 Bingodays Pro 即可使用此专属图标",
+                zhHant: "開通 Bingodays Pro 即可使用此專屬圖標",
+                ja: "Bingodays Proに加入して限定アイコンを使おう"
             ))
         }
         // An explicit choice supersedes a pending automatic reset, even if iOS
@@ -168,6 +172,7 @@ final class AppIconManager: ObservableObject {
         // scene transition, so do not make the user repeat the tap immediately.
         for attempt in 1...Self.maxTemporaryFailureAttempts {
             guard !Task.isCancelled else { return .cancelled }
+            guard entitlements.allows(option, hasPremiumAccess: client.hasPremiumAccess()) else { return .cancelled }
             refresh()
             if isCurrent(option) { return .alreadyCurrent }
             guard client.supportsAlternateIcons() else {

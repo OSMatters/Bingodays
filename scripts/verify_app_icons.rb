@@ -14,8 +14,8 @@ end
 
 info = read_json('/usr/bin/plutil', '-convert', 'json', '-o', '-', File.join(bundle, 'Info.plist'))
 assets = read_json('/usr/bin/xcrun', 'assetutil', '--info', File.join(bundle, 'Assets.car'))
-expected = %w[AppIcon AppIconHalloween AppIcon10Days AppIcon20Days AppIcon30Days AppIconPremium]
-previews = %w[AppIconPreviewDefault AppIconPreviewHalloween AppIconPreview10Days AppIconPreview20Days AppIconPreview30Days AppIconPreviewPremium]
+expected = %w[AppIconAutumn AppIcon AppIconHalloween AppIcon10Days AppIcon20Days AppIcon30Days AppIconPremium]
+previews = %w[AppIconPreviewAutumn AppIconPreviewDefault AppIconPreviewHalloween AppIconPreview10Days AppIconPreview20Days AppIconPreview30Days AppIconPreviewPremium]
 failures = []
 
 # Catalog-only alternate entries are valid. If an entry ALSO declares standalone
@@ -34,7 +34,7 @@ end
   icons = info.fetch(key, {})
   primary = icons.fetch('CFBundlePrimaryIcon', {}).fetch('CFBundleIconName', nil)
   alternates = icons.fetch('CFBundleAlternateIcons', {})
-  failures << "#{key}: unexpected primary icon #{primary.inspect}" unless primary == 'AppIcon'
+  failures << "#{key}: unexpected primary icon #{primary.inspect}" unless primary == 'AppIconAutumn'
   (expected - [primary]).each do |name|
     entry = alternates[name]
     failures << "#{key}: #{name} is not registered with matching CFBundleIconName" unless entry && entry['CFBundleIconName'] == name
@@ -70,4 +70,4 @@ unless failures.empty?
   failures.each { |failure| warn "error: App icon verification: #{failure}" }
   exit 1
 end
-puts "App icon verification PASS: #{info['CFBundleShortVersionString']} (#{info['CFBundleVersion']}), six icons/previews, iPhone + iPad registrations"
+puts "App icon verification PASS: #{info['CFBundleShortVersionString']} (#{info['CFBundleVersion']}), #{expected.length} icons/previews, iPhone + iPad registrations"

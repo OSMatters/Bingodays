@@ -8,9 +8,16 @@ struct BingodaysProductionRoot: View {
     @ObservedObject var iCloudSyncCoordinator: NativeICloudSyncCoordinator
     let scenePhase: ScenePhase
     @Binding var hasStartedDeferredBootstrap: Bool
+    @State private var hasFinishedLaunchAnimation = false
 
     var body: some View {
-        AppRootView()
+        Group {
+            if hasFinishedLaunchAnimation {
+                AppRootView()
+            } else {
+                AppLaunchView { hasFinishedLaunchAnimation = true }
+            }
+        }
             .tint(NeumorphicColors.modalAccent)
             .environmentObject(subscriptionManager)
             .environmentObject(appIconManager)
@@ -26,8 +33,9 @@ struct BingodaysProductionRoot: View {
                 guard scenePhase == .active, subscriptionManager.hasConfirmedNoPremiumAccess else { return }
                 await appIconManager.restoreDefaultIfPremiumExpired()
             }
-            .task(id: scenePhase) {
-                guard scenePhase == .active else { return }
+            .task(id: scenePhase == .active && (subscriptionManager.hasPremiumAccess || subscriptionManager.hasConfirmedNoPremiumAccess)) {
+                guard scenePhase == .active,
+                      subscriptionManager.hasPremiumAccess || subscriptionManager.hasConfirmedNoPremiumAccess else { return }
                 await appIconManager.migrateSeasonalIconIfNeeded()
             }
             .onChange(of: subscriptionManager.hasPremiumAccess) { _, hasAccess in

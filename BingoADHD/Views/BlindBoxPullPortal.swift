@@ -71,6 +71,18 @@ enum BlindBoxPullInteraction {
     }
 }
 
+@MainActor
+final class BlindBoxPresentationState: ObservableObject {
+    enum Phase { case idle, tutorial, hint, dragging, entering, open, returning }
+    @Published var phase: Phase = .idle
+    @Published var circleBottom: CGFloat = -30
+    @Published var rewardsOpacity: Double = 1
+    @Published var cabinetOpacity: Double = 0
+    @Published var cabinetOffset: CGFloat = 100
+    @Published var mountsBlindBox = false
+    @Published var liveRoute: BlindBoxLiveFlowView.Route = .lobby
+}
+
 struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
     let enteredFromBottomTab: Bool
     var isEnabled = true
@@ -80,7 +92,7 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
     @ViewBuilder let rewards: () -> Rewards
     @ViewBuilder let blindBox: (@escaping () -> Void) -> BlindBox
 
-    private enum Phase { case idle, tutorial, hint, dragging, entering, open, returning }
+    @EnvironmentObject private var presentation: BlindBoxPresentationState
     // v2 intentionally starts clean at the feature launch so existing users
     // receive the same first-entry instruction as newly registered users.
     @AppStorage("blindBox.pullGuideCompleted.v2") private var guideCompleted = false
@@ -89,13 +101,31 @@ struct BlindBoxPullPortal<Rewards: View, BlindBox: View>: View {
     @State private var tutorialStart = Date.now
     @State private var cutoutTopInset: CGFloat?
     @State private var windowSafeAreaInsets = EdgeInsets()
-    @State private var phase: Phase = .idle
+    private var phase: BlindBoxPresentationState.Phase {
+        get { presentation.phase }
+        nonmutating set { presentation.phase = newValue }
+    }
     @State private var scrollTop: CGFloat = 0
-    @State private var circleBottom: CGFloat = -30
-    @State private var rewardsOpacity: Double = 1
-    @State private var cabinetOpacity: Double = 0
-    @State private var cabinetOffset: CGFloat = 100
-    @State private var mountsBlindBox = false
+    private var circleBottom: CGFloat {
+        get { presentation.circleBottom }
+        nonmutating set { presentation.circleBottom = newValue }
+    }
+    private var rewardsOpacity: Double {
+        get { presentation.rewardsOpacity }
+        nonmutating set { presentation.rewardsOpacity = newValue }
+    }
+    private var cabinetOpacity: Double {
+        get { presentation.cabinetOpacity }
+        nonmutating set { presentation.cabinetOpacity = newValue }
+    }
+    private var cabinetOffset: CGFloat {
+        get { presentation.cabinetOffset }
+        nonmutating set { presentation.cabinetOffset = newValue }
+    }
+    private var mountsBlindBox: Bool {
+        get { presentation.mountsBlindBox }
+        nonmutating set { presentation.mountsBlindBox = newValue }
+    }
     @State private var gestureEligible: Bool?
     @State private var gestureOrigin: CGFloat = 0
 

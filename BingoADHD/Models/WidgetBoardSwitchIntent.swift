@@ -109,28 +109,45 @@ struct ToggleWidgetTaskIntent: AppIntent {
     @Parameter(title: "Column")
     var col: Int
 
+    @Parameter(title: "Cell ID", default: "") var cellID: String
+    @Parameter(title: "Completed", default: false) var completed: Bool
+    @Parameter(title: "Version", default: "") var version: String
+
     init() {
         boardID = ""
         row = 0
         col = 0
+        cellID = ""
+        completed = false
+        version = ""
     }
 
-    init(boardID: String, row: Int, col: Int) {
-        self.boardID = boardID
-        self.row = row
-        self.col = col
+    init(boardID: UUID, cellID: UUID, completed: Bool, version: String) {
+        self.boardID = boardID.uuidString
+        self.cellID = cellID.uuidString
+        self.completed = completed
+        self.version = version
+        self.row = 0
+        self.col = 0
+    }
+
+    /// Old timelines have no identity/version. Reject their taps and request a fresh timeline.
+    var validatedTarget: ExternalBoardTaskMutationService.Target? {
+        guard let id = UUID(uuidString: cellID), !version.isEmpty else { return nil }
+        return .cell(id: id, completed: completed, version: version)
     }
 
     func perform() async throws -> some IntentResult {
-        guard let id = UUID(uuidString: boardID) else {
+        guard let id = UUID(uuidString: boardID), let target = validatedTarget else {
+            BingoBoardStore.reloadBoardWidgetTimeline()
             return .result()
         }
 
         let committed = ExternalBoardTaskMutationService.apply(
-            boardID: id, target: .position(row: row, col: col), selectBoard: true
+            boardID: id, target: target, selectBoard: true
         )
-        guard committed else { return .result() }
         BingoBoardStore.reloadBoardWidgetTimeline()
+        guard committed else { return .result() }
         if NativeICloudPreferences.isEnabled {
             NativeICloudLocalChangeReporter.primaryStateDidChange()
         }

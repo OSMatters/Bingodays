@@ -67,7 +67,8 @@ enum BingoDiaryBubbleLayout {
         viewportHeight: CGFloat,
         maximumBubbleCount: Int
     ) -> (bubbles: [BingoDiaryBubble], width: CGFloat, height: CGFloat, isHorizontallyOverflowing: Bool) {
-        let visibleItems = Array(taskCounts.prefix(maximumBubbleCount))
+        let visibleItems = Array(taskCounts.filter { $0.count > 0 && !$0.task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .prefix(max(0, maximumBubbleCount)))
         let usableWidth = width.isFinite ? max(width, 0) : 0
         guard !visibleItems.isEmpty else { return ([], usableWidth, 0, false) }
         // Wait for a real measured width instead of using a synthetic fallback.
@@ -100,7 +101,7 @@ enum BingoDiaryBubbleLayout {
     }
 
     static func descriptors(for taskCounts: [BingoDiaryTaskCount]) -> [Descriptor] {
-        let sortedItems = taskCounts.sorted { lhs, rhs in
+        let sortedItems = taskCounts.filter { $0.count > 0 && !$0.task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.sorted { lhs, rhs in
             if lhs.count == rhs.count {
                 switch (lhs.firstCompletedAt, rhs.firstCompletedAt) {
                 case let (l?, r?) where l != r:

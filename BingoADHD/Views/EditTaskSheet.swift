@@ -1,8 +1,13 @@
 import SwiftUI
 
 struct EditTaskSheet: View {
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
+    @State private var completionPointsText: String
+    @State private var isTaskPointsPaywallPresented = false
+    private let initialCompletionPoints: Int
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismissSheet
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State var text: String
     @State var isForcedTask: Bool
@@ -24,7 +29,7 @@ struct EditTaskSheet: View {
     let completionHistoryCountProvider: (String) -> Int
     let diagnosticCellID: UUID?
     let diagnosticSource: String
-    let onSave: (String, Bool, Set<Int>, Bool, TaskRecurrenceRule?, Int?, Date?, Date?, Bool, Int) -> Bool
+    let onSave: (String, Bool, Set<Int>, Bool, TaskRecurrenceRule?, Int?, Date?, Date?, Bool, Int, TaskRewardEdit) -> Bool
     let onDelete: () -> Void
     let onCancel: () -> Void
 
@@ -85,14 +90,17 @@ struct EditTaskSheet: View {
         startReminderOffsetMinutes: Int = BingoCell.defaultStartReminderOffsetMinutes,
         isCompletedTask: Bool,
         estimatedDurationMinutes: Int?,
+        customCompletionPoints: Int? = nil,
         usesClearPresentationBackground: Bool = false,
         completionHistoryCountProvider: @escaping (String) -> Int = { _ in 0 },
         diagnosticCellID: UUID? = nil,
         diagnosticSource: String = "task_editor",
-        onSave: @escaping (String, Bool, Set<Int>, Bool, TaskRecurrenceRule?, Int?, Date?, Date?, Bool, Int) -> Bool,
+        onSave: @escaping (String, Bool, Set<Int>, Bool, TaskRecurrenceRule?, Int?, Date?, Date?, Bool, Int, TaskRewardEdit) -> Bool,
         onDelete: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
+        initialCompletionPoints = customCompletionPoints ?? 1
+        _completionPointsText = State(initialValue: String(customCompletionPoints ?? 1))
         wasLegacyUnspecifiedTask = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             recurrenceRule == nil && residentWeekdays.isEmpty && !isOneTimeTask
         let recurrenceDefaultDate = recurrenceRule?.anchorDate ?? startVisibleAt ?? Date()
@@ -274,6 +282,9 @@ struct EditTaskSheet: View {
                 .allowsHitTesting(false)
             }
         }
+        .fullScreenCover(isPresented: $isTaskPointsPaywallPresented) {
+            TaskPointsPaywallView()
+        }
         .sheet(isPresented: $isDatePickerPresented) {
             datePickerSheet
         }
@@ -288,10 +299,20 @@ struct EditTaskSheet: View {
         } message: {
             Text(L10n.deleteTaskConfirmationMessage)
         }
+        .onDisappear {
+            activeSpeechInputSessionID = nil
+            speechRecognizer.stopRecording()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                speechRecognizer.handleSceneInactivity(isBackground: phase == .background)
+                if !speechRecognizer.isRecording && !speechRecognizer.isPreparing { activeSpeechInputSessionID = nil }
+            }
+        }
         .preferredColorScheme(.dark)
         .presentationBackground(usesClearPresentationBackground ? Color.clear : sheetBackgroundColor)
         .onChange(of: speechRecognizer.isRecording) { _, isRecording in
-            if !isRecording {
+            if !isRecording && !speechRecognizer.isPreparing {
                 activeSpeechInputSessionID = nil
             }
         }
@@ -323,6 +344,14 @@ struct EditTaskSheet: View {
             } else {
                 timeWindowSection
             }
+            TaskCompletionPointsEditor(
+                pointsText: $completionPointsText,
+                hasPremiumAccess: subscriptionManager.hasPremiumAccess,
+                onRequestPremium: {
+                    dismissKeyboard()
+                    isTaskPointsPaywallPresented = true
+                }
+            )
             forceCompletionSection
         }
         .frame(width: contentColumnWidth, alignment: .leading)
@@ -396,14 +425,14 @@ struct EditTaskSheet: View {
                         .onChange(of: text) { _, newValue in
                             if newValue.count > BingoViewModel.maxTaskLength {
                                 text = String(newValue.prefix(BingoViewModel.maxTaskLength))
-                                if speechRecognizer.isRecording && !isApplyingSpeechTranscript {
+                                if (speechRecognizer.isRecording || speechRecognizer.isPreparing) && !isApplyingSpeechTranscript {
                                     activeSpeechInputSessionID = nil
                                     speechRecognizer.stopRecording()
                                 }
                                 return
                             }
 
-                            if speechRecognizer.isRecording && !isApplyingSpeechTranscript {
+                            if (speechRecognizer.isRecording || speechRecognizer.isPreparing) && !isApplyingSpeechTranscript {
                                 activeSpeechInputSessionID = nil
                                 speechRecognizer.stopRecording()
                             }
@@ -446,7 +475,7 @@ struct EditTaskSheet: View {
             if isHapticsEnabled {
                 AppHaptics.control()
             }
-            if speechRecognizer.isRecording {
+            if speechRecognizer.isRecording || speechRecognizer.isPreparing {
                 activeSpeechInputSessionID = nil
                 speechRecognizer.stopRecording()
             } else {
@@ -781,6 +810,16 @@ struct EditTaskSheet: View {
 
     private func saveTask() {
         guard hasValidTaskLength else { return }
+        guard let completionPoints = Int(completionPointsText), TaskCompletionRewardRules.allowedPoints.contains(completionPoints) else {
+            showBlockedSaveToast(L10n.tr("Enter a whole number from 1 to 99.", zhHans: "请输入 1–99 的整数。", zhHant: "請輸入 1–99 的整數。", ja: "1〜99の整数を入力してください。"))
+            return
+        }
+        let rewardEdit: TaskRewardEdit = completionPoints == initialCompletionPoints
+            ? .unchanged : (completionPoints == 1 ? .useDefault : .custom(completionPoints))
+        guard TaskCompletionRewardRules.allows(rewardEdit, hasPremiumAccess: subscriptionManager.hasPremiumAccess) else {
+            isTaskPointsPaywallPresented = true
+            return
+        }
         let saveStartVisibleAt = scheduleMode == .repeating ? nil : startVisibleAt
         let saveEndVisibleAt = scheduleMode == .repeating ? nil : endVisibleAtForSave()
         let saveEstimatedDurationMinutes = countdownMinutesForSave
@@ -892,7 +931,8 @@ struct EditTaskSheet: View {
             saveStartVisibleAt,
             saveEndVisibleAt,
             resolvedStartReminderEnabled,
-            startReminderOffsetMinutes
+            startReminderOffsetMinutes,
+            rewardEdit
         )
         DiagnosticLogStore.recordStateChange("task_rule.editor_save_result", details:
             diagnosticDetails.merging(["accepted": String(didSave)]) { current, _ in current })
