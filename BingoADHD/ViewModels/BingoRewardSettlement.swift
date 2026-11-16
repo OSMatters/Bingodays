@@ -27,8 +27,9 @@ enum BingoRewardSettlement {
         input: BingoRewardSettlementInput,
         mode: BingoRewardSettlementMode
     ) -> BingoRewardSettlementOutput {
-        // `DailyRewardState` is a local anti-duplication cache, not an account
-        // ledger. A repair, board switch, widget recovery, or cloud projection can
+        // Daily display/reversal fields are a local anti-duplication cache. The
+        // optional pointSyncLedger is carried through without recording a reward.
+        // A repair, board switch, widget recovery, or cloud projection can
         // legitimately rebuild it from a completed board. Treating that rebuild as
         // a reward event re-awards the whole board (for example +27) without any
         // user action. Only an explicit before/after completion transition may
@@ -69,13 +70,19 @@ enum BingoRewardSettlement {
         lifetimePoints: Int,
         dailyRewardState: DailyRewardState,
         taskIsNowCompleted: Bool? = nil,
-        minimumTotalPoints: Int = 0
+        minimumTotalPoints: Int = 0,
+        syncCycleKey: String? = nil
     ) -> BingoRewardSettlementOutput {
         var currentDailyRewardState = rewardStateResetIfNeeded(dailyRewardState, for: date)
         let pointsFloor = max(minimumTotalPoints, 0)
         var updatedTotalPoints = max(totalPoints, pointsFloor)
         var updatedLifetimePoints = lifetimePoints
         var receipts: [UUID: TaskRewardReceipt] = [:]
+        var syncLedger = currentDailyRewardState.pointSyncLedger
+        if syncLedger?.matches(total: totalPoints, lifetime: lifetimePoints) != true {
+            syncLedger = PointSyncLedger(total: totalPoints, lifetime: lifetimePoints)
+        }
+        let cycle = syncCycleKey ?? currentDailyRewardState.dateKey
         let previousTasks = Dictionary(previousCells.flatMap { $0 }.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let currentTasks = Dictionary(currentCells.flatMap { $0 }.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
@@ -83,6 +90,7 @@ enum BingoRewardSettlement {
         let currentCompletedCellIDs = completedCellIDs(in: currentCells)
 
         for cellID in currentCompletedCellIDs.subtracting(previousCompletedCellIDs).sorted(by: stableOrder) {
+            let beforeTotal = updatedTotalPoints, beforeLifetime = updatedLifetimePoints
             let key = cellID.uuidString.lowercased()
             if let previous = previousTasks[cellID], let current = currentTasks[cellID],
                TaskCompletionRewardRules.usesCustomSettlement(previous: previous, current: current) {
@@ -102,9 +110,12 @@ enum BingoRewardSettlement {
                 updatedTotalPoints += 1
                 updatedLifetimePoints += 1
             }
+            syncLedger?.record(PointSyncLedger.taskSource(cellID, cycle: cycle), totalDelta: updatedTotalPoints - beforeTotal,
+                lifetimeDelta: updatedLifetimePoints - beforeLifetime, completed: true, at: date)
         }
 
         for cellID in previousCompletedCellIDs.subtracting(currentCompletedCellIDs).sorted(by: stableOrder) {
+            let beforeTotal = updatedTotalPoints, beforeLifetime = updatedLifetimePoints
             let key = cellID.uuidString.lowercased()
             // A system transition may remove the task entirely. Its original
             // receipt still determines the deduction; no replacement task owns it.
@@ -125,6 +136,8 @@ enum BingoRewardSettlement {
                     1, from: &updatedTotalPoints, minimumTotalPoints: pointsFloor
                 )
             }
+            syncLedger?.record(PointSyncLedger.taskSource(cellID, cycle: cycle), totalDelta: updatedTotalPoints - beforeTotal,
+                lifetimeDelta: updatedLifetimePoints - beforeLifetime, completed: false, at: date)
         }
 
         let restoredLines: Set<BingoLine>
@@ -141,6 +154,7 @@ enum BingoRewardSettlement {
         }
 
         for line in restoredLines.sorted(by: stableLineOrder) {
+            let beforeTotal = updatedTotalPoints, beforeLifetime = updatedLifetimePoints
             let key = lineRewardSourceID(line, cells: currentCells)
             if let restoredPoints = currentDailyRewardState.lineReversalCredits.removeValue(forKey: key) {
                 updatedTotalPoints += max(restoredPoints, 0)
@@ -149,19 +163,25 @@ enum BingoRewardSettlement {
                 updatedTotalPoints += 5
                 updatedLifetimePoints += 5
             }
+            syncLedger?.record(cycle + "/line/" + key, totalDelta: updatedTotalPoints - beforeTotal,
+                lifetimeDelta: updatedLifetimePoints - beforeLifetime, completed: true, at: date)
         }
 
         for line in undoneLines.sorted(by: stableLineOrder) {
+            let beforeTotal = updatedTotalPoints, beforeLifetime = updatedLifetimePoints
             let key = lineRewardSourceID(line, cells: previousCells)
             currentDailyRewardState.lineReversalCredits[key] = deduct(
                 5,
                 from: &updatedTotalPoints,
                 minimumTotalPoints: pointsFloor
             )
+            syncLedger?.record(cycle + "/line/" + key, totalDelta: updatedTotalPoints - beforeTotal,
+                lifetimeDelta: updatedLifetimePoints - beforeLifetime, completed: false, at: date)
         }
 
         if taskIsNowCompleted != false,
            currentIsBoardFullyCompleted && !previousIsBoardFullyCompleted {
+            let beforeTotal = updatedTotalPoints, beforeLifetime = updatedLifetimePoints
             let key = fullBoardRewardSourceID(cells: currentCells)
             if let restoredPoints = currentDailyRewardState.fullBoardReversalCredits.removeValue(forKey: key) {
                 updatedTotalPoints += max(restoredPoints, 0)
@@ -170,16 +190,22 @@ enum BingoRewardSettlement {
                 updatedTotalPoints += 10
                 updatedLifetimePoints += 10
             }
+            syncLedger?.record(cycle + "/full/" + key, totalDelta: updatedTotalPoints - beforeTotal,
+                lifetimeDelta: updatedLifetimePoints - beforeLifetime, completed: true, at: date)
         } else if taskIsNowCompleted != true,
                   !currentIsBoardFullyCompleted && previousIsBoardFullyCompleted {
+            let beforeTotal = updatedTotalPoints
             let key = fullBoardRewardSourceID(cells: previousCells)
             currentDailyRewardState.fullBoardReversalCredits[key] = deduct(
                 10,
                 from: &updatedTotalPoints,
                 minimumTotalPoints: pointsFloor
             )
+            syncLedger?.record(cycle + "/full/" + key, totalDelta: updatedTotalPoints - beforeTotal,
+                lifetimeDelta: 0, completed: false, at: date)
         }
 
+        currentDailyRewardState.pointSyncLedger = syncLedger
         currentDailyRewardState.rewardedCellIDs = currentCompletedCellIDs
         currentDailyRewardState.peakCompletedLineCount = max(
             currentDailyRewardState.peakCompletedLineCount,
@@ -211,7 +237,8 @@ enum BingoRewardSettlement {
         totalPoints: Int,
         lifetimePoints: Int,
         dailyRewardState: DailyRewardState,
-        minimumTotalPoints: Int = 0
+        minimumTotalPoints: Int = 0,
+        syncCycleKey: String? = nil
     ) -> BingoRewardSettlementOutput {
         settleTaskToggle(
             date: date,
@@ -225,7 +252,8 @@ enum BingoRewardSettlement {
             lifetimePoints: lifetimePoints,
             dailyRewardState: dailyRewardState,
             taskIsNowCompleted: nil,
-            minimumTotalPoints: minimumTotalPoints
+            minimumTotalPoints: minimumTotalPoints,
+            syncCycleKey: syncCycleKey
         )
     }
 
@@ -262,15 +290,19 @@ enum BingoRewardSettlement {
         }
 
         guard shouldSeedFromCurrentBoard else {
-            return emptyDailyRewardState(for: referenceDate)
+            var result = emptyDailyRewardState(for: referenceDate)
+            result.pointSyncLedger = savedDailyRewardState?.pointSyncLedger
+            return result
         }
 
-        return dailyRewardSnapshot(
+        var result = dailyRewardSnapshot(
             for: referenceDate,
             cells: currentCells,
             completedLines: currentCompletedLines,
             isBoardFullyCompleted: isBoardFullyCompleted
         )
+        result.pointSyncLedger = savedDailyRewardState?.pointSyncLedger
+        return result
     }
 
     static func dailyRewardSnapshot(
@@ -304,7 +336,9 @@ enum BingoRewardSettlement {
     ) -> DailyRewardState {
         let dateKey = PointsStore.dateKey(for: date)
         guard state.dateKey != dateKey else { return state }
-        return emptyDailyRewardState(for: date)
+        var result = emptyDailyRewardState(for: date)
+        result.pointSyncLedger = state.pointSyncLedger
+        return result
     }
 
     private static func completedCellIDs(in cells: [[BingoCell]]) -> Set<UUID> {
@@ -333,11 +367,11 @@ enum BingoRewardSettlement {
         lineToken(lhs) < lineToken(rhs)
     }
 
-    private static func lineRewardSourceID(_ line: BingoLine, cells: [[BingoCell]]) -> String {
+    static func lineRewardSourceID(_ line: BingoLine, cells: [[BingoCell]]) -> String {
         "\(boardRewardSourceID(cells: cells)):line:\(lineToken(line))"
     }
 
-    private static func fullBoardRewardSourceID(cells: [[BingoCell]]) -> String {
+    static func fullBoardRewardSourceID(cells: [[BingoCell]]) -> String {
         "\(boardRewardSourceID(cells: cells)):full"
     }
 

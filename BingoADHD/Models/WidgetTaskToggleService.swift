@@ -160,7 +160,8 @@ enum WidgetTaskToggleService {
                 now: now, didApplyBoardReset: false, currentPoints: points),
             previousDiary: diary,
             diary: BingoDiaryStore.entriesByApplyingExplicitTaskDelta(task: cell.storedTaskText,
-                delta: cell.isCompleted ? 1 : -1, board: updatedBoard.board, on: now, entries: diary),
+                delta: cell.isCompleted ? 1 : -1, isStarterGuideTask: cell.isStarterGuideTask,
+                board: updatedBoard.board, on: now, entries: diary),
             previousHistory: history,
             history: TaskCompletionHistoryRuleEngine.recordsByApplyingCompletionDelta(taskText: cell.storedTaskText,
                 delta: cell.isCompleted ? 1 : -1, to: archived, at: now)
@@ -244,6 +245,7 @@ enum WidgetTaskToggleService {
         guard BingoDiaryStore.applyExplicitTaskDelta(
             task: updatedCell.storedTaskText.trimmingCharacters(in: .whitespacesAndNewlines),
             delta: updatedCell.isCompleted ? 1 : -1,
+            isStarterGuideTask: updatedCell.isStarterGuideTask,
             board: updatedBoard.board,
             on: now
         ) else {
@@ -448,7 +450,8 @@ enum WidgetTaskToggleService {
             lifetimePoints: initialLifetimePoints,
             dailyRewardState: currentPoints.dailyRewardState ?? BingoRewardSettlement.emptyDailyRewardState(for: now),
             taskIsNowCompleted: taskIsNowCompleted,
-            minimumTotalPoints: PointRedemptionLedger.currentCommittedSpend()
+            minimumTotalPoints: PointRedemptionLedger.currentCommittedSpend(),
+            syncCycleKey: PointSyncLedger.cycleKey(board: updatedBoard, at: now)
         )
     }
 

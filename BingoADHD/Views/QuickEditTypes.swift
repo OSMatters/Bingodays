@@ -1,6 +1,20 @@
 import Foundation
 
 struct QuickEditBoardContext {
+    struct Metadata: Equatable {
+        let resetMode: BoardTaskResetMode
+        let resetMinutes: Int?
+        let lastReset: Date?
+        let countdownEndsAt: Date?
+
+        init(_ board: BingoBoardStore.NamedBoard) {
+            resetMode = board.taskResetMode
+            resetMinutes = BoardResetRuleEngine.normalizedCustomResetMinutes(board.customResetMinutes, mode: board.taskResetMode)
+            lastReset = board.lastTaskResetAppliedAt
+            countdownEndsAt = board.countdownEndsAt
+        }
+    }
+    let metadata: Metadata?
     let boardID: UUID?
     let board: SavedBoard
     let accountScopeIdentifier: String?
@@ -9,11 +23,17 @@ struct QuickEditBoardContext {
         self.boardID = boardID
         self.board = board
         self.accountScopeIdentifier = NativeICloudPreferences.accountScopeIdentifier
+        metadata = Self.currentMetadata(boardID: boardID)
+    }
+
+    private static func currentMetadata(boardID: UUID?) -> Metadata? {
+        BingoBoardStore.loadNamedBoardsSnapshot(repairingPersistence: false).boards
+            .first(where: { $0.id == boardID }).map(Metadata.init)
     }
 
     func matches(_ current: SavedBoard?, boardID: UUID?) -> Bool {
         guard accountScopeIdentifier == NativeICloudPreferences.accountScopeIdentifier,
-              self.boardID == boardID, let current else { return false }
+              self.boardID == boardID, metadata == Self.currentMetadata(boardID: boardID), let current else { return false }
         // Compare stored cells, not date-dependent projections or board metadata.
         return TaskRulePersistenceGuard.matchesStoredTasks(board, current)
     }
@@ -332,6 +352,7 @@ func quickEditMakePreviewCell(
         availableHistoryCount: availableHistoryCount
     )
     if definitionChanged {
+        cell.isStarterGuideTask = false
         cell.isCompleted = false
         cell.lastCompletedAt = nil
         cell.countdownEndsAt = nil
@@ -429,6 +450,7 @@ func quickEditMakePreviewCellFromEdit(
     cell.isForced = isForcedTask
     cell.countdownEndsAt = nil
     cell.countdownPausedRemainingSeconds = nil
+    cell.lastVisibilityWindowTimeoutAt = nil
     cell.estimatedDurationMinutes = normalizedEstimatedDurationMinutes
 
     if cell.shouldStartCountdownForCurrentOccurrence(on: .now) {
@@ -439,6 +461,7 @@ func quickEditMakePreviewCellFromEdit(
     }
 
     if didChangeTaskIdentity {
+        cell.isStarterGuideTask = false
         cell.completionStreakCount = TaskCompletionHistoryRuleEngine.inheritedCompletionCount(
             previousTaskText: existingCell?.storedTaskText ?? "",
             // A quick-edit schedule change is a new task identity. Keep the
@@ -1413,4 +1436,70 @@ func quickEditPreviewFullMessage() -> String {
         zhHans: "预览棋盘已满。",
         zhHant: "預覽棋盤已滿。"
     )
+}
+
+/// One task-library editing session. Every write checks its original durable value.
+struct QuickEditLibrarySession {
+    private(set) var baseline: MyTasksLibrary
+    let accountScope: String?
+
+    init(library: MyTasksLibrary, accountScope: String? = NativeICloudPreferences.accountScopeIdentifier) {
+        baseline = library
+        self.accountScope = accountScope
+    }
+
+    func canWrite(current: MyTasksLibrary, accountScope: String?) -> Bool {
+        self.accountScope == accountScope && current == baseline
+    }
+
+    mutating func save(_ draft: MyTasksLibrary, accountScope: String?,
+        load: () -> MyTasksLibrary, persist: (MyTasksLibrary) -> Bool) -> Bool {
+        guard self.accountScope == accountScope else { return false }
+        let draft = CommonTasksStore.normalizedLibraryForPersistence(draft)
+        guard draft != baseline else { return true }
+        let current = load()
+        guard current == baseline || current == draft else { return false }
+        guard current == draft || persist(draft), load() == draft else { return false }
+        baseline = draft
+        return true
+    }
+}
+
+struct TaskCellEditContext: Equatable {
+    let cell: BingoCell
+    let boardID: UUID?
+    let accountScope: String?
+
+    init(cell: BingoCell, boardID: UUID?, accountScope: String? = NativeICloudPreferences.accountScopeIdentifier) {
+        self.cell = cell
+        self.boardID = boardID
+        self.accountScope = accountScope
+    }
+
+    func matches(_ current: BingoCell?, boardID: UUID?, accountScope: String?) -> Bool {
+        guard self.boardID == boardID, self.accountScope == accountScope, let current else { return false }
+        return TaskRulePersistenceGuard.matchesTaskDefinition(cell, current) &&
+            cell.isForced == current.isForced && cell.customCompletionPoints == current.customCompletionPoints &&
+            cell.isCompleted == current.isCompleted && cell.lastCompletedAt == current.lastCompletedAt &&
+            cell.taskRewardReceipt == current.taskRewardReceipt && cell.isStarterGuideTask == current.isStarterGuideTask &&
+            cell.startReminderEnabled == current.startReminderEnabled &&
+            cell.startReminderOffsetMinutes == current.startReminderOffsetMinutes &&
+            cell.estimatedDurationMinutes == current.estimatedDurationMinutes &&
+            cell.countdownEndsAt == current.countdownEndsAt &&
+            cell.countdownPausedRemainingSeconds == current.countdownPausedRemainingSeconds &&
+            cell.lastVisibilityWindowTimeoutAt == current.lastVisibilityWindowTimeoutAt
+    }
+}
+
+func quickEditHistoryRecordByEditing(_ record: TaskHistoryRecord, task: MyTaskItem) -> TaskHistoryRecord {
+    var updated = record
+    updated.text = task.text
+    updated.startAt = task.startAt
+    updated.endAt = task.endAt
+    updated.startMonth = task.startMonth
+    updated.startDay = task.startDay
+    updated.recurrenceRule = task.recurrenceRule
+    updated.customCompletionPoints = task.customCompletionPoints
+    updated.lastEditedAt = .now
+    return updated
 }

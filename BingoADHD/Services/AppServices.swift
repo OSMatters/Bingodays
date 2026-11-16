@@ -25,6 +25,9 @@ final class AppServices: ObservableObject {
         isIconProbe: Bool = AppDebugFlags.appIconProbeEnabled,
         makeProduction: @MainActor () -> Production = { Production() }
     ) {
+#if DEBUG && targetEnvironment(simulator)
+        UITestBootstrap.prepareIfNeeded()
+#endif
         if !isIconProbe {
             MeSkinMigration.applyIfNeeded()
             _ = AppIconEntitlementStore.shared

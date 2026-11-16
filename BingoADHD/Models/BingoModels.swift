@@ -209,6 +209,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
     var completionStreakCount: Int
     var lastCompletedAt: Date?
     var lastVisibilityWindowTimeoutAt: Date?
+    /// System tutorial tasks participate in the board, but never in the diary.
+    var isStarterGuideTask: Bool
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -235,6 +237,7 @@ struct BingoCell: Identifiable, Codable, Equatable {
         case completionStreakCount
         case lastCompletedAt
         case lastVisibilityWindowTimeoutAt
+        case isStarterGuideTask
     }
 
     init(
@@ -262,7 +265,8 @@ struct BingoCell: Identifiable, Codable, Equatable {
         taskRewardReceipt: TaskRewardReceipt? = nil,
         completionStreakCount: Int = 0,
         lastCompletedAt: Date? = nil,
-        lastVisibilityWindowTimeoutAt: Date? = nil
+        lastVisibilityWindowTimeoutAt: Date? = nil,
+        isStarterGuideTask: Bool = false
     ) {
         self.id = id
         self.text = text
@@ -289,6 +293,7 @@ struct BingoCell: Identifiable, Codable, Equatable {
         self.completionStreakCount = max(completionStreakCount, 0)
         self.lastCompletedAt = lastCompletedAt
         self.lastVisibilityWindowTimeoutAt = lastVisibilityWindowTimeoutAt
+        self.isStarterGuideTask = isStarterGuideTask
     }
 
     init(from decoder: Decoder) throws {
@@ -320,6 +325,7 @@ struct BingoCell: Identifiable, Codable, Equatable {
         completionStreakCount = try container.decodeIfPresent(Int.self, forKey: .completionStreakCount) ?? 0
         lastCompletedAt = try container.decodeIfPresent(Date.self, forKey: .lastCompletedAt)
         lastVisibilityWindowTimeoutAt = try container.decodeIfPresent(Date.self, forKey: .lastVisibilityWindowTimeoutAt)
+        isStarterGuideTask = try container.decodeIfPresent(Bool.self, forKey: .isStarterGuideTask) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -348,6 +354,9 @@ struct BingoCell: Identifiable, Codable, Equatable {
         try container.encode(completionStreakCount, forKey: .completionStreakCount)
         try container.encodeIfPresent(lastCompletedAt, forKey: .lastCompletedAt)
         try container.encodeIfPresent(lastVisibilityWindowTimeoutAt, forKey: .lastVisibilityWindowTimeoutAt)
+        if isStarterGuideTask {
+            try container.encode(true, forKey: .isStarterGuideTask)
+        }
     }
 
     var hasVisibilityWindow: Bool {
@@ -754,6 +763,7 @@ struct BingoDiaryEntry: Identifiable, Codable, Equatable {
 }
 
 struct DailyRewardState: Codable, Equatable {
+    var pointSyncLedger: PointSyncLedger?
     var dateKey: String
     var rewardedCellIDs: Set<UUID>
     var peakCompletedLineCount: Int
@@ -767,6 +777,7 @@ struct DailyRewardState: Codable, Equatable {
     var fullBoardReversalCredits: [String: Int]
 
     private enum CodingKeys: String, CodingKey {
+        case pointSyncLedger
         case dateKey
         case rewardedCellIDs
         case peakCompletedLineCount
@@ -783,8 +794,10 @@ struct DailyRewardState: Codable, Equatable {
         fullBoardRewardGranted: Bool = false,
         taskReversalCredits: [String: Int] = [:],
         lineReversalCredits: [String: Int] = [:],
-        fullBoardReversalCredits: [String: Int] = [:]
+        fullBoardReversalCredits: [String: Int] = [:],
+        pointSyncLedger: PointSyncLedger? = nil
     ) {
+        self.pointSyncLedger = pointSyncLedger
         self.dateKey = dateKey
         self.rewardedCellIDs = rewardedCellIDs
         self.peakCompletedLineCount = peakCompletedLineCount
@@ -796,6 +809,7 @@ struct DailyRewardState: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        pointSyncLedger = try container.decodeIfPresent(PointSyncLedger.self, forKey: .pointSyncLedger)
         dateKey = try container.decode(String.self, forKey: .dateKey)
         rewardedCellIDs = Set(try container.decodeIfPresent([UUID].self, forKey: .rewardedCellIDs) ?? [])
         peakCompletedLineCount = try container.decodeIfPresent(Int.self, forKey: .peakCompletedLineCount) ?? 0
@@ -807,6 +821,7 @@ struct DailyRewardState: Codable, Equatable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(pointSyncLedger, forKey: .pointSyncLedger)
         try container.encode(dateKey, forKey: .dateKey)
         try container.encode(
             rewardedCellIDs.sorted { $0.uuidString < $1.uuidString },
@@ -962,12 +977,29 @@ struct MyTaskGroup: Identifiable, Codable, Equatable {
 }
 
 struct MyTasksLibrary: Codable, Equatable {
+    static let currentGroupTaskRulesVersion = 1
+
     var tasks: [MyTaskItem]
     var groups: [MyTaskGroup]
+    var groupTaskRulesVersion: Int
 
-    init(tasks: [MyTaskItem] = [], groups: [MyTaskGroup] = []) {
+    init(tasks: [MyTaskItem] = [], groups: [MyTaskGroup] = [],
+         groupTaskRulesVersion: Int = currentGroupTaskRulesVersion) {
         self.tasks = tasks
         self.groups = groups
+        self.groupTaskRulesVersion = groupTaskRulesVersion
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tasks, groups, groupTaskRulesVersion
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tasks = try container.decode([MyTaskItem].self, forKey: .tasks)
+        groups = try container.decode([MyTaskGroup].self, forKey: .groups)
+        // Missing only in libraries written before explicit group rules were preserved.
+        groupTaskRulesVersion = try container.decodeIfPresent(Int.self, forKey: .groupTaskRulesVersion) ?? 0
     }
 }
 
@@ -1590,6 +1622,7 @@ enum AppSettings {
     static let appReviewPromptLifetimeShownCountKey = "app_review_prompt_lifetime_shown_count_v1"
     static let appReviewPromptLastShownDayKey = "app_review_prompt_last_shown_day_v1"
     static let firstStepGuideStateKey = "first_step_guide_state_v1"
+    static let firstStepGuideIntroShownKey = "first_step_guide_intro_shown_v1"
     static let firstStepGuideMilestoneKey = "first_step_guide_milestone_v1"
     static let hasAcknowledgedBoardEditHintKey = "has_acknowledged_board_edit_hint_v1"
     static let hasInteractedWithBoardPanelKey = "has_interacted_with_board_panel_v1"
@@ -1627,8 +1660,7 @@ enum AppSettings {
 /// across future UI reorganisations.
 enum HomeBackgroundOption: String, CaseIterable, Codable, Identifiable {
     case none
-    case halloween01 = "bg_11"
-    case halloween02 = "bg_12"
+    case autumn01 = "bg_13"
     case pattern01 = "bg_01"
     case pattern02 = "bg_02"
     case pattern03 = "bg_03"
@@ -1639,6 +1671,8 @@ enum HomeBackgroundOption: String, CaseIterable, Codable, Identifiable {
     case pattern08 = "bg_08"
     case pattern09 = "bg_09"
     case pattern10 = "bg_10"
+    case halloween01 = "bg_11"
+    case halloween02 = "bg_12"
 
     var id: String { rawValue }
 
@@ -1650,7 +1684,7 @@ enum HomeBackgroundOption: String, CaseIterable, Codable, Identifiable {
     /// unselected icons need a light treatment to remain readable.
     var isDarkTone: Bool {
         switch self {
-        case .pattern05, .pattern06, .halloween01, .halloween02:
+        case .pattern05, .pattern06, .autumn01, .halloween01, .halloween02:
             return true
         default:
             return false

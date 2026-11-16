@@ -193,7 +193,7 @@ struct HomeSheetsModifier: ViewModifier {
     let onCancelBoardCountdown: () -> Void
     let onBoardRulesPremiumRequired: (BoardRulesDraft) -> Void
     let onBoardRulesDismissed: () -> Void
-    let onApplyBoardRulesSettings: (UUID, Int?, BoardTaskResetMode, Int?) -> Bool
+    let onApplyBoardRulesSettings: (UUID, Int?, BoardTaskResetMode, Int?, Bool) -> Bool
     let onSaveBoardOrder: ([UUID]) -> Bool
     @ViewBuilder let gridSizeSheet: () -> AnyView
 
@@ -245,7 +245,7 @@ struct HomeSheetsModifier: ViewModifier {
                         initialResetMode: board.taskResetMode,
                         initialCustomResetMinutes: board.customResetMinutes,
                         restoredDraft: matchingDraft,
-                        onSave: { totalMinutes, resetMode, customResetMinutes in
+                        onSave: { totalMinutes, resetMode, customResetMinutes, countdownChanged in
                             let normalizedCustomResetMinutes = BoardResetRuleEngine.normalizedCustomResetMinutes(
                                 customResetMinutes,
                                 mode: resetMode
@@ -255,7 +255,8 @@ struct HomeSheetsModifier: ViewModifier {
                                     boardID: board.id,
                                     countdownMinutes: totalMinutes,
                                     resetMode: resetMode,
-                                    customResetMinutes: normalizedCustomResetMinutes
+                                    customResetMinutes: normalizedCustomResetMinutes,
+                                    countdownChanged: countdownChanged
                                 )
                                 isBoardRulesPresented = false
                                 onBoardRulesPremiumRequired(draft)
@@ -265,7 +266,8 @@ struct HomeSheetsModifier: ViewModifier {
                                 board.id,
                                 totalMinutes,
                                 resetMode,
-                                normalizedCustomResetMinutes
+                                normalizedCustomResetMinutes,
+                                countdownChanged
                             ) {
                                 isBoardRulesPresented = false
                             }

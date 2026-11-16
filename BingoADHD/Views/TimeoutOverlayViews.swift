@@ -13,6 +13,7 @@ struct TimeoutDialogBackdrop: View {
 }
 
 struct TimeoutDialogCard: View {
+    let accessibilityPrefix: String
     let headline: String
     let ruleReason: String?
     let boardNameLabel: String?
@@ -25,6 +26,7 @@ struct TimeoutDialogCard: View {
 
     init(
         headline: String,
+        accessibilityPrefix: String = "timeout",
         ruleReason: String? = nil,
         boardNameLabel: String?,
         isPadLayout: Bool,
@@ -35,6 +37,7 @@ struct TimeoutDialogCard: View {
         onBottomAction: (() -> Void)? = nil
     ) {
         self.headline = headline
+        self.accessibilityPrefix = accessibilityPrefix
         self.ruleReason = ruleReason
         self.boardNameLabel = boardNameLabel
         self.isPadLayout = isPadLayout
@@ -95,6 +98,7 @@ struct TimeoutDialogCard: View {
                     )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("\(accessibilityPrefix).complete")
             .padding(.top, 36)
 
             if showsSecondaryAction {
@@ -107,6 +111,7 @@ struct TimeoutDialogCard: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("\(accessibilityPrefix).postpone")
             }
 
             if let bottomActionTitle, let onBottomAction {
@@ -119,6 +124,7 @@ struct TimeoutDialogCard: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("\(accessibilityPrefix).remove")
                 .padding(.top, showsSecondaryAction ? -4 : 14)
             }
         }
@@ -271,6 +277,7 @@ struct TimeoutDelayPickerOverlay: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("timeout.delay.apply")
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 14)

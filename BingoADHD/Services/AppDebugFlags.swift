@@ -2,6 +2,15 @@ import Foundation
 import os
 
 enum AppDebugFlags {
+    static var uiTesting: Bool {
+#if DEBUG && targetEnvironment(simulator)
+        ProcessInfo.processInfo.arguments.contains("-UITesting") &&
+            (ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"]?.hasPrefix("Bingodays Regression ") == true)
+#else
+        false
+#endif
+    }
+
     /// Opt-in, same-bundle icon probe. Never available in a shipping build.
     static var appIconProbeEnabled: Bool {
 #if DEBUG
@@ -65,7 +74,7 @@ enum AppDebugFlags {
 
     static var forceNoPremiumAccess: Bool {
 #if DEBUG
-        ProcessInfo.processInfo.arguments.contains("-DebugForceNoPremium")
+        uiTesting || ProcessInfo.processInfo.arguments.contains("-DebugForceNoPremium")
 #else
         false
 #endif

@@ -60,6 +60,7 @@ struct HomeTimeoutOverlayLayer: View {
 
                     TimeoutDialogCard(
                         headline: L10n.taskTimedOutHeadline(task: taskText, seconds: overtimeSeconds),
+                        accessibilityPrefix: "timeout.task",
                         ruleReason: taskTimeoutRuleReason(for: event),
                         boardNameLabel: L10n.timeoutBoardNameLabel(selectedBoardName),
                         isPadLayout: isPadLayout,
@@ -96,6 +97,7 @@ struct HomeTimeoutOverlayLayer: View {
 
                     TimeoutDialogCard(
                         headline: L10n.boardTimedOutHeadline(seconds: overtimeSeconds),
+                        accessibilityPrefix: "timeout.board",
                         ruleReason: L10n.timeoutRuleReasonBoardCountdown,
                         boardNameLabel: L10n.timeoutBoardNameLabel(selectedBoardName),
                         isPadLayout: isPadLayout,

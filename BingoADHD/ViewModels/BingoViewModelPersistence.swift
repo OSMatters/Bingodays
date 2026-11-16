@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 struct BingoViewModelPersistenceSnapshot {
     var board: SavedBoard
@@ -97,6 +98,10 @@ struct BingoPendingPersistenceTransaction: Codable, Equatable {
     var boardState: BoardState?
     var diaryEntries: [String: BingoDiaryEntry]
     var taskCompletionHistory: [TaskCompletionHistoryRecord]
+    var carriesCompletionHistory: Bool
+    var accountScope: String?
+    var carriesAccountScope: Bool
+    var previousPoints: PointsPersistenceSnapshot?
     var totalPoints: Int
     var lifetimePoints: Int
     var dailyRewardState: DailyRewardState
@@ -105,7 +110,9 @@ struct BingoPendingPersistenceTransaction: Codable, Equatable {
         id: UUID = UUID(),
         boardState: BoardState?,
         diaryEntries: [String: BingoDiaryEntry],
-        taskCompletionHistory: [TaskCompletionHistoryRecord] = [],
+        taskCompletionHistory: [TaskCompletionHistoryRecord]? = nil,
+        accountScope: String? = NativeICloudPreferences.accountScopeIdentifier,
+        previousPoints: PointsPersistenceSnapshot? = nil,
         totalPoints: Int,
         lifetimePoints: Int,
         dailyRewardState: DailyRewardState
@@ -113,7 +120,11 @@ struct BingoPendingPersistenceTransaction: Codable, Equatable {
         self.id = id
         self.boardState = boardState
         self.diaryEntries = diaryEntries
-        self.taskCompletionHistory = taskCompletionHistory
+        self.taskCompletionHistory = taskCompletionHistory ?? []
+        self.carriesCompletionHistory = taskCompletionHistory != nil
+        self.accountScope = accountScope
+        self.carriesAccountScope = true
+        self.previousPoints = previousPoints
         self.totalPoints = totalPoints
         self.lifetimePoints = lifetimePoints
         self.dailyRewardState = dailyRewardState
@@ -124,6 +135,8 @@ struct BingoPendingPersistenceTransaction: Codable, Equatable {
         case boardState
         case diaryEntries
         case taskCompletionHistory
+        case accountScope
+        case previousPoints
         case totalPoints
         case lifetimePoints
         case dailyRewardState
@@ -136,6 +149,10 @@ struct BingoPendingPersistenceTransaction: Codable, Equatable {
         diaryEntries = try container.decode([String: BingoDiaryEntry].self, forKey: .diaryEntries)
         // Transactions written before the live history total did not carry this
         // snapshot. They remain valid and replay with the current history.
+        carriesCompletionHistory = container.contains(.taskCompletionHistory)
+        carriesAccountScope = container.contains(.accountScope)
+        accountScope = try container.decodeIfPresent(String.self, forKey: .accountScope)
+        previousPoints = try container.decodeIfPresent(PointsPersistenceSnapshot.self, forKey: .previousPoints)
         taskCompletionHistory = try container.decodeIfPresent(
             [TaskCompletionHistoryRecord].self,
             forKey: .taskCompletionHistory
@@ -150,7 +167,9 @@ struct BingoPendingPersistenceTransaction: Codable, Equatable {
         try container.encode(id, forKey: .id)
         try container.encodeIfPresent(boardState, forKey: .boardState)
         try container.encode(diaryEntries, forKey: .diaryEntries)
-        try container.encode(taskCompletionHistory, forKey: .taskCompletionHistory)
+        if carriesCompletionHistory { try container.encode(taskCompletionHistory, forKey: .taskCompletionHistory) }
+        if carriesAccountScope { try container.encode(accountScope, forKey: .accountScope) }
+        try container.encodeIfPresent(previousPoints, forKey: .previousPoints)
         try container.encode(totalPoints, forKey: .totalPoints)
         try container.encode(lifetimePoints, forKey: .lifetimePoints)
         try container.encode(dailyRewardState, forKey: .dailyRewardState)
@@ -387,12 +406,29 @@ struct LiveBingoPersistenceTransactionRepository: BingoPersistenceTransactionRep
         "bingo_pending_persistence_transaction_v2.json"
     ]
 
-    init() {
-        Self.repairAndRetireLegacyTransactionIfNeeded()
+    private let directory: URL
+
+    init(directory: URL? = nil) {
+        self.directory = directory ?? Self.transactionFileURL(named: Self.fileName).deletingLastPathComponent()
+        if directory == nil, NativeICloudPreferences.accountScopeIdentifier == nil {
+            Self.repairAndRetireLegacyTransactionIfNeeded()
+        }
+    }
+
+    private var legacyV3URL: URL { directory.appendingPathComponent(Self.fileName) }
+
+    private func matchingLegacyTransaction() -> BingoPendingPersistenceTransaction? {
+        guard let data = try? Data(contentsOf: legacyV3URL),
+              let transaction = try? JSONDecoder().decode(BingoPendingPersistenceTransaction.self, from: data) else { return nil }
+        if transaction.carriesAccountScope {
+            return transaction.accountScope == NativeICloudPreferences.accountScopeIdentifier ? transaction : nil
+        }
+        // Unknown old account ownership cannot authorize a signed-in replay.
+        return NativeICloudPreferences.accountScopeIdentifier == nil ? transaction : nil
     }
 
     func loadPendingTransaction() -> BingoPendingPersistenceTransaction? {
-        guard let data = try? Data(contentsOf: Self.fileURL) else { return nil }
+        guard let data = try? Data(contentsOf: fileURL) else { return matchingLegacyTransaction() }
         return try? JSONDecoder().decode(BingoPendingPersistenceTransaction.self, from: data)
     }
 
@@ -402,9 +438,12 @@ struct LiveBingoPersistenceTransactionRepository: BingoPersistenceTransactionRep
     }
 
     func savePendingTransaction(_ transaction: BingoPendingPersistenceTransaction, encodedData data: Data) -> Bool {
+        guard transaction.carriesAccountScope,
+              transaction.accountScope == NativeICloudPreferences.accountScopeIdentifier else { return false }
         do {
-            try data.write(to: Self.fileURL, options: .atomic)
-            return (try? Data(contentsOf: Self.fileURL)) == data
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(to: fileURL, options: .atomic)
+            return (try? Data(contentsOf: fileURL)) == data
         } catch {
             return false
         }
@@ -412,17 +451,20 @@ struct LiveBingoPersistenceTransactionRepository: BingoPersistenceTransactionRep
 
     func clearPendingTransaction() -> Bool {
         do {
-            if FileManager.default.fileExists(atPath: Self.fileURL.path) {
-                try FileManager.default.removeItem(at: Self.fileURL)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try FileManager.default.removeItem(at: fileURL)
             }
-            return !FileManager.default.fileExists(atPath: Self.fileURL.path)
+            if matchingLegacyTransaction() != nil { try FileManager.default.removeItem(at: legacyV3URL) }
+            return !FileManager.default.fileExists(atPath: fileURL.path)
         } catch {
             return false
         }
     }
 
-    private static var fileURL: URL {
-        transactionFileURL(named: fileName)
+    private var fileURL: URL {
+        let scope = NativeICloudPreferences.accountScopeIdentifier.map { "account:" + $0 } ?? "device-local"
+        let digest = SHA256.hash(data: Data(scope.utf8)).map { String(format: "%02x", $0) }.joined()
+        return directory.appendingPathComponent("bingo_pending_" + digest + ".json")
     }
 
     private static var legacyFileURLs: [URL] {
@@ -482,14 +524,17 @@ struct LiveBingoPersistenceTransactionRepository: BingoPersistenceTransactionRep
 enum BingoViewModelPersistence {
     private enum DiaryMutation {
         case inferred
-        case explicit(task: String, delta: Int)
+        case explicit(task: String, delta: Int, isStarterGuideTask: Bool)
         case snapshotOnly
+        case unchanged
     }
 
     @discardableResult
     static func save(
         _ snapshot: BingoViewModelPersistenceSnapshot,
         persistDiary: Bool,
+        preserveDiary: Bool = false,
+        completionHistory: [TaskCompletionHistoryRecord]? = nil,
         savedAt: Date,
         dependencies: BingoViewModelPersistenceDependencies = .live
     ) -> BingoViewModelPersistenceCommitResult {
@@ -498,7 +543,8 @@ enum BingoViewModelPersistence {
                 snapshot: snapshot,
                 savedAt: savedAt,
                 boardStateIncluded: true,
-                diaryMutation: persistDiary ? .inferred : .snapshotOnly,
+                diaryMutation: preserveDiary ? .unchanged : (persistDiary ? .inferred : .snapshotOnly),
+                completionHistoryOverride: completionHistory,
                 dependencies: dependencies
             ),
             dependencies: dependencies
@@ -511,6 +557,7 @@ enum BingoViewModelPersistence {
         task: String,
         delta: Int,
         completionHistoryDelta: Int = 0,
+        isStarterGuideTask: Bool = false,
         savedAt: Date,
         dependencies: BingoViewModelPersistenceDependencies = .live
     ) -> BingoViewModelPersistenceCommitResult {
@@ -519,7 +566,7 @@ enum BingoViewModelPersistence {
                 snapshot: snapshot,
                 savedAt: savedAt,
                 boardStateIncluded: true,
-                diaryMutation: .explicit(task: task, delta: delta),
+                diaryMutation: .explicit(task: task, delta: delta, isStarterGuideTask: isStarterGuideTask),
                 completionHistoryTask: completionHistoryDelta == 0 ? nil : task,
                 completionHistoryDelta: completionHistoryDelta,
                 dependencies: dependencies
@@ -569,21 +616,25 @@ enum BingoViewModelPersistence {
         diaryMutation: DiaryMutation,
         completionHistoryTask: String? = nil,
         completionHistoryDelta: Int = 0,
+        completionHistoryOverride: [TaskCompletionHistoryRecord]? = nil,
         dependencies: BingoViewModelPersistenceDependencies
     ) -> BingoPendingPersistenceTransaction {
         let existingEntries = dependencies.diaryRepository.loadAllEntriesDictionary()
         let diaryEntries: [String: BingoDiaryEntry]
         switch diaryMutation {
+        case .unchanged:
+            diaryEntries = existingEntries
         case .inferred:
             diaryEntries = BingoDiaryStore.entriesBySaving(
                 board: snapshot.board,
                 on: savedAt,
                 entries: existingEntries
             )
-        case let .explicit(task, delta):
+        case let .explicit(task, delta, isStarterGuideTask):
             diaryEntries = BingoDiaryStore.entriesByApplyingExplicitTaskDelta(
                 task: task,
                 delta: delta,
+                isStarterGuideTask: isStarterGuideTask,
                 board: snapshot.board,
                 on: savedAt,
                 entries: existingEntries
@@ -614,7 +665,9 @@ enum BingoViewModelPersistence {
             : nil
         let existingHistory = dependencies.completionHistoryRepository.loadCompletionHistory()
         let taskCompletionHistory: [TaskCompletionHistoryRecord]
-        if let completionHistoryTask {
+        if let completionHistoryOverride {
+            taskCompletionHistory = TaskCompletionHistoryRuleEngine.normalizedRecords(completionHistoryOverride)
+        } else if let completionHistoryTask {
             taskCompletionHistory = TaskCompletionHistoryRuleEngine.recordsByApplyingCompletionDelta(
                 taskText: completionHistoryTask,
                 delta: completionHistoryDelta,
@@ -628,6 +681,7 @@ enum BingoViewModelPersistence {
             boardState: boardState,
             diaryEntries: diaryEntries,
             taskCompletionHistory: taskCompletionHistory,
+            previousPoints: dependencies.pointsRepository.loadPersistenceSnapshot(),
             totalPoints: snapshot.totalPoints,
             lifetimePoints: snapshot.lifetimePoints,
             dailyRewardState: snapshot.dailyRewardState
@@ -700,7 +754,25 @@ enum BingoViewModelPersistence {
     ) -> BingoViewModelPersistenceCommitResult {
         // A V3 journal may have been written before completion history was part
         // of the transaction. Never let that legacy replay erase a newer total.
-        let completionHistoryToPersist = transaction.taskCompletionHistory.isEmpty
+        guard !transaction.carriesAccountScope || transaction.accountScope == NativeICloudPreferences.accountScopeIdentifier else {
+            DiagnosticLogStore.recordWarning("persistence.recovery_account_conflict")
+            var failure = BingoViewModelPersistenceCommitResult()
+            failure.failedToSaveTransaction = true
+            return failure
+        }
+        if let previous = transaction.previousPoints {
+            let current = dependencies.pointsRepository.loadPersistenceSnapshot()
+            guard [previous.totalPoints, transaction.totalPoints].contains(current.totalPoints),
+                  [previous.lifetimePoints, transaction.lifetimePoints].contains(current.lifetimePoints),
+                  current.dailyRewardState?.pointSyncLedger == previous.dailyRewardState?.pointSyncLedger ||
+                    current.dailyRewardState?.pointSyncLedger == transaction.dailyRewardState.pointSyncLedger else {
+                DiagnosticLogStore.recordWarning("persistence.recovery_points_conflict")
+                var failure = BingoViewModelPersistenceCommitResult()
+                failure.failedToSaveTransaction = true
+                return failure
+            }
+        }
+        let completionHistoryToPersist = !transaction.carriesCompletionHistory
             ? dependencies.completionHistoryRepository.loadCompletionHistory()
             : transaction.taskCompletionHistory
         // Task completion and undo carry an explicit diary/history delta, so they

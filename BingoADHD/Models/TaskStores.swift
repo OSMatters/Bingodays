@@ -30,9 +30,8 @@ enum CommonTasksStore {
         return MyTasksLibrary()
     }
 
-    /// Group tasks are daily by definition. Older app versions persisted them
-    /// as one-time tasks, so normalize the library as it is read and repair the
-    /// matching task-history definitions in the same migration.
+    /// Repair old group defaults once. Explicit schedules saved by current
+    /// editors must survive subsequent reads, saves, and group moves.
     private static func migrateGroupTasksToDaily(_ library: MyTasksLibrary) -> MyTasksLibrary {
         let normalized = normalizedGroupTasksToDaily(library)
         if normalized.library != library {
@@ -47,10 +46,18 @@ enum CommonTasksStore {
     ) -> (library: MyTasksLibrary, groupTaskIDs: Set<UUID>) {
         var migrated = library
         var groupTaskIDs = Set<UUID>()
+        guard migrated.groupTaskRulesVersion < MyTasksLibrary.currentGroupTaskRulesVersion else {
+            return (migrated, groupTaskIDs)
+        }
+        migrated.groupTaskRulesVersion = MyTasksLibrary.currentGroupTaskRulesVersion
 
         for groupIndex in migrated.groups.indices {
             for taskIndex in migrated.groups[groupIndex].tasks.indices {
                 let task = migrated.groups[groupIndex].tasks[taskIndex]
+                if let rule = task.recurrenceRule,
+                   rule.kind != .none && rule.kind != .daily {
+                    continue
+                }
                 groupTaskIDs.insert(task.id)
 
                 let dailyRule = TaskRecurrenceRule(
@@ -66,6 +73,10 @@ enum CommonTasksStore {
         return (migrated, groupTaskIDs)
     }
 
+    static func libraryByMigratingLegacyGroupRules(_ library: MyTasksLibrary) -> MyTasksLibrary {
+        normalizedGroupTasksToDaily(library).library
+    }
+
     static func loadGroups() -> [MyTaskGroup] {
         loadLibrary().groups
     }
@@ -74,6 +85,10 @@ enum CommonTasksStore {
         var library = loadLibrary()
         library.tasks = tasks.map { MyTaskItem(text: $0) }
         saveLibrary(library)
+    }
+
+    static func normalizedLibraryForPersistence(_ library: MyTasksLibrary) -> MyTasksLibrary {
+        normalizedGroupTasksToDaily(sanitize(library)).library
     }
 
     @discardableResult
@@ -94,18 +109,7 @@ enum CommonTasksStore {
         _ library: MyTasksLibrary, from previous: MyTaskItem, to updated: MyTaskItem
     ) -> MyTasksLibrary {
         guard previous.customCompletionPoints != updated.customCompletionPoints || updated.customCompletionPoints != nil else { return library }
-        let tasks = library.tasks + library.groups.flatMap(\.tasks)
-        let identityMatches = tasks.filter { $0.id == previous.id }
-        let definitionMatches = tasks.filter { $0.hasSameDefinition(as: previous) }
-        let legacyMatches = tasks.filter { task in
-            guard task.customCompletionPoints == nil else { return false }
-            var migrated = task
-            migrated.customCompletionPoints = previous.customCompletionPoints
-            return migrated.hasSameDefinition(as: previous)
-        }
-        let matches = !identityMatches.isEmpty ? identityMatches :
-            (!definitionMatches.isEmpty ? definitionMatches : legacyMatches)
-        guard matches.count == 1, let id = matches.first?.id else { return library }
+        guard let id = matchingTemplateID(in: library, for: previous) else { return library }
         var result = library
         for index in result.tasks.indices where result.tasks[index].id == id {
             result.tasks[index].customCompletionPoints = updated.customCompletionPoints
@@ -118,6 +122,55 @@ enum CommonTasksStore {
         return result
     }
 
+    /// Apply only fields the user changed, preserving template identity and
+    /// unrelated definitions. Board cells from older versions have separate IDs,
+    /// so fall back to a unique match of the complete previous definition.
+    static func libraryByApplyingTaskEdit(
+        _ library: MyTasksLibrary, from previous: MyTaskItem, to updated: MyTaskItem
+    ) -> MyTasksLibrary {
+        guard !previous.hasSameDefinition(as: updated) || updated.customCompletionPoints != nil,
+              let id = matchingTemplateID(in: library, for: previous) else { return library }
+        func applyingEdit(to template: MyTaskItem) -> MyTaskItem {
+            var task = template
+            if previous.trimmedText != updated.trimmedText { task.text = updated.trimmedText }
+            if previous.recurrenceRule != updated.recurrenceRule { task.recurrenceRule = updated.recurrenceRule }
+            if previous.startAt != updated.startAt { task.startAt = updated.startAt }
+            if previous.endAt != updated.endAt { task.endAt = updated.endAt }
+            if previous.startMonth != updated.startMonth { task.startMonth = updated.startMonth }
+            if previous.startDay != updated.startDay { task.startDay = updated.startDay }
+            if previous.customCompletionPoints != updated.customCompletionPoints || updated.customCompletionPoints != nil {
+                task.customCompletionPoints = updated.customCompletionPoints
+            }
+            task.normalizeVisibilityWindow()
+            return task
+        }
+        var result = library
+        for index in result.tasks.indices where result.tasks[index].id == id {
+            result.tasks[index] = applyingEdit(to: result.tasks[index])
+        }
+        for group in result.groups.indices {
+            for index in result.groups[group].tasks.indices where result.groups[group].tasks[index].id == id {
+                result.groups[group].tasks[index] = applyingEdit(to: result.groups[group].tasks[index])
+            }
+        }
+        return result
+    }
+
+    private static func matchingTemplateID(in library: MyTasksLibrary, for previous: MyTaskItem) -> UUID? {
+        let tasks = library.tasks + library.groups.flatMap(\.tasks)
+        let identityMatches = tasks.filter { $0.id == previous.id }
+        let definitionMatches = tasks.filter { $0.hasSameDefinition(as: previous) }
+        let legacyMatches = tasks.filter { task in
+            guard task.customCompletionPoints == nil else { return false }
+            var migrated = task
+            migrated.customCompletionPoints = previous.customCompletionPoints
+            return migrated.hasSameDefinition(as: previous)
+        }
+        let matches = !identityMatches.isEmpty ? identityMatches :
+            (!definitionMatches.isEmpty ? definitionMatches : legacyMatches)
+        return matches.count == 1 ? matches.first?.id : nil
+    }
+
     @discardableResult
     static func updateCompletionPoints(from previous: MyTaskItem, to updated: MyTaskItem) -> Bool {
         guard previous.customCompletionPoints != updated.customCompletionPoints || updated.customCompletionPoints != nil else { return true }
@@ -127,7 +180,8 @@ enum CommonTasksStore {
     }
 
     private static func sanitize(_ library: MyTasksLibrary) -> MyTasksLibrary {
-        var result = MyTasksLibrary(tasks: sanitizeTasks(library.tasks), groups: sanitizeGroups(library.groups))
+        var result = MyTasksLibrary(tasks: sanitizeTasks(library.tasks), groups: sanitizeGroups(library.groups),
+            groupTaskRulesVersion: library.groupTaskRulesVersion)
         var taskIDs = Set<UUID>()
         func uniqueTask(_ task: MyTaskItem) -> MyTaskItem {
             guard !taskIDs.insert(task.id).inserted else { return task }
@@ -887,16 +941,20 @@ enum TaskLibraryEditTransaction {
         guard edit.accountScope == NativeICloudPreferences.accountScopeIdentifier,
               edit.boardID == boardID else { return false }
         let library = repository.loadLibrary()
-        guard library == edit.previousLibrary || library == edit.library else { return false }
+        let migratedLibrary = CommonTasksStore.libraryByMigratingLegacyGroupRules(library)
+        let previousLibrary = CommonTasksStore.libraryByMigratingLegacyGroupRules(edit.previousLibrary)
+        let updatedLibrary = CommonTasksStore.libraryByMigratingLegacyGroupRules(edit.library)
+        guard migratedLibrary == previousLibrary || migratedLibrary == updatedLibrary else { return false }
         let target: MyTasksLibrary
-        if sameBoard(currentBoard, edit.board, at: edit.savedAt) {
-            target = edit.library
+        let boardWasSaved = sameBoard(currentBoard, edit.board, at: edit.savedAt)
+        if boardWasSaved {
+            target = updatedLibrary
         } else if sameBoard(currentBoard, edit.previousBoard, at: edit.savedAt) {
-            target = edit.previousLibrary
+            target = previousLibrary
         } else { return false }
         guard library == target || NativeICloudLocalChangeReporter.withReportingSuppressed({ repository.saveLibrary(target) }),
               repository.loadLibrary() == target, repository.clearPendingEdit() else { return false }
-        if target == edit.library { NativeICloudLocalChangeReporter.secondaryStateDidChange() }
+        if boardWasSaved { NativeICloudLocalChangeReporter.secondaryStateDidChange() }
         return true
     }
 
@@ -918,7 +976,7 @@ enum TaskLibraryEditTransaction {
                     endAt: value.endVisibleAt, startMonth: value.startVisibleMonth, startDay: value.startVisibleDay,
                     recurrenceRule: value.effectiveRecurrenceRule, customCompletionPoints: value.customCompletionPoints)
             }
-            library = CommonTasksStore.libraryByUpdatingCompletionPoints(library, from: task(previous), to: task(cell))
+            library = CommonTasksStore.libraryByApplyingTaskEdit(library, from: task(previous), to: task(cell))
         }
         guard library != previousLibrary else { return saveBoard() }
         let edit = TaskLibraryEditJournal(accountScope: NativeICloudPreferences.accountScopeIdentifier,

@@ -8,7 +8,8 @@ struct BingodaysProductionRoot: View {
     @ObservedObject var iCloudSyncCoordinator: NativeICloudSyncCoordinator
     let scenePhase: ScenePhase
     @Binding var hasStartedDeferredBootstrap: Bool
-    @State private var hasFinishedLaunchAnimation = false
+    // Capture the launch route once so onboarding completion cannot insert a splash mid-session.
+    @State private var hasFinishedLaunchAnimation = AppDebugFlags.uiTesting || OnboardingStateResolver.shouldPresentOnboarding()
 
     var body: some View {
         Group {
@@ -19,10 +20,14 @@ struct BingodaysProductionRoot: View {
             }
         }
             .tint(NeumorphicColors.modalAccent)
+            .transaction { transaction in
+                if AppDebugFlags.uiTesting { transaction.disablesAnimations = true }
+            }
             .environmentObject(subscriptionManager)
             .environmentObject(appIconManager)
             .environmentObject(iCloudSyncCoordinator)
             .task {
+                guard !AppDebugFlags.uiTesting else { return }
                 AppOpenStreakStore.shared.recordOpen()
                 iCloudSyncCoordinator.startIfEnabled()
                 guard !hasStartedDeferredBootstrap else { return }

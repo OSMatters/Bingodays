@@ -313,6 +313,7 @@ struct BoardRulesDraft: Equatable {
     let countdownMinutes: Int?
     let resetMode: BoardTaskResetMode
     let customResetMinutes: Int?
+    var countdownChanged: Bool? = nil
 }
 
 enum BoardRulesPremiumReturnRules {
@@ -336,7 +337,9 @@ struct BoardRulesSheet: View {
     let initialResetMode: BoardTaskResetMode
     let initialCustomResetMinutes: Int?
     let restoredDraft: BoardRulesDraft?
-    let onSave: (Int?, BoardTaskResetMode, Int?) -> Void
+    let onSave: (Int?, BoardTaskResetMode, Int?, Bool) -> Void
+    private let originalCountdownMinutes: Int?
+    private let restoredCountdownChange: Bool
     let onCancel: () -> Void
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -373,7 +376,7 @@ struct BoardRulesSheet: View {
         initialResetMode: BoardTaskResetMode,
         initialCustomResetMinutes: Int?,
         restoredDraft: BoardRulesDraft? = nil,
-        onSave: @escaping (Int?, BoardTaskResetMode, Int?) -> Void,
+        onSave: @escaping (Int?, BoardTaskResetMode, Int?, Bool) -> Void,
         onCancel: @escaping () -> Void
     ) {
         let draftResetMode = restoredDraft?.resetMode ?? initialResetMode
@@ -394,6 +397,9 @@ struct BoardRulesSheet: View {
         )
         let shouldEnableCustomResetTime = normalizedInitialCustomResetMinutes != nil
 
+        originalCountdownMinutes = restoredDraft?.countdownChanged == false
+            ? restoredDraft?.countdownMinutes : Self.remainingMinutes(until: countdownEndsAt)
+        restoredCountdownChange = restoredDraft?.countdownChanged == true
         self.boardName = boardName
         self.countdownEndsAt = countdownEndsAt
         self.initialResetMode = initialResetMode
@@ -506,7 +512,8 @@ struct BoardRulesSheet: View {
 
     private var saveButton: some View {
         Button(L10n.save) {
-            onSave(resolvedTotalMinutes, selectedResetMode, resolvedCustomResetMinutes)
+            onSave(resolvedTotalMinutes, selectedResetMode, resolvedCustomResetMinutes,
+                restoredCountdownChange || resolvedTotalMinutes != originalCountdownMinutes)
         }
         .buttonStyle(.plain)
         .appDynamicFont(size: scaled(16, pad: 18), weight: .medium, design: .rounded)

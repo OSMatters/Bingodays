@@ -150,9 +150,11 @@ struct NativeICloudPrimaryStateSnapshot: Codable, Equatable {
             // treating another device's ledger as cloud-authoritative lets a
             // completed board on one device be reconciled against an empty board
             // on another. Only the durable point counters participate in cloud
-            // equality; the local projection rebuilds the ledger for its board.
+            // equality along with explicit account earning evidence; the local
+            // projection rebuilds only the display/reversal cache for its board.
             points.totalPoints == other.points.totalPoints &&
             points.lifetimePoints == other.points.lifetimePoints &&
+            points.dailyRewardState?.pointSyncLedger == other.points.dailyRewardState?.pointSyncLedger &&
             diaryEntries == other.diaryEntries &&
             timeoutPayload == other.timeoutPayload &&
             customRewards == other.customRewards &&
@@ -181,6 +183,7 @@ struct NativeICloudPrimaryStateSnapshot: Codable, Equatable {
         let taskResetMode: BoardTaskResetMode
         let customResetMinutes: Int?
         let lastTaskResetAppliedAt: Date?
+        let pointSyncCycle: String?
         let origin: BingoNamedBoardOrigin
 
         init(_ board: BingoBoardStore.NamedBoard) {
@@ -191,6 +194,7 @@ struct NativeICloudPrimaryStateSnapshot: Codable, Equatable {
             taskResetMode = board.taskResetMode
             customResetMinutes = board.customResetMinutes
             lastTaskResetAppliedAt = board.lastTaskResetAppliedAt
+            pointSyncCycle = board.pointSyncCycle
             origin = board.origin
         }
     }
@@ -234,19 +238,29 @@ enum NativeICloudPrimaryStateMerger {
             return removingRedundantStarterGuideBoards(from: local)
         }
 
+        var syncLedger = mergedSyncLedger(local: local.points, incoming: incoming.points)
         let boardMerge = mergeBoards(
             local: local.boards,
             incoming: incoming.boards,
             deletedBoardIDs: local.effectiveDeletedBoardIDs.union(incoming.effectiveDeletedBoardIDs),
             referenceDate: referenceDate,
             calendar: calendar,
-            preferIncomingCommit: preferIncomingCommit
+            preferIncomingCommit: preferIncomingCommit,
+            localLedger: local.points.dailyRewardState?.pointSyncLedger,
+            incomingLedger: incoming.points.dailyRewardState?.pointSyncLedger,
+            mergedLedger: syncLedger
         )
+        if var ledger = syncLedger {
+            recordBonusesCreatedByUnion(boards: boardMerge.boards, local: local.boards, incoming: incoming.boards,
+                ledger: &ledger, at: referenceDate, calendar: calendar)
+            syncLedger = ledger
+        }
         let points = mergedPoints(
             local: local.points,
             incoming: incoming.points,
             preserveLocalProgressAgainstReset: boardMerge.preservedLocalProgressAgainstReset,
-            localHasNewerUserChange: localHasNewerUserChange
+            localHasNewerUserChange: localHasNewerUserChange,
+            syncLedger: syncLedger
         )
         let boardOrder = mergedBoardOrder(
             mergedBoards: boardMerge.boards,
@@ -400,12 +414,92 @@ enum NativeICloudPrimaryStateMerger {
         return (boards, protectedBoardID, modifiedAt)
     }
 
+    private static func mergedSyncLedger(local: PointsPersistenceSnapshot, incoming: PointsPersistenceSnapshot) -> PointSyncLedger? {
+        let lhs = local.dailyRewardState?.pointSyncLedger
+        let rhs = incoming.dailyRewardState?.pointSyncLedger
+        guard let lhs, let rhs, lhs.matches(total: local.totalPoints, lifetime: local.lifetimePoints),
+              rhs.matches(total: incoming.totalPoints, lifetime: incoming.lifetimePoints) else { return nil }
+        return lhs.merged(with: rhs)
+    }
+
+    private static func boardByMergingRewardTransitions(
+        base: BingoBoardStore.NamedBoard, local: BingoBoardStore.NamedBoard, incoming: BingoBoardStore.NamedBoard,
+        localLedger: PointSyncLedger?, incomingLedger: PointSyncLedger?, mergedLedger: PointSyncLedger,
+        referenceDate: Date, calendar: Calendar
+    ) -> BingoBoardStore.NamedBoard {
+        var result = base
+        var cells = BoardEngine.expandedBoardCache(from: base.board)
+        let lhs = Dictionary(BoardEngine.expandedBoardCache(from: local.board).flatMap { $0 }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let rhs = Dictionary(BoardEngine.expandedBoardCache(from: incoming.board).flatMap { $0 }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let cycle = PointSyncLedger.cycleKey(board: base, at: referenceDate, calendar: calendar)
+        for row in cells.indices {
+            for col in cells[row].indices {
+                let cell = cells[row][col]
+                guard cell.hasStoredTask, let a = lhs[cell.id], let b = rhs[cell.id],
+                      TaskRulePersistenceGuard.matchesTaskDefinition(a, b) else { continue }
+                let source = PointSyncLedger.taskSource(cell.id, cycle: cycle)
+                guard let entry = mergedLedger.entries[source] else { continue }
+                let winner: BingoCell
+                if localLedger?.entries[source] == entry { winner = a }
+                else if incomingLedger?.entries[source] == entry { winner = b }
+                else { continue }
+                // A later configuration edit/reset may have cleared completion without an undo.
+                guard winner.isCompleted == entry.completed else { continue }
+                cells[row][col].isCompleted = winner.isCompleted
+                cells[row][col].lastCompletedAt = winner.lastCompletedAt
+                cells[row][col].taskRewardReceipt = winner.taskRewardReceipt
+                cells[row][col].completionStreakCount = winner.completionStreakCount
+                cells[row][col].countdownEndsAt = winner.countdownEndsAt
+                cells[row][col].countdownPausedRemainingSeconds = winner.countdownPausedRemainingSeconds
+                cells[row][col].isTaskHidden = winner.isTaskHidden
+            }
+        }
+        let visible = BoardEngine.projectVisibleCells(from: cells, size: base.board.gridSize, referenceDate: referenceDate)
+        result.board = SavedBoard(gridSize: base.board.gridSize, cells: visible,
+            completedLines: BoardEngine.completedLines(in: visible, size: base.board.gridSize), fullBoardCells: cells)
+        return result
+    }
+
+    private static func recordBonusesCreatedByUnion(boards: [BingoBoardStore.NamedBoard],
+        local: [BingoBoardStore.NamedBoard], incoming: [BingoBoardStore.NamedBoard],
+        ledger: inout PointSyncLedger, at date: Date, calendar: Calendar) {
+        for board in boards {
+            guard let a = local.first(where: { $0.id == board.id }),
+                  let b = incoming.first(where: { $0.id == board.id }) else { continue }
+            let cycle = PointSyncLedger.cycleKey(board: board, at: date, calendar: calendar)
+            // A legacy line cache may lag its cells. Repairing that cache is not a new reward.
+            let existingA = BoardEngine.completedLines(in: a.board.cells, size: a.board.gridSize)
+            let existingB = BoardEngine.completedLines(in: b.board.cells, size: b.board.gridSize)
+            let lines = board.board.completedLines.subtracting(existingA.union(existingB))
+            for line in lines {
+                let key = cycle + "/line/" + BingoRewardSettlement.lineRewardSourceID(line, cells: board.board.cells)
+                guard ledger.entries[key]?.completed != true else { continue }
+                let amount = max(5 - (ledger.entries[key]?.totalDelta ?? 0), 0)
+                ledger.record(key, totalDelta: amount, lifetimeDelta: amount, completed: true, at: date)
+            }
+            if BoardEngine.isBoardFullyCompleted(board.board.cells),
+               !BoardEngine.isBoardFullyCompleted(a.board.cells), !BoardEngine.isBoardFullyCompleted(b.board.cells) {
+                let key = cycle + "/full/" + BingoRewardSettlement.fullBoardRewardSourceID(cells: board.board.cells)
+                guard ledger.entries[key]?.completed != true else { continue }
+                let amount = max(10 - (ledger.entries[key]?.totalDelta ?? 0), 0)
+                ledger.record(key, totalDelta: amount, lifetimeDelta: amount, completed: true, at: date)
+            }
+        }
+    }
+
     private static func mergedPoints(
         local: PointsPersistenceSnapshot,
         incoming: PointsPersistenceSnapshot,
         preserveLocalProgressAgainstReset: Bool,
-        localHasNewerUserChange: Bool
+        localHasNewerUserChange: Bool,
+        syncLedger: PointSyncLedger?
     ) -> PointsPersistenceSnapshot {
+        if let ledger = syncLedger, let totals = ledger.totals {
+            var rewardState = (localHasNewerUserChange ? local.dailyRewardState : incoming.dailyRewardState)
+                ?? DailyRewardState(dateKey: PointsStore.dateKey(for: .now))
+            rewardState.pointSyncLedger = ledger
+            return PointsPersistenceSnapshot(totalPoints: totals.total, lifetimePoints: totals.lifetime, dailyRewardState: rewardState)
+        }
         if localHasNewerUserChange {
             return local
         }
@@ -451,7 +545,8 @@ enum NativeICloudPrimaryStateMerger {
         deletedBoardIDs: Set<UUID>,
         referenceDate: Date,
         calendar: Calendar,
-        preferIncomingCommit: Bool
+        preferIncomingCommit: Bool,
+        localLedger: PointSyncLedger?, incomingLedger: PointSyncLedger?, mergedLedger: PointSyncLedger?
     ) -> (boards: [BingoBoardStore.NamedBoard], preservedLocalProgressAgainstReset: Bool) {
         let localByID = boardsByID(local)
         let incomingByID = boardsByID(incoming)
@@ -464,6 +559,12 @@ enum NativeICloudPrimaryStateMerger {
             guard let localBoard = localByID[id] else { return incomingByID[id] }
             guard let incomingBoard = incomingByID[id] else { return localBoard }
 
+            let base = preferIncomingCommit || incomingBoard.updatedAt >= localBoard.updatedAt ? incomingBoard : localBoard
+            if let mergedLedger {
+                return boardByMergingRewardTransitions(base: base, local: localBoard, incoming: incomingBoard,
+                    localLedger: localLedger, incomingLedger: incomingLedger, mergedLedger: mergedLedger,
+                    referenceDate: referenceDate, calendar: calendar)
+            }
             if let preserved = preservingLocalProgress(
                 local: localBoard,
                 incoming: incomingBoard,

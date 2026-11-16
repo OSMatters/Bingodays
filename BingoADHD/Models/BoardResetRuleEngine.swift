@@ -108,6 +108,8 @@ enum BoardResetRuleEngine {
                 ? latestScheduledResetTime(atOrBefore: now, for: board, calendar: calendar) : nil
         )
         updatedBoard.countdownEndsAt = nil
+        updatedBoard.pointSyncCycle = latestScheduledResetTime(atOrBefore: now, for: board, calendar: calendar)
+            .map { "reset:" + String($0.timeIntervalSince1970) }
         updatedBoard.lastTaskResetAppliedAt = now
         updatedBoard.updatedAt = now
         return updatedBoard
@@ -372,6 +374,11 @@ enum BoardResetRuleEngine {
 }
 
 enum BoardRulesSaveRules {
+    static func resolvedCountdownEndsAt(previous: Date?, minutes: Int?, wasEdited: Bool, now: Date, maximumMinutes: Int = 30 * 24 * 60) -> Date? {
+        guard wasEdited else { return previous }
+        return minutes.map { now.addingTimeInterval(TimeInterval(min(max($0, 1), maximumMinutes) * 60)) }
+    }
+
     static func resolvedLastResetAppliedAt(
         previousMode: BoardTaskResetMode,
         previousCustomResetMinutes: Int?,

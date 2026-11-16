@@ -29,9 +29,9 @@ struct QuickEditView: View {
     @State private var previewDropTargetID: UUID?
     @State private var initialSnapshot: QuickEditSnapshot?
     @State private var editingContext: QuickEditBoardContext?
+    @State private var librarySession: QuickEditLibrarySession?
     @State private var isExitDiscardAlertPresented = false
     @State private var targetGridSize = 4
-    @State private var didApplyToBoard = false
     @State private var pendingApplyPlan: QuickEditApplyPlan?
     @State private var isPremiumPaywallPresented = false
     @State private var premiumPaywallSource = "quick_edit"
@@ -192,10 +192,7 @@ struct QuickEditView: View {
         NavigationStack {
             quickEditNavigationContent
         }
-        .onDisappear {
-            guard !didApplyToBoard else { return }
-            finalizeLibrary()
-        }
+        .interactiveDismissDisabled(hasUnsavedChanges)
         .onAppear {
             handleQuickEditAppear()
         }
@@ -213,8 +210,6 @@ struct QuickEditView: View {
                 return
             }
             guard !Task.isCancelled else { return }
-            flushPendingTaskHistoryEdits()
-            TaskHistoryStore.ensureLibrarySeeded(library)
             refreshTaskHistory()
         }
         .onChange(of: targetGridSize) { _, _ in
@@ -240,11 +235,16 @@ struct QuickEditView: View {
             isPresented: $isExitDiscardAlertPresented
         ) {
             Button(L10n.cancel, role: .cancel) {}
-            Button(L10n.tr("Exit", zhHans: "退出", zhHant: "退出"), role: .destructive) {
+            Button(L10n.tr("Save task library and exit", zhHans: "保存任务库并退出", zhHant: "儲存任務庫並退出")) {
+                if finalizeLibrary() { dismiss() }
+            }
+            Button(L10n.tr("Discard unsaved edits and exit", zhHans: "放弃未保存的修改并退出", zhHant: "放棄未儲存的修改並退出"), role: .destructive) {
                 dismiss()
             }
         } message: {
-            Text(L10n.tr("If you exit now, your recent edits will not be applied to the board.", zhHans: "现在退出，刚刚的改动将不会应用到棋盘。", zhHant: "現在退出，剛剛的改動將不會套用到棋盤。"))
+            Text(L10n.tr("Board changes will not be applied. Choose whether to save unsaved task library edits.",
+                zhHans: "退出不会应用棋盘改动。请选择是否保存尚未保存的任务库修改。",
+                zhHant: "退出不會套用棋盤改動。請選擇是否儲存尚未儲存的任務庫修改。"))
         }
         .alert(
             deleteConfirmationTarget?.title ?? L10n.deleteConfirmationTitle,
@@ -940,13 +940,8 @@ struct QuickEditView: View {
         if let historyKey = quickEditHistoryRecordKey(from: key) {
             var records = TaskHistoryStore.load()
             guard let index = records.firstIndex(where: { $0.key == historyKey }) else { return false }
-            records[index].text = task.text
-            records[index].startAt = task.startAt
-            records[index].endAt = task.endAt
-            records[index].startMonth = task.startMonth
-            records[index].startDay = task.startDay
-            records[index].recurrenceRule = task.recurrenceRule
-            records[index].lastEditedAt = .now
+            guard canWriteLibraryHistory else { return false }
+            records[index] = quickEditHistoryRecordByEditing(records[index], task: task)
             guard TaskHistoryStore.save(records) else { return false }
             refreshTaskHistory()
         }
@@ -1018,6 +1013,7 @@ struct QuickEditView: View {
         taskHistoryRecords = TaskHistoryStore.load()
         completionHistoryCountLookup = viewModel.makeCompletionHistoryCountLookup()
         lastTrackedLibrary = library
+        librarySession = QuickEditLibrarySession(library: library)
         editingContext = viewModel.makeQuickEditBoardContext()
         targetGridSize = viewModel.gridSize
         activeFilter = .all
@@ -1065,10 +1061,11 @@ struct QuickEditView: View {
     }
 
     private func recordTaskHistory(_ task: MyTaskItem, sourceTaskID: UUID? = nil) {
-        guard !task.trimmedText.isEmpty else { return }
+        guard !task.trimmedText.isEmpty, canWriteLibraryHistory else { return }
         if sourceTaskID == task.id {
             // A modal edit supersedes an earlier inline draft of the same task.
             pendingTaskHistoryEdits[task.id] = task
+            return
         }
         if TaskHistoryStore.upsert(task: task, sourceTaskID: sourceTaskID), sourceTaskID == task.id {
             pendingTaskHistoryEdits.removeValue(forKey: task.id)
@@ -1083,10 +1080,13 @@ struct QuickEditView: View {
         pendingTaskHistoryEdits[task.id] = task
     }
 
-    private func flushPendingTaskHistoryEdits() {
-        guard !pendingTaskHistoryEdits.isEmpty else { return }
-        guard TaskHistoryStore.upsert(tasks: Array(pendingTaskHistoryEdits.values)) else { return }
+    @discardableResult
+    private func flushPendingTaskHistoryEdits() -> Bool {
+        guard !pendingTaskHistoryEdits.isEmpty else { return true }
+        guard canWriteLibraryHistory,
+              TaskHistoryStore.upsert(tasks: Array(pendingTaskHistoryEdits.values)) else { return false }
         pendingTaskHistoryEdits.removeAll()
+        return true
     }
 
     private func seedBoardTasksIntoHistory() {
@@ -1337,12 +1337,11 @@ struct QuickEditView: View {
             dismiss()
             return
         }
-        finalizeLibrary(showSuccessToast: false, emitChangeToast: false)
+        guard finalizeLibrary(showSuccessToast: false, emitChangeToast: false) else { return }
         let plan = QuickEditApplyPlan(tasks: previewSlots.compactMap(\.task), targetGridSize: targetGridSize)
 
         let hadInitialTasks = initialSnapshot?.previewItems.contains { $0.cellState?.hasStoredTask == true } ?? false
         if plan.tasks.isEmpty && !hadInitialTasks {
-            didApplyToBoard = true
             onSaveSuccess(L10n.quickEditKeptBoardWithoutSelection)
             dismiss()
             return
@@ -1385,7 +1384,6 @@ struct QuickEditView: View {
             return
         }
         onBoardApplied()
-        didApplyToBoard = true
         onSaveSuccess(L10n.quickEditAppliedSuccess(min(plan.tasks.count, plan.targetGridSize * plan.targetGridSize)))
         dismiss()
     }
@@ -1451,12 +1449,36 @@ struct QuickEditView: View {
         previewDropTargetID = nil
     }
 
-    private func finalizeLibrary(showSuccessToast: Bool = false, emitChangeToast: Bool = true) {
-        flushPendingTaskHistoryEdits()
+    private var canWriteLibraryHistory: Bool {
+        librarySession?.canWrite(current: CommonTasksStore.loadLibrary(),
+            accountScope: NativeICloudPreferences.accountScopeIdentifier) == true
+    }
+
+    @discardableResult
+    private func finalizeLibrary(showSuccessToast: Bool = false, emitChangeToast: Bool = true) -> Bool {
+        guard var session = librarySession else { return false }
+        if library == session.baseline, pendingTaskHistoryEdits.isEmpty { return true }
+        NativeICloudPrimaryMutationGate.acquire()
+        let accepted = BingoBoardStore.withBoardPersistenceLock {
+            session.save(library, accountScope: NativeICloudPreferences.accountScopeIdentifier,
+                load: { CommonTasksStore.loadLibrary() }, persist: CommonTasksStore.saveLibrary)
+        }
+        NativeICloudPrimaryMutationGate.release()
+        guard accepted == true else {
+            showLocalToast(L10n.tr("The task library changed or could not be saved. Your draft is still here.",
+                zhHans: "任务库已更新或保存失败，草稿已保留，请重新检查后重试。",
+                zhHant: "任務庫已更新或儲存失敗，草稿已保留，請重新檢查後重試。"))
+            return false
+        }
+        librarySession = session
+        library = session.baseline
+        guard flushPendingTaskHistoryEdits() else {
+            showLocalToast(L10n.tr("Could not save task history. Your draft is still here.",
+                zhHans: "任务历史保存失败，草稿已保留，请重试。", zhHant: "任務歷史儲存失敗，草稿已保留，請重試。"))
+            return false
+        }
         let previousLibrary = lastTrackedLibrary
-        CommonTasksStore.saveLibrary(library)
-        let savedLibrary = CommonTasksStore.loadLibrary()
-        library = savedLibrary
+        let savedLibrary = library
         TaskHistoryStore.ensureLibrarySeeded(savedLibrary)
         refreshTaskHistory()
 
@@ -1469,6 +1491,7 @@ struct QuickEditView: View {
         }
         AnalyticsService.syncMyTasksLibrary(savedLibrary)
         lastTrackedLibrary = savedLibrary
+        return true
     }
 
     private func presentPremiumPaywallForLimit(source: String) {

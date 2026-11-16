@@ -1,24 +1,30 @@
 {
-  "configurations" : [
+  "configurations": [
     {
-      "id" : "27E4DBB8-5611-4DD3-BA5D-5E59858E1F0D",
-      "name" : "Default",
-      "options" : {
-
-      }
+      "id": "27E4DBB8-5611-4DD3-BA5D-5E59858E1F0D",
+      "name": "Default",
+      "options": {}
     }
   ],
-  "defaultOptions" : {
-    "codeCoverage" : false
+  "defaultOptions": {
+    "codeCoverage": false
   },
-  "testTargets" : [
+  "testTargets": [
     {
-      "target" : {
-        "containerPath" : "container:BingoADHD.xcodeproj",
-        "identifier" : "B0A1D2E3F4A5061728394D03",
-        "name" : "BingoADHDTests"
+      "target": {
+        "containerPath": "container:BingoADHD.xcodeproj",
+        "identifier": "B0A1D2E3F4A5061728394D03",
+        "name": "BingoADHDTests"
       }
+    },
+    {
+      "target": {
+        "containerPath": "container:BingoADHD.xcodeproj",
+        "identifier": "D9050000000000000000000C",
+        "name": "BingoADHDUITests"
+      },
+      "parallelizable": false
     }
   ],
-  "version" : 1
+  "version": 1
 }

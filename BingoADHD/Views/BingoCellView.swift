@@ -209,6 +209,7 @@ struct BingoCellView: View {
         .contentShape(RoundedRectangle(cornerRadius: cellCornerRadius))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityTitle)
+        .accessibilityIdentifier("board.cell.\(debugIdentifier)")
         .accessibilityValue(accessibilityStatus)
         .accessibilityHint(accessibilityActionHint)
         .accessibilityAddTraits(.isButton)

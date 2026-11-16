@@ -3,7 +3,412 @@ import XCTest
 import Testing
 import UIKit
 import Darwin
+import Security
 @testable import Bingodays
+
+@Suite(.serialized)
+@MainActor
+struct StarterGuideDiaryIsolationTests {
+    private func board(_ tasks: [BingoCell], now: Date = .now) -> SavedBoard {
+        var cells = BoardEngine.createEmptyGrid(size: 5)
+        for (index, task) in tasks.enumerated() {
+            cells[index / 3][index % 3] = task
+        }
+        let visible = BoardEngine.projectVisibleCells(from: cells, size: 3, referenceDate: now)
+        return SavedBoard(gridSize: 3, cells: visible,
+            completedLines: BoardEngine.completedLines(in: visible, size: 3), fullBoardCells: cells)
+    }
+
+    private func withTaskStores(_ body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let keys = [AppSettings.commonTasksKey, AppSettings.taskHistoryKey, "task_library_edit_journal_v1"]
+        let backup = keys.map { defaults.object(forKey: $0) }
+        for key in keys { defaults.removeObject(forKey: key) }
+        defer { for (key, value) in zip(keys, backup) { defaults.set(value, forKey: key) } }
+        try body()
+    }
+
+    @Test
+    func reinstallIgnoresLegacyDeviceMarkerAndPreservesEntryGuards() throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.bingoday.app.first-step-guide",
+            kSecAttrAccount as String: "shown-v1"
+        ]
+        let existed = SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+        if !existed {
+            var attributes = query
+            attributes[kSecValueData as String] = Data([1])
+            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            try #require(SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess)
+        }
+        defer { if !existed { SecItemDelete(query as CFDictionary) } }
+
+        #expect(FirstStepGuideStore.introState(state: .notStarted, currentOverlay: nil,
+            milestoneShown: 0, hasTaskPoolTasks: false)?.overlay == .intro)
+        for state in [FirstStepGuideState.tracking, .finished] {
+            #expect(FirstStepGuideStore.introState(state: state, currentOverlay: nil,
+                milestoneShown: 3, hasTaskPoolTasks: false) == nil)
+        }
+        #expect(FirstStepGuideStore.introState(state: .notStarted, currentOverlay: .intro,
+            milestoneShown: 0, hasTaskPoolTasks: false) == nil)
+        #expect(FirstStepGuideStore.introState(state: .notStarted, currentOverlay: nil,
+            milestoneShown: 0, hasTaskPoolTasks: true) == nil)
+    }
+
+    @Test
+    func taskSourceSurvivesEncodingAndLegacyTasksRemainOrdinary() throws {
+        let guide = BingoCell(text: "Drink a glass of water", isStarterGuideTask: true)
+        #expect(try JSONDecoder().decode(BingoCell.self, from: JSONEncoder().encode(guide)) == guide)
+        let legacy = BingoCell(text: guide.text)
+        let data = try JSONEncoder().encode(legacy)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["isStarterGuideTask"] == nil)
+        #expect(try JSONDecoder().decode(BingoCell.self, from: data).isStarterGuideTask == false)
+    }
+
+    @Test
+    func quittingBeforeStartDoesNotReplayIntroWithinInstallationOrInterruptProgress() {
+        let resumed = FirstStepGuideStore.introState(state: .notStarted, currentOverlay: nil,
+            milestoneShown: 0, hasTaskPoolTasks: false, hasShownIntro: true)
+        #expect(resumed?.state == .finished)
+        #expect(resumed?.overlay == nil)
+        #expect(FirstStepGuideStore.introState(state: .notStarted, currentOverlay: .intro,
+            milestoneShown: 0, hasTaskPoolTasks: false, hasShownIntro: true) == nil)
+        for state in [FirstStepGuideState.tracking, .finished] {
+            #expect(FirstStepGuideStore.introState(state: state, currentOverlay: nil,
+                milestoneShown: 1, hasTaskPoolTasks: false, hasShownIntro: true) == nil)
+        }
+        #expect(FirstStepGuideStore.introState(state: .notStarted, currentOverlay: nil,
+            milestoneShown: 0, hasTaskPoolTasks: false, hasShownIntro: false)?.overlay == .intro)
+    }
+
+    @Test(arguments: [false, true])
+    func tutorialWritesLeaveEmptyAndOldDiariesExactlyIntact(hasOldDiary: Bool) {
+        let now = Date()
+        let legacyBoard = board([BingoCell(text: FirstStepGuideStore.seedTasks[0], isCompleted: true)])
+        let id = PointsStore.dateKey(for: now)
+        let old: [String: BingoDiaryEntry] = hasOldDiary ? [id: .init(id: id, date: now,
+            board: legacyBoard, allTasksCompleted: true,
+            completedTaskCounts: [FirstStepGuideStore.seedTasks[0]: 7])] : [:]
+        let guideBoard = board(FirstStepGuideStore.seedTasks.map {
+            BingoCell(text: $0, isCompleted: true, isStarterGuideTask: true)
+        })
+
+        #expect(BingoDiaryStore.entriesBySaving(board: guideBoard, on: now, entries: old) == old)
+        #expect(BingoDiaryStore.entriesBySyncingBoardSnapshotWithoutCounting(
+            board: guideBoard, on: now, entries: old) == old)
+        for delta in [1, -1] {
+            #expect(BingoDiaryStore.entriesByApplyingExplicitTaskDelta(task: FirstStepGuideStore.seedTasks[0],
+                delta: delta, isStarterGuideTask: true, board: guideBoard, on: now, entries: old) == old)
+        }
+    }
+
+    @Test
+    func mixedBoardRecordsOrdinarySameNameTaskAndExcludesTutorialSnapshot() throws {
+        let now = Date()
+        let text = FirstStepGuideStore.seedTasks[0]
+        let guide = BingoCell(text: text, isCompleted: true, isStarterGuideTask: true)
+        var ordinary = BingoCell(text: text)
+        let initial = board([guide, ordinary])
+        let entries = BingoDiaryStore.entriesBySaving(board: initial, on: now, entries: [:])
+        let initialEntry = try #require(entries.values.first)
+        #expect(initialEntry.completedTaskCounts.isEmpty)
+        #expect(!initialEntry.allTasksCompleted)
+        #expect(!initialEntry.board.cells[0][0].hasStoredTask)
+        #expect(initialEntry.board.fullBoardCells?[0][0].hasStoredTask == false)
+        #expect(initialEntry.board.completedLines.isEmpty)
+
+        ordinary.isCompleted = true
+        let completed = board([guide, ordinary])
+        let explicit = BingoDiaryStore.entriesByApplyingExplicitTaskDelta(task: text, delta: 1,
+            board: completed, on: now, entries: entries)
+        #expect(explicit.values.first?.completedTaskCounts == [text: 1])
+        #expect(explicit.values.first?.allTasksCompleted == true)
+        let inferred = BingoDiaryStore.entriesBySaving(board: completed, on: now, entries: entries)
+        #expect(inferred.values.first?.completedTaskCounts == [text: 1])
+        let synced = BingoDiaryStore.entriesBySyncingBoardSnapshotWithoutCounting(
+            board: completed, on: now, entries: entries)
+        #expect(synced.values.first?.completedTaskCounts.isEmpty == true)
+        #expect(synced.values.first?.board.fullBoardCells?[0][0].hasStoredTask == false)
+        #expect(BingoDiaryStore.entriesByApplyingExplicitTaskDelta(task: text, delta: -1,
+            isStarterGuideTask: true, board: completed, on: now, entries: explicit) == explicit)
+        let undone = BingoDiaryStore.entriesByApplyingExplicitTaskDelta(task: text, delta: -1,
+            board: initial, on: now, entries: explicit)
+        #expect(undone.values.first?.completedTaskCounts.isEmpty == true)
+    }
+
+    @Test
+    func completingTutorialKeepsProgressRewardsAndHistoryWithoutDiaryAfterReload() throws {
+        try withTaskStores {
+            let harness = makeInMemoryViewModelHarness(savedBoard: nil, totalPoints: 0, lifetimePoints: 0)
+            var dependencies = harness.dependencies
+            dependencies.taskLibraryRepository = P0TaskLibraryRepository(.init())
+            let vm = BingoViewModel(persistenceDependencies: dependencies)
+            FirstStepGuideStore.installSeedTasks(in: vm)
+            #expect(harness.diaryRepository.loadAllEntriesDictionary().isEmpty)
+            #expect(vm.cells[0].prefix(3).allSatisfy { $0.isStarterGuideTask })
+            let installed = try JSONDecoder().decode(SavedBoard.self,
+                from: JSONEncoder().encode(vm.makeSavedBoardSnapshot()))
+
+            var ordinaryCells = try #require(installed.fullBoardCells)
+            for index in 0..<3 { ordinaryCells[0][index].isStarterGuideTask = false }
+            let ordinaryBoard = makeNamedBoard(cells: ordinaryCells, gridSize: 3, updatedAt: .now).board
+            let controlHarness = makeInMemoryViewModelHarness(savedBoard: ordinaryBoard, savedAt: .now,
+                totalPoints: 0, lifetimePoints: 0)
+            let control = BingoViewModel(persistenceDependencies: controlHarness.dependencies)
+            for index in 0..<3 {
+                #expect(vm.toggleComplete(row: 0, col: index))
+                #expect(control.toggleComplete(row: 0, col: index))
+                #expect(harness.diaryRepository.loadAllEntriesDictionary().isEmpty)
+                #expect(vm.totalPoints == control.totalPoints)
+                #expect(vm.completedLines == control.completedLines)
+                #expect(FirstStepGuideStore.completedTaskCount(in: vm.cells) == index + 1)
+            }
+            #expect(FirstStepGuideStore.progressState(completedCount: 3, state: .tracking,
+                currentOverlay: nil, milestoneShown: 2)?.overlay == .milestoneThree)
+            for task in FirstStepGuideStore.seedTaskKeys {
+                #expect(TaskCompletionHistoryRuleEngine.completionCount(for: task,
+                    in: harness.completionHistoryRepository.loadCompletionHistory()) == 1)
+            }
+            let reloaded = BingoViewModel(persistenceDependencies: dependencies)
+            #expect(reloaded.cells[0][0].isStarterGuideTask)
+            #expect(reloaded.toggleComplete(row: 0, col: 0))
+            #expect(control.toggleComplete(row: 0, col: 0))
+            #expect(reloaded.totalPoints == control.totalPoints)
+            #expect(harness.diaryRepository.loadAllEntriesDictionary().isEmpty)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func replacingTutorialTaskRestoresDiaryInNormalAndQuickEditor(quickEdit: Bool) throws {
+        try withTaskStores {
+            let guide = BingoCell(text: "Tutorial", isStarterGuideTask: true)
+            let harness = makeInMemoryViewModelHarness(savedBoard: board([guide]), savedAt: .now)
+            var dependencies = harness.dependencies
+            dependencies.taskLibraryRepository = P0TaskLibraryRepository(.init())
+            let vm = BingoViewModel(persistenceDependencies: dependencies)
+            if quickEdit {
+                let replacement = try #require(quickEditMakePreviewCellFromEdit(existingCell: guide,
+                    text: "Real task", isForcedTask: false, residentWeekdays: [], isOneTimeTask: false,
+                    estimatedDurationMinutes: nil, startVisibleAt: nil, endVisibleAt: nil))
+                #expect(!replacement.isStarterGuideTask)
+                var ordered = vm.currentBoardCellsInRowMajor(size: 3)
+                ordered[0] = replacement
+                #expect(vm.applyBoardOrderedCells(ordered, targetGridSize: 3,
+                    explicitlyEditedCellIDs: [guide.id], editingContext: vm.makeQuickEditBoardContext()))
+            } else {
+                #expect(vm.updateTask(row: 0, col: 0, text: "Real task", isForced: false, residentWeekdays: []))
+            }
+            #expect(!vm.cells[0][0].isStarterGuideTask)
+            #expect(vm.toggleComplete(row: 0, col: 0))
+            #expect(harness.diaryRepository.loadAllEntriesDictionary().values.first?.completedTaskCounts == ["Real task": 1])
+        }
+    }
+
+    @Test(arguments: ["home", "quick", "library"], [false, true])
+    func completedTutorialConversionDoesNotBackfillAndSubsequentTogglesCountOnce(editor: String, sameName: Bool) throws {
+        try withTaskStores {
+            let now = Date()
+            let guide = BingoCell(text: "Drink water", isCompleted: true,
+                completionStreakCount: 1, lastCompletedAt: now, isStarterGuideTask: true)
+            let ordinary = BingoCell(text: "Existing task")
+            let saved = board([guide, ordinary], now: now)
+            let harness = makeInMemoryViewModelHarness(savedBoard: saved, savedAt: now,
+                totalPoints: 5, lifetimePoints: 5)
+            #expect(harness.completionHistoryRepository.replaceCompletionHistory([
+                TaskCompletionHistoryRecord(key: "drink water", completionCount: 1)
+            ]))
+            let baseline = BingoDiaryStore.entriesBySaving(board: board([ordinary]), on: now, entries: [:])
+                .mapValues { entry in
+                    BingoDiaryEntry(id: entry.id, date: entry.date, board: entry.board,
+                        allTasksCompleted: false, completedTaskCounts: ["Existing task": 4, "Drink water": 2])
+                }
+            harness.diaryRepository.replaceAllEntriesDictionary(baseline)
+            var dependencies = harness.dependencies
+            dependencies.taskLibraryRepository = P0TaskLibraryRepository(.init())
+            let vm = BingoViewModel(persistenceDependencies: dependencies)
+            let text = sameName ? guide.text : "Real task"
+            let rule: TaskRecurrenceRule? = sameName ? .init(kind: .daily) : nil
+            if editor == "home" {
+                #expect(vm.updateTask(row: 0, col: 0, text: text, isForced: false,
+                    residentWeekdays: [], recurrenceRule: rule))
+            } else {
+                let replacement: BingoCell
+                if editor == "quick" {
+                    replacement = try #require(quickEditMakePreviewCellFromEdit(existingCell: guide,
+                        text: text, isForcedTask: false, residentWeekdays: [], isOneTimeTask: false,
+                        recurrenceRule: rule, estimatedDurationMinutes: nil, startVisibleAt: nil, endVisibleAt: nil))
+                } else {
+                    replacement = quickEditMakePreviewCell(from: MyTaskItem(text: text, recurrenceRule: rule), preserving: guide)
+                }
+                var ordered = vm.currentBoardCellsInRowMajor(size: 3)
+                ordered[0] = replacement
+                #expect(vm.applyBoardOrderedCells(ordered, targetGridSize: 3,
+                    explicitlyEditedCellIDs: [guide.id], editingContext: vm.makeQuickEditBoardContext()))
+            }
+            #expect(!vm.cells[0][0].isStarterGuideTask)
+            #expect(!vm.cells[0][0].isCompleted)
+            #expect(vm.totalPoints == 5)
+            #expect(harness.diaryRepository.loadAllEntriesDictionary().values.first?.completedTaskCounts ==
+                baseline.values.first?.completedTaskCounts)
+            let reloaded = BingoViewModel(persistenceDependencies: dependencies)
+            let before = baseline.values.first?.completedTaskCounts[text] ?? 0
+            for (delta, expected) in [(1, before + 1), (-1, before), (1, before + 1)] {
+                #expect(reloaded.toggleComplete(row: 0, col: 0))
+                let counts = try #require(harness.diaryRepository.loadAllEntriesDictionary().values.first?.completedTaskCounts)
+                #expect((counts[text] ?? 0) == expected)
+                #expect(counts["Existing task"] == 4)
+                #expect(reloaded.cells[0][0].isCompleted == (delta > 0))
+                reloaded.resizeGrid(to: 4)
+                #expect(harness.diaryRepository.loadAllEntriesDictionary().values.first?.completedTaskCounts == counts)
+            }
+        }
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func removingAllTutorialTasksDoesNotOverwriteOldDiaryBeforeAddingRealTask(quickEdit: Bool, hasOldDiary: Bool) throws {
+        try withTaskStores {
+            let now = Date()
+            let guide = BingoCell(text: "Tutorial", isCompleted: true,
+                lastCompletedAt: now, isStarterGuideTask: true)
+            let harness = makeInMemoryViewModelHarness(savedBoard: board([guide]), savedAt: now)
+            let old = hasOldDiary ? BingoDiaryStore.entriesBySaving(
+                board: board([BingoCell(text: "Old task", isCompleted: true)]), on: now, entries: [:]) : [:]
+            harness.diaryRepository.replaceAllEntriesDictionary(old)
+            var dependencies = harness.dependencies
+            dependencies.taskLibraryRepository = P0TaskLibraryRepository(.init())
+            let vm = BingoViewModel(persistenceDependencies: dependencies)
+            if quickEdit {
+                #expect(vm.applyBoardOrderedCells(Array(repeating: nil, count: 9), targetGridSize: 3,
+                    editingContext: vm.makeQuickEditBoardContext()))
+            } else {
+                vm.clearTask(row: 0, col: 0)
+            }
+            #expect(harness.diaryRepository.loadAllEntriesDictionary() == old)
+            #expect(vm.updateTask(row: 0, col: 0, text: "Real task", isForced: false, residentWeekdays: []))
+            #expect(!vm.cells[0][0].isStarterGuideTask)
+            #expect(vm.toggleComplete(row: 0, col: 0))
+            let counts = harness.diaryRepository.loadAllEntriesDictionary().values.first?.completedTaskCounts
+            #expect(counts == (hasOldDiary ? ["Old task": 1, "Real task": 1] : ["Real task": 1]))
+        }
+    }
+
+    @Test
+    func mixedBoardSnapshotDoesNotKeepTutorialBingoLine() throws {
+        let tasks = FirstStepGuideStore.seedTasks.map { BingoCell(text: $0, isCompleted: true, isStarterGuideTask: true) }
+        let saved = board(tasks + [BingoCell(text: "Real task")])
+        #expect(saved.completedLines.contains(.row(0)))
+        let entry = try #require(BingoDiaryStore.entriesBySaving(board: saved, on: .now, entries: [:]).values.first)
+        #expect(entry.board.completedLines.isEmpty)
+        #expect(entry.completedTaskCounts.isEmpty)
+        #expect(!entry.allTasksCompleted)
+    }
+
+    @Test
+    func libraryReplacementClearsSourceButMetadataRefreshPreservesTutorial() {
+        let guide = BingoCell(text: "Tutorial", isStarterGuideTask: true)
+        #expect(quickEditMakePreviewCell(from: MyTaskItem(text: "Tutorial"), preserving: guide).isStarterGuideTask)
+        #expect(!quickEditMakePreviewCell(from: MyTaskItem(text: "Real task"), preserving: guide).isStarterGuideTask)
+    }
+
+    @Test
+    func installingOnSmallBoardAndSavingUnchangedTutorialDoNotTouchOldDiary() throws {
+        try withTaskStores {
+            let now = Date()
+            let empty = makeNamedBoard(gridSize: 2, updatedAt: now).board
+            let harness = makeInMemoryViewModelHarness(savedBoard: empty, savedAt: now)
+            let old = BingoDiaryStore.entriesBySaving(
+                board: board([BingoCell(text: "Old task", isCompleted: true)]), on: now, entries: [:])
+            harness.diaryRepository.replaceAllEntriesDictionary(old)
+            var dependencies = harness.dependencies
+            dependencies.taskLibraryRepository = P0TaskLibraryRepository(.init())
+            let vm = BingoViewModel(persistenceDependencies: dependencies)
+            FirstStepGuideStore.installSeedTasks(in: vm)
+            #expect(vm.gridSize == 3)
+            #expect(vm.cells[0].prefix(3).allSatisfy { $0.isStarterGuideTask })
+            #expect(harness.diaryRepository.loadAllEntriesDictionary() == old)
+            #expect(vm.updateTask(row: 0, col: 0, text: vm.cells[0][0].text,
+                isForced: false, residentWeekdays: []))
+            #expect(vm.cells[0][0].isStarterGuideTask)
+            #expect(harness.diaryRepository.loadAllEntriesDictionary() == old)
+            vm.resizeGrid(to: 4)
+            #expect(harness.diaryRepository.loadAllEntriesDictionary() == old)
+        }
+    }
+
+    @Test
+    func repairingDuplicateCellIdentityPreservesTutorialSource() throws {
+        let id = UUID()
+        let saved = board([BingoCell(id: id, text: "First", isStarterGuideTask: true),
+            BingoCell(id: id, text: "Second", isStarterGuideTask: true)])
+        let harness = makeInMemoryViewModelHarness(savedBoard: saved, savedAt: .now)
+        let vm = BingoViewModel(persistenceDependencies: harness.dependencies)
+        #expect(vm.cells[0][0].id != vm.cells[0][1].id)
+        #expect(vm.cells[0][0].isStarterGuideTask && vm.cells[0][1].isStarterGuideTask)
+        #expect(harness.diaryRepository.loadAllEntriesDictionary().isEmpty)
+    }
+
+    @Test
+    func interruptedTutorialTransactionRecoversWithoutAddingDiary() throws {
+        let now = Date()
+        let guide = BingoCell(text: "Tutorial", isCompleted: true, isStarterGuideTask: true)
+        let saved = board([guide])
+        let harness = makeInMemoryViewModelHarness(savedBoard: saved, savedAt: now)
+        harness.transactionRepository.shouldFailClear = true
+        _ = BingoViewModelPersistence.saveWithExplicitDiaryDelta(.init(board: saved,
+            boardCountdownEndsAt: nil, totalPoints: 1, lifetimePoints: 1,
+            dailyRewardState: BingoRewardSettlement.emptyDailyRewardState(for: now)),
+            task: guide.text, delta: 1, isStarterGuideTask: true, savedAt: now, dependencies: harness.dependencies)
+        #expect(harness.transactionRepository.pendingTransaction != nil)
+        #expect(harness.diaryRepository.loadAllEntriesDictionary().isEmpty)
+        harness.transactionRepository.shouldFailClear = false
+        _ = BingoViewModelPersistence.recoverPendingTransactionIfNeeded(dependencies: harness.dependencies)
+        #expect(harness.transactionRepository.pendingTransaction == nil)
+        #expect(harness.diaryRepository.loadAllEntriesDictionary().isEmpty)
+        #expect(harness.boardRepository.board?.cells[0][0].isStarterGuideTask == true)
+        #expect(harness.pointsRepository.loadTotalPoints() == 1)
+    }
+
+    @Test(arguments: [false, true])
+    func widgetAndLiveActivityTutorialCompletionAndUndoPreserveOldDiary(prepared: Bool) throws {
+        let now = Date()
+        let text = FirstStepGuideStore.seedTasks[0]
+        let guide = BingoCell(text: text, isStarterGuideTask: true)
+        let ordinary = BingoCell(text: text)
+        let saved = board([guide, ordinary], now: now)
+        var named = BingoBoardStore.NamedBoard(name: "Tutorial", board: saved,
+            taskResetMode: .keepTaskStatus, lastTaskResetAppliedAt: now, origin: .starterGuide, updatedAt: now)
+        let oldDiary = BingoDiaryStore.loadAllEntriesDictionary()
+        let oldPoints = PointsStore.loadPersistenceSnapshot()
+        let oldHistory = TaskCompletionHistoryStore.load()
+        defer {
+            _ = BingoDiaryStore.replaceAllEntriesDictionary(oldDiary)
+            _ = PointsStore.replacePersistenceSnapshot(oldPoints)
+            _ = TaskCompletionHistoryStore.save(oldHistory)
+        }
+        let id = PointsStore.dateKey(for: now)
+        let baseline: [String: BingoDiaryEntry] = [id: .init(id: id, date: now, board: board([ordinary]),
+            allTasksCompleted: false, completedTaskCounts: [text: 4])]
+        #expect(BingoDiaryStore.replaceAllEntriesDictionary(baseline))
+        #expect(PointsStore.saveState(totalPoints: 0, lifetimePoints: 0,
+            dailyRewardState: BingoRewardSettlement.emptyDailyRewardState(for: now)))
+        for _ in 0..<2 {
+            let updated = try #require(WidgetTaskToggleService.toggled(board: named,
+                row: 0, col: 0, now: now, commitSideEffects: !prepared))
+            if prepared {
+                let effects = try #require(WidgetTaskToggleService.prepareSideEffects(
+                    previousBoard: named, updatedBoard: updated, row: 0, col: 0, now: now))
+                #expect(effects.diary == baseline)
+                #expect(WidgetTaskToggleService.applyPreparedSideEffects(effects))
+            }
+            #expect(updated.board.cells[0][0].isStarterGuideTask)
+            #expect(BingoDiaryStore.loadAllEntriesDictionary() == baseline)
+            named = updated
+        }
+        #expect(!named.board.cells[0][0].isCompleted)
+    }
+}
 
 final class BoardResetRuleEngineTests: XCTestCase {
     func testDailyForcedTaskRemainsConfiguredAcrossCompletionAndNextDayReset() throws {
@@ -8492,7 +8897,10 @@ final class TaskHistoryStoreTests: XCTestCase {
         let library = MyTasksLibrary(
             groups: [MyTaskGroup(name: "Legacy group", tasks: [groupTask])]
         )
-        defaults.set(try JSONEncoder().encode(library), forKey: AppSettings.commonTasksKey)
+        var legacyPayload = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(library)) as? [String: Any])
+        legacyPayload.removeValue(forKey: "groupTaskRulesVersion")
+        defaults.set(try JSONSerialization.data(withJSONObject: legacyPayload), forKey: AppSettings.commonTasksKey)
 
         let groupHistory = TaskHistoryRecord(
             key: TaskHistoryStore.makeKey(for: groupTask, sourceTaskID: groupTaskID),
@@ -10645,6 +11053,264 @@ private func makeAppReviewPresentationState(
 
 @MainActor
 final class UserReportedDailyTaskLifecycleRegressionTests: XCTestCase {
+    func testTimeoutActionsSurvivePersistenceRoundTripWithInactiveTaskOnBoard() throws {
+        let timeoutStats = BingoTimeoutStore.loadAllPayload(reading: .readOnly)
+        defer { XCTAssertTrue(BingoTimeoutStore.replacePayload(timeoutStats)) }
+        let now = Date()
+        for resolution in [BingoViewModel.ExpiredTaskResolution.postpone(minutes: 5),
+                           .postpone(minutes: 10), .postpone(minutes: 60), .markAsCompleted, .abandon] {
+            var cache = BoardEngine.createEmptyGrid(size: 5)
+            cache[0][0] = BingoCell(
+                text: "Expired window",
+                recurrenceRule: .init(kind: .none),
+                startVisibleAt: now.addingTimeInterval(-120),
+                endVisibleAt: now.addingTimeInterval(-60)
+            )
+            cache[0][1] = BingoCell(
+                text: "Future task",
+                startVisibleAt: now.addingTimeInterval(86400)
+            )
+            cache[1][0] = BingoCell(text: "Another task")
+            let board = SavedBoard(
+                gridSize: 2,
+                cells: BoardEngine.projectVisibleCells(from: cache, size: 2, referenceDate: now),
+                completedLines: [], fullBoardCells: cache
+            )
+            let harness = makeInMemoryViewModelHarness(savedBoard: board, savedAt: now)
+            let vm = BingoViewModel(persistenceDependencies: harness.dependencies)
+            // Ordinary board commits copy display projections into the full cache.
+            vm.toggleComplete(row: 1, col: 0, referenceDate: now)
+            XCTAssertTrue(vm.makeSavedBoardSnapshot().fullBoardCells?[0][1].isDisplayOnlyInactive == true)
+            // Live storage uses Codable; display-only inactivity is intentionally not encoded.
+            harness.boardRepository.board = try JSONDecoder().decode(
+                SavedBoard.self, from: JSONEncoder().encode(vm.makeSavedBoardSnapshot())
+            )
+            vm.processExpiredTaskCountdowns(now: now)
+            XCTAssertNotNil(vm.expiredTaskEvent)
+            let message = vm.resolveExpiredTask(resolution, now: now)
+            switch resolution {
+            case .postpone(let minutes):
+                XCTAssertEqual(message, L10n.taskPostponedSuccess(minutes))
+                XCTAssertEqual(vm.cells[0][0].endVisibleAt, now.addingTimeInterval(Double(minutes * 60)))
+            case .markAsCompleted:
+                XCTAssertEqual(message, L10n.taskMarkedCompletedSuccess)
+                XCTAssertTrue(vm.cells[0][0].isCompleted)
+            case .abandon:
+                XCTAssertEqual(message, L10n.taskAbandonedSuccess)
+                XCTAssertFalse(vm.cells[0][0].hasStoredTask)
+                XCTAssertNotEqual(vm.cells[0][0].id, cache[0][0].id)
+            }
+            for offset in 1...3 {
+                let tick = now.addingTimeInterval(Double(offset))
+                _ = vm.refreshVisibilityWindowsIfNeeded(now: tick)
+                vm.processExpiredTaskCountdowns(now: tick)
+                XCTAssertNil(vm.expiredTaskEvent, "Resolved timeout must not immediately reopen")
+            }
+            let persisted = try XCTUnwrap(harness.boardRepository.loadBoard())
+            XCTAssertEqual(persisted.fullBoardCells?[0][0], vm.cells[0][0])
+            XCTAssertEqual(persisted.fullBoardCells?[0][1].id, cache[0][1].id)
+        }
+    }
+
+    func testBoardTimeoutActionsStayResolvedAfterTicksAndReload() throws {
+        let now = Date()
+        for resolution in [BingoViewModel.ExpiredBoardCountdownResolution.postpone(minutes: 5),
+                           .postpone(minutes: 10), .postpone(minutes: 60), .markAsCompleted, .abandon] {
+            var cache = BoardEngine.createEmptyGrid(size: 5)
+            cache[0][0] = BingoCell(text: "Active window", recurrenceRule: .init(kind: .none),
+                startVisibleAt: now.addingTimeInterval(-60), endVisibleAt: now.addingTimeInterval(86400))
+            cache[0][1] = BingoCell(text: "Future task", startVisibleAt: now.addingTimeInterval(86400))
+            let board = SavedBoard(gridSize: 2,
+                cells: BoardEngine.projectVisibleCells(from: cache, size: 2, referenceDate: now),
+                completedLines: [], fullBoardCells: cache)
+            let harness = makeInMemoryViewModelHarness(savedBoard: board, savedAt: now,
+                countdownEndsAt: now.addingTimeInterval(-60))
+            let vm = BingoViewModel(persistenceDependencies: harness.dependencies)
+            vm.processExpiredCountdowns(now: now)
+            XCTAssertNotNil(vm.expiredBoardCountdownEvent)
+            let message = vm.resolveExpiredBoardCountdown(resolution, now: now)
+            switch resolution {
+            case .postpone(let minutes):
+                XCTAssertEqual(message, L10n.boardCountdownPostponedSuccess(minutes))
+                XCTAssertEqual(vm.boardCountdownEndsAt, now.addingTimeInterval(Double(minutes * 60)))
+                XCTAssertFalse(vm.cells[0][0].isCompleted)
+            case .markAsCompleted:
+                XCTAssertEqual(message, L10n.boardMarkedCompletedSuccess)
+                XCTAssertNil(vm.boardCountdownEndsAt)
+                XCTAssertTrue(vm.cells[0][0].isCompleted)
+            case .abandon:
+                XCTAssertEqual(message, L10n.boardCountdownCanceledSuccess)
+                XCTAssertNil(vm.boardCountdownEndsAt)
+                XCTAssertFalse(vm.cells[0][0].isCompleted)
+            }
+            XCTAssertEqual(harness.boardRepository.loadBoardCountdownEndsAt(), vm.boardCountdownEndsAt)
+            let expectedDeadline = vm.boardCountdownEndsAt
+            let saved = try XCTUnwrap(harness.boardRepository.loadBoard())
+            harness.boardRepository.board = try JSONDecoder().decode(SavedBoard.self, from: JSONEncoder().encode(saved))
+            let reloaded = BingoViewModel(persistenceDependencies: harness.dependencies)
+            for model in [vm, reloaded] {
+                for offset in 1...3 {
+                    let tick = now.addingTimeInterval(Double(offset))
+                    _ = model.refreshVisibilityWindowsIfNeeded(now: tick)
+                    model.processExpiredCountdowns(now: tick)
+                    model.processExpiredTaskCountdowns(now: tick)
+                    XCTAssertNil(model.expiredBoardCountdownEvent)
+                    XCTAssertNil(model.expiredTaskEvent)
+                    XCTAssertEqual(model.boardCountdownEndsAt, expectedDeadline)
+                }
+            }
+            if let deadline = expectedDeadline {
+                reloaded.processExpiredCountdowns(now: deadline)
+                XCTAssertEqual(reloaded.expiredBoardCountdownEvent?.expiredAt, deadline)
+            }
+        }
+    }
+
+    func testSingleTaskEndOnlyDeadlineCanBePostponedAndCompleted() throws {
+        let timeoutStats = BingoTimeoutStore.loadAllPayload(reading: .readOnly)
+        defer { XCTAssertTrue(BingoTimeoutStore.replacePayload(timeoutStats)) }
+        let now = Date()
+        let end = now.addingTimeInterval(120)
+        let harness = makeInMemoryViewModelHarness(
+            savedBoard: makeSavedBoardForViewModel(cell: BingoCell(), referenceDate: now), savedAt: now)
+        let vm = BingoViewModel(persistenceDependencies: harness.dependencies)
+        XCTAssertTrue(vm.updateTask(row: 0, col: 0, text: "End-only task", isForced: false,
+            residentWeekdays: [], isOneTimeTask: true, recurrenceRule: .init(kind: .none), endVisibleAt: end))
+        vm.processExpiredTaskCountdowns(now: end.addingTimeInterval(-1))
+        XCTAssertNil(vm.expiredTaskEvent)
+        vm.processExpiredTaskCountdowns(now: end)
+        let event = try XCTUnwrap(vm.expiredTaskEvent, "An end time alone must trigger timeout")
+        XCTAssertTrue(event.expiredByVisibilityWindow)
+        XCTAssertEqual(vm.resolveExpiredTask(.postpone(minutes: 5), now: end), L10n.taskPostponedSuccess(5))
+        let newEnd = end.addingTimeInterval(300)
+        XCTAssertEqual(vm.cells[0][0].endVisibleAt, newEnd)
+        for offset in 1...3 {
+            let tick = end.addingTimeInterval(Double(offset))
+            _ = vm.refreshVisibilityWindowsIfNeeded(now: tick)
+            vm.processExpiredTaskCountdowns(now: tick)
+            XCTAssertNil(vm.expiredTaskEvent)
+        }
+        vm.processExpiredTaskCountdowns(now: newEnd)
+        XCTAssertNotNil(vm.expiredTaskEvent)
+        XCTAssertEqual(vm.resolveExpiredTask(.markAsCompleted, now: newEnd), L10n.taskMarkedCompletedSuccess)
+        vm.processExpiredTaskCountdowns(now: newEnd.addingTimeInterval(1))
+        XCTAssertNil(vm.expiredTaskEvent)
+        XCTAssertTrue(vm.cells[0][0].isCompleted)
+        XCTAssertNil(vm.cells[0][0].endVisibleAt)
+    }
+
+    func testSingleTaskStartOnlyAndRescheduledWindowDoNotReplayOldTimeout() throws {
+        let now = Date()
+        let start = now.addingTimeInterval(60)
+        let end = start.addingTimeInterval(60)
+        let harness = makeInMemoryViewModelHarness(
+            savedBoard: makeSavedBoardForViewModel(cell: BingoCell(), referenceDate: now), savedAt: now)
+        let vm = BingoViewModel(persistenceDependencies: harness.dependencies)
+        XCTAssertTrue(vm.updateTask(row: 0, col: 0, text: "Scheduled task", isForced: false,
+            residentWeekdays: [], isOneTimeTask: true, recurrenceRule: .init(kind: .none),
+            startVisibleAt: start, endVisibleAt: end))
+        XCTAssertTrue(vm.cells[0][0].isDisplayOnlyInactive)
+        vm.processExpiredTaskCountdowns(now: start.addingTimeInterval(-1))
+        XCTAssertNil(vm.expiredTaskEvent)
+        _ = vm.refreshVisibilityWindowsIfNeeded(now: start)
+        XCTAssertFalse(vm.cells[0][0].isDisplayOnlyInactive)
+        vm.processExpiredTaskCountdowns(now: end)
+        XCTAssertNotNil(vm.expiredTaskEvent)
+        XCTAssertTrue(vm.updateTask(row: 0, col: 0, text: "Scheduled task", isForced: false,
+            residentWeekdays: [], isOneTimeTask: true, recurrenceRule: .init(kind: .none),
+            startVisibleAt: now.addingTimeInterval(600), endVisibleAt: now.addingTimeInterval(900)))
+        XCTAssertNil(vm.expiredTaskEvent)
+        for offset in 1...3 {
+            let tick = end.addingTimeInterval(Double(offset))
+            _ = vm.refreshVisibilityWindowsIfNeeded(now: tick)
+            vm.processExpiredTaskCountdowns(now: tick)
+            XCTAssertNil(vm.expiredTaskEvent)
+        }
+        XCTAssertTrue(vm.updateTask(row: 0, col: 0, text: "Scheduled task", isForced: false,
+            residentWeekdays: [], isOneTimeTask: true, recurrenceRule: .init(kind: .none), startVisibleAt: start))
+        let nextDay = now.addingTimeInterval(86400)
+        _ = vm.refreshVisibilityWindowsIfNeeded(now: nextDay)
+        vm.processExpiredTaskCountdowns(now: nextDay)
+        XCTAssertFalse(vm.cells[0][0].isDisplayOnlyInactive)
+        XCTAssertNil(vm.expiredTaskEvent, "A start time alone is not a timeout deadline")
+    }
+
+    func testWindowPostponeDoesNotRestartLegacyDurationBeforeSelectedDeadline() throws {
+        let timeoutStats = BingoTimeoutStore.loadAllPayload(reading: .readOnly)
+        defer { XCTAssertTrue(BingoTimeoutStore.replacePayload(timeoutStats)) }
+        let now = Date()
+        let cell = BingoCell(text: "Window with old duration", recurrenceRule: .init(kind: .none),
+            startVisibleAt: now.addingTimeInterval(-120), endVisibleAt: now.addingTimeInterval(-1),
+            countdownEndsAt: now.addingTimeInterval(60), estimatedDurationMinutes: 1)
+        let harness = makeInMemoryViewModelHarness(
+            savedBoard: makeSavedBoardForViewModel(cell: cell, referenceDate: now), savedAt: now)
+        let vm = BingoViewModel(persistenceDependencies: harness.dependencies)
+        vm.processExpiredTaskCountdowns(now: now)
+        XCTAssertNotNil(vm.expiredTaskEvent)
+        XCTAssertEqual(vm.resolveExpiredTask(.postpone(minutes: 5), now: now), L10n.taskPostponedSuccess(5))
+        for offset in [1.0, 62.0, 299.0] {
+            let tick = now.addingTimeInterval(offset)
+            _ = vm.refreshVisibilityWindowsIfNeeded(now: tick)
+            vm.processExpiredTaskCountdowns(now: tick)
+            XCTAssertNil(vm.expiredTaskEvent, "The selected five-minute postponement must survive old duration ticks")
+        }
+        vm.processExpiredTaskCountdowns(now: now.addingTimeInterval(300))
+        XCTAssertNotNil(vm.expiredTaskEvent)
+    }
+
+    func testTaskPostponeExtendsAnEarlierEndTimeUntilSelectedDeadline() throws {
+        let timeoutStats = BingoTimeoutStore.loadAllPayload(reading: .readOnly)
+        defer { XCTAssertTrue(BingoTimeoutStore.replacePayload(timeoutStats)) }
+        let now = Date()
+        let cell = BingoCell(text: "Two deadlines", recurrenceRule: .init(kind: .none),
+            startVisibleAt: now.addingTimeInterval(-120), endVisibleAt: now.addingTimeInterval(30),
+            countdownEndsAt: now.addingTimeInterval(-1), estimatedDurationMinutes: 1)
+        let harness = makeInMemoryViewModelHarness(
+            savedBoard: makeSavedBoardForViewModel(cell: cell, referenceDate: now), savedAt: now)
+        let vm = BingoViewModel(persistenceDependencies: harness.dependencies)
+        vm.processExpiredTaskCountdowns(now: now)
+        XCTAssertEqual(vm.resolveExpiredTask(.postpone(minutes: 5), now: now), L10n.taskPostponedSuccess(5))
+        let postponedUntil = now.addingTimeInterval(300)
+        XCTAssertEqual(vm.cells[0][0].endVisibleAt, postponedUntil)
+        XCTAssertEqual(vm.cells[0][0].countdownEndsAt, postponedUntil)
+        let persisted = try XCTUnwrap(harness.boardRepository.loadBoard())
+        harness.boardRepository.board = try JSONDecoder().decode(SavedBoard.self, from: JSONEncoder().encode(persisted))
+        let reloaded = BingoViewModel(persistenceDependencies: harness.dependencies)
+        for offset in [1.0, 31.0, 299.0] {
+            let tick = now.addingTimeInterval(offset)
+            _ = reloaded.refreshVisibilityWindowsIfNeeded(now: tick)
+            reloaded.processExpiredTaskCountdowns(now: tick)
+            XCTAssertNil(reloaded.expiredTaskEvent)
+        }
+        reloaded.processExpiredTaskCountdowns(now: postponedUntil)
+        XCTAssertEqual(reloaded.expiredTaskEvent?.expiredAt, postponedUntil)
+    }
+
+    func testBoardPostponeDoesNotReopenBoardPromptWhenSeparateTaskIsExpired() throws {
+        let now = Date()
+        let cell = BingoCell(text: "Independently expired task", countdownEndsAt: now.addingTimeInterval(-60))
+        let harness = makeInMemoryViewModelHarness(
+            savedBoard: makeSavedBoardForViewModel(cell: cell, referenceDate: now), savedAt: now,
+            countdownEndsAt: now.addingTimeInterval(-1))
+        let vm = BingoViewModel(persistenceDependencies: harness.dependencies)
+        vm.processExpiredCountdowns(now: now)
+        vm.processExpiredTaskCountdowns(now: now)
+        XCTAssertNotNil(vm.expiredBoardCountdownEvent)
+        XCTAssertNil(vm.expiredTaskEvent)
+        XCTAssertEqual(vm.resolveExpiredBoardCountdown(.postpone(minutes: 5), now: now),
+            L10n.boardCountdownPostponedSuccess(5))
+        vm.processExpiredCountdowns(now: now.addingTimeInterval(1))
+        vm.processExpiredTaskCountdowns(now: now.addingTimeInterval(1))
+        XCTAssertNil(vm.expiredBoardCountdownEvent)
+        XCTAssertEqual(vm.expiredTaskEvent?.cellID, cell.id)
+        XCTAssertEqual(vm.resolveExpiredTask(.markAsCompleted, now: now.addingTimeInterval(1)),
+            L10n.taskMarkedCompletedSuccess)
+        vm.processExpiredCountdowns(now: now.addingTimeInterval(2))
+        vm.processExpiredTaskCountdowns(now: now.addingTimeInterval(2))
+        XCTAssertNil(vm.expiredBoardCountdownEvent)
+        XCTAssertNil(vm.expiredTaskEvent)
+    }
+
     @MainActor
     func testTimeoutCannotOverwriteAnotherTaskEditedExternally() throws {
         let now = Date()
@@ -14844,4 +15510,667 @@ private func withRestoredBoardStorage(_ operation: (URL) throws -> Void) throws 
         }
     }
     try operation(directory)
+}
+
+@Suite(.serialized)
+@MainActor
+struct BoardTaskLibraryRuleSyncTests {
+    @Test(arguments: [false, true])
+    func dailyEditSurvivesLibraryReloadReselectionCompletionAndReset(quickEdit: Bool) throws {
+        let now = Date()
+        let template = MyTaskItem(text: "Rule \(UUID().uuidString.prefix(8))", recurrenceRule: .init(kind: .none))
+        let repository = P0TaskLibraryRepository(.init(tasks: [template]))
+        let harness = makeInMemoryViewModelHarness(savedBoard: makeSavedBoardForViewModel(
+            cell: quickEditMakePreviewCell(from: template), referenceDate: now), savedAt: now,
+            totalPoints: 44, lifetimePoints: 55)
+        var dependencies = harness.dependencies
+        dependencies.taskLibraryRepository = repository
+        let vm = BingoViewModel(persistenceDependencies: dependencies)
+        if quickEdit {
+            var cells = vm.currentBoardCellsInRowMajor(size: 2)
+            cells[0]?.recurrenceRule = .init(kind: .daily)
+            #expect(vm.applyBoardOrderedCells(cells, targetGridSize: 2,
+                explicitlyEditedCellIDs: [vm.cells[0][0].id], editingContext: vm.makeQuickEditBoardContext()))
+        } else {
+            #expect(vm.updateTask(row: 0, col: 0, text: template.text, isForced: false,
+                residentWeekdays: [], recurrenceRule: .init(kind: .daily)))
+        }
+        let reloaded = try JSONDecoder().decode(MyTasksLibrary.self, from: JSONEncoder().encode(repository.library))
+        let saved = try #require(reloaded.tasks.first)
+        #expect(saved.id == template.id)
+        #expect(saved.recurrenceRule?.kind == .daily)
+        var drafts: [String: QuickEditDeselectedTaskDraft] = [:]
+        let selected = quickEditAddPreviewTask(key: saved.id.uuidString,
+            candidateTaskMap: [saved.id.uuidString: saved], currentSlots: [QuickEditPreviewSlot()],
+            deselectedTaskDrafts: &drafts)
+        let nextHarness = makeInMemoryViewModelHarness(savedBoard: makeSavedBoardForViewModel(
+            cell: BingoCell(), referenceDate: now), savedAt: now, totalPoints: 44, lifetimePoints: 55)
+        let next = BingoViewModel(persistenceDependencies: nextHarness.dependencies)
+        #expect(next.applyBoardOrderedCells(selected.updatedSlots.map(\.cellState), targetGridSize: 2))
+        next.toggleComplete(row: 0, col: 0, referenceDate: now)
+        let board = try #require(nextHarness.boardRepository.loadBoard())
+        let named = BingoBoardStore.NamedBoard(id: UUID(), name: "Regression", board: board,
+            taskResetMode: .resetStatusNextDay, lastTaskResetAppliedAt: now, updatedAt: now)
+        let tomorrow = try #require(Calendar.current.date(byAdding: .day, value: 1, to: now))
+        let reset = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(named, now: tomorrow)
+        let restored = try #require(reset.board.fullBoardCells?[0][0])
+        #expect(restored.hasStoredTask)
+        #expect(restored.recurrenceRule?.kind == .daily)
+        #expect(!restored.isCompleted)
+        #expect(nextHarness.pointsRepository.loadTotalPoints() == 45)
+        #expect(harness.pointsRepository.loadTotalPoints() == 44)
+    }
+
+    @Test(arguments: [false, true])
+    func failedRuleSyncKeepsOriginalBoardAndAllowsRetry(partialWrite: Bool) throws {
+        let now = Date()
+        let task = MyTaskItem(text: "Retry \(UUID().uuidString.prefix(8))", recurrenceRule: .init(kind: .none))
+        let repository = P0TaskLibraryRepository(.init(tasks: [task]))
+        let harness = makeInMemoryViewModelHarness(savedBoard: makeSavedBoardForViewModel(
+            cell: quickEditMakePreviewCell(from: task), referenceDate: now), savedAt: now,
+            totalPoints: 44, lifetimePoints: 55)
+        var dependencies = harness.dependencies
+        dependencies.taskLibraryRepository = repository
+        let vm = BingoViewModel(persistenceDependencies: dependencies)
+        let before = harness.boardRepository.loadBoard()
+        repository.failSave = true
+        repository.writeBeforeFailure = partialWrite
+        let accepted = vm.updateTask(row: 0, col: 0, text: task.text, isForced: false,
+            residentWeekdays: [], recurrenceRule: .init(kind: .daily))
+        #expect(accepted == false)
+        #expect(harness.boardRepository.loadBoard() == before)
+        #expect(vm.cells[0][0].recurrenceRule?.kind == TaskRecurrenceRule.Kind.none)
+        repository.failSave = false
+        #expect(vm.updateTask(row: 0, col: 0, text: task.text, isForced: false,
+            residentWeekdays: [], recurrenceRule: .init(kind: .daily)))
+        #expect(repository.library.tasks[0].recurrenceRule?.kind == .daily)
+        #expect(repository.pending == nil)
+        #expect(vm.totalPoints == 44)
+    }
+
+    @Test
+    func sameNameDifferentDefinitionsAndAmbiguousTemplatesStayIndependent() {
+        let single = MyTaskItem(text: "Same title", recurrenceRule: .init(kind: .none))
+        let weekly = MyTaskItem(text: single.text, recurrenceRule: .init(kind: .weekly, weekdays: [2]))
+        var edited = single
+        edited.recurrenceRule = .init(kind: .daily)
+        let now = Date()
+        func commit(_ library: MyTasksLibrary) -> MyTasksLibrary {
+            let repository = P0TaskLibraryRepository(library)
+            let harness = makeInMemoryViewModelHarness(savedBoard: makeSavedBoardForViewModel(
+                cell: quickEditMakePreviewCell(from: single), referenceDate: now), savedAt: now)
+            var dependencies = harness.dependencies
+            dependencies.taskLibraryRepository = repository
+            let vm = BingoViewModel(persistenceDependencies: dependencies)
+            #expect(vm.updateTask(row: 0, col: 0, text: single.text, isForced: false,
+                residentWeekdays: [], recurrenceRule: edited.recurrenceRule))
+            return repository.library
+        }
+        let updated = commit(.init(tasks: [single, weekly]))
+        #expect(updated.tasks[0].recurrenceRule?.kind == .daily)
+        #expect(updated.tasks[1] == weekly)
+        let duplicate = MyTaskItem(text: single.text, recurrenceRule: single.recurrenceRule)
+        let ambiguous = MyTasksLibrary(tasks: [single, duplicate])
+        #expect(commit(ambiguous) == ambiguous)
+    }
+
+    @Test(arguments: [TaskRecurrenceRule.Kind.none, .daily, .weekly, .monthlyDay, .everyNDays])
+    func explicitGroupedRulesSurviveSaveReloadAndHistory(kind: TaskRecurrenceRule.Kind) {
+        withTaskStores {
+            let rule = TaskRecurrenceRule(kind: kind, interval: 3, weekdays: [2, 4], monthDay: 15, anchorDate: Date())
+            let task = MyTaskItem(text: "Grouped explicit rule", recurrenceRule: rule)
+            let history = TaskHistoryRecord(key: TaskHistoryStore.makeKey(for: task, sourceTaskID: task.id),
+                text: task.text, recurrenceRule: rule, sourceTaskID: task.id)
+            #expect(TaskHistoryStore.save([history]))
+            #expect(CommonTasksStore.saveLibrary(.init(groups: [.init(name: "Group", tasks: [task])])))
+            for _ in 0..<2 {
+                #expect(CommonTasksStore.loadLibrary().groups[0].tasks[0].recurrenceRule == rule)
+                #expect(TaskHistoryStore.load().first?.recurrenceRule == rule)
+            }
+        }
+    }
+
+    @Test
+    func groupedBoardEditPersistsWeeklyRuleToLibrary() {
+        withTaskStores {
+            let now = Date()
+            let task = MyTaskItem(text: "Grouped board edit", recurrenceRule: .init(kind: .daily))
+            #expect(CommonTasksStore.saveLibrary(.init(groups: [.init(name: "Group", tasks: [task])])))
+            let harness = makeInMemoryViewModelHarness(savedBoard: makeSavedBoardForViewModel(
+                cell: quickEditMakePreviewCell(from: task), referenceDate: now), savedAt: now)
+            let vm = BingoViewModel(persistenceDependencies: harness.dependencies)
+            let rule = TaskRecurrenceRule(kind: .weekly, weekdays: [2, 4])
+            #expect(vm.updateTask(row: 0, col: 0, text: task.text, isForced: false,
+                residentWeekdays: [], recurrenceRule: rule))
+            #expect(CommonTasksStore.loadLibrary().groups[0].tasks[0].recurrenceRule == rule)
+            #expect(vm.cells[0][0].recurrenceRule == rule)
+        }
+    }
+
+    @Test
+    func oldLibraryMigrationPreservesExplicitWeeklyRuleAndRunsOnce() throws {
+        try withTaskStores {
+            let single = MyTaskItem(text: "Legacy single", recurrenceRule: .init(kind: .none))
+            let weekly = MyTaskItem(text: "Legacy weekly", recurrenceRule: .init(kind: .weekly, weekdays: [2, 4]))
+            let old = MyTasksLibrary(groups: [.init(name: "Old", tasks: [single, weekly])], groupTaskRulesVersion: 0)
+            var payload = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(old)) as? [String: Any])
+            payload.removeValue(forKey: "groupTaskRulesVersion")
+            UserDefaults.standard.set(try JSONSerialization.data(withJSONObject: payload), forKey: AppSettings.commonTasksKey)
+            var migrated = CommonTasksStore.loadLibrary()
+            #expect(migrated.groups[0].tasks[0].recurrenceRule?.kind == .daily)
+            #expect(migrated.groups[0].tasks[1] == weekly)
+            migrated.groups[0].tasks[0].recurrenceRule = .init(kind: .none)
+            #expect(CommonTasksStore.saveLibrary(migrated))
+            for _ in 0..<2 {
+                let reloaded = CommonTasksStore.loadLibrary()
+                #expect(reloaded.groups[0].tasks[0].recurrenceRule?.kind == TaskRecurrenceRule.Kind.none)
+                #expect(reloaded.groups[0].tasks[1] == weekly)
+            }
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func pendingJournalFromOlderVersionRecoversAfterLibraryMigration(boardWasSaved: Bool) throws {
+        let now = Date()
+        let cell = BingoCell(text: "Upgrade journal", customCompletionPoints: 3)
+        let before = makeSavedBoardForViewModel(cell: cell, referenceDate: now)
+        var edited = cell
+        edited.customCompletionPoints = 7
+        let after = makeSavedBoardForViewModel(cell: edited, referenceDate: now)
+        let oldLibrary = MyTasksLibrary(tasks: [.init(text: cell.text, customCompletionPoints: 3)], groupTaskRulesVersion: 0)
+        var newLibrary = oldLibrary
+        newLibrary.tasks[0].customCompletionPoints = 7
+        let repository = P0TaskLibraryRepository(boardWasSaved ? newLibrary : oldLibrary)
+        repository.library.groupTaskRulesVersion = MyTasksLibrary.currentGroupTaskRulesVersion
+        repository.pending = .init(accountScope: NativeICloudPreferences.accountScopeIdentifier,
+            boardID: nil, previousBoard: before, board: after, previousLibrary: oldLibrary,
+            library: newLibrary, savedAt: now)
+        #expect(TaskLibraryEditTransaction.recover(repository: repository,
+            currentBoard: boardWasSaved ? after : before, boardID: nil))
+        #expect(repository.library.tasks[0].customCompletionPoints == (boardWasSaved ? 7 : 3))
+        #expect(repository.library.groupTaskRulesVersion == MyTasksLibrary.currentGroupTaskRulesVersion)
+        #expect(repository.pending == nil)
+    }
+
+    @Test(arguments: [TaskRecurrenceRule.Kind.none, .weekly, .monthlyDay, .everyNDays])
+    func boardRuleChangesSyncTheExactSchedule(kind: TaskRecurrenceRule.Kind) {
+        let now = Date()
+        let task = MyTaskItem(text: "Schedule change", recurrenceRule: .init(kind: .daily))
+        let repository = P0TaskLibraryRepository(.init(tasks: [task]))
+        let harness = makeInMemoryViewModelHarness(savedBoard: makeSavedBoardForViewModel(
+            cell: quickEditMakePreviewCell(from: task), referenceDate: now), savedAt: now, totalPoints: 44)
+        var dependencies = harness.dependencies
+        dependencies.taskLibraryRepository = repository
+        let vm = BingoViewModel(persistenceDependencies: dependencies)
+        let rule: TaskRecurrenceRule = switch kind {
+        case .none: .init(kind: .none)
+        case .weekly: .init(kind: .weekly, weekdays: [2, 4])
+        case .monthlyDay: .init(kind: .monthlyDay, monthDay: 15)
+        case .everyNDays: .init(kind: .everyNDays, interval: 3, anchorDate: now)
+        case .daily: .init(kind: .daily)
+        }
+        #expect(vm.updateTask(row: 0, col: 0, text: task.text, isForced: false,
+            residentWeekdays: [], recurrenceRule: rule))
+        #expect(repository.library.tasks[0].id == task.id)
+        #expect(repository.library.tasks[0].recurrenceRule == rule)
+        #expect(quickEditMakePreviewCell(from: repository.library.tasks[0]).recurrenceRule == rule)
+        #expect(vm.totalPoints == 44)
+    }
+
+    @Test
+    func changingTimedSingleToDailyClearsLibraryTimeWindow() {
+        let now = Date()
+        let task = MyTaskItem(text: "Timed rule", startAt: now.addingTimeInterval(-600),
+            endAt: now.addingTimeInterval(600), recurrenceRule: .init(kind: .none))
+        let repository = P0TaskLibraryRepository(.init(tasks: [task]))
+        let harness = makeInMemoryViewModelHarness(savedBoard: makeSavedBoardForViewModel(
+            cell: quickEditMakePreviewCell(from: task), referenceDate: now), savedAt: now)
+        var dependencies = harness.dependencies
+        dependencies.taskLibraryRepository = repository
+        let vm = BingoViewModel(persistenceDependencies: dependencies)
+        #expect(vm.updateTask(row: 0, col: 0, text: task.text, isForced: false,
+            residentWeekdays: [], recurrenceRule: .init(kind: .daily)))
+        #expect(repository.library.tasks[0].recurrenceRule?.kind == .daily)
+        #expect(repository.library.tasks[0].startAt == nil)
+        #expect(repository.library.tasks[0].endAt == nil)
+        #expect(repository.library.tasks[0].startMonth == nil)
+        #expect(repository.library.tasks[0].startDay == nil)
+    }
+
+    private func withTaskStores(_ body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let keys = [AppSettings.commonTasksKey, AppSettings.taskHistoryKey, "task_library_edit_journal_v1"]
+        let backup = keys.map { defaults.object(forKey: $0) }
+        for key in keys { defaults.removeObject(forKey: key) }
+        defer { for (key, value) in zip(keys, backup) { defaults.set(value, forKey: key) } }
+        try body()
+    }
+}
+
+@Suite(.serialized)
+@MainActor
+struct CrossEntryPointBoundaryTests {
+    private var now: Date { makeDate(year: 2026, month: 11, day: 16, hour: 12) }
+
+    private func seed(line: Bool = false) -> NativeICloudPrimaryStateSnapshot {
+        var cells = BoardEngine.createEmptyGrid(size: 5)
+        cells[0][0] = BingoCell(text: "A", recurrenceRule: .init(kind: .daily), customCompletionPoints: 7)
+        cells[0][1] = BingoCell(text: "B", recurrenceRule: .init(kind: .daily), customCompletionPoints: 9)
+        if line { cells[0][2] = BingoCell(text: "C", recurrenceRule: .init(kind: .daily), isCompleted: true, lastCompletedAt: now) }
+        let board = makeNamedBoard(cells: cells, gridSize: 3,
+            lastTaskResetAppliedAt: now.addingTimeInterval(-60), updatedAt: now.addingTimeInterval(-60))
+        var state = BingoRewardSettlement.emptyDailyRewardState(for: now)
+        state.pointSyncLedger = PointSyncLedger(total: 100, lifetime: 100)
+        return snapshot(board, points: .init(totalPoints: 100, lifetimePoints: 100, dailyRewardState: state))
+    }
+
+    private func snapshot(_ board: BingoBoardStore.NamedBoard, points: PointsPersistenceSnapshot) -> NativeICloudPrimaryStateSnapshot {
+        .init(boards: [board], points: points, diaryEntries: [:], timeoutPayload: [:], customRewards: [],
+            redemptionHistory: [], stickerInventory: [:], stickerPlacements: [])
+    }
+
+    private func tap(_ before: NativeICloudPrimaryStateSnapshot, column: Int, at date: Date) -> NativeICloudPrimaryStateSnapshot {
+        var board = before.boards[0]
+        let old = board.board.cells
+        var cells = old
+        cells[0][column].isCompleted.toggle()
+        cells[0][column].lastCompletedAt = cells[0][column].isCompleted ? date : nil
+        let lines = BoardEngine.completedLines(in: cells, size: 3)
+        let output = BingoRewardSettlement.settleTaskToggle(date: date, previousCells: old,
+            previousCompletedLines: board.board.completedLines, previousIsBoardFullyCompleted: BoardEngine.isBoardFullyCompleted(old),
+            currentCells: cells, currentCompletedLines: lines, currentIsBoardFullyCompleted: BoardEngine.isBoardFullyCompleted(cells),
+            totalPoints: before.points.totalPoints ?? 0, lifetimePoints: before.points.lifetimePoints ?? 0,
+            dailyRewardState: before.points.dailyRewardState!, taskIsNowCompleted: cells[0][column].isCompleted,
+            syncCycleKey: PointSyncLedger.cycleKey(board: board, at: date, calendar: fixedCalendar))
+        cells = TaskCompletionRewardRules.applyingReceipts(output.taskRewardReceipts, to: cells)
+        var full = BoardEngine.expandedBoardCache(from: board.board)
+        for r in cells.indices { for c in cells[r].indices { full[r][c] = cells[r][c] } }
+        board.board = .init(gridSize: 3, cells: cells, completedLines: lines, fullBoardCells: full)
+        board.updatedAt = date
+        return snapshot(board, points: .init(totalPoints: output.totalPoints, lifetimePoints: output.lifetimePoints,
+            dailyRewardState: output.dailyRewardState))
+    }
+
+    private func merge(_ a: NativeICloudPrimaryStateSnapshot, _ b: NativeICloudPrimaryStateSnapshot,
+        localNewer: Bool = false) -> NativeICloudPrimaryStateSnapshot {
+        NativeICloudPrimaryStateMerger.merged(local: a, incoming: b, localHasNewerUserChange: localNewer,
+            referenceDate: now.addingTimeInterval(30), calendar: fixedCalendar)
+    }
+
+    @Test(arguments: [false, true])
+    func independentOfflineRewardsAddAndBothCompletionsSurvive(localNewer: Bool) {
+        let base = seed()
+        let a = tap(base, column: 0, at: now)
+        let b = tap(base, column: 1, at: now.addingTimeInterval(1))
+        var merged = merge(a, b, localNewer: localNewer)
+        for _ in 0..<3 { merged = merge(merged, a); merged = merge(merged, b) }
+        #expect(merged.points.totalPoints == 116)
+        #expect(merged.points.lifetimePoints == 116)
+        #expect(merged.boards[0].board.cells[0][0].isCompleted)
+        #expect(merged.boards[0].board.cells[0][1].isCompleted)
+        #expect(merge(b, a).points.dailyRewardState?.pointSyncLedger == merged.points.dailyRewardState?.pointSyncLedger)
+    }
+
+    @Test
+    func sameOfflineOccurrenceAwardsOnce() {
+        let base = seed()
+        let a = tap(base, column: 0, at: now)
+        let b = tap(base, column: 0, at: now.addingTimeInterval(1))
+        let result = merge(a, b)
+        #expect(result.points.totalPoints == 107)
+        #expect(result.points.lifetimePoints == 107)
+        #expect(merge(result, result).points == result.points)
+    }
+
+    @Test(arguments: [false, true])
+    func staleCompletionCannotUndoAnUndoOrReplayRecompletion(recomplete: Bool) {
+        let earned = tap(seed(), column: 0, at: now)
+        var latest = tap(earned, column: 0, at: now.addingTimeInterval(1))
+        if recomplete { latest = tap(latest, column: 0, at: now.addingTimeInterval(2)) }
+        for _ in 0..<3 { latest = merge(earned, latest); latest = merge(latest, earned) }
+        #expect(latest.points.totalPoints == (recomplete ? 107 : 100))
+        #expect(latest.points.lifetimePoints == (recomplete ? 114 : 107))
+        #expect(latest.boards[0].board.cells[0][0].isCompleted == recomplete)
+    }
+
+    @Test
+    func aLineCreatedByIndependentOfflineTapsIsRewardedOnce() {
+        let base = seed(line: true)
+        let a = tap(base, column: 0, at: now)
+        let b = tap(base, column: 1, at: now.addingTimeInterval(1))
+        var merged = merge(a, b)
+        for _ in 0..<4 { merged = merge(merged, b); merged = merge(a, merged) }
+        #expect(merged.points.totalPoints == 121)
+        #expect(merged.points.lifetimePoints == 121)
+        #expect(merged.boards[0].board.completedLines.count == 1)
+    }
+
+    @Test
+    func legacyAndIncompatibleBaselinesDoNotInventAnAdditiveDelta() {
+        let a = tap(seed(), column: 0, at: now)
+        var legacy = a.points.dailyRewardState!
+        legacy.pointSyncLedger = nil
+        let b = snapshot(a.boards[0], points: .init(totalPoints: 200, lifetimePoints: 200, dailyRewardState: legacy))
+        #expect(merge(a, b).points.totalPoints == 200)
+        var other = PointSyncLedger(total: 100, lifetime: 100, accountScope: "another-account")
+        other.record("other", totalDelta: 9, lifetimeDelta: 9, completed: true, at: now)
+        #expect(a.points.dailyRewardState?.pointSyncLedger?.merged(with: other) == nil)
+    }
+
+    @Test
+    func syncLedgerSurvivesDailyCacheRebuildAndKeepsCustomCycleAcrossMidnight() throws {
+        let value = tap(seed(), column: 0, at: now)
+        let next = BingoRewardSettlement.initialDailyRewardState(referenceDate: now.addingTimeInterval(86400),
+            boardLastSavedAt: now, currentCells: value.boards[0].board.cells, currentCompletedLines: [],
+            isBoardFullyCompleted: false, savedDailyRewardState: value.points.dailyRewardState)
+        #expect(next.pointSyncLedger == value.points.dailyRewardState?.pointSyncLedger)
+        var board = value.boards[0]; board.customResetMinutes = 5 * 60
+        let before = makeDate(year: 2026, month: 11, day: 16, hour: 23)
+        let after = makeDate(year: 2026, month: 11, day: 17, hour: 1)
+        #expect(PointSyncLedger.cycleKey(board: board, at: before, calendar: fixedCalendar) == PointSyncLedger.cycleKey(board: board, at: after, calendar: fixedCalendar))
+        #expect(try JSONDecoder().decode(PointsPersistenceSnapshot.self, from: JSONEncoder().encode(value.points)) == value.points)
+    }
+
+    @Test
+    func undoLastCompletionPersistsAnExplicitEmptyHistoryAndRecompletionStartsAtOne() {
+        let h = makeInMemoryViewModelHarness(savedBoard: makeSavedBoardForViewModel(
+            cell: BingoCell(text: "Last history \(UUID())", recurrenceRule: .init(kind: .daily)), referenceDate: .now),
+            savedAt: .now, totalPoints: 44, lifetimePoints: 55)
+        let vm = BingoViewModel(persistenceDependencies: h.dependencies)
+        vm.toggleComplete(row: 0, col: 0)
+        #expect(h.completionHistoryRepository.loadCompletionHistory().first?.completionCount == 1)
+        vm.toggleComplete(row: 0, col: 0)
+        #expect(h.completionHistoryRepository.loadCompletionHistory().isEmpty)
+        #expect(h.pointsRepository.loadTotalPoints() == 44)
+        vm.toggleComplete(row: 0, col: 0)
+        #expect(h.completionHistoryRepository.loadCompletionHistory().first?.completionCount == 1)
+        #expect(h.pointsRepository.loadTotalPoints() == 45)
+    }
+
+    @Test(arguments: [false, true])
+    func journalDistinguishesMissingHistoryFromAnExplicitEmptyTarget(legacy: Bool) throws {
+        let h = makeInMemoryViewModelHarness(savedBoard: nil, totalPoints: 44, lifetimePoints: 55)
+        let records = [TaskCompletionHistoryRecord(key: "read", completionCount: 1, lastArchivedAt: now)]
+        #expect(h.completionHistoryRepository.replaceCompletionHistory(records))
+        let pending = BingoPendingPersistenceTransaction(boardState: nil, diaryEntries: [:],
+            taskCompletionHistory: legacy ? nil : [], totalPoints: 44, lifetimePoints: 55,
+            dailyRewardState: BingoRewardSettlement.emptyDailyRewardState(for: now))
+        let decoded = try JSONDecoder().decode(BingoPendingPersistenceTransaction.self, from: JSONEncoder().encode(pending))
+        #expect(h.transactionRepository.savePendingTransaction(decoded))
+        _ = BingoViewModelPersistence.recoverPendingTransactionIfNeeded(dependencies: h.dependencies)
+        #expect(h.completionHistoryRepository.loadCompletionHistory() == (legacy ? records : []))
+    }
+
+    @Test(arguments: ["account", "newerBalance"])
+    func staleJournalCannotWriteAnotherAccountOrNewerBalance(conflict: String) {
+        let h = makeInMemoryViewModelHarness(savedBoard: nil, totalPoints: 70, lifetimePoints: 80)
+        let pending = BingoPendingPersistenceTransaction(boardState: nil, diaryEntries: [:],
+            accountScope: conflict == "account" ? "foreign" : NativeICloudPreferences.accountScopeIdentifier,
+            previousPoints: .init(totalPoints: 44, lifetimePoints: 55, dailyRewardState: nil),
+            totalPoints: 45, lifetimePoints: 56, dailyRewardState: BingoRewardSettlement.emptyDailyRewardState(for: now))
+        #expect(h.transactionRepository.savePendingTransaction(pending))
+        let result = BingoViewModelPersistence.recoverPendingTransactionIfNeeded(dependencies: h.dependencies)
+        #expect(result?.failedToSaveTransaction == true)
+        #expect(h.transactionRepository.pendingTransaction == pending)
+        #expect(h.pointsRepository.loadTotalPoints() == 70)
+        #expect(h.pointsRepository.loadLifetimePoints() == 80)
+    }
+
+    @Test(arguments: ["remote", "account", "failure", "partialFailure", "unchangedRemote"])
+    func quickEditLibrarySessionNeverOverwritesConflictsAndKeepsFailedDraftRetryable(conflict: String) {
+        let task = MyTaskItem(text: "Old")
+        let original = MyTasksLibrary(tasks: [task])
+        var draft = original; draft.tasks[0].text = "Draft"
+        var durable = original
+        var session = QuickEditLibrarySession(library: original, accountScope: "A")
+        if conflict == "remote" || conflict == "unchangedRemote" { durable.tasks[0].text = "Cloud" }
+        let before = durable
+        let accepted = session.save(conflict == "unchangedRemote" ? original : draft,
+            accountScope: conflict == "account" ? "B" : "A", load: { durable }, persist: {
+                if conflict == "partialFailure" { durable = $0 }
+                return false
+            })
+        #expect(accepted == (conflict == "unchangedRemote"))
+        if conflict != "partialFailure" { #expect(durable == before) }
+        #expect(session.baseline == original)
+        if conflict == "failure" || conflict == "partialFailure" {
+            let retried = session.save(draft, accountScope: "A", load: { durable }, persist: { durable = $0; return true })
+            #expect(retried)
+            #expect(durable == draft)
+        }
+    }
+
+    @Test
+    func unselectedHistoryPriceSurvivesEditingAndReload() throws {
+        let old = TaskHistoryRecord(key: "history", text: "Read", customCompletionPoints: 7, lastEditedAt: now)
+        let edited = quickEditHistoryRecordByEditing(old, task: MyTaskItem(text: "Read", customCompletionPoints: 9))
+        let loaded = try JSONDecoder().decode(TaskHistoryRecord.self, from: JSONEncoder().encode(edited))
+        #expect(loaded.customCompletionPoints == 9)
+        #expect(loaded.key == old.key)
+        #expect(old.customCompletionPoints == 7)
+    }
+
+    @Test
+    func sameIdentityExternalRuleChangeRejectsTheHomeEditorDraft() {
+        let h = makeInMemoryViewModelHarness(savedBoard: makeSavedBoardForViewModel(
+            cell: BingoCell(text: "Read", recurrenceRule: .init(kind: .daily)), referenceDate: .now),
+            savedAt: .now, totalPoints: 44, lifetimePoints: 55, activeNamedBoardID: UUID())
+        let vm = BingoViewModel(persistenceDependencies: h.dependencies)
+        let context = TaskCellEditContext(cell: vm.cells[0][0], boardID: h.boardRepository.loadActiveNamedBoardID())
+        var full = BoardEngine.expandedBoardCache(from: h.boardRepository.loadBoard()!)
+        full[0][0].recurrenceRule = .init(kind: .weekly, weekdays: [2])
+        let updated = SavedBoard(gridSize: 2, cells: BoardEngine.projectVisibleCells(from: full, size: 2, referenceDate: .now),
+            completedLines: [], fullBoardCells: full)
+        #expect(h.boardRepository.saveBoard(updated, savedAt: .now, associatedBoardID: context.boardID, reloadWidgets: false))
+        vm.applySavedBoardSnapshot(updated, countdownEndsAt: nil, persist: false)
+        #expect(!vm.updateTask(row: 0, col: 0, text: "Renamed", isForced: false, residentWeekdays: [],
+            recurrenceRule: .init(kind: .daily), editingContext: context))
+        #expect(h.boardRepository.loadBoard() == updated)
+        #expect(h.pointsRepository.loadTotalPoints() == 44)
+    }
+
+    @Test(arguments: [false, true])
+    func changingOnlyResetRulesNeverRestartsTheCountdown(wasEdited: Bool) {
+        let previous = now.addingTimeInterval(600)
+        let later = now.addingTimeInterval(300)
+        let end = BoardRulesSaveRules.resolvedCountdownEndsAt(previous: previous, minutes: 10, wasEdited: wasEdited, now: later)
+        #expect(end == (wasEdited ? later.addingTimeInterval(600) : previous))
+        #expect(BoardRulesSaveRules.resolvedCountdownEndsAt(previous: previous, minutes: nil, wasEdited: false, now: later) == previous)
+    }
+
+    @Test(arguments: [false, true])
+    func homeAndQuickEditorNormalizeTimedOutRepeatingTasksTheSame(completed: Bool) throws {
+        let date = Date()
+        let old = BingoCell(text: "Read", recurrenceRule: .init(kind: .daily), isCompleted: completed,
+            lastVisibilityWindowTimeoutAt: date.addingTimeInterval(-60))
+        let rule = TaskRecurrenceRule(kind: .weekly, weekdays: [2, 4])
+        let normal = TaskEditRuleEngine.apply(.init(previousCell: old, text: "Read", isForced: false,
+            residentWeekdays: [], isOneTimeTask: false, recurrenceRule: rule, estimatedDurationMinutes: nil,
+            startVisibleAt: nil, endVisibleAt: nil, startReminderEnabled: false, startReminderOffsetMinutes: 5,
+            referenceDate: date, calendar: .current, maxTaskLength: 20, maxCountdownMinutes: BingoViewModel.maxCountdownMinutes)).cell
+        let quick = try #require(quickEditMakePreviewCellFromEdit(existingCell: old, text: "Read", isForcedTask: false,
+            residentWeekdays: [], isOneTimeTask: false, recurrenceRule: rule, estimatedDurationMinutes: nil,
+            startVisibleAt: nil, endVisibleAt: nil))
+        #expect(quick == normal)
+        #expect(quick.lastVisibilityWindowTimeoutAt == nil)
+    }
+}
+
+extension CrossEntryPointBoundaryTests {
+    @Test(arguments: ["rules", "countdown", "cycle"])
+    func quickEditRejectsChangedBoardMetadataEvenWhenCellsAreIdentical(change: String) throws {
+        try withRestoredBoardStorage { _ in
+            var board = makeNamedBoard(cells: BoardEngine.createEmptyGrid(size: 5), gridSize: 3, updatedAt: now)
+            let first = BingoBoardStore.NamedBoardsSnapshot(selectedBoardID: board.id, boards: [board])
+            #expect(BingoBoardStore.commitImportedBoardSnapshot(first, activeBoardID: board.id, reloadWidgets: false))
+            let context = QuickEditBoardContext(boardID: board.id, board: board.board)
+            if change == "rules" { board.taskResetMode = .clearTasksNextDay }
+            else if change == "cycle" { board.lastTaskResetAppliedAt = now.addingTimeInterval(86400) }
+            else { board.countdownEndsAt = now.addingTimeInterval(3600) }
+            let updated = BingoBoardStore.NamedBoardsSnapshot(selectedBoardID: board.id, boards: [board])
+            #expect(BingoBoardStore.commitImportedBoardSnapshot(updated, activeBoardID: board.id, reloadWidgets: false))
+            #expect(!context.matches(board.board, boardID: board.id))
+        }
+    }
+
+    @Test
+    func templateRuleChangeLeavesAnotherExistingBoardCopyUntouchedAndNewCopyUsesNewRule() throws {
+        let task = MyTaskItem(text: "Copy \(UUID().uuidString.prefix(8))", recurrenceRule: .init(kind: .none), customCompletionPoints: 7)
+        let library = P0TaskLibraryRepository(.init(tasks: [task]))
+        let old = makeSavedBoardForViewModel(cell: quickEditMakePreviewCell(from: task), referenceDate: .now)
+        let a = makeInMemoryViewModelHarness(savedBoard: old, savedAt: .now, totalPoints: 44, lifetimePoints: 55)
+        let b = makeInMemoryViewModelHarness(savedBoard: old, savedAt: .now, totalPoints: 44, lifetimePoints: 55)
+        var dependencies = a.dependencies; dependencies.taskLibraryRepository = library
+        let vm = BingoViewModel(persistenceDependencies: dependencies)
+        #expect(vm.updateTask(row: 0, col: 0, text: task.text, isForced: false, residentWeekdays: [], recurrenceRule: .init(kind: .daily)))
+        #expect(b.boardRepository.loadBoard() == old)
+        #expect(library.library.tasks[0].id == task.id)
+        let newCopy = quickEditMakePreviewCell(from: library.library.tasks[0])
+        #expect(newCopy.recurrenceRule?.kind == .daily)
+        #expect(newCopy.customCompletionPoints == 7)
+        #expect(a.pointsRepository.loadTotalPoints() == 44)
+        #expect(b.pointsRepository.loadTotalPoints() == 44)
+    }
+
+    @Test
+    func quickEditShrinkIsExplicitRemovalAndResizeCannotResurrectCroppedRewards() {
+        var full = BoardEngine.createEmptyGrid(size: 5)
+        full[0][0] = BingoCell(text: "Keep", recurrenceRule: .init(kind: .daily), isCompleted: true,
+            customCompletionPoints: 7, taskRewardReceipt: .init(awardedPoints: 7), lastCompletedAt: .now)
+        full[4][4] = BingoCell(text: "Crop", recurrenceRule: .init(kind: .daily), isCompleted: true,
+            customCompletionPoints: 9, taskRewardReceipt: .init(awardedPoints: 9), lastCompletedAt: .now)
+        let board = makeNamedBoard(cells: full, gridSize: 5, updatedAt: .now).board
+        let h = makeInMemoryViewModelHarness(savedBoard: board, savedAt: .now, totalPoints: 116, lifetimePoints: 116)
+        let vm = BingoViewModel(persistenceDependencies: h.dependencies)
+        let kept = vm.currentBoardCellsInRowMajor(size: 2)
+        #expect(vm.applyBoardOrderedCells(kept, targetGridSize: 2, editingContext: vm.makeQuickEditBoardContext(), hasPremiumTaskRewardAccess: true))
+        vm.resizeGrid(to: 5)
+        #expect(vm.cells[0][0].taskRewardReceipt?.awardedPoints == 7)
+        #expect(!vm.cells.flatMap { $0 }.contains { $0.storedTaskText == "Crop" })
+        #expect(h.pointsRepository.loadTotalPoints() == 116)
+        #expect(h.pointsRepository.loadLifetimePoints() == 116)
+    }
+}
+
+extension CrossEntryPointBoundaryTests {
+    @Test
+    func liveJournalKeepsEachAccountsPendingWriteAndUnknownLegacyOwnershipIsNotReplayed() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cross-journal-\(UUID())")
+        let oldScope = NativeICloudPreferences.accountScopeIdentifier
+        defer {
+            NativeICloudPreferences.accountScopeIdentifier = oldScope
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let repository = LiveBingoPersistenceTransactionRepository(directory: directory)
+        NativeICloudPreferences.accountScopeIdentifier = "cross-A"
+        let a = BingoPendingPersistenceTransaction(boardState: nil, diaryEntries: [:], totalPoints: 45,
+            lifetimePoints: 55, dailyRewardState: .init(dateKey: "2026-11-16"))
+        #expect(repository.savePendingTransaction(a))
+        NativeICloudPreferences.accountScopeIdentifier = "cross-B"
+        #expect(repository.loadPendingTransaction() == nil)
+        #expect(!repository.savePendingTransaction(a))
+        let b = BingoPendingPersistenceTransaction(boardState: nil, diaryEntries: [:], totalPoints: 70,
+            lifetimePoints: 80, dailyRewardState: .init(dateKey: "2026-11-16"))
+        #expect(repository.savePendingTransaction(b))
+        #expect(repository.loadPendingTransaction() == b)
+        #expect(repository.clearPendingTransaction())
+        NativeICloudPreferences.accountScopeIdentifier = "cross-A"
+        #expect(repository.loadPendingTransaction() == a)
+        #expect(repository.clearPendingTransaction())
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(a)) as? [String: Any])
+        object.removeValue(forKey: "accountScope")
+        let legacy = directory.appendingPathComponent("bingo_pending_persistence_transaction_v3.json")
+        try JSONSerialization.data(withJSONObject: object).write(to: legacy)
+        #expect(repository.loadPendingTransaction() == nil)
+        #expect(FileManager.default.fileExists(atPath: legacy.path))
+    }
+
+    @Test
+    func widgetAndAppUseTheSameRewardSourcesAndReplayOnlyOnce() {
+        let before = seed()
+        let after = tap(before, column: 0, at: now)
+        let widget = WidgetTaskToggleService.projectedPointsSnapshot(previousBoard: before.boards[0], updatedBoard: after.boards[0],
+            now: now, didApplyBoardReset: false, currentPoints: before.points)
+        #expect(widget.totalPoints == 107)
+        #expect(widget.lifetimePoints == 107)
+        #expect(widget.dailyRewardState?.pointSyncLedger?.entries.keys.sorted() == after.points.dailyRewardState?.pointSyncLedger?.entries.keys.sorted())
+        let result = merge(after, snapshot(after.boards[0], points: widget))
+        #expect(result.points.totalPoints == 107)
+    }
+}
+
+extension CrossEntryPointBoundaryTests {
+    @Test(arguments: ["America/Los_Angeles", "Pacific/Kiritimati", "Etc/GMT+12"])
+    func persistedLogicalCycleIsIndependentOfCatchupDelayAndRenderingTimezone(zone: String) throws {
+        var old = seed().boards[0]
+        old.customResetMinutes = 5 * 60
+        old.lastTaskResetAppliedAt = now.addingTimeInterval(-172800)
+        let first = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(old, now: now, calendar: fixedCalendar)
+        let late = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(old, now: now.addingTimeInterval(3600), calendar: fixedCalendar)
+        #expect(first.lastTaskResetAppliedAt != late.lastTaskResetAppliedAt)
+        #expect(first.pointSyncCycle == late.pointSyncCycle)
+        var changedCalendar = fixedCalendar
+        changedCalendar.timeZone = try #require(TimeZone(identifier: zone))
+        #expect(PointSyncLedger.cycleKey(board: first, at: now, calendar: fixedCalendar) == PointSyncLedger.cycleKey(board: late, at: now, calendar: changedCalendar))
+        let tomorrow = BoardResetRuleEngine.boardAfterApplyingPendingResetIfNeeded(first, now: now.addingTimeInterval(86400), calendar: fixedCalendar)
+        #expect(tomorrow.pointSyncCycle != first.pointSyncCycle)
+        #expect(try JSONDecoder().decode(BingoBoardStore.NamedBoard.self, from: JSONEncoder().encode(first)).pointSyncCycle == first.pointSyncCycle)
+    }
+}
+
+extension CrossEntryPointBoundaryTests {
+    @Test
+    func editorVersionIgnoresDisplayCacheRefreshButRejectsNewConfiguration() {
+        let old = BingoCell(text: "Read", recurrenceRule: .init(kind: .daily), customCompletionPoints: 7)
+        let id = UUID()
+        let context = TaskCellEditContext(cell: old, boardID: id, accountScope: "A")
+        var refreshed = old; refreshed.completionStreakCount = 8
+        #expect(context.matches(refreshed, boardID: id, accountScope: "A"))
+        refreshed.customCompletionPoints = 9
+        #expect(!context.matches(refreshed, boardID: id, accountScope: "A"))
+        #expect(!context.matches(old, boardID: id, accountScope: "B"))
+    }
+}
+
+extension CrossEntryPointBoundaryTests {
+    @Test(arguments: ["  Read  ", "   "])
+    func librarySaveComparesCanonicalDraftAndDoesNotTrapWhitespaceEdits(text: String) {
+        var durable = MyTasksLibrary(tasks: [MyTaskItem(text: "Old")])
+        var draft = durable; draft.tasks[0].text = text
+        var session = QuickEditLibrarySession(library: durable, accountScope: "A")
+        let accepted = session.save(draft, accountScope: "A", load: { durable }, persist: {
+            durable = CommonTasksStore.normalizedLibraryForPersistence($0)
+            return true
+        })
+        #expect(accepted)
+        #expect(durable == session.baseline)
+        #expect(durable.tasks.map(\.text) == (text == "   " ? [] : ["Read"]))
+    }
+
+    @Test
+    func cloudCommitEqualityIncludesLogicalRewardCycleEvenWhenVisibleBoardIsUnchanged() {
+        let old = seed()
+        var board = old.boards[0]; board.pointSyncCycle = "reset:next"
+        let changed = snapshot(board, points: old.points)
+        #expect(!old.hasSameUserState(as: changed))
+    }
+}
+
+extension CrossEntryPointBoundaryTests {
+    @Test
+    func repairingALegacyLineDisplayCacheCannotCreateARewardWithoutANewCompletion() {
+        let original = seed(line: true)
+        var board = original.boards[0]
+        var full = BoardEngine.expandedBoardCache(from: board.board)
+        full[0][0].isCompleted = true
+        full[0][1].isCompleted = true
+        let cells = BoardEngine.projectVisibleCells(from: full, size: 3, referenceDate: now)
+        board.board = .init(gridSize: 3, cells: cells, completedLines: [], fullBoardCells: full)
+        let restored = snapshot(board, points: original.points)
+        let result = merge(restored, restored)
+        #expect(result.boards[0].board.completedLines.count == 1)
+        #expect(result.points.totalPoints == 100)
+        #expect(result.points.lifetimePoints == 100)
+        #expect(result.points.dailyRewardState?.pointSyncLedger?.entries.isEmpty == true)
+    }
 }

@@ -298,6 +298,8 @@ struct BoardResetCoordinator {
             let clearedCompletedCount = max(0, completedBefore - completedAfter)
             namedBoards[index].board = transformedBoard
             namedBoards[index].countdownEndsAt = nil
+            namedBoards[index].pointSyncCycle = BoardResetRuleEngine.latestScheduledResetTime(atOrBefore: now, for: board)
+                .map { "reset:" + String($0.timeIntervalSince1970) }
             namedBoards[index].lastTaskResetAppliedAt = now
             namedBoards[index].updatedAt = now
             if board.id == activeBoardID {

@@ -122,6 +122,7 @@ struct ContentView: View {
     @AppStorage(AppSettings.appReviewPromptLifetimeShownCountKey) private var appReviewPromptLifetimeShownCount = 0
     @AppStorage(AppSettings.appReviewPromptLastShownDayKey) private var appReviewPromptLastShownDay = ""
     @AppStorage(AppSettings.firstStepGuideStateKey) private var firstStepGuideStateRawValue = FirstStepGuideState.notStarted.rawValue
+    @AppStorage(AppSettings.firstStepGuideIntroShownKey) private var firstStepGuideIntroShown = false
     @AppStorage(AppSettings.firstStepGuideMilestoneKey) private var firstStepGuideMilestoneShown = 0
     @AppStorage(AppSettings.hasVisitedPremiumPaywallWithoutPurchaseKey) private var hasVisitedPremiumPaywallWithoutPurchase = false
     @AppStorage(AppSettings.hasLegacyLimitedTimeDiscountExposureKey) private var hasLegacyLimitedTimeDiscountExposure = false
@@ -1440,12 +1441,13 @@ struct ContentView: View {
                     onBoardRulesDismissed: {
                         restoredBoardRulesDraft = nil
                     },
-                    onApplyBoardRulesSettings: { boardID, countdownMinutes, resetMode, customResetMinutes in
+                    onApplyBoardRulesSettings: { boardID, countdownMinutes, resetMode, customResetMinutes, countdownChanged in
                         applyBoardRulesSettings(
                             for: boardID,
                             countdownMinutes: countdownMinutes,
                             resetMode: resetMode,
-                            customResetMinutes: customResetMinutes
+                            customResetMinutes: customResetMinutes,
+                            countdownChanged: countdownChanged
                         )
                     },
                     onSaveBoardOrder: saveBoardOrder,
@@ -1817,6 +1819,7 @@ struct ContentView: View {
 
     @MainActor
     private func checkForAppUpdateIfNeeded() async {
+        guard !AppDebugFlags.uiTesting else { return }
         if let cachedInfo = AppUpdateService.cachedUpdateInfo(currentVersion: appShortVersion),
            (AppDebugFlags.forceUpdatePrompt || cachedInfo.latestVersion != skippedUpdateVersion),
            (AppDebugFlags.forceUpdatePrompt || cachedInfo.latestVersion != lastPromptedUpdateVersion) {
@@ -1864,7 +1867,8 @@ struct ContentView: View {
             state: firstStepGuideState,
             currentOverlay: firstStepGuideOverlay,
             milestoneShown: firstStepGuideMilestoneShown,
-            hasTaskPoolTasks: !viewModel.currentTaskPoolTasks().isEmpty
+            hasTaskPoolTasks: !viewModel.currentTaskPoolTasks().isEmpty,
+            hasShownIntro: firstStepGuideIntroShown
         ) else { return }
 
         applyFirstStepGuideState(nextState)
@@ -1915,7 +1919,7 @@ struct ContentView: View {
 
     private func applyFirstStepGuideState(_ nextState: FirstStepGuideStore.StorageState) {
         if nextState.overlay == .intro {
-            FirstStepGuideDeviceStateStore.markGuideShownOnThisDevice()
+            firstStepGuideIntroShown = true
         }
         firstStepGuideStateRawValue = nextState.state.rawValue
         firstStepGuideMilestoneShown = nextState.milestoneShown
@@ -2400,7 +2404,8 @@ struct ContentView: View {
         for boardID: UUID,
         countdownMinutes: Int?,
         resetMode: BoardTaskResetMode,
-        customResetMinutes: Int?
+        customResetMinutes: Int?,
+        countdownChanged: Bool
     ) -> Bool {
         guard let boardIndex = namedBoards.firstIndex(where: { $0.id == boardID }) else {
             DiagnosticLogStore.recordWarning(
@@ -2423,7 +2428,8 @@ struct ContentView: View {
             : nil
         let now = Date()
         let resolvedMinutes = countdownMinutes.map { min(max($0, 1), BingoViewModel.maxCountdownMinutes) }
-        let countdownEndsAt = resolvedMinutes.map { now.addingTimeInterval(Double($0 * 60)) }
+        let countdownEndsAt = BoardRulesSaveRules.resolvedCountdownEndsAt(previous: originalBoard.countdownEndsAt,
+            minutes: resolvedMinutes, wasEdited: countdownChanged, now: now)
 
         let normalizedResetMode: BoardTaskResetMode = (resetMode == .customResetStatusTime) ? .resetStatusNextDay : resetMode
         let normalizedCustomResetMinutes = BoardResetRuleEngine.normalizedCustomResetMinutes(
@@ -2441,10 +2447,13 @@ struct ContentView: View {
             newCustomResetMinutes: normalizedCustomResetMinutes,
             now: now
         )
+        if namedBoards[boardIndex].lastTaskResetAppliedAt != originalBoard.lastTaskResetAppliedAt {
+            namedBoards[boardIndex].pointSyncCycle = "rules:" + String(now.timeIntervalSince1970)
+        }
         namedBoards[boardIndex].updatedAt = now
 
         if selectedBoardID == boardID {
-            viewModel.setBoardCountdown(totalMinutes: resolvedMinutes)
+            if countdownChanged { viewModel.setBoardCountdown(totalMinutes: resolvedMinutes) }
             namedBoards[boardIndex].board = viewModel.makeSavedBoardSnapshot()
             namedBoards[boardIndex].countdownEndsAt = viewModel.boardCountdownEndsAt
         }

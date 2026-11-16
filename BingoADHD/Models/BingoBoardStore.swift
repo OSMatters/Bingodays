@@ -302,6 +302,8 @@ enum BingoBoardStore {
         var taskResetMode: BoardTaskResetMode
         var customResetMinutes: Int?
         var lastTaskResetAppliedAt: Date?
+        /// Stable logical reset boundary; independent of when a device catches up.
+        var pointSyncCycle: String?
         var origin: BingoNamedBoardOrigin
         var updatedAt: Date
 
@@ -313,6 +315,7 @@ enum BingoBoardStore {
             case taskResetMode
             case customResetMinutes
             case lastTaskResetAppliedAt
+            case pointSyncCycle
             case origin
             case updatedAt
         }
@@ -325,6 +328,7 @@ enum BingoBoardStore {
             taskResetMode: BoardTaskResetMode = .resetStatusNextDay,
             customResetMinutes: Int? = nil,
             lastTaskResetAppliedAt: Date? = .now,
+            pointSyncCycle: String? = nil,
             origin: BingoNamedBoardOrigin = .user,
             updatedAt: Date = .now
         ) {
@@ -335,6 +339,7 @@ enum BingoBoardStore {
             self.taskResetMode = taskResetMode
             self.customResetMinutes = NamedBoard.clampedCustomResetMinutes(customResetMinutes)
             self.lastTaskResetAppliedAt = lastTaskResetAppliedAt
+            self.pointSyncCycle = pointSyncCycle
             self.origin = origin
             self.updatedAt = updatedAt
         }
@@ -352,6 +357,7 @@ enum BingoBoardStore {
             // Migration-safe anchor: if historical data doesn't have this field,
             // use updatedAt to avoid immediate same-day reset on first launch.
             lastTaskResetAppliedAt = try container.decodeIfPresent(Date.self, forKey: .lastTaskResetAppliedAt) ?? updatedAt
+            pointSyncCycle = try container.decodeIfPresent(String.self, forKey: .pointSyncCycle)
         }
 
         private static func clampedCustomResetMinutes(_ value: Int?) -> Int? {
@@ -1317,6 +1323,7 @@ enum BingoBoardStore {
                     taskResetMode: board.taskResetMode,
                     customResetMinutes: board.customResetMinutes,
                     lastTaskResetAppliedAt: board.lastTaskResetAppliedAt,
+                    pointSyncCycle: board.pointSyncCycle,
                     origin: board.origin,
                     updatedAt: board.updatedAt
                 )
@@ -1454,7 +1461,8 @@ enum BingoBoardStore {
             taskRewardReceipt: cell.taskRewardReceipt,
             completionStreakCount: cell.completionStreakCount,
             lastCompletedAt: cell.lastCompletedAt,
-            lastVisibilityWindowTimeoutAt: cell.lastVisibilityWindowTimeoutAt
+            lastVisibilityWindowTimeoutAt: cell.lastVisibilityWindowTimeoutAt,
+            isStarterGuideTask: cell.isStarterGuideTask
         )
     }
 

@@ -792,7 +792,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         FirebaseConfiguration.shared.setLoggerLevel(.debug)
 #endif
         FirebaseApp.configure()
-        AnalyticsService.setCollectionEnabled(true)
+        AnalyticsService.setCollectionEnabled(!AppDebugFlags.uiTesting)
         UNUserNotificationCenter.current().delegate = self
         AppFontRegistrar.registerIfNeeded()
         AppAudioSessionConfigurator.configureForSoundEffects()

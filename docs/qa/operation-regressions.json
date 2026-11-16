@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "target": "BingoADHDTests",
+  "integration_suite": "OperationPersistenceTests",
+  "integration_file": "BingoADHDTests/OperationPersistenceTests.swift",
+  "operations": [
+    {
+      "id": "TASK-EDIT",
+      "operation": "任务保存与删除",
+      "entry_points": [
+        "首页任务编辑器"
+      ],
+      "integration_tests": [
+        "testTaskEditorSaveAndDeleteSurviveFreshRepositories",
+        "testEditorSaveFailurePreservesDurableStateAndAllowsRetry"
+      ],
+      "existing_suites": [
+        "TaskEditRuleEngineTests"
+      ],
+      "ui_tests": [
+        "testCreateTaskSaveSurvivesRelaunch",
+        "testCancelTaskDraftDoesNotPersist"
+      ],
+      "remaining_work": "已覆盖首页新增保存/取消及重启；已有任务修改、滑动关闭和失败提示的 UI 场景待补"
+    },
+    {
+      "id": "TASK-COMPLETE",
+      "operation": "任务完成、撤销、再次完成",
+      "entry_points": [
+        "首页任务格子",
+        "Widget"
+      ],
+      "integration_tests": [
+        "testCompletionUndoAndRecompletionSurviveFreshRepositories",
+        "testInterruptedCompletionRecoversFromDiskExactlyOnce"
+      ],
+      "existing_suites": [
+        "WidgetTaskToggleServiceTests"
+      ],
+      "ui_tests": [
+        "testCompleteAndUndoSurviveRelaunch"
+      ],
+      "remaining_work": "已覆盖首页完成/撤销及重启；Widget 跨进程 UI 操作仍需验收"
+    },
+    {
+      "id": "TASK-TIMER",
+      "operation": "任务倒计时设置、暂停、恢复、取消",
+      "entry_points": [
+        "任务倒计时入口"
+      ],
+      "integration_tests": [
+        "testCountdownPauseResumeAndCancelSurviveReload"
+      ],
+      "existing_suites": [
+        "TaskCountdownRuleEngineTests"
+      ],
+      "ui_tests": [],
+      "remaining_work": "按钮入口和前后台生命周期尚无 UI 自动化"
+    },
+    {
+      "id": "TASK-WINDOW",
+      "operation": "单次任务起止时间",
+      "entry_points": [
+        "首页编辑器",
+        "快速编辑器"
+      ],
+      "integration_tests": [],
+      "existing_suites": [
+        "UserReportedDailyTaskLifecycleRegressionTests",
+        "TaskEditRuleEngineTests"
+      ],
+      "ui_tests": [],
+      "remaining_work": "已有起止时间专项；跨日与时区的完整界面流程仍需补齐"
+    },
+    {
+      "id": "TASK-TIMEOUT",
+      "operation": "任务超时延期、完成、删除",
+      "entry_points": [
+        "任务超时弹窗"
+      ],
+      "integration_tests": [
+        "testTaskTimeoutActionsCommitAcrossRealSerialization"
+      ],
+      "existing_suites": [
+        "UserReportedDailyTaskLifecycleRegressionTests"
+      ],
+      "ui_tests": [
+        "testTaskPostponeDoesNotReopen",
+        "testTaskCompleteDoesNotReopen",
+        "testTaskDeleteDoesNotReopen"
+      ],
+      "remaining_work": "已覆盖真实延期选择器应用、完成和删除及持续计时/重启；多任务队列等边界仍保留专项"
+    },
+    {
+      "id": "BOARD-TIMER",
+      "operation": "棋盘倒计时延期、完成、取消",
+      "entry_points": [
+        "棋盘超时弹窗"
+      ],
+      "integration_tests": [
+        "testBoardTimeoutActionsCommitAcrossRealSerialization"
+      ],
+      "existing_suites": [
+        "BoardTaskPointIntegrationTests"
+      ],
+      "ui_tests": [
+        "testBoardPostponeDoesNotReopen",
+        "testBoardCompleteDoesNotReopen",
+        "testBoardCancelDoesNotReopen"
+      ],
+      "remaining_work": "已覆盖延期、完成、取消及持续计时/重启；系统前后台中断仍需补齐"
+    },
+    {
+      "id": "BOARD-EDIT",
+      "operation": "棋盘任务排序与尺寸",
+      "entry_points": [
+        "快速编辑",
+        "棋盘尺寸设置"
+      ],
+      "integration_tests": [
+        "testQuickEditMoveAndResizeKeepIdentityAcrossStorage"
+      ],
+      "existing_suites": [
+        "QuickEditTaskMoveTests"
+      ],
+      "ui_tests": [],
+      "remaining_work": "拖放手势、缩格确认与取消尚无 UI 自动化"
+    },
+    {
+      "id": "BOARD-MANAGE",
+      "operation": "棋盘新增、改名、切换、删除",
+      "entry_points": [
+        "侧边栏棋盘管理"
+      ],
+      "integration_tests": [],
+      "existing_suites": [
+        "BoardManagementStoreTests"
+      ],
+      "ui_tests": [],
+      "remaining_work": "需新增统一文件存储工作流和 UI 测试"
+    },
+    {
+      "id": "BOARD-RESET",
+      "operation": "棋盘手动及定时重置",
+      "entry_points": [
+        "棋盘设置",
+        "定时维护"
+      ],
+      "integration_tests": [],
+      "existing_suites": [
+        "BoardResetRuleEngineTests"
+      ],
+      "ui_tests": [],
+      "remaining_work": "真实跨重置时刻、强杀恢复及双设备验收待执行"
+    },
+    {
+      "id": "LIBRARY-EDIT",
+      "operation": "任务库新增、编辑、分组、移除",
+      "entry_points": [
+        "快速编辑任务池"
+      ],
+      "integration_tests": [],
+      "existing_suites": [
+        "BoardTaskLibraryRuleSyncTests",
+        "QuickEditReselectionRuleTests"
+      ],
+      "ui_tests": [],
+      "remaining_work": "保存与放弃退出的完整 UI 测试待补"
+    },
+    {
+      "id": "POINTS-REDEEM",
+      "operation": "积分兑换与自定义奖励管理",
+      "entry_points": [
+        "积分页",
+        "奖励页"
+      ],
+      "integration_tests": [],
+      "existing_suites": [
+        "PointRedemptionReconcilerTests",
+        "TaskCompletionRewardTests"
+      ],
+      "ui_tests": [],
+      "remaining_work": "已有专项；统一文件存储适配与实际兑换界面仍待补"
+    },
+    {
+      "id": "BLINDBOX-PULL",
+      "operation": "换券、开盒、库存与重复请求",
+      "entry_points": [
+        "盲盒入口"
+      ],
+      "integration_tests": [],
+      "existing_suites": [
+        "BlindBoxRuleEngineTests",
+        "BlindBoxStateMachineTests"
+      ],
+      "ui_tests": [],
+      "remaining_work": "已有专项；真实网络中断、CloudKit 与界面验收待执行"
+    },
+    {
+      "id": "SYNC-SETTINGS",
+      "operation": "iCloud 设置与多入口同步",
+      "entry_points": [
+        "设置",
+        "App",
+        "Widget"
+      ],
+      "integration_tests": [],
+      "existing_suites": [
+        "NativeICloudPersistenceTests",
+        "CrossEntryPointBoundaryTests"
+      ],
+      "ui_tests": [],
+      "remaining_work": "真实双设备、账号切换与系统回调仍需验收"
+    },
+    {
+      "id": "MEMBERSHIP",
+      "operation": "购买、恢复购买与权益变化",
+      "entry_points": [
+        "会员页"
+      ],
+      "integration_tests": [],
+      "existing_suites": [
+        "SubscriptionPriceCacheTests"
+      ],
+      "ui_tests": [],
+      "remaining_work": "价格缓存测试不代表购买流程；StoreKit 购买/恢复工作流待补"
+    },
+    {
+      "id": "SHARE-IMPORT",
+      "operation": "分享、导入与取消",
+      "entry_points": [
+        "棋盘分享与导入"
+      ],
+      "integration_tests": [],
+      "existing_suites": [
+        "BoardShareTests"
+      ],
+      "ui_tests": [],
+      "remaining_work": "已有规则和异步专项；系统分享界面与取消流程待补"
+    },
+    {
+      "id": "REMINDER",
+      "operation": "提醒设置、授权拒绝与重试",
+      "entry_points": [
+        "任务编辑器",
+        "系统通知授权"
+      ],
+      "integration_tests": [],
+      "existing_suites": [
+        "TaskStartReminderSyncStoreTests"
+      ],
+      "ui_tests": [],
+      "remaining_work": "系统权限弹窗及设置往返待补"
+    }
+  ],
+  "ui_target": "BingoADHDUITests",
+  "ui_suite": "CoreOperationUITests",
+  "ui_file": "BingoADHDUITests/CoreOperationUITests.swift"
+}

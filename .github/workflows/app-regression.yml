@@ -1,0 +1,108 @@
+name: App Regression
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    name: iOS unit, integration and UI regression
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select installed Xcode 27 or newer
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob, os, re, subprocess
+          candidates = []
+          for app in glob.glob('/Applications/Xcode*.app'):
+              developer = app + '/Contents/Developer'
+              result = subprocess.run(['xcodebuild', '-version'], env=dict(os.environ, DEVELOPER_DIR=developer), capture_output=True, text=True)
+              match = re.search(r'Xcode (\d+(?:\.\d+)*)', result.stdout)
+              if match:
+                  version = tuple(map(int, match[1].split('.')))
+                  if version[0] >= 27:
+                      candidates.append((version, developer))
+          if not candidates:
+              raise SystemExit('This project requires an installed Xcode 27+ toolchain; update the runner image.')
+          _, developer = max(candidates)
+          with open(os.environ['GITHUB_ENV'], 'a') as stream:
+              stream.write('DEVELOPER_DIR=' + developer + '\n')
+          print('Using', developer)
+          PY
+
+      - name: Prepare Apple toolchains and simulator runtime
+        run: |
+          xcodebuild -version
+          xcodebuild -downloadComponent MetalToolchain
+          python3 - <<'PY'
+          import json, subprocess
+          runtimes = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'runtimes', '-j']))['runtimes']
+          if not any(r.get('isAvailable') and '.iOS-' in r['identifier'] for r in runtimes):
+              subprocess.run(['xcodebuild', '-downloadPlatform', 'iOS'], check=True)
+          PY
+
+      - name: Run the same full regression entry point as local development
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .codex-artifacts-regression
+          python3 -B scripts/run_regression.py --destination auto --keep-results \
+            --report .codex-artifacts-regression/ci-report.json \
+            2>&1 | tee .codex-artifacts-regression/ci-console.log
+
+      - name: Locate this run's diagnostics
+        id: diagnostics
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          report = Path('.codex-artifacts-regression/ci-report.json')
+          if report.exists():
+              result = json.loads(report.read_text())
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+                  stream.write('results=' + result.get('retained_results', '') + '\n')
+          PY
+
+      - name: Upload reports, logs and UI screenshots in xcresult
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-regression-${{ github.run_id }}
+          include-hidden-files: true
+          retention-days: 7
+          path: |
+            .codex-artifacts-regression/ci-report.json
+            .codex-artifacts-regression/ci-console.log
+            ${{ steps.diagnostics.outputs.results }}
+
+      - name: Clean this run's retained diagnostics
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, shutil, tempfile
+          from pathlib import Path
+          report = Path('.codex-artifacts-regression/ci-report.json')
+          if report.exists():
+              location = json.loads(report.read_text()).get('retained_results')
+              if location:
+                  path = Path(location)
+                  if path.parent.resolve() != Path(tempfile.gettempdir()).resolve() or not path.name.startswith('bingodays-regression-') or path.is_symlink():
+                      raise SystemExit('Refusing to clean a directory not owned by this regression run')
+                  if path.exists():
+                      print('Cleaning', path, [entry.name for entry in path.iterdir()])
+                      shutil.rmtree(path)
+          PY

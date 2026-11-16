@@ -7,6 +7,12 @@ enum TaskRulePersistenceGuard {
         let currentCells = BoardEngine.expandedBoardCache(from: current).flatMap { $0 }
         return zip(originalCells, currentCells).allSatisfy { original, current in
             if !original.hasStoredTask && !current.hasStoredTask { return true }
+            // This display projection is deliberately excluded from BingoCell.CodingKeys.
+            // A storage round trip must not make an unchanged task look externally edited.
+            var original = original
+            var current = current
+            original.isDisplayOnlyInactive = false
+            current.isDisplayOnlyInactive = false
             return original == current
         }
     }
@@ -436,11 +442,7 @@ enum BoardEngine {
         case .markAsCompleted:
             let visibilityWindowExpired =
                 candidate.expiredByVisibilityWindow ||
-                (
-                    cell.occurrenceStartVisibleAt(on: now, calendar: calendar) != nil &&
-                    cell.occurrenceEndVisibleAt(on: now, calendar: calendar) != nil &&
-                    cell.isEndVisibilityReached(on: now, calendar: calendar)
-                )
+                cell.isEndVisibilityReached(on: now, calendar: calendar)
 
             if !cell.isCompleted {
                 cell.isCompleted = true
@@ -478,12 +480,15 @@ enum BoardEngine {
             if candidate.expiredByVisibilityWindow {
                 cell.endVisibleAt = postponedUntil
             }
-            if candidate.expiredByCountdown || !candidate.expiredByVisibilityWindow {
+            // Keep existing execution timing on the chosen deadline. Clearing it
+            // would let maintenance restart the original, potentially shorter duration.
+            if candidate.expiredByCountdown || !candidate.expiredByVisibilityWindow ||
+                cell.countdownEndsAt != nil || cell.estimatedDurationMinutes != nil {
                 cell.countdownEndsAt = postponedUntil
             } else {
                 cell.countdownEndsAt = nil
             }
-            if let endVisibleAt = cell.endVisibleAt, endVisibleAt <= now {
+            if let endVisibleAt = cell.endVisibleAt, endVisibleAt < postponedUntil {
                 cell.endVisibleAt = postponedUntil
             }
             cell.lastVisibilityWindowTimeoutAt = nil
@@ -570,9 +575,8 @@ enum BoardEngine {
 
         let executionDeadline = cell.countdownEndsAt
         let visibilityWindowDeadline: Date? = {
-            guard let start = cell.occurrenceStartVisibleAt(on: now),
-                  let end = cell.occurrenceEndVisibleAt(on: now) else { return nil }
-            guard now >= start, now >= end else { return nil }
+            guard let end = cell.occurrenceEndVisibleAt(on: now),
+                  cell.isStartVisibilityReached(on: now), now >= end else { return nil }
             return end
         }()
 

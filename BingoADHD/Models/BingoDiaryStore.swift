@@ -17,6 +17,7 @@ enum BingoDiaryStore {
         on date: Date,
         entries existingEntries: [String: BingoDiaryEntry]
     ) -> [String: BingoDiaryEntry] {
+        guard let board = boardExcludingStarterGuideTasks(board) else { return existingEntries }
         var entries = existingEntries
         let entryID = dateKey(for: date)
         let existingEntry = entries[entryID]
@@ -44,12 +45,14 @@ enum BingoDiaryStore {
     static func applyExplicitTaskDelta(
         task: String,
         delta: Int,
+        isStarterGuideTask: Bool = false,
         board: SavedBoard,
         on date: Date = .now
     ) -> Bool {
         persist(entriesByApplyingExplicitTaskDelta(
             task: task,
             delta: delta,
+            isStarterGuideTask: isStarterGuideTask,
             board: board,
             on: date,
             entries: loadEntriesDictionary()
@@ -59,10 +62,13 @@ enum BingoDiaryStore {
     static func entriesByApplyingExplicitTaskDelta(
         task: String,
         delta: Int,
+        isStarterGuideTask: Bool = false,
         board: SavedBoard,
         on date: Date,
         entries existingEntries: [String: BingoDiaryEntry]
     ) -> [String: BingoDiaryEntry] {
+        guard !isStarterGuideTask,
+              let board = boardExcludingStarterGuideTasks(board) else { return existingEntries }
         let entryID = dateKey(for: date)
         let existingEntry = existingEntries[entryID]
         let normalizedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -166,6 +172,7 @@ enum BingoDiaryStore {
         on date: Date,
         entries existingEntries: [String: BingoDiaryEntry]
     ) -> [String: BingoDiaryEntry] {
+        guard let board = boardExcludingStarterGuideTasks(board) else { return existingEntries }
         var entries = existingEntries
         let entryID = dateKey(for: date)
         guard let existingEntry = entries[entryID] else { return entries }
@@ -487,6 +494,29 @@ enum BingoDiaryStore {
 
     private static var sharedDefaults: UserDefaults {
         BingoBoardStore.sharedDefaults
+    }
+
+    /// Project only the diary snapshot; the actual board and rewards stay intact.
+    /// Returning nil leaves all existing diary data untouched for tutorial-only boards.
+    private static func boardExcludingStarterGuideTasks(_ board: SavedBoard) -> SavedBoard? {
+        let allCells = board.cells.flatMap { $0 } + (board.fullBoardCells ?? []).flatMap { $0 }
+        guard allCells.contains(where: \.isStarterGuideTask) else { return board }
+        guard allCells.contains(where: { $0.hasStoredTask && !$0.isStarterGuideTask }) else { return nil }
+
+        func excludingGuideTasks(_ cells: [[BingoCell]]) -> [[BingoCell]] {
+            cells.map { row in
+                row.map { cell in
+                    cell.isStarterGuideTask ? BingoCell(id: cell.id) : cell
+                }
+            }
+        }
+        let cells = excludingGuideTasks(board.cells)
+        return SavedBoard(
+            gridSize: board.gridSize,
+            cells: cells,
+            completedLines: BoardEngine.completedLines(in: cells, size: board.gridSize),
+            fullBoardCells: board.fullBoardCells.map(excludingGuideTasks)
+        )
     }
 
     private static func boardHasAllTasksCompleted(_ board: SavedBoard) -> Bool {

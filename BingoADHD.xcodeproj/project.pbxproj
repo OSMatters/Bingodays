@@ -149,6 +149,16 @@
 		AA30000000000000000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000009 /* Assets.xcassets */; };
 		AA30000000000000000010 /* NeumorphicStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000010 /* NeumorphicStyles.swift */; };
 		AA30000000000000000011 /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000011 /* OnboardingFlowView.swift */; };
+		C0D311140000000000000001 /* OnboardingCompanionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D311140000000000000002 /* OnboardingCompanionsView.swift */; };
+		C0D311160000000000000001 /* OnboardingIntroIslandView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D311160000000000000002 /* OnboardingIntroIslandView.swift */; };
+		C0D311160000000000000003 /* OnboardingResearchIllustrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D311160000000000000004 /* OnboardingResearchIllustrationView.swift */; };
+		C0D311160000000000000005 /* OnboardingBrandPortalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D311160000000000000006 /* OnboardingBrandPortalView.swift */; };
+		C0D311160000000000000007 /* OnboardingPortalWaves.metal in Sources */ = {isa = PBXBuildFile; fileRef = C0D311160000000000000008 /* OnboardingPortalWaves.metal */; };
+		C0D311160000000000000009 /* OnboardingCoffeeStickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D31116000000000000000A /* OnboardingCoffeeStickerView.swift */; };
+		C0D31116000000000000000B /* OnboardingDJIllustrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D31116000000000000000C /* OnboardingDJIllustrationView.swift */; };
+		C0D31116000000000000000D /* OnboardingPageMotionPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D31116000000000000000E /* OnboardingPageMotionPhase.swift */; };
+		C0D31116000000000000000F /* OnboardingPageMotionRole.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D311160000000000000010 /* OnboardingPageMotionRole.swift */; };
+		C0D311160000000000000011 /* OnboardingPageMotionModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D311160000000000000012 /* OnboardingPageMotionModifier.swift */; };
 		AA30000000000000000012 /* PointsFlowSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000012 /* PointsFlowSheet.swift */; };
 		AA30000000000000000013 /* AppUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000013 /* AppUpdateService.swift */; };
 		AA30000000000000000014 /* PointsSoundPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA20000000000000000014 /* PointsSoundPlayer.swift */; };
@@ -422,6 +432,10 @@
 		55CBBCD3AC6946AE88FBD470 /* QuickEditTaskPoolView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B17F2F263346A7872F7337 /* QuickEditTaskPoolView.swift */; };
 		81DB70EA660045C5A9E36B2C /* QuickEditTaskMove.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8582CC5164B54CEA86304860 /* QuickEditTaskMove.swift */; };
 		845840A7848C4624B16E3F36 /* QuickEditTaskMoveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A789CF41C49B4B629EF8E2D4 /* QuickEditTaskMoveTests.swift */; };
+		D90400000000000000000002 /* OperationPersistenceRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90400000000000000000001 /* OperationPersistenceRepository.swift */; };
+		D90400000000000000000004 /* OperationPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90400000000000000000003 /* OperationPersistenceTests.swift */; };
+		D90500000000000000000002 /* UITestBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90500000000000000000001; };
+		D90500000000000000000004 /* CoreOperationUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90500000000000000000003; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -446,6 +460,7 @@
 			remoteGlobalIDString = EE57685E7B3828D2462E62AF;
 			remoteInfo = BingodaysMacWidget;
 		};
+		D90500000000000000000007 = {isa = PBXContainerItemProxy; containerPortal = AA10000000000000000001; proxyType = 1; remoteGlobalIDString = AA50000000000000000001; remoteInfo = BingoADHD; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -552,6 +567,16 @@
 		AA2000000000000000000A /* Bingodays.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bingodays.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA20000000000000000010 /* NeumorphicStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeumorphicStyles.swift; sourceTree = "<group>"; };
 		AA20000000000000000011 /* OnboardingFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlowView.swift; sourceTree = "<group>"; };
+		C0D311140000000000000002 /* OnboardingCompanionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCompanionsView.swift; sourceTree = "<group>"; };
+		C0D311160000000000000002 /* OnboardingIntroIslandView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingIntroIslandView.swift; sourceTree = "<group>"; };
+		C0D311160000000000000004 /* OnboardingResearchIllustrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingResearchIllustrationView.swift; sourceTree = "<group>"; };
+		C0D311160000000000000006 /* OnboardingBrandPortalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingBrandPortalView.swift; sourceTree = "<group>"; };
+		C0D311160000000000000008 /* OnboardingPortalWaves.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = OnboardingPortalWaves.metal; sourceTree = "<group>"; };
+		C0D31116000000000000000A /* OnboardingCoffeeStickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCoffeeStickerView.swift; sourceTree = "<group>"; };
+		C0D31116000000000000000C /* OnboardingDJIllustrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingDJIllustrationView.swift; sourceTree = "<group>"; };
+		C0D31116000000000000000E /* OnboardingPageMotionPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingPageMotionPhase.swift; sourceTree = "<group>"; };
+		C0D311160000000000000010 /* OnboardingPageMotionRole.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingPageMotionRole.swift; sourceTree = "<group>"; };
+		C0D311160000000000000012 /* OnboardingPageMotionModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingPageMotionModifier.swift; sourceTree = "<group>"; };
 		AA20000000000000000012 /* PointsFlowSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointsFlowSheet.swift; sourceTree = "<group>"; };
 		AA20000000000000000013 /* AppUpdateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateService.swift; sourceTree = "<group>"; };
 		AA20000000000000000014 /* PointsSoundPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointsSoundPlayer.swift; sourceTree = "<group>"; };
@@ -777,6 +802,11 @@
 		E3B17F2F263346A7872F7337 /* QuickEditTaskPoolView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEditTaskPoolView.swift; sourceTree = "<group>"; };
 		8582CC5164B54CEA86304860 /* QuickEditTaskMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEditTaskMove.swift; sourceTree = "<group>"; };
 		A789CF41C49B4B629EF8E2D4 /* QuickEditTaskMoveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEditTaskMoveTests.swift; sourceTree = "<group>"; };
+		D90400000000000000000001 /* OperationPersistenceRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationPersistenceRepository.swift; sourceTree = "<group>"; };
+		D90400000000000000000003 /* OperationPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationPersistenceTests.swift; sourceTree = "<group>"; };
+		D90500000000000000000001 /* UITestBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BingoADHD/Services/UITestBootstrap.swift; sourceTree = "<group>"; };
+		D90500000000000000000003 /* CoreOperationUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreOperationUITests.swift; sourceTree = "<group>"; };
+		D90500000000000000000005 /* BingoADHDUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BingoADHDUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -832,6 +862,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D9050000000000000000000A = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -959,6 +990,8 @@
 				B65FB4FB8B6E451F9374F61F /* Live Activity */,
 				CDE4069E1A3603F195E72F49 /* BingodaysWidget */,
 				B0A1D2E3F4A5061728394D04 /* BingoADHDTests */,
+				D90500000000000000000006 /* BingoADHDUITests */,
+				D90500000000000000000001 /* UITestBootstrap.swift */,
 				16168FDF0022FE2A4D6F465F /* Frameworks */,
 				BB3091D6307B0D5C004FA7EE /* Recovered References */,
 				9E42F62257D18D3B57C98A2D /* BingodaysMac */,
@@ -975,6 +1008,7 @@
 				AA2000000000000000000A /* Bingodays.app */,
 				7A6AD22025CB29BE7FEB97A9 /* BingodaysWidgetExtension.appex */,
 				B0A1D2E3F4A5061728394D02 /* BingoADHDTests.xctest */,
+				D90500000000000000000005 /* BingoADHDUITests.xctest */,
 				26B4DEFE97C337180DA67FAB /* BingodaysMac.app */,
 				2AFB5B7D3C55B2C02631E82B /* BingodaysMacTests.xctest */,
 				3DDDC118F69E02F4FA4A84AE /* BingodaysMacWidget.appex */,
@@ -1112,6 +1146,16 @@
 				AA20000000000000000008 /* BingoLineOverlay.swift */,
 				AA20000000000000000010 /* NeumorphicStyles.swift */,
 				AA20000000000000000011 /* OnboardingFlowView.swift */,
+				C0D311140000000000000002 /* OnboardingCompanionsView.swift */,
+				C0D311160000000000000002 /* OnboardingIntroIslandView.swift */,
+				C0D311160000000000000004 /* OnboardingResearchIllustrationView.swift */,
+				C0D311160000000000000006 /* OnboardingBrandPortalView.swift */,
+				C0D311160000000000000008 /* OnboardingPortalWaves.metal */,
+				C0D31116000000000000000A /* OnboardingCoffeeStickerView.swift */,
+				C0D31116000000000000000C /* OnboardingDJIllustrationView.swift */,
+				C0D31116000000000000000E /* OnboardingPageMotionPhase.swift */,
+				C0D311160000000000000010 /* OnboardingPageMotionRole.swift */,
+				C0D311160000000000000012 /* OnboardingPageMotionModifier.swift */,
 				AA20000000000000000012 /* PointsFlowSheet.swift */,
 				BC1300000000000000000002 /* BlindBoxPullPortal.swift */,
 				BC1300000000000000000004 /* BlindBoxMotion */,
@@ -1196,6 +1240,8 @@
 		B0A1D2E3F4A5061728394D04 /* BingoADHDTests */ = {
 			isa = PBXGroup;
 			children = (
+				D90400000000000000000003 /* OperationPersistenceTests.swift */,
+				D90400000000000000000001 /* OperationPersistenceRepository.swift */,
 				8C2069E6A7864D1AB1CCA536 /* MeSkinTests.swift */,
 				D90100000000000000000001 /* AppIconManagerTests.swift */,
 				DEB43482CDF146E49409C99E /* LiveActivityBoardTests.swift */,
@@ -1288,6 +1334,7 @@
 			path = MotionAssets;
 			sourceTree = "<group>";
 		};
+		D90500000000000000000006 /* BingoADHDUITests */ = {isa = PBXGroup; children = (D90500000000000000000003 /* CoreOperationUITests.swift */,); path = BingoADHDUITests; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -1407,6 +1454,7 @@
 			productReference = 3DDDC118F69E02F4FA4A84AE /* BingodaysMacWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		D9050000000000000000000C /* BingoADHDUITests */ = {isa = PBXNativeTarget; buildConfigurationList = D9050000000000000000000D; buildPhases = (D90500000000000000000009, D9050000000000000000000A, D9050000000000000000000B,); buildRules = (); dependencies = (D90500000000000000000008,); name = BingoADHDUITests; productName = BingoADHDUITests; productReference = D90500000000000000000005; productType = "com.apple.product-type.bundle.ui-testing"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -1417,6 +1465,7 @@
 				LastSwiftUpdateCheck = 1500;
 				LastUpgradeCheck = 2700;
 				TargetAttributes = {
+					D9050000000000000000000C = { CreatedOnToolsVersion = 27.2; TestTargetID = AA50000000000000000001; };
 					5DAD236D36C29E50D5181212 = {
 						CreatedOnToolsVersion = 16.0;
 						SystemCapabilities = {
@@ -1469,6 +1518,7 @@
 				AA50000000000000000001 /* BingoADHD */,
 				5DAD236D36C29E50D5181212 /* BingodaysWidgetExtension */,
 				B0A1D2E3F4A5061728394D03 /* BingoADHDTests */,
+				D9050000000000000000000C /* BingoADHDUITests */,
 				9D3BE097A3BD3BF43AFE2981 /* BingodaysMac */,
 				8C247586D0AD1EEC1E9330F1 /* BingodaysMacTests */,
 				EE57685E7B3828D2462E62AF /* BingodaysMacWidget */,
@@ -1582,6 +1632,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D9050000000000000000000B = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
@@ -1676,6 +1727,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D90500000000000000000002 /* UITestBootstrap.swift in Sources */,
 				B5B696E60F234FDC92D15072 /* MeSpeechBubbleShape.swift in Sources */,
 				371E6FC07ECE4BC4BFB84026 /* MeSkinPicker.swift in Sources */,
 				F85B47C75F4646B7BFD90D34 /* MeSkinMigration.swift in Sources */,
@@ -1755,6 +1807,16 @@
 				AA30000000000000000008 /* BingoLineOverlay.swift in Sources */,
 				AA30000000000000000010 /* NeumorphicStyles.swift in Sources */,
 				AA30000000000000000011 /* OnboardingFlowView.swift in Sources */,
+				C0D311140000000000000001 /* OnboardingCompanionsView.swift in Sources */,
+				C0D311160000000000000001 /* OnboardingIntroIslandView.swift in Sources */,
+				C0D311160000000000000003 /* OnboardingResearchIllustrationView.swift in Sources */,
+				C0D311160000000000000005 /* OnboardingBrandPortalView.swift in Sources */,
+				C0D311160000000000000007 /* OnboardingPortalWaves.metal in Sources */,
+				C0D311160000000000000009 /* OnboardingCoffeeStickerView.swift in Sources */,
+				C0D31116000000000000000B /* OnboardingDJIllustrationView.swift in Sources */,
+				C0D31116000000000000000D /* OnboardingPageMotionPhase.swift in Sources */,
+				C0D31116000000000000000F /* OnboardingPageMotionRole.swift in Sources */,
+				C0D311160000000000000011 /* OnboardingPageMotionModifier.swift in Sources */,
 				AA30000000000000000012 /* PointsFlowSheet.swift in Sources */,
 				BC1300000000000000000001 /* BlindBoxPullPortal.swift in Sources */,
 				AA3000000000000000003B /* PointsFlowOverlays.swift in Sources */,
@@ -1855,6 +1917,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D90400000000000000000004 /* OperationPersistenceTests.swift in Sources */,
+				D90400000000000000000002 /* OperationPersistenceRepository.swift in Sources */,
 				0F135FFACFB74A989F99B64D /* MeSkinTests.swift in Sources */,
 				D90100000000000000000002 /* AppIconManagerTests.swift in Sources */,
 				B84119F662CF44A389ECCC23 /* LiveActivityBoardTests.swift in Sources */,
@@ -1987,6 +2051,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D90500000000000000000009 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (D90500000000000000000004 /* CoreOperationUITests.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -2007,6 +2072,7 @@
 			target = AA50000000000000000001 /* BingoADHD */;
 			targetProxy = B0A1D2E3F4A5061728394D06 /* PBXContainerItemProxy */;
 		};
+		D90500000000000000000008 = {isa = PBXTargetDependency; target = AA50000000000000000001; targetProxy = D90500000000000000000007; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -2019,7 +2085,7 @@
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 68;
+				CURRENT_PROJECT_VERSION = 70;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Production;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
@@ -2030,7 +2096,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 5.5.2;
+				MARKETING_VERSION = 5.6.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PRODUCT_NAME = BingodaysWidgetExtension;
 				PROVISIONING_PROFILE_SPECIFIER = "Bingodays Widget App Store 2026";
@@ -2278,7 +2344,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 68;
+				CURRENT_PROJECT_VERSION = 70;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Development;
 				INFOPLIST_FILE = BingoADHD/Info.plist;
@@ -2286,7 +2352,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.5.2;
+				MARKETING_VERSION = 5.6.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -2311,7 +2377,7 @@
 				CODE_SIGN_ENTITLEMENTS = BingoADHD/BingoADHD.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 68;
+				CURRENT_PROJECT_VERSION = 70;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Production;
 				INFOPLIST_FILE = BingoADHD/Info.plist;
@@ -2319,7 +2385,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.5.2;
+				MARKETING_VERSION = 5.6.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -2417,7 +2483,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = BingodaysWidget/BingodaysWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 68;
+				CURRENT_PROJECT_VERSION = 70;
 				GENERATE_INFOPLIST_FILE = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Development;
 				INFOPLIST_FILE = BingodaysWidget/Info.plist;
@@ -2428,7 +2494,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 5.5.2;
+				MARKETING_VERSION = 5.6.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.widget;
 				PRODUCT_NAME = BingodaysWidgetExtension;
 				SDKROOT = iphoneos;
@@ -2455,6 +2521,8 @@
 			};
 			name = Release;
 		};
+		D9050000000000000000000E /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = R2372567GG; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; TEST_TARGET_NAME = BingoADHD; }; name = Debug; };
+		D9050000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = R2372567GG; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; PRODUCT_BUNDLE_IDENTIFIER = com.bingoday.app.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; TEST_TARGET_NAME = BingoADHD; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -2521,6 +2589,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		D9050000000000000000000D = {isa = XCConfigurationList; buildConfigurations = (D9050000000000000000000E, D9050000000000000000000F,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */

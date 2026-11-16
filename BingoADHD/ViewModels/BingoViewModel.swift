@@ -298,6 +298,7 @@ class BingoViewModel: ObservableObject {
                 completedLines: self.completedLines,
                 isBoardFullyCompleted: self.isBoardFullyCompleted
             )
+            self.dailyRewardState.pointSyncLedger = persistedPoints.dailyRewardState?.pointSyncLedger
             persistenceDependencies.pointsRepository.saveDailyRewardState(self.dailyRewardState)
         }
         reconcileCompletionHistoryCounts()
@@ -443,7 +444,8 @@ class BingoViewModel: ObservableObject {
         let commitResult = saveWithExplicitDiaryDelta(
             task: diaryTaskText,
             delta: isNowCompleted ? 1 : -1,
-            completionHistoryDelta: isNowCompleted ? 1 : -1
+            completionHistoryDelta: isNowCompleted ? 1 : -1,
+            isStarterGuideTask: cells[row][col].isStarterGuideTask
         )
         // A successful transaction has already read back the points ledger. Only
         // read it again when persisting failed, where the observed disk state is
@@ -500,12 +502,17 @@ class BingoViewModel: ObservableObject {
         completionHistoryInheritance: CompletionHistoryInheritance = .inheritExistingCount,
         taskRewardEdit: TaskRewardEdit = .unchanged,
         hasPremiumTaskRewardAccess: Bool = false,
-        editSource: String = "task_editor"
+        editSource: String = "task_editor",
+        isStarterGuideTask: Bool = false,
+        editingContext: TaskCellEditContext? = nil
     ) -> Bool {
         NativeICloudPrimaryMutationGate.acquire()
         defer { NativeICloudPrimaryMutationGate.release() }
         return persistenceDependencies.boardRepository.withTaskEditLock {
             guard row >= 0, col >= 0, row < cells.count, col < cells[row].count else { return false }
+            if let editingContext,
+               !editingContext.matches(cells[row][col], boardID: persistenceDependencies.boardRepository.loadActiveNamedBoardID(),
+                   accountScope: NativeICloudPreferences.accountScopeIdentifier) { return false }
             let editingCellID = cells[row][col].id
             if persistenceDependencies.transactionRepository.loadPendingTransaction() != nil {
                 _ = BingoViewModelPersistence.recoverPendingTransactionIfNeeded(dependencies: persistenceDependencies)
@@ -524,6 +531,9 @@ class BingoViewModel: ObservableObject {
             refreshExternalPersistenceBeforeTaskToggle(referenceDate: .now)
             guard row < cells.count, col < cells[row].count, cells[row][col].id == editingCellID else { return false }
             guard TaskCompletionRewardRules.allows(taskRewardEdit, hasPremiumAccess: hasPremiumTaskRewardAccess) else { return false }
+            if let editingContext,
+               !editingContext.matches(cells[row][col], boardID: expectedBoardID,
+                   accountScope: NativeICloudPreferences.accountScopeIdentifier) { return false }
             let previousCell = cells[row][col]
             let editResult = TaskEditRuleEngine.apply(
                 TaskEditRuleInput(
@@ -551,6 +561,9 @@ class BingoViewModel: ObservableObject {
                 taskRewardEdit, previous: previousCell, updated: editResult.cell,
                 legacyReversalCredit: legacyCredit, dateKey: rewardDateKey
             )
+            if isStarterGuideTask {
+                updatedCell.isStarterGuideTask = true
+            }
             let diagnosticBoardID = persistenceDependencies.boardRepository.loadActiveNamedBoardID()
                 .map { String($0.uuidString.prefix(8)) } ?? "none"
             let diagnosticCellID = String(previousCell.id.uuidString.prefix(8))
@@ -668,7 +681,9 @@ class BingoViewModel: ObservableObject {
             } else if let previousTask = BingoTaskBoardHelpers.taskItem(from: previousCell, maxLength: Self.maxTaskLength) {
                 TaskHistoryStore.upsert(task: previousTask)
             }
-            var commitResult = save()
+            // Removing a tutorial task must not replace an existing diary snapshot,
+            // including when the last tutorial source disappears from the board.
+            var commitResult = save(preserveDiary: previousCell.isStarterGuideTask && editResult.isEmpty)
             commitResult.savedBoard = true
             if !commitResult.reloadedWidgets {
                 persistenceDependencies.boardRepository.reloadWidgetTimelines()
@@ -1141,6 +1156,10 @@ class BingoViewModel: ObservableObject {
         }
         let beforeCells = expectedBoard.map { BoardEngine.expandedBoardCache(from: $0).flatMap { $0 } } ?? []
         let afterCells = restoredFullBoardCells.flatMap { $0 }
+        let previousTasks = beforeCells.filter(\.hasStoredTask)
+        let removedAllGuideTasks = !previousTasks.isEmpty &&
+            previousTasks.allSatisfy(\.isStarterGuideTask) &&
+            !afterCells.contains(where: \.hasStoredTask)
         for cell in afterCells where cell.hasStoredTask {
             let previous = beforeCells.first { $0.id == cell.id && $0.hasStoredTask }
             guard previous == nil || previous?.diagnosticTaskRuleKind != cell.diagnosticTaskRuleKind else { continue }
@@ -1173,7 +1192,7 @@ class BingoViewModel: ObservableObject {
         expiredBoardCountdownEvent = nil
         checkBingo(shouldCelebrateNewLines: false)
         settleRewardsIfNeeded(on: referenceDate, mode: .preserveAccumulatedPoints)
-        save(savedAt: referenceDate)
+        save(preserveDiary: removedAllGuideTasks, savedAt: referenceDate)
         return true
     }
 
@@ -1616,6 +1635,32 @@ class BingoViewModel: ObservableObject {
         let shouldPresentBoardCompletionAnimation = shouldPresentBoardCompletionAnimation ?? shouldCelebrateNewLines
         let wasBoardFullyCompleted = isBoardFullyCompleted
         syncFullBoardCacheFromVisibleCells()
+        // Timeout completion is a user completion too. Commit its name-scoped
+        // history in the same journal as the board/points; otherwise a fresh
+        // model reconciles the new count back to the old ledger value.
+        var completionHistory: [TaskCompletionHistoryRecord]?
+        if let rewardTransition {
+            let completedBefore = Set(rewardTransition.cells.flatMap { $0 }
+                .filter(\.isCompleted).map(\.id))
+            let newCompletions = cells.flatMap { $0 }.filter {
+                $0.hasStoredTask && $0.isCompleted && !completedBefore.contains($0.id)
+            }
+            if !newCompletions.isEmpty {
+                let date = rewardSettlementDate ?? .now
+                var records = persistenceDependencies.completionHistoryRepository.loadCompletionHistory()
+                for cell in newCompletions {
+                    records = TaskCompletionHistoryRuleEngine.recordsByApplyingCompletionDelta(
+                        taskText: cell.storedTaskText, delta: 1, to: records, at: date
+                    )
+                }
+                completionHistory = records
+                let reconciled = TaskCompletionHistoryRuleEngine.boardByReconcilingCompletionHistory(
+                    makeSavedBoardSnapshot(), records: records
+                )
+                fullBoardCells = BoardEngine.expandedBoardCache(from: reconciled)
+                cells = BoardEngine.projectVisibleCells(from: fullBoardCells, size: gridSize, referenceDate: date)
+            }
+        }
         checkBingo(shouldCelebrateNewLines: shouldCelebrateNewLines)
         let isBoardNowFullyCompleted = isBoardFullyCompleted
 
@@ -1637,17 +1682,21 @@ class BingoViewModel: ObservableObject {
         } else {
             settleRewardsIfNeeded(mode: rewardSettlementMode)
         }
-        save()
+        save(completionHistory: completionHistory)
     }
 
     @discardableResult
     private func save(
         persistDiary: Bool = true,
+        preserveDiary: Bool = false,
+        completionHistory: [TaskCompletionHistoryRecord]? = nil,
         savedAt: Date = .now
     ) -> BingoViewModelPersistenceCommitResult {
         BingoViewModelPersistence.save(
             persistenceSnapshot(),
             persistDiary: persistDiary,
+            preserveDiary: preserveDiary,
+            completionHistory: completionHistory,
             savedAt: savedAt,
             dependencies: persistenceDependencies
         )
@@ -1658,6 +1707,7 @@ class BingoViewModel: ObservableObject {
         task: String,
         delta: Int,
         completionHistoryDelta: Int = 0,
+        isStarterGuideTask: Bool = false,
         savedAt: Date = .now
     ) -> BingoViewModelPersistenceCommitResult {
         BingoViewModelPersistence.saveWithExplicitDiaryDelta(
@@ -1665,6 +1715,7 @@ class BingoViewModel: ObservableObject {
             task: task,
             delta: delta,
             completionHistoryDelta: completionHistoryDelta,
+            isStarterGuideTask: isStarterGuideTask,
             savedAt: savedAt,
             dependencies: persistenceDependencies
         )
@@ -2098,7 +2149,9 @@ class BingoViewModel: ObservableObject {
         completedLines = []
         invalidateBingoCelebration()
         dismissBoardCompletionAnimation()
+        let syncLedger = dailyRewardState.pointSyncLedger
         dailyRewardState = BingoRewardSettlement.emptyDailyRewardState(for: now)
+        dailyRewardState.pointSyncLedger = syncLedger
     }
 
     private func notifyDailyResetApplied(clearedCount: Int) {
@@ -2265,7 +2318,8 @@ class BingoViewModel: ObservableObject {
             taskRewardReceipt: cell.taskRewardReceipt,
             completionStreakCount: cell.completionStreakCount,
             lastCompletedAt: cell.lastCompletedAt,
-            lastVisibilityWindowTimeoutAt: cell.lastVisibilityWindowTimeoutAt
+            lastVisibilityWindowTimeoutAt: cell.lastVisibilityWindowTimeoutAt,
+            isStarterGuideTask: cell.isStarterGuideTask
         )
     }
 
@@ -2325,6 +2379,14 @@ class BingoViewModel: ObservableObject {
         _ = save(persistDiary: false)
     }
 
+    private func pointSyncCycleKey(at date: Date) -> String {
+        let boardID = persistenceDependencies.boardRepository.loadActiveNamedBoardID()
+        if let board = BingoBoardStore.loadNamedBoardsSnapshot(repairingPersistence: false).boards.first(where: { $0.id == boardID }) {
+            return PointSyncLedger.cycleKey(board: board, at: date)
+        }
+        return (boardID?.uuidString ?? "local") + "/" + PointsStore.dateKey(for: date)
+    }
+
     private func settleTaskToggleRewards(
         on date: Date,
         previousCells: [[BingoCell]],
@@ -2344,7 +2406,8 @@ class BingoViewModel: ObservableObject {
             lifetimePoints: lifetimePoints,
             dailyRewardState: dailyRewardState,
             taskIsNowCompleted: taskIsNowCompleted,
-            minimumTotalPoints: PointRedemptionLedger.currentCommittedSpend()
+            minimumTotalPoints: PointRedemptionLedger.currentCommittedSpend(),
+            syncCycleKey: pointSyncCycleKey(at: date)
         )
         totalPoints = output.totalPoints
         lifetimePoints = output.lifetimePoints
@@ -2370,7 +2433,8 @@ class BingoViewModel: ObservableObject {
             totalPoints: totalPoints,
             lifetimePoints: lifetimePoints,
             dailyRewardState: dailyRewardState,
-            minimumTotalPoints: PointRedemptionLedger.currentCommittedSpend()
+            minimumTotalPoints: PointRedemptionLedger.currentCommittedSpend(),
+            syncCycleKey: pointSyncCycleKey(at: date)
         )
         totalPoints = output.totalPoints
         lifetimePoints = output.lifetimePoints

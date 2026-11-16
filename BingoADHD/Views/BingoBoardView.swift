@@ -57,6 +57,7 @@ struct BingoBoardView: View {
         let row: Int
         let col: Int
         let cellID: UUID?
+        var editContext: TaskCellEditContext?
 
         init(row: Int, col: Int, cellID: UUID? = nil) {
             self.row = row
@@ -473,7 +474,8 @@ struct BingoBoardView: View {
                     startReminderOffsetMinutes: startReminderOffsetMinutes,
                     taskRewardEdit: taskRewardEdit,
                     hasPremiumTaskRewardAccess: subscriptionManager.hasPremiumAccess,
-                    editSource: "home_cell_editor"
+                    editSource: "home_cell_editor",
+                    editingContext: target.editContext
                 )
                 guard didSave else { return false }
                 editingTarget = nil
@@ -715,7 +717,11 @@ struct BingoBoardView: View {
     private func presentEditor(for target: EditingTarget) {
         guard currentVisibleCell(for: target) != nil else { return }
         editSheetSessionID = UUID()
-        editingTarget = target
+        var contextTarget = target
+        if let cell = currentEditingCell(for: target) {
+            contextTarget.editContext = TaskCellEditContext(cell: cell, boardID: BingoBoardStore.loadActiveNamedBoardID())
+        }
+        editingTarget = contextTarget
     }
 
     private func currentVisibleCell(for target: EditingTarget) -> BingoCell? {

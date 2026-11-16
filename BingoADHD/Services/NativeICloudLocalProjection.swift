@@ -382,7 +382,7 @@ enum NativeICloudPrimaryLocalProjection {
             return cloudPoints
         }
 
-        let dailyRewardState = BingoRewardSettlement.initialDailyRewardState(
+        var dailyRewardState = BingoRewardSettlement.initialDailyRewardState(
             referenceDate: referenceDate,
             boardLastSavedAt: selectedBoard.updatedAt,
             currentCells: selectedBoard.board.cells,
@@ -392,6 +392,7 @@ enum NativeICloudPrimaryLocalProjection {
             // source-keyed reversal credits across cloud refreshes.
             savedDailyRewardState: PointsStore.loadDailyRewardState(reading: .readOnly)
         )
+        dailyRewardState.pointSyncLedger = cloudPoints.dailyRewardState?.pointSyncLedger
         return PointsPersistenceSnapshot(
             totalPoints: totalPoints,
             lifetimePoints: lifetimePoints,

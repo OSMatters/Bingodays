@@ -154,6 +154,7 @@ enum TaskEditRuleEngine {
         updatedCell.estimatedDurationMinutes = normalizedEstimatedDurationMinutes
 
         if didChangeTaskIdentity {
+            updatedCell.isStarterGuideTask = false
             updatedCell.completionStreakCount = 0
             updatedCell.lastCompletedAt = nil
         }

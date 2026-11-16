@@ -981,23 +981,57 @@ enum L10n {
     static var updateStoreOpenFailed: String {
         tr("Unable to open App Store right now.", zhHans: "暂时无法打开 App Store。", ja: "現在App Storeを開けません。")
     }
-    static var onboardingMadeForADHDBrains: String { tr("Made for ADHD brains", zhHans: "Made for ADHD brains", ja: "ADHDの脳に合わせて設計") }
-    static var onboardingIntroHeadline: String { tr("Turn Daily\nLife into", zhHans: "将日常生活\n变成", ja: "毎日の生活を") }
+    static let onboardingMadeForADHDBrains = "Specially Made for\nADHD brains"
+    static var onboardingIntroHeadline: String {
+        switch AppLanguage.current {
+        case .english: "Turn\nDaily\nLife into"
+        case .simplifiedChinese: "将日常\n生活变成"
+        case .traditionalChinese: "將日常\n生活變成"
+        case .japanese: "毎日の\n暮らしを\nゲームに"
+        case .korean: "매일의\n일상을\n게임으로"
+        case .german: "Mach den\nAlltag\nzu"
+        }
+    }
     static var onboardingGetStarted: String { tr("Get Started", zhHans: "开始", ja: "始める") }
     static var onboardingExistingAccount: String { tr("I already have an account", zhHans: "我已经有账号", ja: "すでにアカウントを持っています") }
     static var onboardingFooterPrefix: String { tr("By continuing you're accepting our ", zhHans: "继续即表示你同意我们的", ja: "続行すると、以下に同意したことになります：") }
     static var onboardingTermsOfService: String { tr("Terms of Service", zhHans: "服务条款", ja: "利用規約") }
     static var onboardingAnd: String { tr(" and", zhHans: "和", ja: "および") }
     static var onboardingPrivacyPolicy: String { tr("Privacy Policy", zhHans: "隐私政策", ja: "プライバシーポリシー") }
-    static var onboardingResearchHeadline: String { tr("Well\naccording\nto the\nresearch", zhHans: "根据一直以来\n的研究表明", ja: "研究に\nよると") }
+    static var onboardingResearchHeadline: String {
+        switch AppLanguage.current {
+        case .english: "Well\naccording\nto the\nresearch"
+        case .simplifiedChinese: "根据\n一直以来\n的研究\n表明"
+        case .traditionalChinese: "根據\n一直以來\n的研究\n表明"
+        case .japanese: "これまでの\n研究に\nよると"
+        case .korean: "그동안의\n연구에\n따르면"
+        case .german: "Laut\naktueller\nForschung"
+        }
+    }
     static var onboardingResearchBody: String {
-        tr("Traditional to do list doesn't work especially\nwith ADHD", zhHans: "传统的To Do List并不适合ADHD人群", ja: "従来のToDoリストは、とくにADHDには合いにくい")
+        switch AppLanguage.current {
+        case .english: "Traditional To Do list doesn’t work with most people, especially ADHD"
+        case .simplifiedChinese: "传统的待办清单\n对大多数人\n并不奏效，\n尤其是\nADHD 人群"
+        case .traditionalChinese: "傳統的待辦清單\n對大多數人\n並不奏效，\n尤其是\nADHD 族群"
+        case .japanese: "従来の\nToDoリストは、\n多くの人に\nうまく\n機能しません、\n特にADHD\nの人には"
+        case .korean: "기존의 할 일 목록은 대부분의 사람에게 잘 맞지 않아요, 특히 ADHD가 있는 사람에게는"
+        case .german: "Klassische\nTo-do-Listen\nfunktionieren\nfür die meisten\nMenschen\nnicht,\nbesonders\nbei ADHS"
+        }
     }
     static var onboardingNext: String { tr("Next", zhHans: "继续", ja: "次へ") }
     static var onboardingBrandHeadline: String { tr("That's\nwhy you\nshould try", zhHans: "所以我们向\n你推荐", ja: "だから\n試してほしい") }
     static var onboardingStressFree: String { tr("Stress-free", zhHans: "Stress-free", ja: "ストレスフリー") }
     static var onboardingSimplified: String { tr("Simplified", zhHans: "Simplified", ja: "シンプル") }
-    static var onboardingGridHeadline: String { tr("Turn your\nto-do list\ninto a Bingo\nboard", zhHans: "把待办清单\n变为Bingo格子", ja: "ToDoリストを\nBingoボードに") }
+    static var onboardingGridHeadline: String {
+        switch AppLanguage.current {
+        case .english: "Turn Tasks\ninto Tiny\nGrid Cells"
+        case .simplifiedChinese: "把任务拆成\n一个个\n小格子"
+        case .traditionalChinese: "把任務拆成\n一個個\n小格子"
+        case .japanese: "タスクを\n小さなマスに\n変えよう"
+        case .korean: "할 일을\n작은 칸으로\n바꿔 보세요"
+        case .german: "Mach Aufgaben\nzu kleinen\nRasterfeldern"
+        }
+    }
     static var onboardingPaceHeadline: String { tr("Complete\nTasks at\nYour Own\nPace", zhHans: "用自己的专\n属节奏打卡\n任务", ja: "自分のペースで\nタスクを完了") }
     static var onboardingBestMode: String { tr("Best Mode", zhHans: "Best Mode", ja: "ベストモード") }
     static var onboardingPersonalized: String { tr("- Personalized -", zhHans: "- Personalized -", ja: "- パーソナライズ -") }

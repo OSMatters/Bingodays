@@ -99,17 +99,18 @@ final class AppHapticContinuousPlayer {
             )
             // Intensity control is relative to the event's peak intensity. Start near silence,
             // then smoothly reach its authored maximum and hold until the animation stops it.
-            let openingControl = Float((effectiveInitial / max(effectivePeak, 0.001)) - 1)
+            let openingControl = Float(effectiveInitial / max(effectivePeak, 0.001))
             let intensityCurve = CHHapticParameterCurve(
                 parameterID: .hapticIntensityControl,
                 controlPoints: [
                     .init(relativeTime: 0, value: openingControl),
-                    .init(relativeTime: max(rampDuration, 0.01), value: 0)
+                    .init(relativeTime: max(rampDuration, 0.01), value: 1)
                 ],
                 relativeTime: 0
             )
             let pattern = try CHHapticPattern(events: [event], parameterCurves: [intensityCurve])
             let engine = try CHHapticEngine()
+            engine.playsHapticsOnly = true
             let player = try engine.makeAdvancedPlayer(with: pattern)
 
             self.engine = engine

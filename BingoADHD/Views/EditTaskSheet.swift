@@ -386,6 +386,7 @@ struct EditTaskSheet: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("task.editor.cancel")
         }
         .frame(width: contentColumnWidth, alignment: .leading)
         .frame(maxWidth: .infinity)
@@ -413,6 +414,7 @@ struct EditTaskSheet: View {
                     }
 
                     TextField("", text: $text)
+                        .accessibilityIdentifier("task.editor.text")
                         .font(bodyLRegularFont)
                         .kerning(bodyLLetterSpacing)
                         .foregroundStyle(primaryTextColor)
@@ -784,6 +786,7 @@ struct EditTaskSheet: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("task.editor.save")
         .disabled(!hasValidTaskLength)
         .opacity(hasValidTaskLength ? 1 : 0.5)
         .shadow(color: accentColor.opacity(0.28), radius: 16, x: 0, y: 8)

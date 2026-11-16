@@ -911,3 +911,79 @@ enum PointRedemptionHistoryStore {
         return (active + revoked.prefix(retainedRevokedCount)).sorted { $0.redeemedAt > $1.redeemedAt }
     }
 }
+
+/// Account earnings since a shared legacy baseline. Source revisions merge independently,
+/// so distinct offline rewards add while replaying the same task occurrence is idempotent.
+struct PointSyncLedger: Codable, Equatable {
+    struct Entry: Codable, Equatable {
+        var revision: Int
+        var totalDelta: Int
+        var lifetimeDelta: Int
+        var completed: Bool
+        var updatedAt: Date
+    }
+
+    var baselineTotal: Int
+    var baselineLifetime: Int
+    var accountScope: String?
+    var entries: [String: Entry] = [:]
+
+    init(total: Int, lifetime: Int, accountScope: String? = NativeICloudPreferences.accountScopeIdentifier) {
+        baselineTotal = total
+        baselineLifetime = lifetime
+        self.accountScope = accountScope
+    }
+
+    var totals: (total: Int, lifetime: Int)? {
+        var total = baselineTotal, lifetime = baselineLifetime
+        guard total >= 0, lifetime >= 0 else { return nil }
+        for entry in entries.values {
+            guard entry.revision > 0, entry.lifetimeDelta >= 0 else { return nil }
+            let next = total.addingReportingOverflow(entry.totalDelta)
+            let earned = lifetime.addingReportingOverflow(entry.lifetimeDelta)
+            guard !next.overflow, !earned.overflow else { return nil }
+            total = next.partialValue; lifetime = earned.partialValue
+        }
+        return total >= 0 ? (total, lifetime) : nil
+    }
+
+    func matches(total: Int?, lifetime: Int?) -> Bool {
+        guard let totals else { return false }
+        return totals.total == total && totals.lifetime == lifetime
+    }
+
+    mutating func record(_ source: String, totalDelta: Int, lifetimeDelta: Int, completed: Bool, at date: Date) {
+        let old = entries[source]
+        let total = (old?.totalDelta ?? 0).addingReportingOverflow(totalDelta)
+        let lifetime = (old?.lifetimeDelta ?? 0).addingReportingOverflow(lifetimeDelta)
+        guard !total.overflow, !lifetime.overflow, (old?.revision ?? 0) < Int.max else { return }
+        entries[source] = Entry(revision: (old?.revision ?? 0) + 1, totalDelta: total.partialValue,
+            lifetimeDelta: lifetime.partialValue, completed: completed, updatedAt: date)
+    }
+
+    static func preferred(_ lhs: Entry, _ rhs: Entry) -> Entry {
+        if lhs.revision != rhs.revision { return lhs.revision > rhs.revision ? lhs : rhs }
+        if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt ? lhs : rhs }
+        // Stable ties: undo wins over completion; never sum two versions of one source.
+        if lhs.completed != rhs.completed { return lhs.completed ? rhs : lhs }
+        if lhs.totalDelta != rhs.totalDelta { return lhs.totalDelta < rhs.totalDelta ? lhs : rhs }
+        return lhs.lifetimeDelta >= rhs.lifetimeDelta ? lhs : rhs
+    }
+
+    func merged(with other: Self) -> Self? {
+        guard baselineTotal == other.baselineTotal, baselineLifetime == other.baselineLifetime,
+              accountScope == other.accountScope else { return nil }
+        var result = self
+        result.entries.merge(other.entries, uniquingKeysWith: Self.preferred)
+        return result.totals == nil ? nil : result
+    }
+
+    static func cycleKey(board: BingoBoardStore.NamedBoard, at _: Date, calendar _: Calendar = .current) -> String {
+        let cycle: String
+        if board.taskResetMode == .keepTaskStatus { cycle = "persistent" }
+        else { cycle = board.pointSyncCycle ?? board.lastTaskResetAppliedAt.map { "legacy:" + String($0.timeIntervalSince1970) } ?? "legacy" }
+        return board.id.uuidString + "/" + cycle
+    }
+
+    static func taskSource(_ id: UUID, cycle: String) -> String { cycle + "/task/" + id.uuidString }
+}
